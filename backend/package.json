@@ -1,0 +1,40 @@
+{
+  "name": "upwork-gate-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node src/server.ts",
+    "worker": "ts-node src/worker.ts",
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "start:worker": "node dist/src/worker.js",
+    "migrate": "ts-node scripts/migrate.ts",
+    "migrate:prod": "node dist/scripts/migrate.js",
+    "seed:prod": "node dist/scripts/seed.js",
+    "seed": "ts-node scripts/seed.ts",
+    "probe": "ts-node -r dotenv/config scripts/probe-llm.ts",
+    "test": "ts-node tests/run.ts",
+    "seed:library": "ts-node scripts/seed-library.ts",
+    "seed:library:prod": "node dist/scripts/seed-library.js",
+    "sync:library": "ts-node scripts/sync-library.ts",
+    "sync:library:prod": "node dist/scripts/sync-library.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.282",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "mysql2": "^3.24.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.4",
+    "exceljs": "^4.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "5.9.3"
+  }
+}

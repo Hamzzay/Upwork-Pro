@@ -1,0 +1,151 @@
+import 'dotenv/config';
+import { audit, exec, pool, query } from './db';
+import { config } from './config';
+import { LlmCallError, killAllChildren, sweepOldScratch } from './llm/claude-runner';
+import { providerName } from './llm';
+import { COLUMN_KEYS } from './screening/contract';
+import { loadContext, loadDictionary, loadLibraryProjects } from './screening/context';
+import { rankProjects, type JobTag } from './screening/matching';
+import { tagJob } from './screening/tagging';
+import { sheetValues } from './screening/persist';
+import { screenJobText } from './screening/service';
+import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
+
+let stopping = false;
+let inFlight = 0;
+
+async function activeSkill() {
+  const rows = await query<{ id: number; content: string }>('SELECT id, content FROM skill_versions WHERE is_active=1 LIMIT 1');
+  if (!rows.length) throw new Error('no_active_skill');
+  return rows[0];
+}
+
+function errorInfo(e: unknown): { code: string; message: string } {
+  if (e instanceof UpworkError) return { code: e.code, message: e.message };
+  if (e instanceof LlmCallError && (e.status === 401 || e.status === 403)) {
+    return { code: 'llm_auth', message: 'The AI service rejected the key. Tell an admin.' };
+  }
+  if (e instanceof LlmCallError && e.status === 429) {
+    return { code: 'llm_rate_limit', message: 'The AI service is busy or out of quota. Try again later.' };
+  }
+  const m = e instanceof Error ? e.message : '';
+  if (m === 'no_tags') return { code: 'no_tags', message: 'The model found no matching tags. Try again.' };
+  if (m === 'invalid_output') return { code: 'invalid_output', message: 'The AI answer was not in the expected format. Try again.' };
+  if (m === 'no_active_skill') return { code: 'no_skill', message: 'No active skill version. Tell an admin.' };
+  if (m.startsWith('timeout')) return { code: 'timeout', message: 'The AI call timed out. Try again.' };
+  return { code: 'error', message: 'Screening failed. Try again.' }; // never echo model text or stderr
+}
+
+async function process_(row: { id: number; input_type: 'link' | 'text'; raw_input: string; upwork_job_id: string | null; job_text: string | null }) {
+  try {
+    let jobText = row.job_text;
+    if (row.input_type === 'link') {
+      if (!row.upwork_job_id) throw new UpworkError('unsupported_link', 'Could not read a job id from that link. Paste the job page text instead.');
+      const data = await getUpworkClient().fetchJob(row.upwork_job_id);
+      jobText = renderJobText(data);
+    }
+    const skill = await activeSkill();
+    const ctx = await loadContext();
+    const rep = await screenJobText(jobText ?? row.raw_input, skill.content, ctx);
+    const v = sheetValues(rep, ctx.rules.map((r) => r.code), ctx.projects.map((p) => p.name));
+    await exec(
+      `UPDATE screenings SET status='done', job_text=?, title=?, verdict=?, report_json=?, skill_version_id=?, model=?, provider=?, finished_at=NOW(),
+         fail_reasons=?, flag_reasons=?, rule_codes=?, ${COLUMN_KEYS.map((k) => `${k}=?`).join(', ')}
+       WHERE id=?`,
+      [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, config.llm.model, providerName,
+       v.fail_reasons || null, v.flag_reasons || null, v.rule_codes || null, ...COLUMN_KEYS.map((k) => v.columns[k]), row.id],
+    );
+  } catch (e) {
+    if (stopping) { await exec(`UPDATE screenings SET status='queued' WHERE id=?`, [row.id]); return; } // killed by a deploy: run again
+    const info = errorInfo(e);
+    await exec(`UPDATE screenings SET status='error', error_code=?, error_message=?, finished_at=NOW() WHERE id=?`, [info.code, info.message, row.id]);
+    await audit(null, 'screening_error', `id=${row.id} code=${info.code}`);
+  }
+}
+
+/** Step 2: tag the job with the dictionary, score the library projects, and store everything (reasons included). */
+async function processTagging(id: number) {
+  try {
+    const s = (await query<any>('SELECT job_text, raw_input FROM screenings WHERE id=?', [id]))[0];
+    const dict = await loadDictionary();
+    const tagged = await tagJob(s.job_text ?? s.raw_input, dict);
+    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight }));
+    const matches = rankProjects(jobTags, await loadLibraryProjects());
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query('DELETE FROM job_matches WHERE screening_id=?', [id]); // a retry replaces the old result
+      await conn.query('DELETE FROM job_tags WHERE screening_id=?', [id]);
+      for (const x of tagged) {
+        await conn.query('INSERT INTO job_tags (screening_id, tag_id, tag_name, category_name, weight, reason) VALUES (?,?,?,?,?,?)',
+          [id, x.tag.id, x.tag.name, x.tag.category, x.tag.weight, x.reason]);
+      }
+      for (const m of matches) {
+        await conn.query(
+          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags) VALUES (?,?,?,?,?,?,?,?,?)`,
+          [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared)]);
+      }
+      await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=?, tagged_at=NOW(),
+        selection_confirmed_at=NULL, selection_confirmed_by=NULL WHERE id=?`, [config.llm.model, id]);
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+  } catch (e) {
+    if (stopping) { await exec(`UPDATE screenings SET tagging_status='queued' WHERE id=?`, [id]); return; } // killed by a deploy: run again
+    const info = errorInfo(e);
+    await exec(`UPDATE screenings SET tagging_status='error', tagging_error_code=?, tagging_error_message=? WHERE id=?`, [info.code, info.message, id]);
+    await audit(null, 'tagging_error', `id=${id} code=${info.code}`);
+  }
+}
+
+async function tick() {
+  while (!stopping && inFlight < config.llm.concurrency) {
+    const rows = await query<any>(
+      `SELECT id, input_type, raw_input, upwork_job_id, job_text FROM screenings WHERE status='queued' ORDER BY id LIMIT 1`,
+    );
+    if (rows.length) {
+      // single worker process, but the guarded UPDATE keeps a second one from double-running a job
+      const res = await exec(`UPDATE screenings SET status='running', started_at=NOW() WHERE id=? AND status='queued'`, [rows[0].id]);
+      if (!res.affectedRows) continue;
+      inFlight++;
+      process_(rows[0])
+        .catch((e) => console.error('job failed', (e as Error).message)) // a DB blip must not kill the worker
+        .finally(() => { inFlight--; });
+      continue;
+    }
+    const t = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' ORDER BY continued_at, id LIMIT 1`);
+    if (!t.length) return;
+    const res = await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [t[0].id]);
+    if (!res.affectedRows) continue;
+    inFlight++;
+    processTagging(t[0].id)
+      .catch((e) => console.error('tagging failed', (e as Error).message))
+      .finally(() => { inFlight--; });
+  }
+}
+
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  killAllChildren(); // running model calls fail now; their temp folders are removed
+  const t = Date.now();
+  while (inFlight > 0 && Date.now() - t < 8000) await new Promise((r) => setTimeout(r, 100));
+  // anything still marked running goes back to the queue
+  await exec(`UPDATE screenings SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE screenings SET tagging_status='queued' WHERE tagging_status='running'`).catch(() => undefined);
+  await pool.end().catch(() => undefined);
+  process.exit(0);
+}
+process.on('SIGINT', shutdown); // PM2 stops with SIGINT by default
+process.on('SIGTERM', shutdown);
+
+async function main() {
+  sweepOldScratch();
+  await exec(`UPDATE screenings SET status='queued' WHERE status='running'`); // a crashed worker left these
+  await exec(`UPDATE screenings SET tagging_status='queued' WHERE tagging_status='running'`);
+  console.log(`worker started provider=${providerName} concurrency=${config.llm.concurrency}`);
+  while (!stopping) {
+    try { await tick(); } catch (e) { console.error('tick failed', (e as Error).message); }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+main();

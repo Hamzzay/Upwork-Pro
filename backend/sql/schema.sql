@@ -1,0 +1,75 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(190) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('admin','manager','employee') NOT NULL DEFAULT 'employee',
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash CHAR(64) PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS skill_versions (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  version INT UNSIGNED NOT NULL UNIQUE,
+  content MEDIUMTEXT NOT NULL,
+  change_note VARCHAR(255) NULL,
+  created_by INT UNSIGNED NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS screenings (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  input_type ENUM('link','text') NOT NULL,
+  source_url VARCHAR(500) NULL,
+  upwork_job_id VARCHAR(40) NULL,
+  raw_input MEDIUMTEXT NOT NULL,
+  job_text MEDIUMTEXT NULL,
+  status ENUM('queued','running','done','error') NOT NULL DEFAULT 'queued',
+  error_code VARCHAR(60) NULL,
+  error_message VARCHAR(500) NULL,
+  title VARCHAR(300) NULL,
+  verdict ENUM('PASS','FLAG','FAIL') NULL,
+  report_json MEDIUMTEXT NULL,
+  skill_version_id INT UNSIGNED NULL,
+  model VARCHAR(80) NULL,
+  provider VARCHAR(20) NULL,
+  started_at DATETIME NULL,
+  finished_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_status (status),
+  KEY idx_user (user_id),
+  KEY idx_verdict (verdict),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (skill_version_id) REFERENCES skill_versions(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS overrides (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  screening_id INT UNSIGNED NOT NULL UNIQUE,
+  user_id INT UNSIGNED NOT NULL,
+  verdict_at_time ENUM('FLAG','FAIL') NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (screening_id) REFERENCES screenings(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NULL,
+  action VARCHAR(60) NOT NULL,
+  detail VARCHAR(500) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_action (action)
+) ENGINE=InnoDB;
