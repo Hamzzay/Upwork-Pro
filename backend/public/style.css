@@ -500,3 +500,11 @@ select.ss-native { display: none !important; }
 .ss-list li.dis { opacity: .5; cursor: not-allowed; }
 .ss-list li.none { color: var(--muted); cursor: default; }
 dialog .ss-pop { position: absolute; }
+
+/* a chosen value shows a clear button where the chevron was */
+.ss.has-value .ss-btn { background-image: none; border-color: color-mix(in srgb, var(--brand) 45%, var(--line-strong)); }
+.ss-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0;
+  display: grid; place-items: center; font: 600 17px/1 system-ui, sans-serif; color: var(--brand); background: var(--brand-soft); cursor: pointer; }
+.ss-clear:hover { background: var(--fail); color: #fff; }
+.ss-clear:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ss-clear[hidden] { display: none; }

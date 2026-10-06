@@ -267,6 +267,11 @@ empty database, and each screen in the browser with real GLM jobs.
   select added to the page (a MutationObserver), so new pages get it for free. The real `<select>` stays in the
   page, hidden, and keeps the value, so `el.value`, `change` listeners and `<label for>` all work unchanged.
   Add `data-plain` to a select to opt out.
+- **A chosen value shows a clear button (×) where the chevron was**, and the dropdown's border is highlighted, so
+  active filters stand out. One click clears just that dropdown and applies at once. Shown only when "nothing
+  chosen" is a valid state (the select has an option with value ""), so required choices cannot be emptied.
+- Filters everywhere already apply immediately (dropdowns and dates on change, search boxes ~0.2 to 0.3 s after
+  typing stops); there is no Apply step on any page.
 - **`npm run seed:settings`** (`scripts/seed-settings.ts`): inserts any missing admin setting with its default from
   `src/settings.ts`. Never overwrites a value an admin changed.
 - **`npm run backfill:postings`** (`scripts/backfill-postings.ts`): queues posting extraction for jobs pasted before

@@ -112,11 +112,18 @@ function searchableSelect(sel) {
   const search = h('input', { type: 'search', class: 'ss-search', placeholder: 'Search...', 'aria-label': 'Search options', autocomplete: 'off' });
   const list = h('ul', { class: 'ss-list', role: 'listbox' });
   const pop = h('div', { class: 'ss-pop', hidden: true }, search, list);
+  // a chosen value can be cleared in one click when "nothing chosen" is allowed (an option with value "")
+  const clearBtn = h('button', { type: 'button', class: 'ss-clear', title: 'Clear', 'aria-label': 'Clear ' + (sel.getAttribute('aria-label') || 'selection') }, '×');
+  clearBtn.onclick = (e) => { e.stopPropagation(); close(); sel.value = ''; label(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
   sel.parentNode.insertBefore(wrap, sel);
-  wrap.append(btn, pop, sel);
+  wrap.append(btn, clearBtn, pop, sel);
   sel.classList.add('ss-native'); sel.tabIndex = -1;
   let active = -1, shown = [];
-  const label = () => { const o = sel.options[sel.selectedIndex]; btn.textContent = o ? o.textContent : ''; btn.classList.toggle('ph', !sel.value); btn.disabled = sel.disabled; };
+  const label = () => {
+    const o = sel.options[sel.selectedIndex]; btn.textContent = o ? o.textContent : ''; btn.classList.toggle('ph', !sel.value); btn.disabled = sel.disabled;
+    const clearable = !!sel.value && !sel.disabled && [...sel.options].some((x) => x.value === '');
+    wrap.classList.toggle('has-value', clearable); clearBtn.hidden = !clearable;
+  };
   const choose = (o) => { if (o.disabled) return; sel.value = o.value; label(); close(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
   const draw = () => {
     const q = search.value.trim().toLowerCase();
