@@ -143,6 +143,23 @@ branch. Items still listed under "Still to do" are for Usman.
 - Every export is written to the audit log with the format, row count and filters.
 - `exceljs` moved from devDependencies to dependencies (the server now needs it). Run `npm install`.
 
+### R5. Dashboard (done)
+- **New home page**, first in the sidebar (`#/dashboard`; sign-in lands here). Everyone sees it; employees
+  see only their own jobs, as in the Jobs list.
+- **Period**: Today, Last 7 days, Last 30 days (default), This month, All time. **Filters**: profile, person
+  (managers and admins), only mine. All kept in the URL.
+- **KPIs**: screened (pass/flag/fail), continued, proposals (finished), sent (Connects), hired, needs action.
+- **Funnel**: screened → continued → proposal written → sent → viewed → replied → interview → hired, with %.
+- **Speed**: average, fastest and slowest paste-to-proposal, and the average per step (screening, project
+  matching, writing after the profile).
+- **Needs attention**: count per stage and the oldest 8 waiting jobs.
+- **Jobs per day**, **rules that fire most** (and the % continued anyway: a rule continued past most of the
+  time is a candidate to soften in the gate prompt), **by person** and **by profile**.
+- **Every number opens the Jobs list** with the same period and filters (e.g. a rule bar opens the jobs
+  where that rule fired).
+- `GET /dashboard` in `routes.ts`, built on the same `listWhere` as the list and the export, so the numbers
+  always match.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

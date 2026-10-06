@@ -6,6 +6,7 @@ let me = null;
 
 // ---------- helpers ----------
 const ICONS = {
+  home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
   logo: '<path d="M6 4v7a6 6 0 0 0 12 0V4"/><path d="M12 15V7M9 10l3-3 3 3"/>', // a U with an upward arrow: Upwork Pro
   screen: '<path d="M12 5v14M5 12h14"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
@@ -131,6 +132,7 @@ const STAFF = ['manager', 'admin'], ADMIN = ['admin'];
 /** The sidebar, in order. A link without roles is for everyone. */
 const NAV = [
   { label: 'Work', links: [
+    { key: 'dashboard', icon: 'home', label: 'Dashboard' },
     { key: 'new', icon: 'screen', label: 'Screen a job' },
     { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') }] },
   { label: 'Library', links: [
@@ -174,7 +176,7 @@ function loginView() {
     h('h1', {}, 'Welcome back'), h('p', { class: 'muted', style: 'margin-bottom:22px' }, 'Sign in to screen Upwork jobs and write proposals.'),
     h('form', { onsubmit: async (e) => {
       e.preventDefault(); err.hidden = true; btnBusy(btn, 'Signing in');
-      try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; location.hash = '#/new'; route(); }
+      try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; location.hash = '#/dashboard'; route(); }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Sign in'); }
     } }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'em' }, 'Email'), email),
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pw' }, 'Password'), pw), err, btn))));
@@ -217,6 +219,98 @@ async function newView() {
     h('div', { class: 'notice' }, icon('info'), h('div', {}, 'Links are read through the Upwork API, which is not connected yet. For now, paste the page text.')),
   ]);
   box.focus();
+}
+
+// ---------- dashboard ----------
+const PERIODS = [['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['all', 'All time']];
+const ymd = (d) => d.toLocaleDateString('sv'); // YYYY-MM-DD in local time
+function periodRange(key) {
+  const now = new Date(), t = ymd(now);
+  if (key === 'today') return { from: t, to: t };
+  if (key === '7' || key === '30') { const d = new Date(now); d.setDate(d.getDate() - Number(key) + 1); return { from: ymd(d), to: t }; }
+  if (key === 'month') return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: t };
+  return {};
+}
+const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '-');
+
+async function dashboardView() {
+  const hp = hashParams();
+  const st = { period: PERIODS.some(([k]) => k === hp.period) ? hp.period : '30', profile: hp.profile || '', user: hp.user || '', mine: hp.mine === '1' };
+  const opts = await api('GET', '/screenings/filter-options');
+  const body = h('div', {});
+  const sel = (key, label, options) => {
+    const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
+    el.onchange = () => { st[key] = el.value; load(); };
+    return el;
+  };
+  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Period' });
+  const drawSeg = () => seg.replaceChildren(...PERIODS.map(([k, l]) => h('button', { type: 'button', class: st.period === k ? 'on' : '', 'aria-pressed': st.period === k, onclick: () => { st.period = k; drawSeg(); load(); } }, l)));
+  drawSeg();
+  const mineBox = h('input', { type: 'checkbox', id: 'dmine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; load(); };
+  const bar = h('div', { class: 'toolbar dashbar' }, seg, h('span', { class: 'grow' }), sel('profile', 'All profiles', opts.profiles.map((p) => [p.id, p.name])),
+    opts.users.length ? sel('user', 'Everyone', opts.users.map((u) => [u.id, u.name])) : null,
+    me.role !== 'employee' ? h('label', { class: 'row small', for: 'dmine', style: 'gap:6px' }, mineBox, 'Only mine') : null);
+
+  /** A link to the Jobs list with the dashboard's filters plus `extra`, so every number can be opened. */
+  const jobsLink = (extra = {}) => {
+    const r = periodRange(st.period); const q = new URLSearchParams();
+    if (r.from) q.set('from', r.from); if (r.to) q.set('to', r.to);
+    for (const k of ['profile', 'user']) if (st[k]) q.set(k, st[k]); if (st.mine) q.set('mine', '1');
+    for (const [k, v] of Object.entries(extra)) q.set(k, v);
+    return '#/history?' + q;
+  };
+  const kpi = (label, value, sub, link, cls) => h(link ? 'a' : 'div', { class: 'stat kpi ' + (cls || ''), href: link || null }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), sub ? h('span', { class: 'sub small muted' }, sub) : null);
+  const panel = (title, sub, content, wide) => h('div', { class: 'card dpanel' + (wide ? ' wide' : '') }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), h('div', { class: 'card-pad' }, content));
+  const hbar = (label, value, max, extra, link, shown) => h(link ? 'a' : 'div', { class: 'hbar', href: link || null }, h('span', { class: 'lbl', title: label }, label),
+    h('span', { class: 'track' }, h('i', { style: `width:${max ? Math.max(value ? 2 : 0, (value / max) * 100) : 0}%` })), h('span', { class: 'num' }, shown ?? value.toLocaleString()), h('span', { class: 'ext small muted' }, extra || ''));
+
+  function draw(d) {
+    const c = d.counts, t = d.timings;
+    const funnel = [['Screened', c.screened, {}], ['Continued', c.continued, {}], ['Proposal written', c.proposals, {}], ['Proposal sent', c.sent, {}],
+      ['Client viewed', c.viewed, {}], ['Replied', c.replied, {}], ['Interview', c.interviewed, {}], ['Hired', c.hired, { outcome: 'Hired' }]];
+    const needs = d.needs_action.reduce((a, k) => a + (d.stages[k] || 0), 0);
+    const maxDay = Math.max(1, ...d.daily.map((x) => x.screened));
+    const people = (rows, key) => rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['', 'Screened', 'Continued', 'Proposals', 'Sent', 'Hired', 'Avg to proposal'].map((x) => h('th', {}, x)))),
+      h('tbody', {}, rows.map((r) => h('tr', { class: r.id ? 'click' : '', onclick: r.id ? () => (location.hash = jobsLink({ [key]: r.id })) : null },
+        h('td', {}, r.name || h('span', { class: 'faint' }, 'No profile yet')), h('td', {}, r.screened), h('td', {}, r.continued), h('td', {}, r.proposals), h('td', {}, r.sent), h('td', {}, r.hired), h('td', {}, mins(r.avg_to_proposal))))))) : h('p', { class: 'muted' }, 'Nothing in this period.');
+    body.replaceChildren(
+      h('div', { class: 'stats six' },
+        kpi('Screened', c.screened, `${c.PASS} pass · ${c.FLAG} flag · ${c.FAIL} fail`, jobsLink()),
+        kpi('Continued', c.continued, `${pct(c.continued, c.screened)} of screened · ${c.overridden} past a flag/fail`, jobsLink()),
+        kpi('Proposals', c.proposals, `${c.finalized} finished`, jobsLink()),
+        kpi('Sent', c.sent, c.connects ? `${c.connects} Connects` : 'Connects not recorded', jobsLink()),
+        kpi('Hired', c.hired, `${pct(c.hired, c.sent)} of sent`, jobsLink({ outcome: 'Hired' }), 'PASS'),
+        kpi('Needs action', needs, 'waiting on someone', jobsLink({ stage: 'needs_action' }), 'NEED')),
+      h('div', { class: 'dgrid' },
+        panel('Funnel', 'From screening to hire', h('div', { class: 'hbars' }, funnel.map(([l, v, ex]) => hbar(l, v, c.screened, pct(v, c.screened), jobsLink(ex))))),
+        panel('Speed', 'Paste to proposal ready', h('div', {},
+          h('div', { class: 'bigtime' }, mins(t.avg_to_proposal) || '-', h('span', { class: 'small muted' }, ' average')),
+          h('p', { class: 'small muted', style: 'margin:2px 0 14px' }, t.min_to_proposal != null ? `fastest ${mins(t.min_to_proposal)} · slowest ${mins(t.max_to_proposal)}` : 'No proposals in this period'),
+          h('div', { class: 'hbars' }, [['Screening', t.avg_screening], ['Project matching', t.avg_matching], ['Writing (after the profile)', t.avg_writing]].map(([l, v]) =>
+            hbar(l, v || 0, Math.max(t.avg_screening || 0, t.avg_matching || 0, t.avg_writing || 0, 1), null, null, v == null ? '-' : mins(v)))),
+          h('p', { class: 'hint' }, 'Averages per step, model time only. Person time (reading, picking) is the rest.'))),
+        panel('Needs attention', needs ? `${needs} job${needs === 1 ? '' : 's'} waiting` : 'Nothing waiting', d.waiting.length
+          ? h('div', {}, h('div', { class: 'chips', style: 'margin-bottom:10px' }, d.needs_action.filter((k) => d.stages[k]).map((k) => h('a', { class: 'chip', href: jobsLink({ stage: k }) }, `${STAGE_INFO[k][1]}: ${d.stages[k]}`))),
+            h('ul', { class: 'waitlist' }, d.waiting.map((r) => h('li', {}, h('a', { href: '#/s/' + r.id }, r.title || 'Job #' + r.id), h('span', { class: 'small muted' }, `${STAGE_INFO[r.stage][1]} · ${r.user_name} · ${ago(r.created_at)}`)))))
+          : h('p', { class: 'muted' }, 'Every job in this period is complete or skipped.')),
+        panel('Jobs per day', 'Screened, continued and proposals', d.daily.length ? h('div', { class: 'daybars' }, d.daily.map((x) => h('div', { class: 'day', title: `${x.day}: ${x.screened} screened, ${x.continued} continued, ${x.proposals} proposals` },
+          h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(x.screened / maxDay) * 100}%` }), h('i', { class: 'p', style: `height:${(x.proposals / maxDay) * 100}%` })),
+          h('span', { class: 'small muted' }, x.day.slice(5))))) : h('p', { class: 'muted' }, 'No jobs in this period.')),
+        panel('Rules that fire most', 'And how often people continue anyway', d.rules.length ? h('div', { class: 'hbars' }, d.rules.map((r) =>
+          hbar(r.code + (r.rule ? '  ' + r.rule : ''), r.fired, d.rules[0].fired, `${pct(r.continued, r.fired)} continued`, jobsLink({ rule: r.code })))) : h('p', { class: 'muted' }, 'No rules fired in this period.'), true),
+        d.by_user.length ? panel('By person', null, people(d.by_user, 'user'), true) : null,
+        panel('By profile', null, people(d.by_profile, 'profile'), true)));
+  }
+  async function load() {
+    const r = periodRange(st.period); const q = new URLSearchParams();
+    if (r.from) q.set('from', r.from); if (r.to) q.set('to', r.to);
+    for (const k of ['profile', 'user']) if (st[k]) q.set(k, st[k]); if (st.mine) q.set('mine', '1');
+    setHashParams({ period: st.period === '30' ? '' : st.period, profile: st.profile, user: st.user, mine: st.mine ? '1' : '' });
+    draw(await api('GET', '/dashboard?' + q));
+  }
+  shell('dashboard', [pageHead('Dashboard', 'How the team is doing: what came in, what went out, how fast, and what is waiting.', h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), bar, body], 1480);
+  body.append(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%' })));
+  await load();
 }
 
 // ---------- jobs list ----------
@@ -1227,6 +1321,7 @@ async function route() {
     const [, a, b] = location.hash.split('?')[0].split('/');
     if (a === 's' && b) return await detailView(Number(b));
     if (a === 'history') return await historyView();
+    if (a === 'dashboard' || !a) return await dashboardView();
     if (a === 'templates' && me.role !== 'employee') return await templatesView();
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'signals' && me.role !== 'employee') return await signalsView();

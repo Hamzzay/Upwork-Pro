@@ -147,6 +147,55 @@ api.get('/screenings/stats', requireRole(), async (req, res) => {
   res.json({ total: Number(r.total), PASS: Number(r.pass_n || 0), FLAG: Number(r.flag_n || 0), FAIL: Number(r.fail_n || 0), overridden: Number(r.overridden || 0), needs_action: Number(r.needs_action || 0) });
 });
 
+// The dashboard: counts, the funnel, timings, what needs attention, and who does what, for a period.
+// Built on the same filters as the Jobs list, so a number here is the same number there.
+api.get('/dashboard', requireRole(), async (req, res) => {
+  const f = listFilters.pick({ from: true, to: true, profile: true, user: true, mine: true }).parse(req.query);
+  const w = listWhere(req, f);
+  const one = async (sql: string, p: any[] = []) => (await query<any>(sql, [...p, ...w.p]))[0];
+  const n = (v: any) => Number(v || 0);
+  const c = await one(`SELECT COUNT(*) AS screened, SUM(s.verdict='PASS') AS pass_n, SUM(s.verdict='FLAG') AS flag_n, SUM(s.verdict='FAIL') AS fail_n,
+      SUM(s.status='error') AS failed, SUM(s.continued_at IS NOT NULL) AS continued, SUM(o.id IS NOT NULL) AS overridden,
+      SUM(p.finished_at IS NOT NULL) AS proposals, SUM(p.finalized_at IS NOT NULL) AS finalized, SUM(s.proposal_sent_date IS NOT NULL) AS sent,
+      SUM(s.client_viewed='yes') AS viewed, SUM(s.client_replied='yes') AS replied, SUM(s.interviewed='yes') AS interviewed, SUM(s.outcome='Hired') AS hired,
+      SUM(s.connects_spent) + COALESCE(SUM(s.boost_connects), 0) AS connects,
+      AVG(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS avg_to_proposal, MIN(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS min_to_proposal,
+      MAX(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS max_to_proposal,
+      AVG(TIMESTAMPDIFF(SECOND, COALESCE(s.started_at, s.created_at), s.finished_at)) AS avg_screening,
+      AVG(TIMESTAMPDIFF(SECOND, s.continued_at, s.tagged_at)) AS avg_matching,
+      AVG(TIMESTAMPDIFF(SECOND, p.created_at, p.finished_at)) AS avg_writing
+    ${listFrom} ${w.sql}`);
+  const stages = await query<any>(`SELECT (${stageSql}) AS stage, COUNT(*) AS n ${listFrom} ${w.sql} GROUP BY 1`, w.p);
+  const waiting = await query<any>(`SELECT s.id, s.title, u.name AS user_name, s.created_at, (${stageSql}) AS stage ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} (${stageSql}) IN (?)
+    ORDER BY s.created_at LIMIT 8`, [...w.p, NEEDS_ACTION]);
+  const daily = await query<any>(`SELECT DATE(s.created_at) AS d, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued, SUM(p.finished_at IS NOT NULL) AS proposals
+    ${listFrom} ${w.sql} GROUP BY DATE(s.created_at) ORDER BY d DESC LIMIT 31`, w.p);
+  const by = (col: string, name: string) => query<any>(`SELECT ${col} AS id, ${name} AS name, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued,
+      SUM(p.finished_at IS NOT NULL) AS proposals, SUM(s.proposal_sent_date IS NOT NULL) AS sent, SUM(s.outcome='Hired') AS hired,
+      AVG(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS avg_to_proposal
+    ${listFrom} ${w.sql} GROUP BY ${col}, ${name} ORDER BY screened DESC LIMIT 20`, w.p)
+    .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, screened: n(r.screened), continued: n(r.continued), proposals: n(r.proposals), sent: n(r.sent), hired: n(r.hired),
+      avg_to_proposal: r.avg_to_proposal == null ? null : Math.round(Number(r.avg_to_proposal)) })));
+  // rule codes are stored as "G3, G14": count each code, and how often a job carrying it was continued anyway
+  const ruleRows = await query<any>(`SELECT s.rule_codes, s.continued_at IS NOT NULL AS cont ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} s.rule_codes IS NOT NULL`, w.p);
+  const rules = new Map<string, { code: string; fired: number; continued: number }>();
+  for (const r of ruleRows) for (const code of String(r.rule_codes).split(/\s*,\s*/).filter(Boolean)) {
+    const x = rules.get(code) ?? { code, fired: 0, continued: 0 }; x.fired++; if (Number(r.cont)) x.continued++; rules.set(code, x);
+  }
+  const ruleText = new Map((await query<any>('SELECT code, type, rule FROM rules')).map((r) => [r.code, r]));
+  res.json({
+    counts: { screened: n(c.screened), PASS: n(c.pass_n), FLAG: n(c.flag_n), FAIL: n(c.fail_n), failed: n(c.failed), continued: n(c.continued), overridden: n(c.overridden),
+      proposals: n(c.proposals), finalized: n(c.finalized), sent: n(c.sent), viewed: n(c.viewed), replied: n(c.replied), interviewed: n(c.interviewed), hired: n(c.hired), connects: n(c.connects) },
+    timings: { avg_to_proposal: c.avg_to_proposal == null ? null : Math.round(c.avg_to_proposal), min_to_proposal: c.min_to_proposal, max_to_proposal: c.max_to_proposal,
+      avg_screening: c.avg_screening == null ? null : Math.round(c.avg_screening), avg_matching: c.avg_matching == null ? null : Math.round(c.avg_matching),
+      avg_writing: c.avg_writing == null ? null : Math.round(c.avg_writing) },
+    stages: Object.fromEntries(stages.map((r) => [r.stage, n(r.n)])), needs_action: NEEDS_ACTION, waiting,
+    daily: daily.reverse().map((r) => ({ day: String(r.d instanceof Date ? r.d.toLocaleDateString('sv') : r.d).slice(0, 10), screened: n(r.screened), continued: n(r.continued), proposals: n(r.proposals) })),
+    by_user: canSeeAll(req.user!.role) ? await by('s.user_id', 'u.name') : [], by_profile: await by('s.upwork_profile_id', 'pr.name'),
+    rules: [...rules.values()].sort((a, b) => b.fired - a.fired).slice(0, 12).map((r) => ({ ...r, type: ruleText.get(r.code)?.type ?? null, rule: ruleText.get(r.code)?.rule ?? null })),
+  });
+});
+
 // Everything about every job the filters match, as CSV or Excel. Same filters and order as the Jobs list.
 api.get('/screenings/export', requireRole(), async (req, res) => {
   const f = listFilters.extend({ format: z.enum(['csv', 'xlsx']).default('csv'), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
