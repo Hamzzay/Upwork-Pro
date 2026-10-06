@@ -194,7 +194,7 @@ api.post('/screenings/:id/continue', requireRole(), async (req, res) => {
   const s = await ownedDone(req, res); if (!s) return;
   if (s.verdict !== 'PASS') return void res.status(409).json({ error: 'A ' + s.verdict + ' job needs a reason to continue' });
   const r = await exec(
-    `UPDATE screenings SET continued_at=NOW(), proceeded='yes', tagging_status='queued' WHERE id=? AND continued_at IS NULL`, [s.id]);
+    `UPDATE screenings SET continued_at=NOW(), proceeded='yes', tagging_status=COALESCE(tagging_status, 'queued') WHERE id=? AND continued_at IS NULL`, [s.id]);
   if (r.affectedRows) await audit(req.user!.id, 'continue', `screening=${s.id}`);
   res.json({ ok: true, already: !r.affectedRows });
 });
