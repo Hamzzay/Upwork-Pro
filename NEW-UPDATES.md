@@ -160,6 +160,27 @@ branch. Items still listed under "Still to do" are for Usman.
 - `GET /dashboard` in `routes.ts`, built on the same `listWhere` as the list and the export, so the numbers
   always match.
 
+### R6. Fully dynamic: settings and rules (done)
+- **Settings page** (Admin → Settings, `#/settings`), stored in the new `app_settings` table (migration
+  `010_settings_and_rule_history.sql`), defined with defaults and validation in `src/settings.ts`. Changes apply to
+  the next job, no restart. Every change is in the audit log.
+  - Projects shown per job (5), projects recommended (2), minimum match score (1; the plugin used 6).
+  - **Fewest / most projects a person can pick: 1 to 2** (was hardcoded to exactly 2). The Projects step,
+    the API and the early draft all follow it. The range is checked so min never exceeds max.
+  - Shortest override reason (15).
+  - **Outcome choices** (the Tracking dropdown and the Jobs filter).
+  - **Rules passed to the proposal writer** (was hardcoded G11, G12, G13) and **the signal value that means
+    "structured submission"** (was hardcoded signal 5 = Yes) in `pipeline.ts`.
+- **Rules page** (Admin → Rules, `#/rules`): every FAIL and FLAG code with how many jobs it fired on (a link to
+  those jobs). **Add** gives the next free code (`G18` next), counting retired codes, so a code never gets a new
+  meaning. **Reword** keeps the code; **Retire / Restore** never deletes. `GET/POST /admin/rules`,
+  `PATCH /admin/rules/:code`.
+  - The page reminds the admin that the model only applies rules written in the gate prompt (Upwork JobGate),
+    so a new rule must also go into the prompt with its code.
+- `rankProjects` and `validSelection` take the settings as arguments; their defaults keep the old behaviour, and
+  tests cover the 1-to-2 range and the shown / recommended / minimum-score options.
+- The screens load the settings once after sign-in (`CFG` in `app.js`).
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

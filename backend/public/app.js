@@ -3,9 +3,12 @@
 // The only innerHTML below is for the fixed icon strings in ICONS.
 const $app = document.getElementById('app');
 let me = null;
+let CFG = null; // admin settings (GET /settings), loaded after sign-in
+const cfg = (k, d) => (CFG && CFG[k] !== undefined ? CFG[k] : d);
 
 // ---------- helpers ----------
 const ICONS = {
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
   logo: '<path d="M6 4v7a6 6 0 0 0 12 0V4"/><path d="M12 15V7M9 10l3-3 3 3"/>', // a U with an upward arrow: Upwork Pro
   screen: '<path d="M12 5v14M5 12h14"/>',
@@ -145,6 +148,8 @@ const NAV = [
     { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF }] },
   { label: 'Admin', links: [
     { key: 'skill', icon: 'skill', label: 'Upwork JobGate', roles: ADMIN },
+    { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
+    { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
     { key: 'audit', icon: 'audit', label: 'Audit log', roles: ADMIN }] },
 ];
@@ -158,7 +163,7 @@ function shell(active, content, wide) {
       h('nav', { class: 'nav', 'aria-label': 'Main' }, groups.map(([label, links]) => [h('div', { class: 'nav-label' }, label), links.map(a)])),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
-        h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; route(); } }, icon('out')))),
+        h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; CFG = null; route(); } }, icon('out')))),
     h('main', { class: 'content' }, h('div', { class: 'page', style: wide ? `max-width:${wide === true ? 1180 : wide}px` : null }, content))));
   window.scrollTo(0, 0);
 }
@@ -215,7 +220,7 @@ async function newView() {
     h('div', { class: 'steps' },
       h('div', { class: 'step' }, h('div', { class: 'n' }, '1'), h('strong', {}, 'Paste the job'), h('p', {}, 'A job link, or the full page text copied from Upwork.')),
       h('div', { class: 'step' }, h('div', { class: 'n' }, '2'), h('strong', {}, 'We screen it'), h('p', {}, 'The SOP rules run in about a minute and return PASS, FLAG or FAIL.')),
-      h('div', { class: 'step' }, h('div', { class: 'n' }, '3'), h('strong', {}, 'Decide, then write'), h('p', {}, 'Continue (a FLAG or FAIL needs a reason), pick 2 projects and a profile, and the proposal is written for you.'))),
+      h('div', { class: 'step' }, h('div', { class: 'n' }, '3'), h('strong', {}, 'Decide, then write'), h('p', {}, `Continue (a FLAG or FAIL needs a reason), pick ${cfg('selection.min', 1) === cfg('selection.max', 2) ? cfg('selection.max', 2) : cfg('selection.min', 1) + ' to ' + cfg('selection.max', 2)} projects and a profile, and the proposal is written for you.`))),
     h('div', { class: 'notice' }, icon('info'), h('div', {}, 'Links are read through the Upwork API, which is not connected yet. For now, paste the page text.')),
   ]);
   box.focus();
@@ -377,7 +382,7 @@ async function historyView() {
   const searchIn = h('input', { type: 'search', placeholder: 'Search by job, client country, person, profile or rule', 'aria-label': 'Search jobs', value: st.q });
   searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; load().catch((x) => toast(x.message, true)); }, 300);
   const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
-  const outcomes = [...new Set([...OUTCOMES, ...opts.outcomes])];
+  const outcomes = [...new Set([...outcomeList(), ...opts.outcomes])];
   const stageOpts = [['needs_action', 'Needs action'], ...opts.stages.map((x) => [x, STAGE_INFO[x] ? STAGE_INFO[x][1] : x])];
   const colBtn = h('button', { class: 'btn', type: 'button' }, 'Columns');
   colBtn.onclick = () => modal({ title: 'Columns to show', noConfirm: true, body: h('div', { class: 'colpick' }, JOB_COLS.map((c) => {
@@ -496,12 +501,13 @@ function progressCard(status) {
 
 function overrideCard(s) {
   const ta = h('textarea', { id: 'why', style: 'min-height:96px', placeholder: 'For example: client has a strong history with us, and the scope was clarified on a call.' });
-  const count = h('span', { class: 'counter' }, '0 / 15 minimum');
+  const minLen = cfg('override.min_reason', 15);
+  const count = h('span', { class: 'counter' }, `0 / ${minLen} minimum`);
   const err = h('div', { class: 'err', hidden: true });
   const btn = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Continue with this job');
   ta.oninput = () => {
-    const n = ta.value.trim().length; btn.disabled = n < 15;
-    count.textContent = n < 15 ? `${n} / 15 minimum` : `${n} characters`; count.className = 'counter' + (n >= 15 ? ' ok' : '');
+    const n = ta.value.trim().length; btn.disabled = n < minLen;
+    count.textContent = n < minLen ? `${n} / ${minLen} minimum` : `${n} characters`; count.className = 'counter' + (n >= minLen ? ' ok' : '');
   };
   btn.onclick = () => modal({
     title: 'Continue despite the ' + s.verdict + '?', confirm: 'Yes, continue',
@@ -568,9 +574,11 @@ function matchingSection(s, initial) {
     if (!picked) picked = new Set((m.confirmed_at ? rows.filter((r) => r.selected) : rows.filter((r) => r.recommended)).map((r) => r.project_id));
     const confirmedIds = new Set(rows.filter((r) => r.selected).map((r) => r.project_id));
     const changed = !m.confirmed_at || picked.size !== confirmedIds.size || [...picked].some((i) => !confirmedIds.has(i));
-    const count = h('span', { class: 'counter' + (picked.size === 2 ? ' ok' : '') }, `${picked.size} of 2 selected`);
+    const pmin = cfg('selection.min', 2), pmax = cfg('selection.max', 2), okSize = picked.size >= pmin && picked.size <= pmax;
+    const range = pmin === pmax ? `${pmax}` : `${pmin} to ${pmax}`;
+    const count = h('span', { class: 'counter' + (okSize ? ' ok' : '') }, `${picked.size} of ${pmax} selected`);
     const err = h('div', { class: 'err', hidden: true });
-    const confirmBtn = h('button', { class: 'btn primary', type: 'button', disabled: picked.size !== 2 || !changed }, m.confirmed_at ? 'Save changed selection' : 'Confirm these 2 projects');
+    const confirmBtn = h('button', { class: 'btn primary', type: 'button', disabled: !okSize || !changed }, m.confirmed_at ? 'Save changed selection' : picked.size === 1 ? 'Confirm this project' : `Confirm these ${picked.size} projects`);
     const save = async (ids, btn, label) => {
       err.hidden = true; btnBusy(btn, 'Saving');
       try { await api('PUT', `/screenings/${s.id}/selection`, { project_ids: ids }); toast('Selection saved'); await poll(); if (stepCtx) stepCtx.refresh(); }
@@ -578,11 +586,12 @@ function matchingSection(s, initial) {
     };
     confirmBtn.onclick = () => save([...picked], confirmBtn, confirmBtn.textContent);
     const recIds = rows.filter((r) => r.recommended).map((r) => r.project_id);
-    const recBtn = h('button', { class: 'btn', type: 'button' }, 'Use the 2 recommended');
-    recBtn.onclick = () => { picked = new Set(recIds); save(recIds, recBtn, 'Use the 2 recommended'); };
+    const recLabel = recIds.length === 1 ? 'Use the recommended one' : `Use the ${recIds.length} recommended`;
+    const recBtn = h('button', { class: 'btn', type: 'button', disabled: recIds.length < pmin || recIds.length > pmax }, recLabel);
+    recBtn.onclick = () => { picked = new Set(recIds); save(recIds, recBtn, recLabel); };
     const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended);
     const card = (r) => {
-      const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= 2 && !on);
+      const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= pmax && !on);
       const cb = h('input', { type: 'checkbox', id: 'mp' + r.rank, checked: on, disabled: locked, 'aria-label': 'Select ' + r.project_name });
       cb.onchange = () => { if (cb.checked) picked.add(r.project_id); else picked.delete(r.project_id); draw(); };
       const toggle = (e) => { if (locked || e.target.closest('a, input')) return; cb.checked = !cb.checked; cb.onchange(); }; // the whole card picks the project
@@ -597,9 +606,9 @@ function matchingSection(s, initial) {
     };
     return h('div', {},
       h('div', { class: 'row spread', style: 'margin:4px 0 12px' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Matching projects'), owner ? count : null),
-      h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Score is the sum of the weights of the tags a project shares with this job. ' + (owner ? 'Keep the 2 recommended or swap them for others below. Choose exactly 2.' : '')),
+      h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Score is the sum of the weights of the tags a project shares with this job. ' + (owner ? `Keep the recommended ones or swap them for others below. Choose ${range}.` : '')),
       h('div', { class: 'mgrid' }, rec.map(card)), rest.length ? h('div', { class: 'mgrid', style: 'margin-top:12px' }, rest.map(card)) : null,
-      owner && picked.size >= 2 ? h('p', { class: 'hint' }, 'Untick one project to choose a different one.') : null,
+      owner && picked.size >= pmax ? h('p', { class: 'hint' }, 'Untick one project to choose a different one.') : null,
       err,
       m.confirmed_at ? h('div', { class: 'logged-line' }, icon('check'), `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} on ${dateTxt(m.confirmed_at)}`) : null,
       owner ? h('div', { class: 'row', style: 'margin-top:14px' }, confirmBtn, recBtn) : h('p', { class: 'hint' }, m.confirmed_at ? '' : 'Only the person who submitted this job can choose the projects.'));
@@ -628,7 +637,7 @@ function matchingSection(s, initial) {
 }
 
 // ---------- tracking and record details ----------
-const OUTCOMES = ['Pending', 'Hired', 'Not hired', 'No response', 'Withdrawn', 'Job closed'];
+const outcomeList = () => cfg('tracking.outcomes', ['Pending', 'Hired', 'Not hired', 'No response', 'Withdrawn', 'Job closed']);
 const yesNo = (id, value) => h('select', { id, style: 'width:100%' }, [['', 'Not known'], ['yes', 'Yes'], ['no', 'No']].map(([v, l]) => h('option', { value: v, selected: (value || '') === v }, l)));
 const numIn = (id, value, placeholder) => h('input', { type: 'number', id, min: 0, max: 1000, step: 1, value: value ?? '', placeholder });
 /** After the proposal: what happened on Upwork. `onSaved` is called with the saved values. */
@@ -638,7 +647,8 @@ function trackingCard(s, onSaved) {
   const date = h('input', { type: 'date', id: 'td', value: s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : '' });
   const connects = numIn('tc', s.connects_spent, 'e.g. 16'), boost = numIn('tb', s.boost_connects, '0 if not boosted');
   const viewed = yesNo('tv', s.client_viewed), replied = yesNo('tr', s.client_replied), interview = yesNo('ti', s.interviewed);
-  const outs = OUTCOMES.includes(s.outcome) || !s.outcome ? OUTCOMES : [...OUTCOMES, s.outcome]; // keeps an older free-text value selectable
+  const OUTCOMES = outcomeList();
+  const outs = OUTCOMES.includes(s.outcome) || !s.outcome ? OUTCOMES : [...OUTCOMES, s.outcome]; // keeps an older value selectable
   const outcome = h('select', { id: 'to', style: 'width:100%' }, h('option', { value: '' }, 'Not known yet'), outs.map((o) => h('option', { value: o, selected: s.outcome === o }, o)));
   const notes = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000, placeholder: 'Anything worth remembering about this job or the proposal.' }); notes.value = s.notes || '';
   const err = h('div', { class: 'err', hidden: true });
@@ -1313,11 +1323,68 @@ async function auditView() {
   await load();
 }
 
+// ---------- rules (admin) ----------
+async function rulesView() {
+  const { rules } = await api('GET', '/admin/rules');
+  const add = (type) => {
+    const ta = h('textarea', { id: 'nr', style: 'min-height:80px', maxlength: 300, placeholder: type === 'fail' ? 'e.g. Client asks for work outside Upwork' : 'e.g. Job needs a language we do not use' });
+    modal({ title: type === 'fail' ? 'Add a FAIL rule' : 'Add a FLAG rule', confirm: 'Add rule', body: h('div', {},
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'nr' }, 'Rule'), ta, h('div', { class: 'hint' }, 'It gets the next free code. Codes are never reused, so old jobs keep their meaning.')),
+      h('div', { class: 'notice', style: 'margin-top:12px' }, icon('info'), 'Also add the rule, with its code, to the gate prompt in Upwork JobGate. The model only applies rules written in the prompt.')),
+      onConfirm: async () => { const r = await api('POST', '/admin/rules', { type, rule: ta.value }); toast('Added ' + r.code); route(); } });
+  };
+  const edit = (r) => {
+    const ta = h('textarea', { id: 'er', style: 'min-height:80px', maxlength: 300 }); ta.value = r.rule;
+    modal({ title: 'Reword ' + r.code, confirm: 'Save', body: h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'er' }, 'Rule'), ta,
+      h('div', { class: 'hint' }, 'Keep the meaning: jobs already flagged with ' + r.code + ' were judged by the old wording. For a new meaning, add a new rule.')),
+      onConfirm: async () => { await api('PATCH', '/admin/rules/' + r.code, { rule: ta.value }); toast(r.code + ' saved'); route(); } });
+  };
+  const toggle = async (r) => { await api('PATCH', '/admin/rules/' + r.code, { active: !r.active }); toast(r.code + (r.active ? ' retired' : ' restored')); route(); };
+  const table = (type) => h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Code', 'Rule', 'Fired on', 'Status', ''].map((x) => h('th', {}, x)))),
+    h('tbody', {}, rules.filter((r) => r.type === type).map((r) => h('tr', { class: r.active ? '' : 'retired' },
+      h('td', { class: 'mono' }, h('strong', {}, r.code)), h('td', { style: 'white-space:normal' }, r.rule),
+      h('td', {}, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'none')),
+      h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired')),
+      h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Reword'),
+        h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore'))))))));
+  shell('rules', [pageHead('Rules', 'The FAIL and FLAG codes the gate reports. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.'),
+    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), 'This list is what the app knows each code means. The gate prompt in Upwork JobGate is what the model applies, so keep the two in step.'),
+    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'FAIL rules'), h('button', { class: 'btn sm primary', onclick: () => add('fail') }, 'Add FAIL rule')), table('fail')),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'FLAG rules'), h('button', { class: 'btn sm primary', onclick: () => add('flag') }, 'Add FLAG rule')), table('flag'))], true);
+}
+
+// ---------- settings (admin) ----------
+async function settingsView() {
+  const { settings, meta } = await api('GET', '/settings');
+  const save = async (key, value, btn) => {
+    btnBusy(btn, 'Saving');
+    try { await api('PUT', '/admin/settings/' + key, { value }); CFG = null; toast('Saved'); route(); }
+    catch (x) { toast(x.message, true); btn.disabled = false; btn.replaceChildren('Save'); }
+  };
+  const row = (key, input, read) => {
+    const btn = h('button', { class: 'btn sm primary', type: 'button' }, 'Save');
+    btn.onclick = () => { let v; try { v = read(); } catch (x) { return toast(x.message, true); } save(key, v, btn); };
+    return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'small muted' }, meta[key].help) : null), h('div', { class: 'setin' }, input, btn));
+  };
+  const num = (key) => { const el = h('input', { type: 'number', min: 0, step: 1, value: settings[key], style: 'width:110px' }); return row(key, el, () => Number(el.value)); };
+  const list = (key, ph) => { const el = h('input', { type: 'text', value: settings[key].join(', '), placeholder: ph, style: 'min-width:320px' }); return row(key, el, () => el.value.split(',').map((x) => x.trim()).filter(Boolean)); };
+  const sig = settings['writer.structured_signal'];
+  const sigNum = h('input', { type: 'number', min: 1, value: sig.signal, style: 'width:90px', 'aria-label': 'Signal number' });
+  const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
+  const group = (title, rows) => h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'card-pad setlist' }, rows));
+  shell('settings', [pageHead('Settings', 'Numbers and lists the app used to have fixed in code. Changes apply to the next job, no restart needed.'),
+    group('Project matching', [num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
+    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...')]),
+    group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
+      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
+}
+
 // ---------- router ----------
 async function route() {
   try {
     if (!me) me = (await api('GET', '/me')).user;
     if (!me) return loginView();
+    if (!CFG) CFG = (await api('GET', '/settings')).settings;
     const [, a, b] = location.hash.split('?')[0].split('/');
     if (a === 's' && b) return await detailView(Number(b));
     if (a === 'history') return await historyView();
@@ -1334,6 +1401,8 @@ async function route() {
     if (a === 'profiles' && me.role === 'admin') return await profilesView();
     if (a === 'users' && me.role === 'admin') return await usersView();
     if (a === 'skill' && me.role === 'admin') return await skillView();
+    if (a === 'rules' && me.role === 'admin') return await rulesView();
+    if (a === 'settings' && me.role === 'admin') return await settingsView();
     if (a === 'audit' && me.role === 'admin') return await auditView();
     return newView();
   } catch (e) {

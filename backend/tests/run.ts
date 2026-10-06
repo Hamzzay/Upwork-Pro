@@ -110,6 +110,12 @@ const ctx = { rules, projects };
   const shown = [{ project_id: 10 }, { project_id: 11 }, { project_id: 12 }];
   assert.equal(validSelection([10, 11], shown), null);
   for (const bad of [[10], [10, 10], [10, 11, 12], [10, 99], []]) assert.ok(validSelection(bad, shown), 'rejects ' + JSON.stringify(bad));
+  // the admin range: 1 to 2
+  assert.equal(validSelection([10], shown, 1, 2), null); assert.equal(validSelection([10, 12], shown, 1, 2), null);
+  for (const bad of [[], [10, 11, 12], [10, 10]]) assert.ok(validSelection(bad, shown, 1, 2), 'range rejects ' + JSON.stringify(bad));
+  // shown, recommended and the minimum score come from settings
+  const opt = rankProjects([wf1, ind, tool], [P(90, 'A', 1, 3), P(91, 'B', 1), P(92, 'C', 3)], { shown: 2, recommended: 1, minScore: 3 });
+  assert.deepEqual(opt.map((x) => [x.project_name, x.recommended]), [['A', true], ['B', false]]);
 
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));

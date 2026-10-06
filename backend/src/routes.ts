@@ -10,6 +10,7 @@ import { library } from './routes_library';
 import { proposals, proposalFor } from './routes_proposals';
 import { validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
+import { getSettings, setSetting, SETTINGS, type SettingKey } from './settings';
 
 export const api = Router();
 api.use(attachUser);
@@ -347,14 +348,15 @@ api.get('/screenings/:id/matching', requireRole(), async (req, res) => {
   res.json({ matching: await matchingFor(id) });
 });
 
-// Confirm exactly 2 of the 5 projects shown.
+// Confirm the projects (how many is an admin setting) from those shown.
 api.put('/screenings/:id/selection', requireRole(), async (req, res) => {
-  const b = z.object({ project_ids: z.array(z.number().int().positive()).length(2, 'Select exactly 2 projects') }).safeParse(req.body);
+  const b = z.object({ project_ids: z.array(z.number().int().positive()).min(1, 'Select at least one project').max(10) }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const s = await ownedDone(req, res); if (!s) return;
   if (s.tagging_status !== 'done') return void res.status(409).json({ error: 'Project matching is not finished yet' });
   const matches = await query<any>('SELECT project_id, recommended FROM job_matches WHERE screening_id=?', [s.id]);
-  const bad = validSelection(b.data.project_ids, matches);
+  const cfg = await getSettings();
+  const bad = validSelection(b.data.project_ids, matches, cfg['selection.min'], cfg['selection.max']);
   if (bad) return void res.status(400).json({ error: bad });
   const rec = new Set(matches.filter((m) => m.recommended).map((m) => m.project_id));
   const sameAsRecommended = b.data.project_ids.every((i) => rec.has(i));
@@ -369,12 +371,12 @@ api.put('/screenings/:id/selection', requireRole(), async (req, res) => {
   res.json({ ok: true });
 });
 
-// Step 3: after the 2 projects are confirmed, pick the one Upwork profile the proposal will be sent from.
+// Step 3: after the projects are confirmed, pick the one Upwork profile the proposal will be sent from.
 api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
   const b = z.object({ profile_id: z.number().int().positive('Choose a profile') }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const s = await ownedDone(req, res); if (!s) return;
-  if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the 2 projects first' });
+  if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the projects first' });
   const prof = (await query<any>('SELECT id, active FROM upwork_profiles WHERE id=?', [b.data.profile_id]))[0];
   if (!prof) return void res.status(400).json({ error: 'That profile does not exist' });
   if (!prof.active) return void res.status(400).json({ error: 'That profile is disabled' });
@@ -393,7 +395,8 @@ api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
 
 // Continue anyway on FAIL or FLAG: a reason is required and kept.
 api.post('/screenings/:id/override', requireRole(), async (req, res) => {
-  const b = z.object({ reason: z.string().trim().min(15, 'Give a reason of at least 15 characters').max(2000) }).safeParse(req.body);
+  const minReason = (await getSettings())['override.min_reason'];
+  const b = z.object({ reason: z.string().trim().min(minReason, `Give a reason of at least ${minReason} characters`).max(2000) }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const id = Number(req.params.id);
   const rows = await query<any>('SELECT user_id, status, verdict FROM screenings WHERE id=?', [id]);
@@ -509,4 +512,57 @@ api.get('/admin/audit', admin, async (req, res) => {
     'SELECT a.id, a.action, a.detail, a.created_at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT ? OFFSET ?',
     [PAGE_SIZE, (page - 1) * PAGE_SIZE]);
   res.json({ log, total, page, pages, page_size: PAGE_SIZE });
+});
+
+// ---------- settings (read by every screen, changed by admins) ----------
+api.get('/settings', requireRole(), async (_req, res) => {
+  res.json({ settings: await getSettings(), meta: Object.fromEntries(Object.entries(SETTINGS).map(([k, d]) => [k, { label: d.label, help: d.help }])) });
+});
+api.put('/admin/settings/:key', admin, async (req, res) => {
+  const key = req.params.key as SettingKey;
+  if (!(key in SETTINGS)) return void res.status(404).json({ error: 'Unknown setting' });
+  try {
+    // the pick range must stay valid: check against the other end before saving
+    const cur = await getSettings(); const value = SETTINGS[key].schema.parse(req.body?.value);
+    const lo = key === 'selection.min' ? value : cur['selection.min'], hi = key === 'selection.max' ? value : cur['selection.max'];
+    if ((key === 'selection.min' || key === 'selection.max') && Number(lo) > Number(hi)) return void res.status(400).json({ error: 'The fewest projects to pick cannot be more than the most' });
+    const v = await setSetting(key, value, req.user!.id);
+    await audit(req.user!.id, 'setting_change', `${key}=${JSON.stringify(v).slice(0, 300)}`);
+    res.json({ ok: true, value: v });
+  } catch (e) {
+    if (e instanceof z.ZodError) return void res.status(400).json({ error: 'Not a valid value: ' + e.issues[0].message });
+    throw e;
+  }
+});
+
+// ---------- rules: codes are never renumbered or reused, only reworded or retired ----------
+api.get('/admin/rules', admin, async (_req, res) => {
+  const rules = await query<any>("SELECT code, type, rule, active, created_at, updated_at FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)");
+  // how many jobs each code fired on, so a retire decision can be made with the history in view
+  const fired = new Map<string, number>();
+  for (const r of await query<any>('SELECT rule_codes FROM screenings WHERE rule_codes IS NOT NULL')) {
+    for (const c of String(r.rule_codes).split(/\s*,\s*/).filter(Boolean)) fired.set(c, (fired.get(c) ?? 0) + 1);
+  }
+  res.json({ rules: rules.map((r) => ({ ...r, active: !!r.active, fired: fired.get(r.code) ?? 0 })) });
+});
+api.post('/admin/rules', admin, async (req, res) => {
+  const b = z.object({ type: z.enum(['fail', 'flag']), rule: z.string().trim().min(5, 'Describe the rule').max(300) }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const prefix = b.data.type === 'fail' ? 'F' : 'G';
+  // the next number after every code ever used, retired ones included, so an old code never means something new
+  const last = (await query<any>('SELECT MAX(CAST(SUBSTRING(code, 2) AS UNSIGNED)) AS n FROM rules WHERE code LIKE ?', [prefix + '%']))[0].n;
+  const code = prefix + (Number(last || 0) + 1);
+  await exec('INSERT INTO rules (code, type, rule, active) VALUES (?,?,?,1)', [code, b.data.type, b.data.rule]);
+  await audit(req.user!.id, 'rule_add', `${code} ${b.data.rule.slice(0, 200)}`);
+  res.status(201).json({ code });
+});
+api.patch('/admin/rules/:code', admin, async (req, res) => {
+  const b = z.object({ rule: z.string().trim().min(5).max(300).optional(), active: z.boolean().optional() }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const r = (await query<any>('SELECT code FROM rules WHERE code=?', [req.params.code]))[0];
+  if (!r) return void res.status(404).json({ error: 'Not found' });
+  if (b.data.rule !== undefined) await exec('UPDATE rules SET rule=? WHERE code=?', [b.data.rule, r.code]);
+  if (b.data.active !== undefined) await exec('UPDATE rules SET active=? WHERE code=?', [b.data.active ? 1 : 0, r.code]);
+  await audit(req.user!.id, 'rule_change', `${r.code}${b.data.rule !== undefined ? ' reworded' : ''}${b.data.active !== undefined ? (b.data.active ? ' restored' : ' retired') : ''}`);
+  res.json({ ok: true });
 });

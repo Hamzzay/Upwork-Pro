@@ -427,3 +427,10 @@ a.hbar:hover .lbl { color: var(--brand); }
 .daybars .col i { position: absolute; bottom: 0; left: 0; right: 0; border-radius: 4px 4px 0 0; }
 .daybars .col i.s { background: color-mix(in srgb, var(--brand) 30%, var(--surface-2)); }
 .daybars .col i.p { background: var(--brand); left: 5px; right: 5px; }
+
+/* rules and settings */
+tr.retired td { color: var(--faint); }
+.setlist { display: grid; gap: 0; }
+.setrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.setrow:last-child { border-bottom: 0; }
+.setin { display: flex; gap: 8px; align-items: center; }

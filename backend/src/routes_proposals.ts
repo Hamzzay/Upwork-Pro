@@ -302,7 +302,7 @@ proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
   const b = z.object({ template_id: z.number().int().positive().nullish() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: 'Invalid request' });
   const s = await ownedScreening(req, res); if (!s) return;
-  if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the 2 projects first' });
+  if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the projects first' });
   if (!s.proposal_profile_id) return void res.status(409).json({ error: 'Choose the profile that will send the proposal first' });
   let tpl: number | null = null;
   if (b.data.template_id) {

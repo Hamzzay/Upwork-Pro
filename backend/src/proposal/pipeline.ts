@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { getSettings } from '../settings';
 import { exec, pool, query, withRetry } from '../db';
 import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
@@ -45,7 +46,8 @@ async function loadFacts(screeningId: number, basis?: Basis) {
   const job = report?.job ?? report?.jobs?.[0] ?? null;
   const requirements: string[] = [];
   for (const n of job?.proposal_notes ?? []) if (n && !/^mock provider/i.test(n)) requirements.push(String(n));
-  for (const f of job?.flags ?? []) if (['G11', 'G12', 'G13'].includes(f.code)) requirements.push(`${f.rule}: ${f.value}`);
+  const passOn = new Set((await getSettings())['writer.requirement_rules']); // flags the writer must treat as client requirements (admin setting)
+  for (const f of job?.flags ?? []) if (passOn.has(f.code)) requirements.push(`${f.rule}: ${f.value}`);
   return { jobText: (s.job_text ?? s.raw_input) as string, sender, projects, requirements, profileId, projectIds: ids as number[] };
 }
 
@@ -173,8 +175,9 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   await stage('writing');
   const samples = (await query<any>('SELECT title, content FROM template_samples WHERE template_id=? AND active=1 ORDER BY id LIMIT 3', [chosen.id])).map((s) => ({ title: s.title, content: s.content }));
   const requirements = [...f.requirements];
-  const s5 = detected.find((d) => d.signal_number === 5 && /^yes$/i.test(d.value_name));
-  if (s5) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
+  const ss = (await getSettings())['writer.structured_signal']; // which signal value means "answer in the post's own structure" (admin setting)
+  const structured = detected.find((d) => d.signal_number === ss.signal && d.value_name.trim().toLowerCase() === ss.value.trim().toLowerCase());
+  if (structured) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
   const w = await run({ model: config.llm.model, system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements }),
     prompt: `<job_page>\n${f.jobText}\n</job_page>\n\nWrite the proposal now.`, schema: writerSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = writerOut.safeParse(w.data);
@@ -190,7 +193,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
 }
 
 // ---------- early drafts ----------
-// Once projects are matched, a draft is written with the 2 recommended projects and the likely profile, before the person
+// Once projects are matched, a draft is written with the recommended projects and the likely profile, before the person
 // has confirmed either. If they confirm the same ones, the proposal uses it instead of starting from scratch.
 
 /** Early drafts being written in this worker, so a confirmed proposal can wait for one instead of writing a second. */
@@ -212,10 +215,12 @@ export async function queueEarlyDraft(screeningId: number) {
   if (!s || (await query<any>('SELECT 1 FROM proposals WHERE screening_id=? LIMIT 1', [screeningId])).length) return;
   const rec = (await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND recommended=1 AND project_id IS NOT NULL ORDER BY rank_no', [screeningId])).map((r) => r.project_id as number);
   const profileId = await likelyProfile(s.user_id);
-  if (rec.length < 2 || !profileId) return;
+  const cfg = await getSettings();
+  const take = rec.slice(0, cfg['selection.max']);
+  if (take.length < cfg['selection.min'] || !profileId) return;
   await exec(`INSERT INTO early_drafts (screening_id, project_ids, profile_id) VALUES (?,?,?)
     ON DUPLICATE KEY UPDATE status=IF(status IN ('error','skipped'), 'queued', status), project_ids=IF(status IN ('error','skipped'), VALUES(project_ids), project_ids),
-      profile_id=IF(status IN ('error','skipped'), VALUES(profile_id), profile_id), error_code=NULL`, [screeningId, rec.slice(0, 2).join(','), profileId]);
+      profile_id=IF(status IN ('error','skipped'), VALUES(profile_id), profile_id), error_code=NULL`, [screeningId, take.join(','), profileId]);
 }
 
 /** Worker job: write the early draft and keep the result until the person confirms. */

@@ -6,6 +6,7 @@ import { providerName } from './llm';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects } from './screening/context';
 import { rankProjects, type JobTag } from './screening/matching';
+import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runProposal } from './proposal/pipeline';
 import { sheetValues } from './screening/persist';
@@ -84,7 +85,8 @@ async function processTagging(id: number) {
     const dict = await loadDictionary();
     const tagged = await tagJob(jobText, dict);
     const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance }));
-    const matches = rankProjects(jobTags, await loadLibraryProjects());
+    const cfg = await getSettings();
+    const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'] });
     await withRetry(async () => {
     const conn = await pool.getConnection();
     try {
