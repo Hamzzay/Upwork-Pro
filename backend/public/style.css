@@ -76,7 +76,12 @@ input[type=text], input[type=email], input[type=password], input[type=search], s
 input::placeholder, textarea::placeholder { color: var(--faint); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent); }
 textarea { resize: vertical; min-height: 120px; line-height: 1.5; }
-select { width: auto; padding-right: 30px; }
+/* one chevron for every dropdown, inset from the edge (the browser's own arrow sat on the border) */
+select { width: auto; -webkit-appearance: none; appearance: none; padding-right: 38px; cursor: pointer;
+  background-image: url("/chevron.svg"); /* a file: the CSP allows images from the app only */
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px 16px; text-overflow: ellipsis; }
+select:disabled { cursor: not-allowed; opacity: .65; }
+select::-ms-expand { display: none; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, transform .05s; white-space: nowrap; }
 .btn:hover { background: var(--surface-2); }
 .btn:active { transform: translateY(1px); }
@@ -440,8 +445,16 @@ details.timeline { margin-top: 16px; }
 details.timeline > summary { cursor: pointer; list-style: none; }
 details.timeline > summary::-webkit-details-marker { display: none; }
 .tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
-.tl li { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 8px 0 8px 14px; border-left: 2px solid var(--line); position: relative; }
+.tl li { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 8px 0 8px 14px; border-left: 2px solid var(--line); position: relative; }
 .tl li::before { content: ''; position: absolute; left: -6px; top: 13px; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); }
 .tl li.tl-call::before { background: var(--line); }
 .tl li.tl-error::before { background: var(--fail); }
-.tl .when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.tl .when { white-space: nowrap; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+
+/* job detail page */
+.kv.cols4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .kv.cols4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+pre.proposal-text { white-space: pre-wrap; font: inherit; font-size: 14.5px; line-height: 1.6; margin: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 16px 18px; }
+.plist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.plist li { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 8px; }
+.plist li.on { border-color: var(--brand); }

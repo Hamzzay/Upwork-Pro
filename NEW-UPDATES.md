@@ -203,6 +203,22 @@ empty database, and each screen in the browser with real GLM jobs.
   marked red. `GET /screenings/:id/timeline`.
 - Jobs screened before this change have steps in their timeline but no AI calls (they were not logged then).
 
+### R8. Dropdowns and the job detail page (done)
+- **Every dropdown has the same inset chevron** instead of the browser's arrow jammed against the border
+  (`select` in `style.css`). The chevron and the favicon are now files (`public/chevron.svg`,
+  `public/favicon.svg`): the Content-Security-Policy only allows images from the app, so the earlier inline
+  `data:` favicon was being blocked too.
+- **Opening a job now shows a read-only detail page** (`#/s/<id>`, `jobView` in `app.js`) with everything in one
+  place: result and rule codes, where it stands, decision, projects, profile, template, proposal status, time to
+  proposal, client facts, tracking, the reason for continuing, **the proposal text with a Copy button** and its
+  warnings, the projects shown and chosen (with the job's tags), the screening report, every record field, and the
+  timeline (open by default).
+- **Edit** (top right) opens the step-by-step workflow at `#/s/<id>/work`. When the job is waiting on its owner
+  the button says what is next, e.g. **"Continue: Pick projects"**, and opens that step. The workflow has a
+  **View details** link back.
+- Screening a new job still goes straight into the workflow, and a job that is still screening or failed opens
+  the workflow page (progress and retry live there).
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
