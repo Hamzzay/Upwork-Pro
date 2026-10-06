@@ -127,6 +127,22 @@ branch. Items still listed under "Still to do" are for Usman.
 - **Counter tiles** now include **Needs action** (click to filter) and respect every filter except verdict.
 - `listFilters` / `listWhere` / `orderBy` are exported so the export (R4) uses exactly the same filters.
 
+### R4. Export with filters (done)
+- **Export** button on the Jobs list: **Excel (.xlsx)** or **CSV**, for exactly the jobs matching the filters on
+  screen (including verdict, stage, dates, rule, profile, person, outcome, search) in the same order.
+- `GET /screenings/export?format=xlsx|csv&<same filters as the list>` (`routes.ts`), built by `src/export.ts`.
+  Up to 5,000 jobs per file. Related data is fetched in a few batch queries, not one per job.
+- **One row per job, 64 columns**: ID, date, submitted by, stage, title, link, every report field (posted,
+  budget, client country, hire rate, total spent, ...), verdict, rule codes, fail and flag reasons, gate
+  version, model, proceeded, override reason, job tags, projects shown with scores, projects chosen, profile,
+  signals (primary value and confidence), template, proposal status, versions, warning count, **the final
+  proposal text**, sent date, Connects, boost, viewed, replied, interview, outcome, notes, every step's time,
+  seconds to proposal, and the job description. Built to hand to Claude for "analyse last month".
+- Excel: header row frozen with filters on. CSV: UTF-8 with BOM for Excel, and any cell that starts like a
+  formula (`=`, `+`, `-`, `@`) is prefixed with `'` so a spreadsheet never runs text from a job post.
+- Every export is written to the audit log with the format, row count and filters.
+- `exceljs` moved from devDependencies to dependencies (the server now needs it). Run `npm install`.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

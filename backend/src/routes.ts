@@ -9,6 +9,7 @@ import { screenJobText } from './screening/service';
 import { library } from './routes_library';
 import { proposals, proposalFor } from './routes_proposals';
 import { validSelection } from './screening/matching';
+import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 
 export const api = Router();
 api.use(attachUser);
@@ -144,6 +145,23 @@ api.get('/screenings/stats', requireRole(), async (req, res) => {
        SUM((${stageSql}) IN (?)) AS needs_action
      ${listFrom} ${w.sql}`, [NEEDS_ACTION, ...w.p]))[0];
   res.json({ total: Number(r.total), PASS: Number(r.pass_n || 0), FLAG: Number(r.flag_n || 0), FAIL: Number(r.fail_n || 0), overridden: Number(r.overridden || 0), needs_action: Number(r.needs_action || 0) });
+});
+
+// Everything about every job the filters match, as CSV or Excel. Same filters and order as the Jobs list.
+api.get('/screenings/export', requireRole(), async (req, res) => {
+  const f = listFilters.extend({ format: z.enum(['csv', 'xlsx']).default('csv'), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
+  const w = listWhere(req, f);
+  const list = await query<any>(`${listSelect} ${w.sql} ${orderBy(f.sort, f.dir)} LIMIT ?`, [...w.p, EXPORT_LIMIT]);
+  const { headers, rows } = await exportRows(list.map((r) => r.id), new Map(list.map((r) => [r.id, r.stage])));
+  const name = `upwork-pro-jobs-${new Date().toLocaleDateString("sv")}.${f.format}`; // sv gives YYYY-MM-DD in local time
+  await audit(req.user!.id, 'export', `format=${f.format} rows=${rows.length} filters=${new URLSearchParams(req.query as any).toString().slice(0, 300)}`);
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  if (f.format === 'xlsx') {
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return void res.send(await toXlsx(headers, rows));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.send(toCsv(headers, rows));
 });
 
 // What the filter menus can offer: the people, profiles, rule codes and outcomes that exist.

@@ -292,6 +292,16 @@ async function historyView() {
     return h('label', { for: 'col-' + c.key, class: 'row small' }, cb, c.label);
   })) });
   const clearBtn = h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/history'; } }, 'Clear filters');
+  // the export uses the filters on screen, so "last month's FLAG jobs" is two clicks
+  const exportBtn = h('button', { class: 'btn', type: 'button' }, icon('doc'), 'Export');
+  exportBtn.onclick = () => {
+    const qs = jobQuery(st); qs.set('sort', st.sort); qs.set('dir', st.dir);
+    const n = st.v ? stats[st.v] : stats.total; // the counters ignore the verdict, so pick its own count
+    const link = (fmt, text, hint) => h('a', { class: 'btn' + (fmt === 'xlsx' ? ' primary' : ''), href: `/api/screenings/export?format=${fmt}&${qs}`, download: '' }, text, h('span', { class: 'faint small' }, hint));
+    modal({ title: 'Export jobs', noConfirm: true, body: h('div', {},
+      h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} matching the filters on screen${st.v ? ' (' + st.v + ' only)' : ''}: the job and client, the gate result, the decision, tags, projects, profile, signals, the final proposal, tracking and timings.`),
+      h('div', { class: 'row' }, link('xlsx', 'Excel (.xlsx)', ''), link('csv', 'CSV', ''))) });
+  };
   const filters = h('div', { class: 'toolbar filters' },
     h('div', { class: 'search' }, icon('search'), searchIn),
     dateIn('from', 'From date'), dateIn('to', 'To date'),
@@ -301,7 +311,7 @@ async function historyView() {
     opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null,
     sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]),
     me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null,
-    h('span', { class: 'grow' }), clearBtn, colBtn);
+    h('span', { class: 'grow' }), clearBtn, colBtn, exportBtn);
   const listEl = h('div', { class: 'card' }, filters, bodyEl);
 
   const tile = (key, label, value, onClick, on) => h('button', { class: `stat ${key} ${on ? 'on' : ''}`, onclick: onClick }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value));
