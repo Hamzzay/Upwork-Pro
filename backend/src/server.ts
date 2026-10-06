@@ -22,7 +22,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use('/api', api);
-app.use(express.static(path.join(appRoot, 'public')));
+app.use(express.static(path.join(appRoot, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') })); // revalidate, so a deploy is seen without a hard reload
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ZodError) return void res.status(400).json({ error: 'Invalid request', issues: err.issues.map((i) => i.message) });

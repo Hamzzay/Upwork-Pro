@@ -363,3 +363,15 @@ input[type=number], input[type=date] { width: 100%; padding: 9px 12px; border: 1
 .stepnav { display: flex; align-items: center; gap: 12px; margin-top: 22px; padding: 14px 0 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .stepnav .grow { flex: 1; text-align: center; }
 @media (max-width: 600px) { .stp .lab { font-size: 11px; } .stp .dot { width: 30px; height: 30px; } .stepper-bar li + li::before { top: 14px; } }
+
+/* tracking and the end of the journey */
+.grid4 > .field { margin-top: 0 !important; }
+.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 860px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.complete-head { display: flex; gap: 14px; align-items: center; padding: 20px 20px 4px; }
+.complete-head h2 { margin: 0; font-size: 20px; }
+.complete-head p { margin: 2px 0 0; }
+.complete-head .ico { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--pass, #16a34a) 15%, transparent); color: var(--pass, #16a34a); }
+.complete-head .ico svg { width: 22px; height: 22px; }
+.mcard.pickable { cursor: pointer; }
+.mcard.pickable:hover { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); }

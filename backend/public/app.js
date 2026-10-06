@@ -401,7 +401,8 @@ function matchingSection(s, initial) {
       const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= 2 && !on);
       const cb = h('input', { type: 'checkbox', id: 'mp' + r.rank, checked: on, disabled: locked, 'aria-label': 'Select ' + r.project_name });
       cb.onchange = () => { if (cb.checked) picked.add(r.project_id); else picked.delete(r.project_id); draw(); };
-      return h('div', { class: 'mcard' + (on ? ' on' : '') + (r.recommended ? ' rec' : '') },
+      const toggle = (e) => { if (locked || e.target.closest('a, input')) return; cb.checked = !cb.checked; cb.onchange(); }; // the whole card picks the project
+      return h('div', { class: 'mcard' + (on ? ' on' : '') + (r.recommended ? ' rec' : '') + (owner && !locked ? ' pickable' : ''), onclick: owner ? toggle : null },
         h('div', { class: 'mtop' }, owner ? cb : null, h('span', { class: 'rank' }, '#' + r.rank),
           h('div', { class: 'mname' }, r.project_id ? h('a', { href: '#/p/' + r.project_id }, r.project_name) : h('span', {}, r.project_name, h('span', { class: 'faint small' }, ' (removed from library)'))),
           r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip' }, 'Match')),
@@ -443,29 +444,60 @@ function matchingSection(s, initial) {
 }
 
 // ---------- tracking and record details ----------
-const OUTCOMES = ['Applied', 'Interview', 'Hired', 'Rejected', 'No response', 'Withdrawn'];
-function trackingCard(s) {
+const OUTCOMES = ['Pending', 'Hired', 'Not hired', 'No response', 'Withdrawn', 'Job closed'];
+const yesNo = (id, value) => h('select', { id, style: 'width:100%' }, [['', 'Not known'], ['yes', 'Yes'], ['no', 'No']].map(([v, l]) => h('option', { value: v, selected: (value || '') === v }, l)));
+const numIn = (id, value, placeholder) => h('input', { type: 'number', id, min: 0, max: 1000, step: 1, value: value ?? '', placeholder });
+/** After the proposal: what happened on Upwork. `onSaved` is called with the saved values. */
+function trackingCard(s, onSaved) {
   const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
   const proceeded = h('select', { id: 'tp', style: 'width:100%' }, [['', 'Not decided'], ['yes', 'Yes, proceeding'], ['no', 'No, skipped']].map(([v, l]) => h('option', { value: v, selected: (s.proceeded || '') === v }, l)));
   const date = h('input', { type: 'date', id: 'td', value: s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : '' });
-  const list = h('datalist', { id: 'outcomes' }, OUTCOMES.map((o) => h('option', { value: o })));
-  const outcome = h('input', { type: 'text', id: 'to', list: 'outcomes', maxlength: 60, value: s.outcome || '', placeholder: 'For example: Interview' });
+  const connects = numIn('tc', s.connects_spent, 'e.g. 16'), boost = numIn('tb', s.boost_connects, '0 if not boosted');
+  const viewed = yesNo('tv', s.client_viewed), replied = yesNo('tr', s.client_replied), interview = yesNo('ti', s.interviewed);
+  const outs = OUTCOMES.includes(s.outcome) || !s.outcome ? OUTCOMES : [...OUTCOMES, s.outcome]; // keeps an older free-text value selectable
+  const outcome = h('select', { id: 'to', style: 'width:100%' }, h('option', { value: '' }, 'Not known yet'), outs.map((o) => h('option', { value: o, selected: s.outcome === o }, o)));
   const notes = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000, placeholder: 'Anything worth remembering about this job or the proposal.' }); notes.value = s.notes || '';
   const err = h('div', { class: 'err', hidden: true });
   const btn = h('button', { class: 'btn primary', type: 'button' }, 'Save tracking');
-  [proceeded, date, outcome, notes].forEach((el) => { el.disabled = !canEdit; });
+  const fields = [proceeded, date, connects, boost, viewed, replied, interview, outcome, notes];
+  fields.forEach((el) => { el.disabled = !canEdit; });
+  const num = (el) => (el.value === '' ? null : Number(el.value));
   btn.onclick = async () => {
     err.hidden = true; btnBusy(btn, 'Saving');
-    try { await api('PATCH', `/screenings/${s.id}/tracking`, { proceeded: proceeded.value || null, proposal_sent_date: date.value || null, outcome: outcome.value.trim() || null, notes: notes.value.trim() || null }); toast('Tracking saved'); }
+    const body = { proceeded: proceeded.value || null, proposal_sent_date: date.value || null, connects_spent: num(connects), boost_connects: num(boost),
+      client_viewed: viewed.value || null, client_replied: replied.value || null, interviewed: interview.value || null, outcome: outcome.value || null, notes: notes.value.trim() || null };
+    try { await api('PATCH', `/screenings/${s.id}/tracking`, body); toast('Tracking saved'); if (onSaved) return onSaved(body); }
     catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; }
     btn.disabled = false; btn.replaceChildren('Save tracking');
   };
+  const f = (id, label, el, hint) => h('div', { class: 'field' }, h('label', { class: 'lbl', for: id }, label), el, hint ? h('div', { class: 'hint' }, hint) : null);
   return h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Tracking'),
-    h('div', { class: 'grid3' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Proceeded'), proceeded),
-      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'td' }, 'Proposal sent'), date),
-      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'to' }, 'Outcome'), outcome, list)),
-    h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), notes), err,
+    h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Fill this in after sending the proposal on Upwork, and update it as the client responds.'),
+    h('div', { class: 'grid4' }, f('tp', 'Proceeded', proceeded), f('td', 'Proposal sent', date), f('tc', 'Connects spent', connects), f('tb', 'Boost (Connects)', boost)),
+    h('div', { class: 'grid4', style: 'margin-top:12px' }, f('tv', 'Client viewed', viewed), f('tr', 'Client replied', replied), f('ti', 'Interview', interview), f('to', 'Outcome', outcome)),
+    h('div', { class: 'field', style: 'margin-top:12px' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), notes), err,
     canEdit ? h('div', { style: 'margin-top:14px' }, btn) : h('p', { class: 'hint' }, 'Only the submitter, managers and admins can edit this.'));
+}
+
+/** The end of the journey: what was sent and what happened, with the next things to do. */
+function completePanel(s, matching, proposal, onEdit) {
+  const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : 'not known');
+  const connects = s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ` + ${s.boost_connects} boost` : ''}` : 'not recorded';
+  const rows = [
+    ['Verdict', `${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}`],
+    ['Projects', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join(', ') : 'not chosen'],
+    ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : 'not chosen'],
+    ['Template', proposal && proposal.template ? proposal.template.name : 'none'],
+    ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : 'not recorded'], ['Connects', connects],
+    ['Client viewed', yn(s.client_viewed)], ['Client replied', yn(s.client_replied)], ['Interview', yn(s.interviewed)], ['Outcome', s.outcome || 'not known yet'],
+  ];
+  return h('div', { class: 'card complete' },
+    h('div', { class: 'complete-head' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('h2', {}, 'Job complete'),
+      h('p', { class: 'muted' }, 'Tracking saved' + (s.tracking_updated_at ? ' ' + ago(s.tracking_updated_at) : '') + '. Update it again when the client responds.'))),
+    h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: /not |none/.test(v) ? 'ns' : '' }, v)))),
+      s.notes ? h('blockquote', {}, s.notes) : null,
+      h('div', { class: 'row', style: 'margin-top:16px' }, h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen another job'),
+        h('a', { class: 'btn', href: lastList.history }, 'Back to jobs'), onEdit ? h('button', { class: 'btn', type: 'button', onclick: onEdit }, 'Edit tracking') : null)));
 }
 
 /** "name @ price / GitLab" pieces for a profile, as one readable line (or null). */
@@ -597,13 +629,15 @@ function stepperView(data) {
     return h('div', {}, out);
   }
   function trackingStep() {
-    return h('div', {}, h('div', { class: 'card card-pad', style: 'margin-bottom:16px' }, h('h3', { class: 'section-title' }, 'Where this job stands'),
-      h('ul', { class: 'plain' }, [
-        ['Screened', `${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}`], ['Projects chosen', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join(', ') : 'not yet'],
-        ['Sending profile', matching && matching.proposal_profile ? matching.proposal_profile.name : 'not yet'], ['Proposal', proposal && proposal.finalized_at ? `finished ${ago(proposal.finalized_at)}${proposal.template ? ' (' + proposal.template.name + ')' : ''}` : 'not finished'],
-        ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : 'not recorded'], ['Outcome', s.outcome || 'not recorded'],
-      ].map(([k, v]) => h('li', {}, h('span', {}, h('strong', {}, k + ': '), v))))),
-      trackingCard(s), h('div', { style: 'height:16px' }), recordDetails(s, override, matching, proposal));
+    const holder = h('div', {});
+    const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
+    // once tracking is saved the journey is over: show the summary, and the form only when asked
+    const draw = (editing) => holder.replaceChildren(
+      editing ? trackingCard(s, (saved) => { Object.assign(s, saved, { tracking_updated_at: new Date().toISOString() }); draw(false); window.scrollTo({ top: 0 }); })
+        : completePanel(s, matching, proposal, canEdit ? () => draw(true) : null),
+      h('div', { style: 'height:16px' }), recordDetails(s, override, matching, proposal));
+    draw(!s.tracking_updated_at);
+    return holder;
   }
   function drawContent() {
     active = null;

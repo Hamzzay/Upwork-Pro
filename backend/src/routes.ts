@@ -162,7 +162,13 @@ const trackBody = z.object({
   proposal_sent_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-10-05').refine((d) => !Number.isNaN(Date.parse(d)), 'Not a real date').nullable().optional(),
   outcome: z.string().trim().max(60).nullable().optional(),
   notes: z.string().trim().max(4000).nullable().optional(),
+  connects_spent: z.number().int().min(0).max(1000).nullable().optional(),
+  boost_connects: z.number().int().min(0).max(1000).nullable().optional(),
+  client_viewed: z.enum(['yes', 'no']).nullable().optional(),
+  client_replied: z.enum(['yes', 'no']).nullable().optional(),
+  interviewed: z.enum(['yes', 'no']).nullable().optional(),
 });
+const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed'] as const;
 api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   const b = trackBody.safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
@@ -171,11 +177,11 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   if (s.status !== 'done') return void res.status(409).json({ error: 'Wait until the screening is finished' });
   const sets: string[] = []; const p: any[] = [];
-  for (const k of ['proceeded', 'proposal_sent_date', 'outcome', 'notes'] as const) {
+  for (const k of TRACK_KEYS) {
     if (b.data[k] !== undefined) { sets.push(`${k}=?`); p.push(b.data[k] === '' ? null : b.data[k]); }
   }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
-  await exec(`UPDATE screenings SET ${sets.join(',')} WHERE id=?`, [...p, id]);
+  await exec(`UPDATE screenings SET ${sets.join(',')}, tracking_updated_at=NOW() WHERE id=?`, [...p, id]);
   await audit(req.user!.id, 'tracking_update', `screening=${id} fields=${Object.keys(b.data).join(',')}`);
   res.json({ ok: true });
 });

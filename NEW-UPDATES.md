@@ -95,8 +95,22 @@ branch. Items still listed under "Still to do" are for Usman.
   JobGate, Users, Audit log). Each link carries the roles that see it, so adding a page is one line.
 - Kept on purpose: database `upwork_gate`, table `skill_versions` and the URL `#/skill` (internal names).
 
-## Feedback from Hamza's testing (not done yet)
-1. **Projects step: the whole project card should be clickable**, not only the small tick box.
-   Having to untick one project before picking another is fine. (`backend/public/app.js` around line 385.)
-2. **Tracking step: Save tracking should finish the journey** and take the user to a separate success
-   screen, instead of staying on the same page.
+### R2. After the proposal: tracking and the end of the journey (done)
+- **New tracking fields** (migration `009_tracking_fields.sql`, run `npm run migrate`): Connects spent, boost
+  (Connects), client viewed, client replied, interview, and `tracking_updated_at`. The tracking API
+  (`PATCH /screenings/:id/tracking`) accepts them.
+- **Outcome is a dropdown** (`OUTCOMES` in `app.js`: Pending, Hired, Not hired, No response, Withdrawn, Job
+  closed). An older free-text value stays selectable. (Making this list editable in the app is part of
+  "fully dynamic", still to do.)
+- **Save tracking now ends the journey**: the Tracking step switches to a **"Job complete"** panel with the
+  verdict, projects, profile, template, sent date, Connects, viewed/replied/interview and outcome, plus
+  **Screen another job**, **Back to jobs** and **Edit tracking**. Reopening a job whose tracking was saved
+  shows this panel first.
+- **The whole project card is clickable** on the Projects step, not only the tick box (links on the card
+  still open the project).
+- Static files are served with `Cache-Control: no-cache`, so after a deploy people get the new screens
+  without a hard reload (`server.ts`).
+
+## Feedback from Hamza's testing
+Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
+screen.
