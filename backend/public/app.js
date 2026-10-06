@@ -164,7 +164,7 @@ function shell(active, content, wide) {
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
         h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; CFG = null; route(); } }, icon('out')))),
-    h('main', { class: 'content' }, h('div', { class: 'page', style: wide ? `max-width:${wide === true ? 1180 : wide}px` : null }, content))));
+    h('main', { class: 'content' }, h('div', { class: 'page' }, content))));
   window.scrollTo(0, 0);
 }
 const pageHead = (title, sub, actions) =>
@@ -272,7 +272,7 @@ async function dashboardView() {
   function draw(d) {
     const c = d.counts, t = d.timings;
     const funnel = [['Screened', c.screened, {}], ['Continued', c.continued, {}], ['Proposal written', c.proposals, {}], ['Proposal sent', c.sent, {}],
-      ['Client viewed', c.viewed, {}], ['Replied', c.replied, {}], ['Interview', c.interviewed, {}], ['Hired', c.hired, { outcome: 'Hired' }]];
+      ['Client viewed', c.viewed, {}], ['Chat opened', c.replied, {}], ['Interview', c.interviewed, {}], ['Hired', c.hired, { outcome: 'Hired' }]];
     const needs = d.needs_action.reduce((a, k) => a + (d.stages[k] || 0), 0);
     const maxDay = Math.max(1, ...d.daily.map((x) => x.screened));
     const people = (rows, key) => rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['', 'Screened', 'Continued', 'Proposals', 'Sent', 'Hired', 'Avg to proposal'].map((x) => h('th', {}, x)))),
@@ -321,23 +321,34 @@ async function dashboardView() {
 // ---------- status: what happened on Upwork after the proposal ----------
 /** Now, as the value a datetime-local input takes (local time, to the minute). */
 const nowLocal = () => { const d = new Date(); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
-const NEXT_STATUS = { '': 'Sent', Sent: 'Viewed', Viewed: 'Replied', Replied: 'Interview' };
+const NEXT_STATUS = { '': 'Sent', Sent: 'Viewed', Viewed: 'Chat opened', 'Chat opened': 'Interview' };
 const canTrack = (userId) => userId === me.id || me.role === 'admin' || me.role === 'manager';
 /** One click to record a status and when it happened (now, unless changed). Every change is kept in the history. */
 async function statusDialog(id, onDone) {
   const d = await api('GET', `/screenings/${id}/status`);
   let pick = NEXT_STATUS[d.current || ''] || d.choices[0];
+  let draw;
   const when = h('input', { type: 'datetime-local', id: 'sat', value: nowLocal(), max: nowLocal() });
+  const reason = h('select', { id: 'srs', style: 'width:100%' }, h('option', { value: '' }, 'Choose a reason'), d.loss_reasons.map((r) => h('option', { value: r }, r)));
+  const note = h('textarea', { id: 'snt', style: 'min-height:64px', maxlength: 2000, placeholder: 'Anything the client said, or what we could do differently (optional)' });
+  const lossBox = h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'srs' }, 'Why didn\u2019t the client go ahead? (required)'), reason, h('div', { style: 'height:8px' }), note);
+  const syncLoss = () => { lossBox.hidden = !d.loss_outcomes.includes(pick); };
   const grid = h('div', { class: 'statuspick', role: 'radiogroup', 'aria-label': 'Status' });
-  const draw = () => grid.replaceChildren(...d.choices.map((c) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === c, class: 'chip' + (pick === c ? ' brand' : '') + (c === d.current ? ' cur' : ''), onclick: () => { pick = c; draw(); } }, c)));
+  draw = () => grid.replaceChildren(...d.choices.map((c) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === c, class: 'chip' + (pick === c ? ' brand' : '') + (c === d.current ? ' cur' : '') + (d.loss_outcomes.includes(c) ? ' loss' : ''), onclick: () => { pick = c; draw(); } }, c)));
+  const draw0 = draw; draw = () => { draw0(); syncLoss(); };
   draw();
   modal({ title: 'Update status', confirm: 'Save status', body: h('div', {},
     d.current ? h('p', { class: 'small muted', style: 'margin-top:0' }, 'Now: ', h('strong', {}, d.current)) : null,
     grid,
+    lossBox,
     h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, h('div', { class: 'hint' }, 'Set to now. Change it only if it happened earlier.')),
     d.events.length ? h('details', { class: 'desc', style: 'margin-top:12px' }, h('summary', {}, `History (${d.events.length})`),
-      h('ul', { class: 'plain' }, d.events.map((e) => h('li', {}, h('strong', {}, e.status), h('span', { class: 'muted' }, ` · ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}`))))) : null),
-    onConfirm: async () => { await api('POST', `/screenings/${id}/status`, { status: pick, at: when.value }); toast(`Status: ${pick}`); if (onDone) await onDone(); } });
+      h('ul', { class: 'plain' }, d.events.map((e) => h('li', {}, h('strong', {}, e.status), h('span', { class: 'muted' }, ` · ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}${e.reason ? ' · ' + e.reason : ''}`))))) : null),
+    onConfirm: async () => {
+      const lost = d.loss_outcomes.includes(pick);
+      await api('POST', `/screenings/${id}/status`, { status: pick, at: when.value, reason: lost ? reason.value || null : null, note: note.value.trim() || null });
+      toast(`Status: ${pick}`); if (onDone) await onDone();
+    } });
 }
 
 // ---------- jobs list ----------
@@ -359,9 +370,7 @@ const clip = (v, w) => (v ? h('span', { class: 'clip', title: v, style: `max-wid
 /** Every column the Jobs list can show. `def` ones are on until the person changes them. */
 const JOB_COLS = [
   { key: 'progress', label: 'Progress', sort: 'stage', def: true, cell: (r) => progressDots(r.stage) },
-  { key: 'status', label: 'Status', def: true, cell: (r, reload) => h('div', { class: 'statuscell' },
-    h('div', {}, r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null),
-    r.status === 'done' && canTrack(r.user_id) ? h('button', { class: 'btn sm', type: 'button', title: 'Update status', onclick: (e) => { e.stopPropagation(); statusDialog(r.id, reload); } }, 'Update') : null) },
+  { key: 'status', label: 'Status', def: true, cell: (r) => [r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null] },
   { key: 'verdict', label: 'Result', sort: 'verdict', def: true, cell: (r) => [verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null] },
   { key: 'country', label: 'Client', sort: 'country', def: true, cell: (r) => clip(r.client_country, 170) },
   { key: 'budget', label: 'Budget', def: true, cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
@@ -371,7 +380,7 @@ const JOB_COLS = [
   { key: 'template', label: 'Template', cell: (r) => clip(r.template_name, 180) },
   { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_date ? String(r.proposal_sent_date).slice(0, 10) : '') },
   { key: 'connects', label: 'Connects', cell: (r) => (r.connects_spent != null ? r.connects_spent + (r.boost_connects ? ' + ' + r.boost_connects : '') : '') },
-  { key: 'response', label: 'Viewed / replied / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
+  { key: 'response', label: 'Viewed / chat / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
   { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => clip(r.outcome, 120) },
   { key: 'time', label: 'To proposal', sort: 'time', def: true, cell: (r) => mins(r.secs_to_proposal) },
   { key: 'created', label: 'When', sort: 'created', def: true, cell: (r) => h('span', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)) },
@@ -459,10 +468,12 @@ async function historyView() {
     const filtered = FILTER_KEYS.some((k) => st[k]);
     const table = !rows.length
       ? emptyState('list', filtered ? 'No matches' : 'No jobs yet', filtered ? 'Try different filters.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
-      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)))),
+      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)), h('th', { class: 'pin' }, ''))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
           h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id)),
-          shown.map((c) => h('td', {}, c.cell(r, load))))))));
+          shown.map((c) => h('td', {}, c.cell(r))),
+          // the row's action stays pinned to the right edge, visible however far the table scrolls
+          h('td', { class: 'pin' }, r.status === 'done' && canTrack(r.user_id) ? h('button', { class: 'btn sm', type: 'button', onclick: (e) => { e.stopPropagation(); statusDialog(r.id, load); } }, 'Update status') : null))))));
     if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history'; });
     bodyEl.replaceChildren(table, pager(total, st.page, (n) => { st.page = n; load(); }));
   }
@@ -677,15 +688,24 @@ function trackingCard(s, onSaved) {
   const outs = OUTCOMES.includes(s.outcome) || !s.outcome ? OUTCOMES : [...OUTCOMES, s.outcome]; // keeps an older value selectable
   const outcome = h('select', { id: 'to', style: 'width:100%' }, h('option', { value: '' }, 'Not known yet'), outs.map((o) => h('option', { value: o, selected: s.outcome === o }, o)));
   const notes = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000, placeholder: 'Anything worth remembering about this job or the proposal.' }); notes.value = s.notes || '';
+  const lossOutcomes = cfg('tracking.loss_outcomes', []), lossReasons = cfg('tracking.loss_reasons', []);
+  const reasons = lossReasons.includes(s.outcome_reason) || !s.outcome_reason ? lossReasons : [...lossReasons, s.outcome_reason];
+  const reason = h('select', { id: 'tlr', style: 'width:100%' }, h('option', { value: '' }, 'Choose a reason'), reasons.map((r) => h('option', { value: r, selected: s.outcome_reason === r }, r)));
+  const reasonNote = h('textarea', { id: 'tln', style: 'min-height:64px', maxlength: 2000, placeholder: 'What the client said, or what we could do differently (optional)' }); reasonNote.value = s.outcome_note || '';
+  const lossBox = h('div', { class: 'grid2', style: 'margin-top:12px' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tlr' }, 'Why didn\u2019t the client go ahead? (required)'), reason),
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tln' }, 'Note on the reason'), reasonNote));
+  const syncLoss = () => { lossBox.hidden = !lossOutcomes.includes(outcome.value); };
   const err = h('div', { class: 'err', hidden: true });
   const btn = h('button', { class: 'btn primary', type: 'button' }, 'Save tracking');
-  const fields = [proceeded, date, connects, boost, viewed, replied, interview, outcome, notes];
+  const fields = [proceeded, date, connects, boost, viewed, replied, interview, outcome, notes, reason, reasonNote];
+  outcome.addEventListener('change', syncLoss); syncLoss();
   fields.forEach((el) => { el.disabled = !canEdit; });
   const num = (el) => (el.value === '' ? null : Number(el.value));
   btn.onclick = async () => {
     err.hidden = true; btnBusy(btn, 'Saving');
     const body = { proceeded: proceeded.value || null, proposal_sent_date: date.value || null, connects_spent: num(connects), boost_connects: num(boost),
-      client_viewed: viewed.value || null, client_replied: replied.value || null, interviewed: interview.value || null, outcome: outcome.value || null, notes: notes.value.trim() || null };
+      client_viewed: viewed.value || null, client_replied: replied.value || null, interviewed: interview.value || null, outcome: outcome.value || null, notes: notes.value.trim() || null,
+      outcome_reason: lossOutcomes.includes(outcome.value) ? reason.value || null : null, outcome_note: lossOutcomes.includes(outcome.value) ? reasonNote.value.trim() || null : null };
     try { await api('PATCH', `/screenings/${s.id}/tracking`, body); toast('Tracking saved'); if (onSaved) return onSaved(body); }
     catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; }
     btn.disabled = false; btn.replaceChildren('Save tracking');
@@ -694,7 +714,7 @@ function trackingCard(s, onSaved) {
   return h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Tracking'),
     h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Fill this in after sending the proposal on Upwork, and update it as the client responds.'),
     h('div', { class: 'grid4' }, f('tp', 'Proceeded', proceeded), f('td', 'Proposal sent', date), f('tc', 'Connects spent', connects), f('tb', 'Boost (Connects)', boost)),
-    h('div', { class: 'grid4', style: 'margin-top:12px' }, f('tv', 'Client viewed', viewed), f('tr', 'Client replied', replied), f('ti', 'Interview', interview), f('to', 'Outcome', outcome)),
+    h('div', { class: 'grid4', style: 'margin-top:12px' }, f('tv', 'Client viewed', viewed), f('tr', 'Chat opened', replied), f('ti', 'Interview', interview), f('to', 'Outcome', outcome)), lossBox,
     h('div', { class: 'field', style: 'margin-top:12px' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), notes), err,
     canEdit ? h('div', { style: 'margin-top:14px' }, btn) : h('p', { class: 'hint' }, 'Only the submitter, managers and admins can edit this.'));
 }
@@ -709,7 +729,7 @@ function completePanel(s, matching, proposal, onEdit) {
     ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : 'not chosen'],
     ['Template', proposal && proposal.template ? proposal.template.name : 'none'],
     ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : 'not recorded'], ['Connects', connects],
-    ['Client viewed', yn(s.client_viewed)], ['Client replied', yn(s.client_replied)], ['Interview', yn(s.interviewed)], ['Outcome', s.outcome || 'not known yet'],
+    ['Client viewed', yn(s.client_viewed)], ['Chat opened', yn(s.client_replied)], ['Interview', yn(s.interviewed)], ['Outcome', s.outcome || 'not known yet'], ...(s.outcome_reason ? [['Why lost', s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '')]] : []),
   ];
   return h('div', { class: 'card complete' },
     h('div', { class: 'complete-head' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('h2', {}, 'Job complete'),
@@ -837,7 +857,7 @@ function stepperView(data) {
   }
 
   function screeningStep() {
-    const out = [];
+    const out = [postingCard(data.s, true), h('div', { style: 'height:16px' })];
     const blocks = s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1));
     blocks.forEach((b, i) => out.push(b, i < blocks.length - 1 ? h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:28px 0' }) : null));
     out.push(h('div', { style: 'height:16px' }));
@@ -884,6 +904,40 @@ function stepperView(data) {
   stepCtx = ctx;
   drawBar(); drawContent(); drawNav();
   return h('div', { class: 'stepper' }, bar, content, nav);
+}
+
+/** The job post as copied from Upwork, in fields: terms, description, skills, questions, activity, the client and their history. */
+function postingCard(s, open = true) {
+  const p = s.posting;
+  const body = h('div', { class: 'card-pad posting' });
+  const box = h('details', { class: 'card', open: open || null, style: 'margin-top:16px' },
+    h('summary', { class: 'card-head', style: 'cursor:pointer;list-style:none' }, h('h2', {}, 'Job posting'), h('span', { class: 'sub' }, 'Everything copied from Upwork')), body);
+  const raw = s.job_description ? h('details', { class: 'desc' }, h('summary', {}, 'The full pasted text'), h('pre', {}, s.job_description)) : null;
+  const grid = (rows) => (rows && rows.length ? h('dl', { class: 'terms' }, rows.filter((r) => r.value).map((r) => h('div', {}, h('dt', {}, r.label), h('dd', {}, r.value)))) : null);
+  if (!p) {
+    const busy = s.posting_status === 'queued' || s.posting_status === 'running';
+    const go = h('button', { class: 'btn primary', type: 'button' }, s.posting_status === 'error' ? 'Try again' : 'Extract the posting');
+    // refresh only this card, never the page: the workflow may hold unsaved text
+    const refresh = async () => { if (!box.isConnected) return; try { const d = await api('GET', '/screenings/' + s.id); box.replaceWith(postingCard(d.screening, box.open)); } catch { /* try again on the next visit */ } };
+    go.onclick = async () => { btnBusy(go, 'Starting'); try { await api('POST', `/screenings/${s.id}/posting`, {}); toast('Reading the job post...'); setTimeout(refresh, 2500); } catch (x) { toast(x.message, true); go.disabled = false; } };
+    if (busy) setTimeout(refresh, 4000);
+    body.replaceChildren(busy ? h('div', { class: 'row muted' }, h('span', { class: 'spin' }), 'Reading the job post into fields...')
+      : h('div', {}, h('p', { class: 'muted', style: 'margin-top:0' }, s.posting_status === 'error' ? (s.posting_error || 'The job post could not be read into fields.') : 'This job was pasted before the posting was read into fields.'), canTrack(s.user_id) ? go : null), raw);
+    return box;
+  }
+  body.replaceChildren(...[ // replaceChildren does not unpack nested lists, so flatten them first
+    h('div', { style: 'margin-bottom:6px' }, h('strong', { style: 'font-size:17px' }, p.title || s.title || ''), h('div', { class: 'small muted' }, [p.posted, p.location].filter(Boolean).join(' · '))),
+    grid(p.terms),
+    p.skills.length ? [h('h3', {}, 'Skills'), h('div', { class: 'chips' }, p.skills.map((x) => h('span', { class: 'chip' }, x)))] : null,
+    [h('h3', {}, 'Description'), h('div', { class: 'desc-text' }, p.description || 'not shown')],
+    p.screening_questions.length ? [h('h3', {}, 'Screening questions'), h('ol', {}, p.screening_questions.map((q) => h('li', {}, q)))] : null,
+    p.activity.length ? [h('h3', {}, 'Activity on this job'), grid(p.activity)] : null,
+    p.client.length ? [h('h3', {}, 'About the client'), grid(p.client)] : null,
+    p.client_history.length ? [h('h3', {}, `Client's recent history (${p.client_history.length})`), h('ul', { class: 'hist' }, p.client_history.map((x) => h('li', {},
+      h('strong', {}, x.title || 'Untitled job'), h('div', { class: 'small muted' }, [x.dates, x.amount, x.rating ? 'Rating ' + x.rating : ''].filter(Boolean).join(' · ')), x.feedback ? h('div', { class: 'small' }, x.feedback) : null)))] : null,
+    p.other_open_jobs.length ? [h('h3', {}, 'Other open jobs'), h('ul', {}, p.other_open_jobs.map((x) => h('li', {}, x)))] : null,
+    raw].flat(Infinity).filter(Boolean));
+  return box;
 }
 
 /** Every step of a job in time order, with who did it and each AI call. Loaded when opened. */
@@ -943,9 +997,10 @@ async function jobView(id) {
     ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
     ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
     ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
-    ['Viewed / replied / interview', [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].some(Boolean) ? [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].map((v) => v || '-').join(' / ') : null],
+    ['Viewed / chat / interview', [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].some(Boolean) ? [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].map((v) => v || '-').join(' / ') : null],
     ['Outcome', s.outcome],
-    ['Status', s.client_viewed_at || s.proposal_sent_at || s.outcome_at ? h('span', {}, h('span', { class: 'chip brand' }, s.outcome || (s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Replied' : s.client_viewed === 'yes' ? 'Viewed' : 'Sent'))) : null],
+    ['Why lost', s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : null],
+    ['Status', s.client_viewed_at || s.proposal_sent_at || s.outcome_at ? h('span', {}, h('span', { class: 'chip brand' }, s.outcome || (s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : 'Sent'))) : null],
   ];
   const section = (titleTxt, sub, content, extra) => h('div', { class: 'card', style: 'margin-top:16px' }, h('div', { class: 'card-head' }, h('h2', {}, titleTxt), extra || (sub ? h('span', { class: 'sub' }, sub) : null)), content);
 
@@ -963,6 +1018,7 @@ async function jobView(id) {
     h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
       s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null, s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
     h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, v || 'not yet'))))),
+    postingCard(s, true),
     override ? section('Why it was continued', null, h('div', { class: 'card-pad' }, h('blockquote', { style: 'margin:0' }, override.reason), h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`))) : null,
     text ? section('Proposal', null, h('div', { class: 'card-pad' }, h('pre', { class: 'proposal-text' }, text),
       proposal.warnings && proposal.warnings.length ? h('details', { class: 'desc' }, h('summary', {}, `Warnings to check (${proposal.warnings.length})`), h('ul', { class: 'plain' }, proposal.warnings.map((w) => h('li', {}, w.text)))) : null),
@@ -991,7 +1047,7 @@ async function detailView(id) {
   const head = (v) => pageHead(title, null, v);
 
   if (s.status === 'queued' || s.status === 'running') {
-    parts.push(head(), meta, h('div', { style: 'height:18px' }), progressCard(s.status));
+    parts.push(head(), meta, h('div', { style: 'height:18px' }), progressCard(s.status), postingCard(s, true));
     setTimeout(() => { if (location.hash.startsWith('#/s/' + id)) route(); }, 2500);
   } else if (s.status === 'error') {
     const retry = h('button', { class: 'btn primary', onclick: async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } } }, 'Try again');

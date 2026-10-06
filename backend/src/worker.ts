@@ -9,6 +9,7 @@ import { loadContext, loadDictionary, loadLibraryProjects } from './screening/co
 import { rankProjects, type JobTag } from './screening/matching';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
+import { extractPosting } from './screening/posting';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runProposal } from './proposal/pipeline';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
@@ -117,6 +118,19 @@ async function processTagging(id: number) {
   }
 }
 
+/** The job post in fields, read at the same time as screening. Failing only loses the structured view: the pasted text stays. */
+async function processPosting(id: number) {
+  try {
+    const s = (await query<any>('SELECT job_text, raw_input FROM screenings WHERE id=?', [id]))[0];
+    const p = await extractPosting(s.job_text ?? s.raw_input);
+    await exec(`UPDATE screenings SET posting_json=?, posting_status='done', posting_error=NULL WHERE id=?`, [JSON.stringify(p), id]);
+  } catch (e) {
+    if (stopping) { await exec(`UPDATE screenings SET posting_status='queued' WHERE id=?`, [id]); return; }
+    const info = errorInfo(e);
+    await exec(`UPDATE screenings SET posting_status='error', posting_error=? WHERE id=?`, [info.message, id]);
+  }
+}
+
 /** Step 4: signals, template, proposal. */
 async function processProposal(id: number) {
   try {
@@ -163,6 +177,17 @@ async function tick() {
       inFlight++;
       withCallContext({ kind: 'screening', screeningId: rows[0].id }, () => process_(rows[0]))
         .catch((e) => console.error('job failed', (e as Error).message)) // a DB blip must not kill the worker
+        .finally(() => { inFlight--; });
+      continue;
+    }
+    // the posting runs beside the screening: the job is pasted, so both are wanted, and it does not wait on a decision
+    const po = await query<{ id: number }>(`SELECT id FROM screenings WHERE posting_status='queued' AND (job_text IS NOT NULL OR input_type='text') ORDER BY id LIMIT 1`);
+    if (po.length) {
+      const res = await exec(`UPDATE screenings SET posting_status='running' WHERE id=? AND posting_status='queued'`, [po[0].id]);
+      if (!res.affectedRows) continue;
+      inFlight++;
+      withCallContext({ kind: 'posting', screeningId: po[0].id }, () => processPosting(po[0].id))
+        .catch((e) => console.error('posting failed', (e as Error).message))
         .finally(() => { inFlight--; });
       continue;
     }
@@ -216,6 +241,7 @@ async function shutdown() {
   await exec(`UPDATE proposals SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
   await pool.end().catch(() => undefined);
   process.exit(0);
 }
@@ -229,6 +255,7 @@ async function main() {
   await exec(`UPDATE proposals SET status='queued' WHERE status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);
   console.log(`worker started provider=${providerName} concurrency=${config.llm.concurrency}`);
   while (!stopping) {
     try { await tick(); } catch (e) { console.error('tick failed', (e as Error).message); }

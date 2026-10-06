@@ -11,6 +11,11 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
     return { text: JSON.stringify(data), data, raw: {} };
   }
   const props: any = (o.schema as any)?.properties ?? {};
+  if (props.description && props.client_history) { // the job post in fields: the pasted text as the description
+    const data = { title: /^Title:\s*(.+)$/m.exec(o.prompt)?.[1]?.trim() || 'Mock job', posted: '', location: '', description: o.prompt.replace(/<\/?job_page>/g, '').trim(),
+      skills: [], terms: [], screening_questions: [], activity: [], client: [], client_history: [], other_open_jobs: [] };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
   if (props.signals?.items?.properties?.values) { // signal detection: the first value of every signal
     const nums: number[] = props.signals.items.properties.signal.enum;
     const data = { signals: nums.map((n) => ({ signal: n, values: [{ code: `S${n}.1`, primary: true, confidence: 'medium', evidence: 'mock', reason: 'Mock detection: first value.' }] })) };

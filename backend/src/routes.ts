@@ -54,7 +54,7 @@ api.post('/screenings', requireRole(), async (req, res) => {
     sourceUrl = b.data.job_url;
   }
   const r = await exec(
-    `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text) VALUES (?,?,?,?,?,?)`,
+    `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status) VALUES (?,?,?,?,?,?,'queued')`,
     [req.user!.id, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
      b.data.input.trim(), parsed.type === 'text' ? parsed.text : null],
   );
@@ -75,7 +75,7 @@ const stageSql = `CASE
     WHEN s.tracking_updated_at IS NULL THEN 'tracking'
     ELSE 'complete' END`;
 /** The latest thing that happened on Upwork after the proposal: outcome, then interview, replied, viewed, sent. */
-const statusSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome WHEN s.interviewed='yes' THEN 'Interview' WHEN s.client_replied='yes' THEN 'Replied'
+const statusSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome WHEN s.interviewed='yes' THEN 'Interview' WHEN s.client_replied='yes' THEN 'Chat opened'
   WHEN s.client_viewed='yes' THEN 'Viewed' WHEN s.proposal_sent_date IS NOT NULL OR s.proposal_sent_at IS NOT NULL THEN 'Sent' ELSE NULL END`;
 const statusAtSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome_at WHEN s.interviewed='yes' THEN s.interviewed_at WHEN s.client_replied='yes' THEN s.client_replied_at
   WHEN s.client_viewed='yes' THEN s.client_viewed_at ELSE COALESCE(s.proposal_sent_at, s.proposal_sent_date) END`;
@@ -272,7 +272,8 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const ov = await query<any>(`SELECT o.id, o.reason, o.verdict_at_time, o.created_at, u.name AS user_name FROM overrides o JOIN users u ON u.id=o.user_id WHERE o.screening_id=?`, [id]);
   res.json({
-    screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null },
+    screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
+      posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null },
     override: ov[0] ?? null,
     matching: await matchingFor(id),
     proposal: await proposalFor(id),
@@ -298,8 +299,23 @@ const trackBody = z.object({
   client_viewed: z.enum(['yes', 'no']).nullable().optional(),
   client_replied: z.enum(['yes', 'no']).nullable().optional(),
   interviewed: z.enum(['yes', 'no']).nullable().optional(),
+  outcome_reason: z.string().trim().max(120).nullable().optional(),
+  outcome_note: z.string().trim().max(2000).nullable().optional(),
 });
-const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed'] as const;
+const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note'] as const;
+/** Every tracked field, so a change can be stored as old value -> new value. */
+const TRACKED = [...TRACK_KEYS, 'proposal_sent_at', 'client_viewed_at', 'client_replied_at', 'interviewed_at', 'outcome_at'];
+const show = (v: any) => (v == null ? null : v instanceof Date ? v.toISOString().replace('T', ' ').slice(0, 19) : String(v));
+async function trackSnapshot(id: number): Promise<Record<string, string | null>> {
+  const r = (await query<any>(`SELECT ${TRACKED.join(', ')} FROM screenings WHERE id=?`, [id]))[0] ?? {};
+  return Object.fromEntries(TRACKED.map((k) => [k, show(r[k])]));
+}
+/** Nothing is overwritten silently: each changed field is kept with its old and new value, who changed it and how. */
+async function recordChanges(id: number, before: Record<string, string | null>, after: Record<string, string | null>, source: string, userId: number) {
+  for (const k of TRACKED) if (before[k] !== after[k]) {
+    await exec('INSERT INTO field_changes (screening_id, field, old_value, new_value, source, user_id) VALUES (?,?,?,?,?,?)', [id, k, before[k], after[k], source, userId]);
+  }
+}
 api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   const b = trackBody.safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
@@ -307,6 +323,15 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   const s = (await query<any>('SELECT user_id, status FROM screenings WHERE id=?', [id]))[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   if (s.status !== 'done') return void res.status(409).json({ error: 'Wait until the screening is finished' });
+  const before = await trackSnapshot(id);
+  // a lost outcome needs a reason from the list, so lost jobs can be reported on
+  const cfg = await getSettings();
+  const outcome = b.data.outcome !== undefined ? b.data.outcome : before.outcome;
+  const reason = b.data.outcome_reason !== undefined ? b.data.outcome_reason : before.outcome_reason;
+  if (outcome && cfg['tracking.loss_outcomes'].includes(outcome)) {
+    if (!reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
+    if (!cfg['tracking.loss_reasons'].includes(reason)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
+  } else if (b.data.outcome !== undefined) { b.data.outcome_reason = null; } // not lost: no loss reason
   const sets: string[] = []; const p: any[] = [];
   for (const k of TRACK_KEYS) {
     if (b.data[k] !== undefined) { sets.push(`${k}=?`); p.push(b.data[k] === '' ? null : b.data[k]); }
@@ -318,16 +343,39 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
     client_replied_at=IF(client_replied='yes', COALESCE(client_replied_at, NOW()), client_replied_at), interviewed_at=IF(interviewed='yes', COALESCE(interviewed_at, NOW()), interviewed_at),
     outcome_at=IF(outcome IS NOT NULL, COALESCE(outcome_at, NOW()), outcome_at),
     proposal_sent_at=IF(proposal_sent_date IS NOT NULL AND (proposal_sent_at IS NULL OR DATE(proposal_sent_at)<>proposal_sent_date), proposal_sent_date, proposal_sent_at) WHERE id=?`, [id]);
+  const after = await trackSnapshot(id);
+  await recordChanges(id, before, after, 'tracking form', req.user!.id);
+  // a milestone first set through the form also goes into the status history, like the status button
+  const firsts: [string, string, string][] = [['proposal_sent_at', 'Sent', 'proposal_sent_at'], ['client_viewed_at', 'Viewed', 'client_viewed_at'], ['client_replied_at', 'Chat opened', 'client_replied_at'],
+    ['interviewed_at', 'Interview', 'interviewed_at'], ['outcome_at', after.outcome ?? '', 'outcome_at']];
+  for (const [k, label, col] of firsts) if (label && after[col] && before[k] !== after[k]) {
+    await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, label, after[col], req.user!.id, k === 'outcome_at' ? after.outcome_reason : null, k === 'outcome_at' ? after.outcome_note : null]);
+  }
   await audit(req.user!.id, 'tracking_update', `screening=${id} fields=${Object.keys(b.data).join(',')}`);
+  res.json({ ok: true });
+});
+
+// Read (or read again) the job post into fields, e.g. for jobs pasted before this existed.
+api.post('/screenings/:id/posting', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const s = (await query<any>('SELECT user_id, posting_status FROM screenings WHERE id=?', [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  if (s.posting_status === 'queued' || s.posting_status === 'running') return void res.json({ ok: true, already: true });
+  await exec(`UPDATE screenings SET posting_status='queued', posting_error=NULL WHERE id=?`, [id]);
+  await audit(req.user!.id, 'posting_extract', `screening=${id}`);
   res.json({ ok: true });
 });
 
 // One click from the Jobs list: what happened on Upwork, and when (now unless the person changes it). Every change is kept.
 api.post('/screenings/:id/status', requireRole(), async (req, res) => {
-  const outcomes = (await getSettings())['tracking.outcomes'];
-  const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time') }).safeParse(req.body);
+  const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
+  const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time'),
+    reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
-  const st = b.data.status, at = b.data.at.replace('T', ' ').slice(0, 16) + ':00';
+  const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status, at = b.data.at.replace('T', ' ').slice(0, 16) + ':00';
+  const lost = cfg['tracking.loss_outcomes'].includes(st);
+  if (lost && !b.data.reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
+  if (lost && !cfg['tracking.loss_reasons'].includes(b.data.reason!)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
   if (Number.isNaN(Date.parse(at.replace(' ', 'T')))) return void res.status(400).json({ error: 'Not a real date' });
   const id = Number(req.params.id);
   const s = (await query<any>('SELECT user_id, status FROM screenings WHERE id=?', [id]))[0];
@@ -335,12 +383,14 @@ api.post('/screenings/:id/status', requireRole(), async (req, res) => {
   if (s.status !== 'done') return void res.status(409).json({ error: 'Wait until the screening is finished' });
   const sets: Record<string, string> = {
     Sent: `proceeded='yes', proposal_sent_date=DATE(?), proposal_sent_at=?`,
-    Viewed: `client_viewed='yes', client_viewed_at=?`, Replied: `client_replied='yes', client_replied_at=?`, Interview: `interviewed='yes', interviewed_at=?`,
+    Viewed: `client_viewed='yes', client_viewed_at=?`, 'Chat opened': `client_replied='yes', client_replied_at=?`, Interview: `interviewed='yes', interviewed_at=?`,
   };
+  if (!sets[st] && !outcomes.includes(st)) return void res.status(400).json({ error: 'Unknown status' });
+  const before = await trackSnapshot(id);
   if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
-  else if (outcomes.includes(st)) await exec('UPDATE screenings SET outcome=?, outcome_at=?, tracking_updated_at=NOW() WHERE id=?', [st, at, id]);
-  else return void res.status(400).json({ error: 'Unknown status' });
-  await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id) VALUES (?,?,?,?)', [id, st, at, req.user!.id]);
+  else await exec('UPDATE screenings SET outcome=?, outcome_at=?, outcome_reason=?, outcome_note=?, tracking_updated_at=NOW() WHERE id=?', [st, at, lost ? b.data.reason : null, b.data.note || null, id]);
+  await recordChanges(id, before, await trackSnapshot(id), 'status', req.user!.id);
+  await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, req.user!.id, lost ? b.data.reason : null, b.data.note || null]);
   await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}`);
   res.json({ ok: true });
 });
@@ -348,8 +398,9 @@ api.get('/screenings/:id/status', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
   const s = (await query<any>(`SELECT s.user_id, ${statusSql} AS current_status FROM screenings s WHERE s.id=?`, [id]))[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
-  const events = await query('SELECT e.status, e.happened_at, e.created_at, u.name AS user_name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.happened_at DESC, e.id DESC', [id]);
-  res.json({ current: s.current_status, events, choices: ['Sent', 'Viewed', 'Replied', 'Interview', ...(await getSettings())['tracking.outcomes']] });
+  const events = await query('SELECT e.status, e.happened_at, e.created_at, e.reason, e.note, u.name AS user_name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.happened_at DESC, e.id DESC', [id]);
+  const cfg = await getSettings();
+  res.json({ current: s.current_status, events, choices: ['Sent', 'Viewed', 'Chat opened', 'Interview', ...cfg['tracking.outcomes']], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'] });
 });
 
 // ---------- step 2: continue, tag the job, match projects ----------
@@ -598,7 +649,8 @@ api.get('/screenings/:id/timeline', requireRole(), async (req, res) => {
   const p = (await query<any>('SELECT p.*, fu.name AS fin_by FROM proposals p LEFT JOIN users fu ON fu.id=p.finalized_by WHERE p.screening_id=?', [id]))[0];
   const versions = p ? await query<any>('SELECT v.version_no, v.source, v.created_at, u.name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no', [p.id]) : [];
   const calls = await query<any>('SELECT kind, step, model, ms, ok, error, created_at FROM llm_calls WHERE screening_id=? ORDER BY id', [id]);
-  const statuses = await query<any>('SELECT e.status, e.happened_at, u.name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.id', [id]);
+  const statuses = await query<any>('SELECT e.status, e.happened_at, e.reason, e.note, u.name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.id', [id]);
+  const changes = await query<any>('SELECT c.field, c.old_value, c.new_value, c.source, c.created_at, u.name FROM field_changes c LEFT JOIN users u ON u.id=c.user_id WHERE c.screening_id=? ORDER BY c.id', [id]);
   const ev: { at: any; what: string; who?: string | null; detail?: string | null; kind: string }[] = [];
   const add = (at: any, what: string, kind: string, who?: string | null, detail?: string | null) => { if (at) ev.push({ at, what, who: who ?? null, detail: detail ?? null, kind }); };
   add(s.created_at, 'Job pasted', 'step', s.user_name);
@@ -611,7 +663,8 @@ api.get('/screenings/:id/timeline', requireRole(), async (req, res) => {
   for (const v of versions) add(v.created_at, `Proposal version ${v.version_no} (${v.source === 'ai' ? 'written by AI' : v.source})`, 'step', v.name);
   add(p?.finalized_at, 'Proposal finished', 'step', p?.fin_by);
   add(s.tracking_updated_at, `Tracking saved${s.outcome ? ': ' + s.outcome : ''}`, 'step');
-  for (const e of statuses) add(e.happened_at, `Status: ${e.status}`, 'step', e.name);
+  for (const e of statuses) add(e.happened_at, `Status: ${e.status}`, 'step', e.name, [e.reason, e.note].filter(Boolean).join(' · ') || null);
+  for (const c of changes) add(c.created_at, `Changed ${c.field.replace(/_/g, ' ')}`, 'change', c.name, `${c.old_value ?? 'empty'} → ${c.new_value ?? 'empty'} (${c.source})`);
   for (const c of calls) add(c.created_at, `AI call: ${c.kind}${c.step ? ' / ' + c.step : ''}`, c.ok ? 'call' : 'error', null, `${c.model ?? ''} · ${(c.ms / 1000).toFixed(1)} s${c.ok ? '' : ' · ' + (c.error ?? 'failed')}`);
   ev.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   res.json({ events: ev });

@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 012: early drafts, tracking fields, settings, AI call log, status dates
+npm run migrate        # applies 008 to 013: early drafts, tracking, settings, AI call log, status dates, posting and change history
 ```
 Then sign in: you land on the new **Dashboard**. Admin pages: Upwork JobGate, Rules, Settings, Users, Logs.
 
@@ -232,6 +232,32 @@ empty database, and each screen in the browser with real GLM jobs.
 - Saving the Tracking form now also fills these date-times (now) the first time a milestone is set there.
 - The export gains Sent at, Viewed at, Replied at, Interview at, Outcome at and the full status history.
 - API: `GET /screenings/:id/status` (current, history, choices) and `POST /screenings/:id/status { status, at }`.
+
+### R10. The job posting, Chat opened, loss reasons, full change history, page widths (done)
+- **The job post in fields.** A second AI call reads every pasted job into fields **at the same moment as the
+  screening** (so it adds no wait; about 60 s with GLM 5.3): title, posted, location, terms, skills, **the full
+  description word for word**, screening questions, activity, client details, the client's recent history (title,
+  dates, amount, rating, feedback) and other open jobs. `src/screening/posting.ts`, stored in
+  `screenings.posting_json` (migration `013_posting_reasons_history.sql`), logged as `posting` in AI calls.
+  - Shown as a **"Job posting"** section at the top of the job detail page, at the top of the Screening step, and
+    while a job is still being screened. The full pasted text stays one click away under it.
+  - Jobs pasted before this have an **"Extract the posting"** button (`POST /screenings/:id/posting`).
+- **"Replied" is now "Chat opened"** everywhere (status choices, tracking form, Jobs list, dashboard funnel,
+  export). Old history entries were renamed too. The column underneath is still `client_replied`.
+- **A reason is required for every lost outcome** (Settings: "Outcomes that count as lost" = Not hired, No
+  response, Withdrawn, Job closed; "Reasons a client did not go ahead" = Budget too low, Hired someone else, Went
+  quiet after chat, Scope or timeline did not fit, Job cancelled by client, We withdrew, Other). Asked in the
+  status dialog and in the Tracking form, checked by the server, with an optional note. Stored as
+  `outcome_reason` / `outcome_note` and on the status history entry; shown as "Why lost".
+- **Every change is kept as old value -> new value** in the new `field_changes` table (field, old, new, source
+  "status" or "tracking form", who, when) for all tracking fields and milestone times. Shown in the job timeline
+  and exported as "Change history". A milestone first set through the Tracking form also goes into the status
+  history, so both ways of updating leave the same trail.
+- **Export** gains: Lost reason, Lost note, Chat opened at, Change history, Posting description, Posting skills,
+  Screening questions, Client history.
+- **Jobs list**: the Update status button is back at the end of the row, in a column pinned to the right edge,
+  so it is always visible while the table scrolls.
+- **Every page now uses the Dashboard's full width** (`.page` max-width 1480px), so the pages look the same.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
