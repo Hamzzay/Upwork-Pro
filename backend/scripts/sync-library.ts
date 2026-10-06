@@ -48,7 +48,7 @@ import { pool } from '../src/db';
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    for (const c of missingCats) { const [r]: any = await conn.query('INSERT INTO tag_categories (name, sort_order) VALUES (?,?)', [c.name, c.sort]); cats.set(c.name, r.insertId); }
+    for (const c of missingCats) { const [r]: any = await conn.query('INSERT INTO tag_categories (name, sort_order, is_compliance) VALUES (?,?,?)', [c.name, c.sort, c.name === 'Compliance / sensitive data' ? 1 : 0]); cats.set(c.name, r.insertId); }
     for (const t of missingTags) { const [r]: any = await conn.query('INSERT INTO tags (category_id, name, weight, description, sort_order) VALUES (?,?,?,?,?)', [cats.get(t.category), t.name, t.weight, t.description, t.sort]); tags.set(t.name.toLowerCase(), r.insertId); }
     for (const p of lib.projects) {
       let row = byName.get(p.name.toLowerCase()); let id: number;

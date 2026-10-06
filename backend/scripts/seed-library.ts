@@ -12,7 +12,8 @@ const G17 = '17. The work requires breaking platform rules, such as fake or mult
   const lib = JSON.parse(readFileSync(join(appRoot, 'seed', 'library.json'), 'utf8'));
   const n = { cat: 0, tag: 0, proj: 0, link: 0, rule: 0, prof: 0 };
 
-  for (const c of lib.categories) n.cat += (await exec('INSERT IGNORE INTO tag_categories (name, sort_order) VALUES (?,?)', [c.name, c.sort])).affectedRows;
+  // the sheet's compliance category is flagged on insert; after that the flag belongs to the app (Tag dictionary, Categories)
+  for (const c of lib.categories) n.cat += (await exec('INSERT IGNORE INTO tag_categories (name, sort_order, is_compliance) VALUES (?,?,?)', [c.name, c.sort, c.name === 'Compliance / sensitive data' ? 1 : 0])).affectedRows;
   const cats = new Map((await query<any>('SELECT id, name FROM tag_categories')).map((r) => [r.name, r.id]));
   for (const t of lib.tags) {
     n.tag += (await exec('INSERT IGNORE INTO tags (category_id, name, weight, description, sort_order) VALUES (?,?,?,?,?)',
@@ -32,6 +33,18 @@ const G17 = '17. The work requires breaking platform rules, such as fake or mult
   }
   for (const r of lib.rules) n.rule += (await exec('INSERT IGNORE INTO rules (code, type, rule) VALUES (?,?,?)', [r.code, r.type, r.rule])).affectedRows;
   for (const name of lib.profiles) n.prof += (await exec('INSERT IGNORE INTO upwork_profiles (name) VALUES (?)', [name])).affectedRows;
+
+  // Industries: created ONCE from the "Industry" tag category and each project's industry tags, then owned by the app
+  // (so an industry deleted later does not come back when this script is run again).
+  const marker = 'industries_seeded';
+  if (!(await query('SELECT id FROM audit_log WHERE action=?', [marker])).length && !(await query('SELECT id FROM industries LIMIT 1')).length) {
+    const ind = await exec(`INSERT IGNORE INTO industries (name, description) SELECT t.name, t.description FROM tags t JOIN tag_categories c ON c.id=t.category_id WHERE c.name='Industry' ORDER BY t.sort_order`);
+    const map = await exec(`INSERT IGNORE INTO project_industries (project_id, industry_id)
+      SELECT pt.project_id, i.id FROM project_tags pt JOIN tags t ON t.id=pt.tag_id JOIN tag_categories c ON c.id=t.category_id AND c.name='Industry'
+      JOIN industries i ON i.name=t.name`);
+    await exec('INSERT INTO audit_log (user_id, action, detail) VALUES (NULL, ?, ?)', [marker, `industries=${ind.affectedRows} links=${map.affectedRows}`]);
+    console.log(`industries seeded: ${ind.affectedRows}, project links: ${map.affectedRows}`);
+  }
 
   // Rule G17 is in the team's sheet but not in skill v1. Save it as an INACTIVE new version for an admin to review.
   const note = 'Adds flag 17 (platform rule breaking), matching rule code G17';

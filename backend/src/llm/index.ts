@@ -9,6 +9,26 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
     const data = { tags: [...new Set(pick)].map((tag) => ({ tag, reason: 'Mock reason: no real tagging was done.' })) };
     return { text: JSON.stringify(data), data, raw: {} };
   }
+  const props: any = (o.schema as any)?.properties ?? {};
+  if (props.signals?.items?.properties?.values) { // signal detection: the first value of every signal
+    const nums: number[] = props.signals.items.properties.signal.enum;
+    const data = { signals: nums.map((n) => ({ signal: n, values: [{ code: `S${n}.1`, primary: true, confidence: 'medium', evidence: 'mock', reason: 'Mock detection: first value.' }] })) };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
+  if (props.proposal && props.warnings) { // proposal writer: a short proposal that uses the sender and the 2 projects from the prompt
+    const name = /\n  Name: (.+)\n/.exec(o.system)?.[1] ?? 'Sender';
+    const link = /GitLab link: (https?:\S+)/.exec(o.system)?.[1];
+    const projects = [...o.system.matchAll(/\n  \d+\. (.+)\n     Link: (.+)\n/g)].map((m) => ({ name: m[1], link: /^https?:/.test(m[2]) ? m[2] : null }));
+    const body = ['Understood. This is a mock proposal.', `I built ${projects.map((p) => p.name).join(' and ')}.`, ...projects.map((p) => `${p.name}${p.link ? '\n' + p.link : ''}\nA short mock description.`), 'Let\u2019s start.', `Best regards,\n${name}${link ? '\n' + link : ''}`].join('\n\n');
+    const data = { proposal: body, warnings: [] as string[] };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
+  if (props.reply && props.proposal) { // chat: revises when the request contains "change", otherwise only answers
+    const cur = /CURRENT PROPOSAL\n([\s\S]*)$/.exec(o.system)?.[1]?.trim() ?? '';
+    const ask = /USER REQUEST\n([\s\S]*?)\n\n<job_page>/.exec(o.prompt)?.[1] ?? '';
+    const data = /change|shorter|revise/i.test(ask) ? { reply: 'Done: I made the change.', proposal: cur + '\n\n(revised by mock)' } : { reply: 'Mock answer.', proposal: null };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
   const text = o.prompt;
   const verdict = text.includes('[mock-pass]') ? 'PASS' : text.includes('[mock-fail]') ? 'FAIL' : 'FLAG';
   const title = /^Title:\s*(.+)$/m.exec(text)?.[1]?.trim() || 'Mock job';

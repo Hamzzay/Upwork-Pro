@@ -25,3 +25,14 @@ export async function audit(userId: number | null, action: string, detail?: stri
     detail?.slice(0, 500) ?? null,
   ]);
 }
+
+/** Runs a transaction again when MySQL picks it as a deadlock victim (two jobs writing at once). */
+export async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await fn(); }
+    catch (e: any) {
+      if ((e?.code === 'ER_LOCK_DEADLOCK' || e?.errno === 1213) && i < tries) { await new Promise((r) => setTimeout(r, 40 * i + Math.random() * 120)); continue; }
+      throw e;
+    }
+  }
+}

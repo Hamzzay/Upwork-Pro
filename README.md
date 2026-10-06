@@ -41,6 +41,37 @@ Saving a skill creates a new version; it only takes effect when activated. Each 
 4. The submitter confirms exactly 2 of those 5 (default: the 2 recommended). Managers and admins can read everything.
    Names of projects and tags are copied into the history rows, so deleting a project later does not change old results.
 
+- After the 2 projects are confirmed, the submitter picks the one Upwork profile the proposal will be sent from (`screenings.proposal_profile_id`).
+  This is separate from the profile chosen when the job was submitted (the sheet's "Upwork Profile" column).
+- The model may choose as many dictionary tags as apply: there is no limit.
+- **Tag dictionary** (admin): tags and categories can be added, edited, disabled and deleted, and a tag's score (0 to 10) edited inline.
+  A category flagged as *compliance* gets the stricter tagging rule and the push-down in matching.
+- **Industries** (admin and manager edit, everyone reads): many-to-many with projects, edited from either side. They were created once from the
+  "Industry" tag category and the projects' industry tags, and are independent of those tags from then on (matching still scores the Industry tags).
+
+## The record page is a stepper
+
+Five steps with Previous and Next: **Screening** (report, Continue or Continue anyway), **Projects** (tags and the 2 projects), **Profile**, **Proposal**, **Tracking**.
+A step opens once the one before it is done. The profile is no longer asked when a job is submitted: choosing it in step 3 starts the proposal by itself,
+and **Done** in step 4 opens Tracking. Changing the profile later does not rewrite the proposal; it shows a notice and a "Write it again" button.
+
+## Step 4: the proposal
+
+After the 2 projects and the sending profile are confirmed, **Write the proposal** runs a pipeline in the worker:
+
+1. **Signals.** The model reads the job and, for each of the 16 signals (`signals`, `signal_values`, seeded from the three detection guides), picks the value
+   that fits or the signal's fallback. Missing signals are filled with their fallback (signal 5 with "No"). Stored in `job_signals` with the evidence.
+2. **Template.** Each template lists the signals it suits (`template_signals`: a signal, optionally one value, and a weight). The score is the sum of the weights
+   of the rows that match; ties go to the lower priority number, and when nothing matches the lowest priority number is the default. The ranking is stored and shown.
+3. **Writing.** The writer gets the template format and prompt, the "move" of every detected signal, up to 3 sample proposals of that template, the sender profile,
+   the 2 projects, and the client's own requirements from the screening. Fixed rules (not editable) apply on top: no invented facts, links or numbers; samples are
+   tone and structure only; sign-off with the profile name and its GitLab account; the client's required structure or opening word wins.
+4. **Checks** run in code and show as warnings above the editor: a selected project missing, a library project or a sample author named, a link or percentage that was
+   not provided, the sign-off missing, "we" used.
+
+The proposal is rich text. Every save, chat revision and restore is a new version (`proposal_versions`); the chat is stored in `proposal_messages` with the version each
+message was based on and the version it produced. A chat revision never replaces text you are still editing: a banner offers it instead.
+
 ## Roles
 
 | | employee | manager | admin |
@@ -61,6 +92,7 @@ npm install
 npm run migrate                 # creates tables
 npm run seed                    # first admin + skill v1 from seed/SKILL.md
 npm run seed:library            # tags, projects, rule codes, profiles from seed/library.json (insert-if-missing)
+npm run seed:proposals          # detection signals, proposal templates (with a starter signal mapping) and sample proposals (insert-if-missing)
 npm run sync:library            # dry run: how the database differs from seed/library.json (add --apply via `-- --apply`)
 npm run dev                     # web app + API on PORT
 npm run worker                  # in a second terminal

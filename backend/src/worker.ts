@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { audit, exec, pool, query } from './db';
+import { audit, exec, pool, query, withRetry } from './db';
 import { config } from './config';
 import { LlmCallError, killAllChildren, sweepOldScratch } from './llm/claude-runner';
 import { providerName } from './llm';
@@ -7,6 +7,7 @@ import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects } from './screening/context';
 import { rankProjects, type JobTag } from './screening/matching';
 import { tagJob } from './screening/tagging';
+import { runChat, runProposal } from './proposal/pipeline';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
 import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
@@ -21,6 +22,7 @@ async function activeSkill() {
 }
 
 function errorInfo(e: unknown): { code: string; message: string } {
+  console.error('job failed:', e instanceof Error ? `${e.name}: ${e.message}` : 'unknown error'); // for the server log only; never shown to users
   if (e instanceof UpworkError) return { code: e.code, message: e.message };
   if (e instanceof LlmCallError && (e.status === 401 || e.status === 403)) {
     return { code: 'llm_auth', message: 'The AI service rejected the key. Tell an admin.' };
@@ -29,6 +31,10 @@ function errorInfo(e: unknown): { code: string; message: string } {
     return { code: 'llm_rate_limit', message: 'The AI service is busy or out of quota. Try again later.' };
   }
   const m = e instanceof Error ? e.message : '';
+  if (/LLM_BASE_URL \/ LLM_API_KEY are not set/.test(m)) return { code: 'llm_config', message: 'The AI key is not set on the server. Tell an admin to add LLM_API_KEY to the .env file and restart the worker.' };
+  if (m === 'missing_inputs') return { code: 'missing_inputs', message: 'The selected projects or the profile are missing. Confirm them first.' };
+  if (m === 'no_template') return { code: 'no_template', message: 'There is no active template. An admin can add one under Templates.' };
+  if (m === 'no_version') return { code: 'no_version', message: 'The proposal has no text yet.' };
   if (m === 'no_tags') return { code: 'no_tags', message: 'The model found no matching tags. Try again.' };
   if (m === 'invalid_output') return { code: 'invalid_output', message: 'The AI answer was not in the expected format. Try again.' };
   if (m === 'no_active_skill') return { code: 'no_skill', message: 'No active skill version. Tell an admin.' };
@@ -69,8 +75,9 @@ async function processTagging(id: number) {
     const s = (await query<any>('SELECT job_text, raw_input FROM screenings WHERE id=?', [id]))[0];
     const dict = await loadDictionary();
     const tagged = await tagJob(s.job_text ?? s.raw_input, dict);
-    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight }));
+    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance }));
     const matches = rankProjects(jobTags, await loadLibraryProjects());
+    await withRetry(async () => {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -89,11 +96,36 @@ async function processTagging(id: number) {
         selection_confirmed_at=NULL, selection_confirmed_by=NULL WHERE id=?`, [config.llm.model, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    });
   } catch (e) {
     if (stopping) { await exec(`UPDATE screenings SET tagging_status='queued' WHERE id=?`, [id]); return; } // killed by a deploy: run again
     const info = errorInfo(e);
     await exec(`UPDATE screenings SET tagging_status='error', tagging_error_code=?, tagging_error_message=? WHERE id=?`, [info.code, info.message, id]);
     await audit(null, 'tagging_error', `id=${id} code=${info.code}`);
+  }
+}
+
+/** Step 4: signals, template, proposal. */
+async function processProposal(id: number) {
+  try {
+    await runProposal(id, () => !stopping);
+    if (stopping) await exec(`UPDATE proposals SET status='queued' WHERE id=? AND status='running'`, [id]);
+  } catch (e) {
+    if (stopping) { await exec(`UPDATE proposals SET status='queued' WHERE id=?`, [id]); return; }
+    const info = errorInfo(e);
+    await exec(`UPDATE proposals SET status='error', stage=NULL, error_code=?, error_message=? WHERE id=?`, [info.code, info.message, id]);
+    await audit(null, 'proposal_error', `id=${id} code=${info.code}`);
+  }
+}
+
+/** One chat turn. */
+async function processChat(id: number) {
+  try { await runChat(id); }
+  catch (e) {
+    if (stopping) { await exec(`UPDATE proposal_messages SET status='queued' WHERE id=?`, [id]); return; }
+    const info = errorInfo(e);
+    await exec(`UPDATE proposal_messages SET status='error', error_message=? WHERE id=?`, [info.message, id]);
+    await audit(null, 'chat_error', `message=${id} code=${info.code}`);
   }
 }
 
@@ -113,13 +145,29 @@ async function tick() {
       continue;
     }
     const t = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' ORDER BY continued_at, id LIMIT 1`);
-    if (!t.length) return;
-    const res = await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [t[0].id]);
+    if (t.length) {
+      const res = await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [t[0].id]);
+      if (!res.affectedRows) continue;
+      inFlight++;
+      processTagging(t[0].id)
+        .catch((e) => console.error('tagging failed', (e as Error).message))
+        .finally(() => { inFlight--; });
+      continue;
+    }
+    const pr = await query<{ id: number }>(`SELECT id FROM proposals WHERE status='queued' ORDER BY id LIMIT 1`);
+    if (pr.length) {
+      const res = await exec(`UPDATE proposals SET status='running', stage='signals' WHERE id=? AND status='queued'`, [pr[0].id]);
+      if (!res.affectedRows) continue;
+      inFlight++;
+      processProposal(pr[0].id).catch((e) => console.error('proposal failed', (e as Error).message)).finally(() => { inFlight--; });
+      continue;
+    }
+    const ch = await query<{ id: number }>(`SELECT id FROM proposal_messages WHERE role='user' AND status='queued' ORDER BY id LIMIT 1`);
+    if (!ch.length) return;
+    const res = await exec(`UPDATE proposal_messages SET status='running' WHERE id=? AND status='queued'`, [ch[0].id]);
     if (!res.affectedRows) continue;
     inFlight++;
-    processTagging(t[0].id)
-      .catch((e) => console.error('tagging failed', (e as Error).message))
-      .finally(() => { inFlight--; });
+    processChat(ch[0].id).catch((e) => console.error('chat failed', (e as Error).message)).finally(() => { inFlight--; });
   }
 }
 
@@ -132,6 +180,8 @@ async function shutdown() {
   // anything still marked running goes back to the queue
   await exec(`UPDATE screenings SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET tagging_status='queued' WHERE tagging_status='running'`).catch(() => undefined);
+  await exec(`UPDATE proposals SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await pool.end().catch(() => undefined);
   process.exit(0);
 }
@@ -142,6 +192,8 @@ async function main() {
   sweepOldScratch();
   await exec(`UPDATE screenings SET status='queued' WHERE status='running'`); // a crashed worker left these
   await exec(`UPDATE screenings SET tagging_status='queued' WHERE tagging_status='running'`);
+  await exec(`UPDATE proposals SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   console.log(`worker started provider=${providerName} concurrency=${config.llm.concurrency}`);
   while (!stopping) {
     try { await tick(); } catch (e) { console.error('tick failed', (e as Error).message); }

@@ -1,0 +1,91 @@
+{
+ "templates": [
+  {
+   "name": "Stackup Proposal Architecture",
+   "priority": 10,
+   "description": "Opens with “Understood.” and a short problem statement, mentions two projects, describes each, explains the approach with tools, APIs and webhooks, and ends with a short call to action. Source: Stackup_Proposal_Architecture.pdf.",
+   "body_html": "<h1>Stackup Proposal Architecture (Final Version)</h1><h2>Rule #1: Opening Line</h2><p>Always start with “Understood.” If the client specifies a starting word, use that instead. Keep tone human and natural, not AI-like.</p><h2>Paragraph 1: Problem Statement (20–30 words)</h2><p>Clearly show understanding of the client’s problem. Reflect system complexity, pain points, and inefficiencies. Imply confidence in delivering the exact solution.</p><h2>Paragraph 2: Sample Work Mention (20–30 words)</h2><p>Use “I’ve built…” (not “we”). Mention two relevant projects aligned with the client’s problem to establish credibility quickly.</p><h2>Paragraph 3: Sample Work #1 (~50 words)</h2><p>Structure: Project title, link, and conversational explanation starting with “In [Project], I have built…”. Clearly connect your implementation with the client’s requirements.</p><h2>Paragraph 4: Sample Work #2 (~50 words)</h2><p>Same structure as Paragraph 3. Maintain clarity, relevance, and direct alignment with the client’s needs.</p><h2>Paragraph 5: Approach (~50 words)</h2><p>Explain your technical and execution approach. Include tools, APIs, webhooks, and workflow structure. Keep it concise, execution-focused, and within 45–55 words.</p><h2>Paragraph 6: CTA (7–10 words)</h2><p>Short, direct, and action-driven closing line such as “Let’s finalize workflow and start implementation.”</p><h2>Closing Format</h2><p>Best regards, [Your Name] [GitHub Link]</p><h2>Critical Rules</h2><ol><li>Use human, natural tone. Avoid robotic phrasing.</li><li>Always use “I”, never “we”.</li><li>Ensure every line aligns with the client’s requirement.</li><li>Explicitly show how your sample work matches the client’s needs.</li><li>Avoid fluff. Keep everything concise and valuable.</li></ol><h2>Final Checklist</h2><ol><li>Starts with “Understood” or client keyword</li><li>Problem clearly defined</li><li>Relevant sample works included</li><li>Clear matching of features to requirements</li><li>Approach within ~50 words</li><li>Tone is human and direct</li></ol>",
+   "prompt": "",
+   "signals": [
+    [
+     "S4",
+     "Technical",
+     2
+    ],
+    [
+     "S14",
+     "Precise",
+     2
+    ],
+    [
+     "S10",
+     "High",
+     1
+    ],
+    [
+     "S11",
+     "Rescue / frustration",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "Stackup Proposal Writing Framework SOP",
+   "priority": 20,
+   "description": "Opens with “For your platform,” and the approach, mentions two projects, describes each, then asks two short questions and closes with a call to action. Source: Stackup_Proposal_Writing_Framework_SOP.pdf.",
+   "body_html": "<h1>Stackup Proposal Writing Framework (Locked SOP)</h1><h2>1. Tone &amp; Style (Non-Negotiable)</h2><ol><li>Write like a human, not AI</li><li>Use simple, clear, conversational English</li><li>Maintain a storytelling flow</li><li>Make it feel like you’re already thinking about their system</li><li>Avoid robotic phrases like “I understand your requirements” or “I’ll approach your system”</li><li>Use phrases like “I’ll start working on…” and “This is very similar to what I’ve built…”</li></ol><h2>2. Opening Rule (Very Important)</h2><ol><li>Always start with “For your platform,” or “For you,”</li><li>If the client uses a specific keyword, start with that phrasing</li></ol><h2>3. Proposal Structure (Strict Format)</h2><h3>Paragraph 1 – Approach (40–50 words)</h3><p>Start with “For your platform…” and explain how you’ll start working, including tech stack and process like APIs, workflows, and integrations.</p><h3>Paragraph 2 – Sample Works Mention (15–25 words)</h3><p>Mention 2 relevant projects naturally in a conversational tone.</p><h3>Paragraph 3 – First Project (50 words)</h3><p>Project Name – 7–9 word title, then link on next line, followed by conversational explanation matching client requirements.</p><h3>Paragraph 4 – Second Project (50 words)</h3><p>Same as paragraph 3.</p><h3>Paragraph 5 – Question 1 (12–15 words)</h3><p>Technical, thought-provoking, easy to answer.</p><h3>Paragraph 6 – Question 2 (12–15 words)</h3><p>Deeper thinking, encourages reply.</p><h3>Paragraph 7 – CTA (7–10 words)</h3><p>Short and action-driven.</p><h3>Paragraph 8–10 – Closing</h3><p>Best regards,<br>Stackup Solution<br>https://github.com/stackupsolutions</p><h2>4. Project Section Rules (Critical)</h2><p>Each project must include title (7–9 words), link on next line, and conversational explanation.</p><h2>5. Key Writing Principles</h2><ol><li>Match client’s features, tools, and industry</li><li>Show that you’ve already solved similar problems</li><li>Avoid generic claims and buzzwords</li></ol><h2>6. What Makes This High-Converting</h2><ol><li>Client feels you’ve already built this</li><li>Builds trust and relevance</li><li>Questions trigger reply instinct</li></ol><h2>7. Quick Checklist Before Sending</h2><ol><li>Starts with “For your platform / For you”</li><li>Conversational tone</li><li>Projects include title + link + explanation</li><li>Questions are engaging</li><li>CTA is strong and concise</li></ol>",
+   "prompt": "",
+   "signals": [
+    [
+     "S14",
+     "Vague",
+     2
+    ],
+    [
+     "S16",
+     "Nurture",
+     1
+    ],
+    [
+     "S15",
+     "Open",
+     1
+    ],
+    [
+     "S2",
+     "Discovery-first",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "Upwork Proposal Writing System",
+   "priority": 30,
+   "description": "Opens with “Perfect,” and the solution with results, describes two projects, gives a short approach without timeline or budget, and closes with a confident call to action. Source: Upwork_Proposal_Writing_System.pdf.",
+   "body_html": "<h1>Upwork Proposal Writing System (Final Locked Version)</h1><h2>Core Rule</h2><p>You are not an AI. You are a human expert who has already solved similar problems. Every proposal should feel conversational, confident, and tailored—never generic.</p><h2>Proposal Structure</h2><h3>1. Paragraph 1 — Solution + Experience + Metrics (40–45 words)</h3><ol><li>Start with “Perfect,” (or client’s specified word if mentioned)</li><li>Clearly state the solution to their problem</li><li>Mention similar project names (at least 2)</li><li>Add relevant performance improvement (%) based on client problem</li><li>Keep it result-driven, not descriptive</li></ol><h3>2. Paragraph 2 — Project Reference 1 (40–50 words)</h3><ol><li>Project Name – 7–8 word descriptive title</li><li>Next line: Project link</li><li>Start explanation in conversational tone</li><li>Explain what you built (features/specs)</li><li>Explain how it directly relates to client’s problem</li></ol><h3>3. Paragraph 3 — Project Reference 2 (40–50 words)</h3><ol><li>Project Name – 7–8 word descriptive title</li><li>Next line: Project link</li><li>Start explanation in conversational tone</li><li>Explain what you built (features/specs)</li><li>Explain how it directly relates to client’s problem</li></ol><h3>4. Paragraph 4 — Approach (~50 words)</h3><ol><li>Start conversationally: “For your project, I’ll…” or “For you, I’ll…”</li><li>Include approach, light tech stack mention, and architecture thinking</li><li>Balance: 50% general explanation, 50% technical clarity</li><li>Do NOT mention timeline/budget unless client explicitly asks</li></ol><h3>5. Paragraph 5 — CTA (9–11 words)</h3><p>Short, confident, action-oriented. No begging or over-politeness.</p><h3>6. Closing</h3><p>Best regards,<br>Anum Ahmad<br>GitHub Profile Link</p><h2>Critical Writing Rules</h2><h3>Do:</h3><ol><li>Sound like a problem-solver, not applicant</li><li>Be specific to client’s workflow</li><li>Use real system language (automation, workflows, integrations)</li><li>Show you’ve already done this before</li><li>Keep tone simple, clear, human</li></ol><h3>Do Not:</h3><ol><li>Do not use phrases like “I am excited to apply…”</li><li>Do not over-explain technical details</li><li>Do not write long, complex sentences</li><li>Do not sound like a template or AI</li><li>Do not add unnecessary fluff</li></ol><h2>Positioning Strategy</h2><p>You are not selling services. You are showing: “I’ve already built this system. I just need to implement it for you.”</p><h2>Final Mindset</h2><ol><li>This person understands my system</li><li>This person has already built something similar</li><li>This person can execute without hand-holding</li></ol>",
+   "prompt": "",
+   "signals": [
+    [
+     "S4",
+     "Product / outcome",
+     2
+    ],
+    [
+     "S13",
+     "Value",
+     2
+    ],
+    [
+     "S12",
+     "Founder",
+     1
+    ],
+    [
+     "S16",
+     "Ready",
+     1
+    ]
+   ]
+  }
+ ]
+}

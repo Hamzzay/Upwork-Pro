@@ -7,11 +7,13 @@ import { loadContext } from './screening/context';
 import { normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
 import { library } from './routes_library';
+import { proposals, proposalFor } from './routes_proposals';
 import { validSelection } from './screening/matching';
 
 export const api = Router();
 api.use(attachUser);
 api.use(library);
+api.use(proposals);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);
 
@@ -36,7 +38,6 @@ const canSeeAll = (role: string) => role === 'admin' || role === 'manager';
 api.post('/screenings', requireRole(), async (req, res) => {
   const b = z.object({
     input: z.string(),
-    profile_id: z.number().int().positive().nullish(),
     job_url: z.string().trim().max(500).nullish(),
   }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: 'input is required' });
@@ -44,20 +45,14 @@ api.post('/screenings', requireRole(), async (req, res) => {
   try { parsed = detectInput(b.data.input); }
   catch (e) { if (e instanceof InputError) return void res.status(400).json({ error: e.message, code: e.code }); throw e; }
 
-  // the Upwork profile this job is screened for: required once any profile is set up
-  const profiles = await query<{ id: number }>('SELECT id FROM upwork_profiles WHERE active=1');
-  let profileId: number | null = b.data.profile_id ?? null;
-  if (profileId && !profiles.some((p) => p.id === profileId)) return void res.status(400).json({ error: 'Pick an active Upwork profile' });
-  if (!profileId && profiles.length) return void res.status(400).json({ error: 'Pick the Upwork profile this job is for', code: 'profile_required' });
-
   let sourceUrl: string | null = parsed.type === 'link' ? parsed.url : null;
   if (parsed.type === 'text' && b.data.job_url) {
     if (!/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i.test(b.data.job_url)) return void res.status(400).json({ error: 'The job link must be an Upwork link' });
     sourceUrl = b.data.job_url;
   }
   const r = await exec(
-    `INSERT INTO screenings (user_id, upwork_profile_id, input_type, source_url, upwork_job_id, raw_input, job_text) VALUES (?,?,?,?,?,?,?)`,
-    [req.user!.id, profileId, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
+    `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text) VALUES (?,?,?,?,?,?)`,
+    [req.user!.id, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
      b.data.input.trim(), parsed.type === 'text' ? parsed.text : null],
   );
   res.status(202).json({ id: r.insertId, status: 'queued', input_type: parsed.type });
@@ -114,8 +109,13 @@ async function matchingFor(id: number) {
     `SELECT s.verdict, s.status, s.continued_at, s.tagging_status, s.tagging_error_message, s.tagged_at, s.selection_confirmed_at, u.name AS confirmed_by
      FROM screenings s LEFT JOIN users u ON u.id=s.selection_confirmed_by WHERE s.id=?`, [id]))[0];
   if (!s) return null;
+  const pp = (await query<any>(
+    `SELECT s.proposal_profile_id AS id, pr.name, pr.tagline, pr.price, pr.gitlab_account, pr.profile_url, s.proposal_profile_confirmed_at AS confirmed_at, u.name AS confirmed_by
+     FROM screenings s LEFT JOIN upwork_profiles pr ON pr.id=s.proposal_profile_id LEFT JOIN users u ON u.id=s.proposal_profile_confirmed_by WHERE s.id=?`, [id]))[0];
   const base = { continued: !!s.continued_at, continued_at: s.continued_at, status: s.tagging_status as string | null, error: s.tagging_error_message as string | null,
-    tags: [] as any[], matches: [] as any[], confirmed_at: s.selection_confirmed_at as string | null, confirmed_by: s.confirmed_by as string | null };
+    tags: [] as any[], matches: [] as any[], confirmed_at: s.selection_confirmed_at as string | null, confirmed_by: s.confirmed_by as string | null,
+    proposal_profile: pp && pp.id ? { id: pp.id, name: pp.name, tagline: pp.tagline, price: pp.price, gitlab_account: pp.gitlab_account, profile_url: pp.profile_url, confirmed_at: pp.confirmed_at, confirmed_by: pp.confirmed_by } : null,
+    profiles: [] as any[] };
   if (s.tagging_status !== 'done') return base;
   base.tags = await query(
     `SELECT jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
@@ -126,13 +126,16 @@ async function matchingFor(id: number) {
     percent: r.max_score ? Math.round((r.score / r.max_score) * 100) : 0, compliance_gap: r.compliance_gap,
     recommended: !!r.recommended, selected: !!r.selected, shared: JSON.parse(r.shared_tags),
   }));
+  if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
+    base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, profile_url, notes, active FROM upwork_profiles ORDER BY active DESC, name');
+  }
   return base;
 }
 
 api.get('/screenings/:id', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
   const rows = await query<any>(
-    `SELECT s.*, u.name AS user_name, sv.version AS skill_version, pr.name AS profile_name FROM screenings s JOIN users u ON u.id=s.user_id
+    `SELECT s.*, u.name AS user_name, sv.version AS skill_version, pr.name AS profile_name, pr.tagline AS profile_tagline, pr.price AS profile_price, pr.gitlab_account AS profile_gitlab FROM screenings s JOIN users u ON u.id=s.user_id
      LEFT JOIN skill_versions sv ON sv.id=s.skill_version_id LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id WHERE s.id=?`, [id]);
   const s = rows[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
@@ -141,6 +144,7 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null },
     override: ov[0] ?? null,
     matching: await matchingFor(id),
+    proposal: await proposalFor(id),
   });
 });
 
@@ -179,7 +183,7 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
 // ---------- step 2: continue, tag the job, match projects ----------
 const ownedDone = async (req: any, res: any) => {
   const id = Number(req.params.id);
-  const s = (await query<any>('SELECT id, user_id, status, verdict, continued_at, tagging_status, selection_confirmed_at FROM screenings WHERE id=?', [id]))[0];
+  const s = (await query<any>('SELECT id, user_id, status, verdict, continued_at, tagging_status, selection_confirmed_at, proposal_profile_id FROM screenings WHERE id=?', [id]))[0];
   if (!s || s.user_id !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; }
   if (s.status !== 'done') { res.status(409).json({ error: 'Wait until the screening is finished' }); return null; }
   return s;
@@ -234,6 +238,28 @@ api.put('/screenings/:id/selection', requireRole(), async (req, res) => {
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(req.user!.id, 'selection_confirm', `screening=${s.id} projects=${b.data.project_ids.join(',')} recommended=${sameAsRecommended ? 'yes' : 'changed'}`);
   res.json({ ok: true });
+});
+
+// Step 3: after the 2 projects are confirmed, pick the one Upwork profile the proposal will be sent from.
+api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
+  const b = z.object({ profile_id: z.number().int().positive('Choose a profile') }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const s = await ownedDone(req, res); if (!s) return;
+  if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the 2 projects first' });
+  const prof = (await query<any>('SELECT id, active FROM upwork_profiles WHERE id=?', [b.data.profile_id]))[0];
+  if (!prof) return void res.status(400).json({ error: 'That profile does not exist' });
+  if (!prof.active) return void res.status(400).json({ error: 'That profile is disabled' });
+  await exec('UPDATE screenings SET proposal_profile_id=?, upwork_profile_id=?, proposal_profile_confirmed_at=NOW(), proposal_profile_confirmed_by=? WHERE id=?', [prof.id, prof.id, req.user!.id, s.id]);
+  // the first time a profile is chosen, the proposal starts by itself: signals, template, writing
+  const existing = (await query<any>('SELECT id, profile_id, status FROM proposals WHERE screening_id=?', [s.id]))[0];
+  let started = false;
+  if (!existing) {
+    await exec(`INSERT INTO proposals (screening_id, status, template_choice, created_by) VALUES (?, 'queued', 'auto', ?)`, [s.id, req.user!.id]);
+    started = true;
+  }
+  await audit(req.user!.id, 'proposal_profile', `screening=${s.id} profile=${prof.id}${started ? ' proposal=started' : ''}`);
+  // a profile changed after the proposal was written: the sign-off is out of date, the person decides whether to write again
+  res.json({ ok: true, started, needs_rewrite: !!existing && existing.profile_id !== null && existing.profile_id !== prof.id });
 });
 
 // Continue anyway on FAIL or FLAG: a reason is required and kept.

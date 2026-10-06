@@ -2,15 +2,14 @@
  * Project matching, as described in the "How matching works" sheet:
  * - every tag carries a weight (its category's weight; "AI powered" is 0)
  * - a project scores the sum of the weights of the tags it shares with the job
- * - if the job needs a compliance tag, projects missing it are pushed below projects that have it
+ * - if the job needs a tag from a compliance category, projects missing it are pushed below projects that have it
  * - the top 5 are shown and the best 2 recommended
  * Pure functions: no database, no model.
  */
-export const COMPLIANCE_CATEGORY = 'Compliance / sensitive data';
 export const TOP_N = 5;
 export const RECOMMENDED_N = 2;
 
-export interface JobTag { id: number; name: string; category: string; weight: number }
+export interface JobTag { id: number; name: string; category: string; weight: number; compliance?: boolean }
 export interface LibProject { id: number; name: string; tagIds: Set<number> }
 export interface Match {
   project_id: number; project_name: string; rank: number; score: number; max_score: number;
@@ -20,7 +19,7 @@ export interface Match {
 export function rankProjects(jobTags: JobTag[], projects: LibProject[]): Match[] {
   const unique = [...new Map(jobTags.map((t) => [t.id, t])).values()];
   const max = unique.reduce((n, t) => n + t.weight, 0);
-  const compliance = unique.filter((t) => t.category === COMPLIANCE_CATEGORY);
+  const compliance = unique.filter((t) => t.compliance); // tags from a category marked as a compliance category
   const rows = projects.map((p) => {
     const shared = unique.filter((t) => p.tagIds.has(t.id));
     return { p, shared, score: shared.reduce((n, t) => n + t.weight, 0), gap: compliance.filter((t) => !p.tagIds.has(t.id)).length };

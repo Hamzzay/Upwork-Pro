@@ -15,10 +15,10 @@ export async function loadContext(): Promise<{ rules: RuleRow[]; projects: Proje
 }
 
 /** Active tags with their category: the dictionary the model tags jobs with. */
-export async function loadDictionary(): Promise<(DictTag & { category: string })[]> {
-  return query<any>(
-    `SELECT t.id, t.name, t.weight, t.description, c.name AS category FROM tags t JOIN tag_categories c ON c.id=t.category_id
-     WHERE t.active=1 ORDER BY c.sort_order, t.sort_order`);
+export async function loadDictionary(): Promise<DictTag[]> {
+  return (await query<any>(
+    `SELECT t.id, t.name, t.weight, t.description, c.name AS category, c.is_compliance AS compliance FROM tags t JOIN tag_categories c ON c.id=t.category_id
+     WHERE t.active=1 ORDER BY c.sort_order, t.sort_order`)).map((r) => ({ ...r, compliance: !!r.compliance }));
 }
 
 /** Active projects with the ids of their active tags, for scoring. */
