@@ -434,3 +434,14 @@ tr.retired td { color: var(--faint); }
 .setrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .setrow:last-child { border-bottom: 0; }
 .setin { display: flex; gap: 8px; align-items: center; }
+
+/* timeline */
+details.timeline { margin-top: 16px; }
+details.timeline > summary { cursor: pointer; list-style: none; }
+details.timeline > summary::-webkit-details-marker { display: none; }
+.tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.tl li { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 8px 0 8px 14px; border-left: 2px solid var(--line); position: relative; }
+.tl li::before { content: ''; position: absolute; left: -6px; top: 13px; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); }
+.tl li.tl-call::before { background: var(--line); }
+.tl li.tl-error::before { background: var(--fail); }
+.tl .when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }

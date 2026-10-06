@@ -11,6 +11,7 @@ import { proposals, proposalFor } from './routes_proposals';
 import { validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, type SettingKey } from './settings';
+import { withCallContext } from './llm/context';
 
 export const api = Router();
 api.use(attachUser);
@@ -497,21 +498,80 @@ api.post('/admin/skill/test', admin, async (req, res) => {
   const b = skillBody.pick({ content: true }).extend({ sample: z.string().min(120).max(60_000) }).safeParse(req.body);
   if (!b.success) return void res.status(400).json(wrap(b.error));
   try {
-    res.json({ report: normalizeReport(await screenJobText(b.data.sample, b.data.content, await loadContext())) });
+    res.json({ report: normalizeReport(await withCallContext({ kind: 'gate_test' }, async () => screenJobText(b.data.sample, b.data.content, await loadContext()))) });
   } catch {
     res.status(502).json({ error: 'The test run failed. Check the AI service settings.' });
   }
 });
 
+// ---------- logs: who did what (audit), and every model call (llm_calls) ----------
+const logDates = (col: string, f: { from?: string; to?: string }, where: string[], p: any[]) => {
+  if (f.from) { where.push(`${col} >= ?`); p.push(f.from + ' 00:00:00'); }
+  if (f.to) { where.push(`${col} < DATE_ADD(?, INTERVAL 1 DAY)`); p.push(f.to); }
+};
 api.get('/admin/audit', admin, async (req, res) => {
-  const f = z.object({ page: z.coerce.number().int().min(1).default(1) }).parse(req.query);
-  const total = Number((await query<any>('SELECT COUNT(*) AS n FROM audit_log'))[0].n);
+  const f = z.object({ page: z.coerce.number().int().min(1).default(1), action: z.string().max(40).optional(), user: z.coerce.number().int().positive().optional(),
+    from: day.optional(), to: day.optional(), q: z.string().trim().max(100).optional() }).parse(req.query);
+  const where: string[] = []; const p: any[] = [];
+  if (f.action) { where.push('a.action=?'); p.push(f.action); }
+  if (f.user) { where.push('a.user_id=?'); p.push(f.user); }
+  if (f.q) { where.push('a.detail LIKE ?'); p.push(`%${likeEsc(f.q)}%`); }
+  logDates('a.created_at', f, where, p);
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM audit_log a ${w}`, p))[0].n);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(f.page, pages);
   const log = await query(
-    'SELECT a.id, a.action, a.detail, a.created_at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT ? OFFSET ?',
-    [PAGE_SIZE, (page - 1) * PAGE_SIZE]);
-  res.json({ log, total, page, pages, page_size: PAGE_SIZE });
+    `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ${w} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+    [...p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
+  const actions = (await query<any>('SELECT DISTINCT action FROM audit_log ORDER BY action')).map((r) => r.action);
+  res.json({ log, total, page, pages, page_size: PAGE_SIZE, actions });
+});
+api.get('/admin/calls', admin, async (req, res) => {
+  const f = z.object({ page: z.coerce.number().int().min(1).default(1), kind: z.string().max(30).optional(), ok: z.enum(['0', '1']).optional(),
+    model: z.string().max(80).optional(), from: day.optional(), to: day.optional(), job: z.coerce.number().int().positive().optional() }).parse(req.query);
+  const where: string[] = []; const p: any[] = [];
+  if (f.kind) { where.push('c.kind=?'); p.push(f.kind); }
+  if (f.ok) { where.push('c.ok=?'); p.push(Number(f.ok)); }
+  if (f.model) { where.push('c.model=?'); p.push(f.model); }
+  if (f.job) { where.push('c.screening_id=?'); p.push(f.job); }
+  logDates('c.created_at', f, where, p);
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM llm_calls c ${w}`, p))[0].n);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(f.page, pages);
+  const calls = await query(`SELECT c.*, s.title FROM llm_calls c LEFT JOIN screenings s ON s.id=c.screening_id ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
+  const summary = await query<any>(`SELECT c.kind, c.step, c.model, COUNT(*) AS calls, SUM(c.ok=0) AS errors, ROUND(AVG(c.ms)) AS avg_ms, MAX(c.ms) AS max_ms
+    FROM llm_calls c ${w} GROUP BY c.kind, c.step, c.model ORDER BY calls DESC`, p);
+  const facets = { kinds: (await query<any>('SELECT DISTINCT kind FROM llm_calls ORDER BY kind')).map((r) => r.kind), models: (await query<any>('SELECT DISTINCT model FROM llm_calls WHERE model IS NOT NULL ORDER BY model')).map((r) => r.model) };
+  res.json({ calls, total, page, pages, page_size: PAGE_SIZE, summary: summary.map((r) => ({ ...r, calls: Number(r.calls), errors: Number(r.errors), avg_ms: Number(r.avg_ms) })), ...facets });
+});
+
+// One job's history in time order: every step, who did it, and every model call it made.
+api.get('/screenings/:id/timeline', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const s = (await query<any>(`SELECT s.*, u.name AS user_name, cu.name AS sel_by, pu.name AS prof_by, pr.name AS profile_name FROM screenings s JOIN users u ON u.id=s.user_id
+    LEFT JOIN users cu ON cu.id=s.selection_confirmed_by LEFT JOIN users pu ON pu.id=s.proposal_profile_confirmed_by LEFT JOIN upwork_profiles pr ON pr.id=s.proposal_profile_id WHERE s.id=?`, [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  const o = (await query<any>('SELECT o.created_at, o.verdict_at_time, u.name FROM overrides o JOIN users u ON u.id=o.user_id WHERE o.screening_id=?', [id]))[0];
+  const p = (await query<any>('SELECT p.*, fu.name AS fin_by FROM proposals p LEFT JOIN users fu ON fu.id=p.finalized_by WHERE p.screening_id=?', [id]))[0];
+  const versions = p ? await query<any>('SELECT v.version_no, v.source, v.created_at, u.name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no', [p.id]) : [];
+  const calls = await query<any>('SELECT kind, step, model, ms, ok, error, created_at FROM llm_calls WHERE screening_id=? ORDER BY id', [id]);
+  const ev: { at: any; what: string; who?: string | null; detail?: string | null; kind: string }[] = [];
+  const add = (at: any, what: string, kind: string, who?: string | null, detail?: string | null) => { if (at) ev.push({ at, what, who: who ?? null, detail: detail ?? null, kind }); };
+  add(s.created_at, 'Job pasted', 'step', s.user_name);
+  add(s.finished_at, s.status === 'error' ? 'Screening failed' : `Screened: ${s.verdict ?? ''}`, s.status === 'error' ? 'error' : 'step', null, s.rule_codes);
+  add(o?.created_at, `Continued past the ${o?.verdict_at_time ?? ''}`, 'step', o?.name);
+  if (!o) add(s.continued_at, 'Continued', 'step', s.user_name);
+  add(s.tagged_at, 'Projects matched', 'step');
+  add(s.selection_confirmed_at, 'Projects confirmed', 'step', s.sel_by);
+  add(s.proposal_profile_confirmed_at, `Profile chosen: ${s.profile_name ?? ''}`, 'step', s.prof_by);
+  for (const v of versions) add(v.created_at, `Proposal version ${v.version_no} (${v.source === 'ai' ? 'written by AI' : v.source})`, 'step', v.name);
+  add(p?.finalized_at, 'Proposal finished', 'step', p?.fin_by);
+  add(s.tracking_updated_at, `Tracking saved${s.outcome ? ': ' + s.outcome : ''}`, 'step');
+  for (const c of calls) add(c.created_at, `AI call: ${c.kind}${c.step ? ' / ' + c.step : ''}`, c.ok ? 'call' : 'error', null, `${c.model ?? ''} · ${(c.ms / 1000).toFixed(1)} s${c.ok ? '' : ' · ' + (c.error ?? 'failed')}`);
+  ev.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  res.json({ events: ev });
 });
 
 // ---------- settings (read by every screen, changed by admins) ----------

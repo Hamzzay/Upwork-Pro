@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 export interface RunOptions {
+  label?: string; // which step of the job this call is, for the call log (not sent to the model)
   model: string;
   system: string; // rules for this call, written to a file
   prompt: string; // input for this call, sent on stdin

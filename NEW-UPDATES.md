@@ -181,6 +181,25 @@ branch. Items still listed under "Still to do" are for Usman.
   tests cover the 1-to-2 range and the shown / recommended / minimum-score options.
 - The screens load the settings once after sign-in (`CFG` in `app.js`).
 
+### R7. Logs and the job timeline (done)
+- **Every model call is now logged** in the new `llm_calls` table (migration `011_llm_calls.sql`): job, job type
+  (screening, tagging, proposal, early draft, chat, gate test), step (screening, tagging, `signals: structural` /
+  `domain` / `hidden`, writing, chat), model, provider, milliseconds, ok, and a short safe error (a status or a
+  known runner message, never model text).
+  - One wrapper does it: `run()` in `src/llm/index.ts`. The job comes from an `AsyncLocalStorage` context set
+    around each worker job (`src/llm/context.ts`, `withCallContext` in `worker.ts`); each call site only adds a
+    `label`. Calls made outside a job (tests, scripts) are not logged, so `npm test` still needs no database.
+- **Logs page** (Admin → Logs, was "Audit log"), two tabs:
+  - **Activity**: the audit log with filters (action, person, date range).
+  - **AI calls**: a summary per job type / step / model (calls, failed, average and slowest time) and every call
+    with a link to its job. Filters: job type, succeeded / failed, model, date range.
+  - `GET /admin/audit` (now filterable) and `GET /admin/calls`.
+- **Timeline on every job page** (collapsed card under the steps): every step in time order with how long after
+  the paste it happened and who did it (pasted, screened, continued, matched, projects confirmed, profile chosen,
+  each proposal version, finished, tracking saved) and every AI call with its model and time. Failed calls are
+  marked red. `GET /screenings/:id/timeline`.
+- Jobs screened before this change have steps in their timeline but no AI calls (they were not logged then).
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

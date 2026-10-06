@@ -1,5 +1,6 @@
 import 'dotenv/config'; // the provider is chosen at import time, so the env file must be loaded first
-import { runClaude, type RunOptions, type RunResult } from './claude-runner';
+import { LlmCallError, runClaude, type RunOptions, type RunResult } from './claude-runner';
+import { llmContext } from './context';
 
 /** Canned answer: no network, no cost. Shape matches the report contract. Triggers: [mock-pass], [mock-fail]. */
 async function mockRun(o: RunOptions): Promise<RunResult> {
@@ -56,5 +57,27 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
   return { text: JSON.stringify(data), data, raw: {} };
 }
 
-export const run = process.env.LLM_PROVIDER === 'claude-cli' ? runClaude : mockRun;
+const provider = process.env.LLM_PROVIDER === 'claude-cli' ? runClaude : mockRun;
 export const providerName = process.env.LLM_PROVIDER === 'claude-cli' ? 'claude-cli' : 'mock';
+
+/** A short, safe description of a failed call: a status or a known runner message, never model text. */
+function callError(e: unknown): string {
+  if (e instanceof LlmCallError) return `model error${e.status ? ' ' + e.status : ''}`;
+  const m = e instanceof Error ? e.message : '';
+  if (/^(timeout|CLI |no structured output|LLM_|model error|invalid_output)/.test(m)) return m.slice(0, 200);
+  return 'error';
+}
+
+/** Every model call goes through here: it is timed and logged (job, step, model, ms, ok) so the Logs page can show it. */
+export async function run(o: RunOptions): Promise<RunResult> {
+  const ctx = llmContext.getStore();
+  const t0 = Date.now(); let ok = false; let err: string | null = null;
+  try { const r = await provider(o); ok = true; return r; }
+  catch (e) { err = callError(e); throw e; }
+  finally {
+    // only calls made inside a job are logged; tests and scripts call the model without a context and without a database
+    if (ctx) require('../db').exec('INSERT INTO llm_calls (screening_id, proposal_id, kind, step, model, provider, ms, ok, error) VALUES (?,?,?,?,?,?,?,?,?)',
+      [ctx?.screeningId ?? null, ctx?.proposalId ?? null, ctx?.kind ?? 'other', o.label ?? null, o.model, providerName, Date.now() - t0, ok ? 1 : 0, err])
+      .catch((e: Error) => console.error('call log failed:', e.message)); // logging must never break the job
+  }
+}

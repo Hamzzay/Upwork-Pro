@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { audit, exec, pool, query, withRetry } from './db';
 import { config } from './config';
 import { LlmCallError, killAllChildren, sweepOldScratch } from './llm/claude-runner';
+import { withCallContext } from './llm/context';
 import { providerName } from './llm';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects } from './screening/context';
@@ -160,7 +161,7 @@ async function tick() {
       const res = await exec(`UPDATE screenings SET status='running', started_at=NOW() WHERE id=? AND status='queued'`, [rows[0].id]);
       if (!res.affectedRows) continue;
       inFlight++;
-      process_(rows[0])
+      withCallContext({ kind: 'screening', screeningId: rows[0].id }, () => process_(rows[0]))
         .catch((e) => console.error('job failed', (e as Error).message)) // a DB blip must not kill the worker
         .finally(() => { inFlight--; });
       continue;
@@ -170,7 +171,7 @@ async function tick() {
       const res = await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [t[0].id]);
       if (!res.affectedRows) continue;
       inFlight++;
-      processTagging(t[0].id)
+      withCallContext({ kind: 'tagging', screeningId: t[0].id }, () => processTagging(t[0].id))
         .catch((e) => console.error('tagging failed', (e as Error).message))
         .finally(() => { inFlight--; });
       continue;
@@ -180,7 +181,8 @@ async function tick() {
       const res = await exec(`UPDATE proposals SET status='running', stage='signals' WHERE id=? AND status='queued'`, [pr[0].id]);
       if (!res.affectedRows) continue;
       inFlight++;
-      processProposal(pr[0].id).catch((e) => console.error('proposal failed', (e as Error).message)).finally(() => { inFlight--; });
+      query<any>('SELECT screening_id FROM proposals WHERE id=?', [pr[0].id])
+        .then((x) => withCallContext({ kind: 'proposal', proposalId: pr[0].id, screeningId: x[0]?.screening_id ?? null }, () => processProposal(pr[0].id))).catch((e) => console.error('proposal failed', (e as Error).message)).finally(() => { inFlight--; });
       continue;
     }
     const ch = await query<{ id: number }>(`SELECT id FROM proposal_messages WHERE role='user' AND status='queued' ORDER BY id LIMIT 1`);
@@ -188,7 +190,8 @@ async function tick() {
       const res = await exec(`UPDATE proposal_messages SET status='running' WHERE id=? AND status='queued'`, [ch[0].id]);
       if (!res.affectedRows) continue;
       inFlight++;
-      processChat(ch[0].id).catch((e) => console.error('chat failed', (e as Error).message)).finally(() => { inFlight--; });
+      query<any>('SELECT p.id, p.screening_id FROM proposal_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.id=?', [ch[0].id])
+        .then((x) => withCallContext({ kind: 'chat', proposalId: x[0]?.id ?? null, screeningId: x[0]?.screening_id ?? null }, () => processChat(ch[0].id))).catch((e) => console.error('chat failed', (e as Error).message)).finally(() => { inFlight--; });
       continue;
     }
     // last: early drafts only save time, so anything a person is waiting on goes first
@@ -197,7 +200,7 @@ async function tick() {
     const res = await exec(`UPDATE early_drafts SET status='running' WHERE screening_id=? AND status='queued'`, [ed[0].screening_id]);
     if (!res.affectedRows) continue;
     inFlight++;
-    processEarlyDraft(ed[0].screening_id).catch((e) => console.error('early draft failed', (e as Error).message)).finally(() => { inFlight--; });
+    withCallContext({ kind: 'early_draft', screeningId: ed[0].screening_id }, () => processEarlyDraft(ed[0].screening_id)).catch((e) => console.error('early draft failed', (e as Error).message)).finally(() => { inFlight--; });
   }
 }
 

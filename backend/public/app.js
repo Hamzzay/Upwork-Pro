@@ -151,7 +151,7 @@ const NAV = [
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
-    { key: 'audit', icon: 'audit', label: 'Audit log', roles: ADMIN }] },
+    { key: 'audit', icon: 'audit', label: 'Logs', roles: ADMIN }] },
 ];
 function shell(active, content, wide) {
   const a = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label));
@@ -330,7 +330,7 @@ function progressDots(stage) {
   return h('div', { class: 'prog' + cls, title: label }, h('span', { class: 'dots', 'aria-hidden': 'true' }, STEPS.map((_, i) => h('i', { class: i < done ? 'on' : i === done && done < 5 ? 'cur' : '' }))),
     h('span', { class: 'small' }, label));
 }
-const mins = (sec) => (sec == null ? '' : sec < 60 ? sec + ' s' : Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'));
+const mins = (sec) => (sec == null ? '' : sec < 60 ? sec + ' s' : sec < 3600 ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min');
 const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : '');
 /** Long model-written values (budget, client) stay on one line; the full text is on hover. */
 const clip = (v, w) => (v ? h('span', { class: 'clip', title: v, style: `max-width:${w}px` }, v) : '');
@@ -860,6 +860,24 @@ function stepperView(data) {
   return h('div', { class: 'stepper' }, bar, content, nav);
 }
 
+/** Every step of a job in time order, with who did it and each AI call. Loaded when opened. */
+function timelineCard(id) {
+  const body = h('div', { class: 'card-pad' });
+  const box = h('details', { class: 'card timeline' }, h('summary', { class: 'card-head' }, h('h2', {}, 'Timeline'), h('span', { class: 'sub' }, 'Every step, who did it, and each AI call')), body);
+  box.addEventListener('toggle', async () => {
+    if (!box.open || body.dataset.loaded) return; body.dataset.loaded = '1';
+    body.replaceChildren(h('div', { class: 'skel', style: 'width:60%' }));
+    try {
+      const { events } = await api('GET', `/screenings/${id}/timeline`);
+      const t0 = events.length ? toDate(events[0].at).getTime() : 0;
+      body.replaceChildren(h('ol', { class: 'tl' }, events.map((e) => h('li', { class: 'tl-' + e.kind },
+        h('span', { class: 'when', title: full(e.at) }, '+' + mins(Math.round((toDate(e.at).getTime() - t0) / 1000))),
+        h('div', {}, h('strong', {}, e.what), e.who ? h('span', { class: 'muted' }, ' · ' + e.who) : null, e.detail ? h('div', { class: 'small muted mono' }, e.detail) : null)))));
+    } catch (x) { body.replaceChildren(h('p', { class: 'err' }, x.message)); }
+  });
+  return box;
+}
+
 async function detailView(id) {
   const { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
   stepCtx = null;
@@ -881,7 +899,7 @@ async function detailView(id) {
     parts.push(head(), meta, h('div', { style: 'height:18px' }), h('div', { class: 'card' }, emptyState('x', 'Screening did not finish', s.error_message || 'Something went wrong.',
       s.user_id === me.id ? h('div', { class: 'row', style: 'justify-content:center' }, retry, h('a', { class: 'btn', href: '#/new' }, 'Paste the text instead')) : null)));
   } else if (s.report) {
-    parts.push(head(), meta, h('div', { style: 'height:18px' }), stepperView({ s, id, override, matching, proposal }));
+    parts.push(head(), meta, h('div', { style: 'height:18px' }), stepperView({ s, id, override, matching, proposal }), timelineCard(id));
   }
   shell('history', parts);
 }
@@ -1308,18 +1326,48 @@ async function skillView() {
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Versions')), clientPaged(versions, (slice) => h('div', { class: 'vlist' }, slice.map(vitem)))))], true);
 }
 
-// ---------- audit (admin) ----------
+// ---------- logs (admin): activity and AI calls ----------
 async function auditView() {
-  let page = Math.max(1, Number(hashParams().page) || 1);
+  const hp = hashParams();
+  const st = { tab: hp.tab === 'calls' ? 'calls' : 'activity', page: Math.max(1, Number(hp.page) || 1), action: hp.action || '', user: hp.user || '', from: hp.from || '', to: hp.to || '', kind: hp.kind || '', ok: hp.ok || '', model: hp.model || '', job: hp.job || '' };
+  const opts = await api('GET', '/screenings/filter-options');
   const holder = h('div', { class: 'card' });
+  const tabs = h('div', { class: 'seg', role: 'tablist' });
+  const drawTabs = () => tabs.replaceChildren(...[['activity', 'Activity'], ['calls', 'AI calls']].map(([k, l]) =>
+    h('button', { type: 'button', role: 'tab', 'aria-selected': st.tab === k, class: st.tab === k ? 'on' : '', onclick: () => { st.tab = k; st.page = 1; drawTabs(); load(); } }, l)));
+  drawTabs();
+  const sel = (key, label, options) => { const el = h('select', { class: 'fsel', 'aria-label': label }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l))); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
+  const dateIn = (key, label) => { const el = h('input', { type: 'date', class: 'fdate', 'aria-label': label, title: label, value: st[key] }); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
+  const secs = (ms) => (ms / 1000).toFixed(1) + ' s';
   async function load() {
-    const d = await api('GET', '/admin/audit?page=' + page); page = d.page; setHashParams({ page });
-    holder.replaceChildren(d.log.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Who', 'Action', 'Detail'].map((t) => h('th', {}, t)))),
-      h('tbody', {}, d.log.map((l) => h('tr', {}, h('td', { class: 'muted', title: full(l.created_at) }, ago(l.created_at)), h('td', {}, l.user_name || 'System'),
-        h('td', {}, h('span', { class: 'chip' }, l.action.replace(/_/g, ' '))), h('td', { class: 'mono muted' }, l.detail || '')))))) : emptyState('audit', 'No events yet', 'Activity will appear here.'),
-      pager(d.total, page, (n) => { page = n; load(); }));
+    const keys = st.tab === 'calls' ? ['kind', 'ok', 'model', 'from', 'to', 'job'] : ['action', 'user', 'from', 'to'];
+    const q = new URLSearchParams({ page: st.page }); for (const k of keys) if (st[k]) q.set(k, st[k]);
+    setHashParams({ tab: st.tab === 'activity' ? '' : st.tab, page: st.page, ...Object.fromEntries(['action', 'user', 'from', 'to', 'kind', 'ok', 'model', 'job'].map((k) => [k, keys.includes(k) ? st[k] : ''])) });
+    if (st.tab === 'activity') {
+      const d = await api('GET', '/admin/audit?' + q);
+      holder.replaceChildren(h('div', { class: 'toolbar filters' }, sel('action', 'Any action', d.actions.map((a) => [a, a.replace(/_/g, ' ')])), sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])), dateIn('from', 'From date'), dateIn('to', 'To date')),
+        d.log.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Who', 'Action', 'Detail'].map((t) => h('th', {}, t)))),
+          h('tbody', {}, d.log.map((l) => h('tr', {}, h('td', { class: 'muted', title: full(l.created_at) }, ago(l.created_at)), h('td', {}, l.user_name || 'System'),
+            h('td', {}, h('span', { class: 'chip' }, l.action.replace(/_/g, ' '))), h('td', { class: 'mono muted' }, l.detail || '')))))) : emptyState('audit', 'Nothing here', 'No activity matches these filters.'),
+        pager(d.total, d.page, (n) => { st.page = n; load(); }));
+    } else {
+      const d = await api('GET', '/admin/calls?' + q);
+      const errs = d.summary.reduce((a, r) => a + r.errors, 0), all = d.summary.reduce((a, r) => a + r.calls, 0);
+      holder.replaceChildren(h('div', { class: 'toolbar filters' }, sel('kind', 'Any job type', d.kinds.map((k) => [k, k.replace(/_/g, ' ')])), sel('ok', 'Any result', [['1', 'Succeeded'], ['0', 'Failed']]),
+          sel('model', 'Any model', d.models.map((m) => [m, m])), dateIn('from', 'From date'), dateIn('to', 'To date')),
+        h('div', { class: 'card-pad' }, h('div', { class: 'row small muted', style: 'margin-bottom:8px' }, `${all.toLocaleString()} call${all === 1 ? '' : 's'} · ${errs} failed · by step:`),
+          d.summary.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Job type', 'Step', 'Model', 'Calls', 'Failed', 'Average', 'Slowest'].map((t) => h('th', {}, t)))),
+            h('tbody', {}, d.summary.map((r) => h('tr', {}, h('td', {}, r.kind.replace(/_/g, ' ')), h('td', {}, r.step || '-'), h('td', { class: 'mono small' }, r.model || '-'), h('td', {}, r.calls),
+              h('td', {}, r.errors ? h('span', { class: 'pill bad' }, r.errors) : '0'), h('td', {}, secs(r.avg_ms)), h('td', {}, secs(r.max_ms))))))) : null),
+        d.calls.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Job', 'Type / step', 'Model', 'Time', 'Result'].map((t) => h('th', {}, t)))),
+          h('tbody', {}, d.calls.map((c) => h('tr', {}, h('td', { class: 'muted', title: full(c.created_at) }, ago(c.created_at)),
+            h('td', {}, c.screening_id ? h('a', { href: '#/s/' + c.screening_id }, '#' + c.screening_id + ' ' + (c.title || '').slice(0, 40)) : h('span', { class: 'faint' }, '-')),
+            h('td', {}, `${c.kind.replace(/_/g, ' ')}${c.step ? ' / ' + c.step : ''}`), h('td', { class: 'mono small' }, c.model || ''), h('td', {}, secs(c.ms)),
+            h('td', {}, Number(c.ok) ? h('span', { class: 'pill PASS' }, 'OK') : h('span', { class: 'pill bad', title: c.error || '' }, c.error || 'Failed'))))))) : emptyState('audit', 'No AI calls yet', 'Calls are logged from now on: every screening, tagging, signal reading and proposal.'),
+        pager(d.total, d.page, (n) => { st.page = n; load(); }));
+    }
   }
-  shell('audit', [pageHead('Audit log', 'Sign-ins, overrides, job gate changes, user and library changes. Newest first.'), holder]);
+  shell('audit', [pageHead('Logs', 'Activity: who did what. AI calls: every model call, how long it took and whether it failed.'), h('div', { style: 'margin-bottom:12px' }, tabs), holder], 1480);
   await load();
 }
 
