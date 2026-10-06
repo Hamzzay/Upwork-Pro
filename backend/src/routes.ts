@@ -339,7 +339,7 @@ api.get('/admin/skill/:id', admin, async (req, res) => {
 });
 
 const skillBody = z.object({
-  content: z.string().min(200, 'The skill text looks too short').max(100_000),
+  content: z.string().min(200, 'The gate prompt looks too short').max(100_000),
   change_note: z.string().trim().max(250).optional(),
 });
 

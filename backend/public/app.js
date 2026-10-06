@@ -6,7 +6,7 @@ let me = null;
 
 // ---------- helpers ----------
 const ICONS = {
-  logo: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>',
+  logo: '<path d="M6 4v7a6 6 0 0 0 12 0V4"/><path d="M12 15V7M9 10l3-3 3 3"/>', // a U with an upward arrow: Upwork Pro
   screen: '<path d="M12 5v14M5 12h14"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
@@ -126,17 +126,34 @@ function clientPaged(items, render) {
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 // ---------- layout ----------
+const APP_NAME = 'Upwork Pro';
+const STAFF = ['manager', 'admin'], ADMIN = ['admin'];
+/** The sidebar, in order. A link without roles is for everyone. */
+const NAV = [
+  { label: 'Work', links: [
+    { key: 'new', icon: 'screen', label: 'Screen a job' },
+    { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') }] },
+  { label: 'Library', links: [
+    { key: 'projects', icon: 'folder', label: 'Projects' },
+    { key: 'industries', icon: 'building', label: 'Industries' },
+    { key: 'dictionary', icon: 'tag', label: 'Tag dictionary', roles: ADMIN },
+    { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN }] },
+  { label: 'Proposal setup', links: [
+    { key: 'templates', icon: 'doc', label: 'Templates', roles: STAFF },
+    { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF }] },
+  { label: 'Admin', links: [
+    { key: 'skill', icon: 'skill', label: 'Upwork JobGate', roles: ADMIN },
+    { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
+    { key: 'audit', icon: 'audit', label: 'Audit log', roles: ADMIN }] },
+];
 function shell(active, content, wide) {
-  const links = [['new', 'screen', 'Screen a job'], ['history', 'list', me.role === 'employee' ? 'My records' : 'All records'], ['projects', 'folder', 'Projects'], ['industries', 'building', 'Industries']];
-  const adminLinks = [['dictionary', 'tag', 'Tag dictionary'], ['profiles', 'badge', 'Upwork profiles'], ['users', 'users', 'Users'], ['skill', 'skill', 'Skill editor'], ['audit', 'audit', 'Audit log']];
-  const editorLinks = [['templates', 'doc', 'Templates'], ['signals', 'audit', 'Signals']];
   const a = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label));
+  const groups = NAV.map((g) => [g.label, g.links.filter((l) => !l.roles || l.roles.includes(me.role)).map((l) => [l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label])])
+    .filter(([, links]) => links.length);
   $app.replaceChildren(h('div', { class: 'shell' },
     h('aside', { class: 'side' },
-      h('div', { class: 'brand' }, h('div', { class: 'logo' }, icon('logo')), 'Job Gate'),
-      h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-label' }, 'Screening'), links.map(a),
-        me.role !== 'employee' ? [h('div', { class: 'nav-label' }, 'Proposals'), editorLinks.map(a)] : null,
-        me.role === 'admin' ? [h('div', { class: 'nav-label' }, 'Admin'), adminLinks.map(a)] : null),
+      h('div', { class: 'brand' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
+      h('nav', { class: 'nav', 'aria-label': 'Main' }, groups.map(([label, links]) => [h('div', { class: 'nav-label' }, label), links.map(a)])),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
         h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; route(); } }, icon('out')))),
@@ -153,8 +170,8 @@ function loginView() {
   const pw = h('input', { type: 'password', id: 'pw', autocomplete: 'current-password', required: true, placeholder: 'Your password' });
   const btn = h('button', { class: 'btn primary lg', type: 'submit', style: 'width:100%;margin-top:20px' }, 'Sign in');
   $app.replaceChildren(h('div', { class: 'auth' }, h('div', { class: 'card' },
-    h('div', { class: 'brand' }, h('div', { class: 'logo' }, icon('logo')), 'Job Gate'),
-    h('h1', {}, 'Welcome back'), h('p', { class: 'muted', style: 'margin-bottom:22px' }, 'Sign in to screen Upwork jobs against the Stackup SOP.'),
+    h('div', { class: 'brand' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
+    h('h1', {}, 'Welcome back'), h('p', { class: 'muted', style: 'margin-bottom:22px' }, 'Sign in to screen Upwork jobs and write proposals.'),
     h('form', { onsubmit: async (e) => {
       e.preventDefault(); err.hidden = true; btnBusy(btn, 'Signing in');
       try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; location.hash = '#/new'; route(); }
@@ -209,7 +226,7 @@ async function historyView() {
   let stats = { total: 0, PASS: 0, FLAG: 0, FAIL: 0, overridden: 0 };
   const statsEl = h('div', { class: 'stats' });
   const bodyEl = h('div', {});
-  const searchIn = h('input', { type: 'search', placeholder: 'Search by job, person, profile or rule code', 'aria-label': 'Search records', value: st.q });
+  const searchIn = h('input', { type: 'search', placeholder: 'Search by job, person, profile or rule code', 'aria-label': 'Search jobs', value: st.q });
   const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine });
   const toolbar = h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn),
     me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null);
@@ -218,7 +235,7 @@ async function historyView() {
   const tile = (key, label, value) => h('button', { class: `stat ${key} ${st.verdict === key ? 'on' : ''}`, onclick: () => { st.verdict = st.verdict === key ? '' : key; st.page = 1; load(); } },
     h('span', { class: 'k' }, label), h('span', { class: 'v' }, value));
   function drawStats() {
-    statsEl.replaceChildren(h('button', { class: 'stat ' + (st.verdict ? '' : 'on'), onclick: () => { st.verdict = ''; st.page = 1; load(); } }, h('span', { class: 'k' }, 'All records'), h('span', { class: 'v' }, stats.total)),
+    statsEl.replaceChildren(h('button', { class: 'stat ' + (st.verdict ? '' : 'on'), onclick: () => { st.verdict = ''; st.page = 1; load(); } }, h('span', { class: 'k' }, 'All jobs'), h('span', { class: 'v' }, stats.total)),
       tile('PASS', 'Pass', stats.PASS), tile('FLAG', 'Flag', stats.FLAG), tile('FAIL', 'Fail', stats.FAIL),
       h('div', { class: 'stat', style: 'cursor:default' }, h('span', { class: 'k' }, 'Continued anyway'), h('span', { class: 'v' }, stats.overridden)));
   }
@@ -246,7 +263,7 @@ async function historyView() {
   }
   searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; load().catch((x) => toast(x.message, true)); }, 300);
   mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
-  shell('history', [pageHead(me.role === 'employee' ? 'My records' : 'All records', 'Every screening is saved with the result and the decision.',
+  shell('history', [pageHead(me.role === 'employee' ? 'My jobs' : 'Jobs', 'Every job screened, with its result, decision and proposal.',
     h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), statsEl, listEl]);
   bodyEl.append(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:45%' })));
   await load();
@@ -607,7 +624,7 @@ function stepperView(data) {
       };
     } else if (cur < STEPS.length - 1) {
       next = h('button', { class: 'btn primary', type: 'button', disabled: !st.unlocked[cur + 1], title: st.unlocked[cur + 1] ? '' : 'Finish this step first', onclick: () => go(cur + 1) }, STEPS[cur + 1][1], icon('arrow'));
-    } else next = h('a', { class: 'btn', href: lastList.history }, 'Back to records');
+    } else next = h('a', { class: 'btn', href: lastList.history }, 'Back to jobs');
     nav.replaceChildren(prev, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, `Step ${cur + 1} of ${STEPS.length}`), next);
   }
   stepCtx = ctx;
@@ -622,10 +639,10 @@ async function detailView(id) {
   const meta = h('div', { class: 'row', style: 'gap:8px;margin-top:10px' },
     h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, ago(s.created_at)),
     s.profile_name ? h('span', { class: 'chip' }, icon('badge'), s.profile_name) : null,
-    s.skill_version ? h('span', { class: 'chip' }, 'Skill v' + s.skill_version) : null,
+    s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null,
     s.rule_codes ? h('span', { class: 'chip mono', title: 'Rule codes' }, s.rule_codes) : null,
     s.provider === 'mock' ? h('span', { class: 'chip' }, 'Mock model') : null);
-  const parts = [h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to records'))];
+  const parts = [h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs'))];
   const head = (v) => pageHead(title, null, v);
 
   if (s.status === 'queued' || s.status === 'running') {
@@ -1001,7 +1018,7 @@ async function usersView() {
       body: h('div', {}, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'un' }, 'Full name'), f.name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ue' }, 'Email'), f.email),
         h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'up' }, 'Temporary password'), f.pw, h('div', { class: 'hint' }, 'At least 10 characters. Share it securely.')),
         h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Role'), f.role,
-          h('div', { class: 'hint' }, 'Employee: own records. Manager: sees all records. Admin: also manages users and the skill.'))),
+          h('div', { class: 'hint' }, 'Employee: own records. Manager: sees all records. Admin: also manages users, the library and the job gate.'))),
       onConfirm: async () => { await api('POST', '/admin/users', { name: f.name.value, email: f.email.value, password: f.pw.value, role: f.role.value }); toast('User created'); route(); } });
   }
   function resetPw(u) {
@@ -1024,12 +1041,12 @@ async function usersView() {
   shell('users', [pageHead('Users', 'Control who can use the gate and what they can see.', h('button', { class: 'btn primary', onclick: addUser }, icon('screen'), 'Add user')), h('div', { class: 'card' }, table)]);
 }
 
-// ---------- skill (admin) ----------
+// ---------- Upwork JobGate: the gate prompt (admin) ----------
 async function skillView() {
   const { versions } = await api('GET', '/admin/skill');
   const active = versions.find((v) => Number(v.is_active)) || versions[0];
   const cur = active ? (await api('GET', '/admin/skill/' + active.id)).skill : { content: '' };
-  const ta = h('textarea', { class: 'editor', id: 'sk', spellcheck: 'false', 'aria-label': 'Skill text' }); ta.value = cur.content;
+  const ta = h('textarea', { class: 'editor', id: 'sk', spellcheck: 'false', 'aria-label': 'Gate prompt' }); ta.value = cur.content;
   const dirty = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
   ta.oninput = () => { dirty.hidden = ta.value === cur.content; };
   const note = h('input', { type: 'text', id: 'cn', placeholder: 'What did you change and why?' });
@@ -1054,7 +1071,7 @@ async function skillView() {
       h('button', { class: 'btn sm', onclick: async () => { const s = (await api('GET', '/admin/skill/' + v.id)).skill; ta.value = s.content; dirty.hidden = ta.value === cur.content; toast('Loaded version ' + v.version + ' into the editor'); window.scrollTo(0, 0); } }, 'Load'),
       Number(v.is_active) ? null : h('button', { class: 'btn sm', onclick: () => modal({ title: 'Activate version ' + v.version + '?', confirm: 'Activate', body: h('p', { class: 'muted' }, 'New screenings will use this version straight away. Past records keep the version they used.'),
         onConfirm: async () => { await api('POST', `/admin/skill/${v.id}/activate`, {}); toast('Version ' + v.version + ' is now active'); route(); } }) }, 'Activate')));
-  shell('skill', [pageHead('Skill editor', 'The screening rules the model follows. Saving never overwrites: it creates a new version.'),
+  shell('skill', [pageHead('Upwork JobGate', 'The gate prompt every job is screened against. Saving never overwrites: it creates a new version.'),
     h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), 'The report layout is fixed by the app, so editing the rules cannot break reports. Test a draft before you activate it.'),
     h('div', { class: 'two' }, h('div', {},
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Rules'), h('span', { class: 'sub' }, dirty, ' Editing from version ' + (active ? active.version : '-'))), ta,
@@ -1074,7 +1091,7 @@ async function auditView() {
         h('td', {}, h('span', { class: 'chip' }, l.action.replace(/_/g, ' '))), h('td', { class: 'mono muted' }, l.detail || '')))))) : emptyState('audit', 'No events yet', 'Activity will appear here.'),
       pager(d.total, page, (n) => { page = n; load(); }));
   }
-  shell('audit', [pageHead('Audit log', 'Sign-ins, overrides, skill changes, user and library changes. Newest first.'), holder]);
+  shell('audit', [pageHead('Audit log', 'Sign-ins, overrides, job gate changes, user and library changes. Newest first.'), holder]);
   await load();
 }
 

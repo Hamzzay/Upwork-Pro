@@ -1,4 +1,4 @@
-# Upwork Job Gate
+# Upwork Pro
 
 Screens an Upwork job against the Stackup SOP (the `SKILL.md` rules) and returns PASS, FLAG or FAIL.
 Input is a job link or pasted job page text. Every screening is saved. On FAIL or FLAG the user must
@@ -79,7 +79,7 @@ message was based on and the version it produced. A chat revision never replaces
 | Screen jobs, see own records, continue with a reason | yes | yes | yes |
 | See all records and all override reasons (read only) | no | yes | yes |
 | Add, edit and delete projects; edit tracking on any record | no | yes | yes |
-| Upwork profiles, users, tag dictionary, skill editor and test box, audit log | no | no | yes |
+| Upwork profiles, users, tag dictionary, Upwork JobGate editor and test box, audit log | no | no | yes |
 
 ## Run it
 

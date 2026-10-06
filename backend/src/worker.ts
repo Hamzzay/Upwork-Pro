@@ -37,7 +37,7 @@ function errorInfo(e: unknown): { code: string; message: string } {
   if (m === 'no_version') return { code: 'no_version', message: 'The proposal has no text yet.' };
   if (m === 'no_tags') return { code: 'no_tags', message: 'The model found no matching tags. Try again.' };
   if (m === 'invalid_output') return { code: 'invalid_output', message: 'The AI answer was not in the expected format. Try again.' };
-  if (m === 'no_active_skill') return { code: 'no_skill', message: 'No active skill version. Tell an admin.' };
+  if (m === 'no_active_skill') return { code: 'no_skill', message: 'No active job gate version. Tell an admin.' };
   if (m.startsWith('timeout')) return { code: 'timeout', message: 'The AI call timed out. Try again.' };
   return { code: 'error', message: 'Screening failed. Try again.' }; // never echo model text or stderr
 }

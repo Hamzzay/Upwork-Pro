@@ -80,6 +80,21 @@ Screening is now the biggest step. Getting under 3 minutes on GLM needs a shorte
 - Tested: type check and `npm test` pass; full journeys run on GLM with the early draft used; the PASS
   path checked with the mock provider.
 
+## Refinement round (7 October)
+
+Hamza and Claude started the cleanup that was planned for Usman. Each item below is its own commit on this
+branch. Items still listed under "Still to do" are for Usman.
+
+### R1. Naming, logo and navigation (done)
+- The app is **Upwork Pro** everywhere: sidebar, sign-in page, browser tab (new favicon), README, package name.
+- New logo: a U with an upward arrow (`ICONS.logo` in `app.js`, same shape as the favicon in `index.html`).
+- **Skill editor is now "Upwork JobGate"** (sidebar and page title). "Skill v1" chips now read "Gate v1".
+- **"All records" is now "Jobs"** ("My jobs" for employees).
+- The sidebar is one list, `NAV` in `app.js`, grouped **Work** (Screen a job, Jobs), **Library** (Projects,
+  Industries, Tag dictionary, Upwork profiles), **Proposal setup** (Templates, Signals), **Admin** (Upwork
+  JobGate, Users, Audit log). Each link carries the roles that see it, so adding a page is one line.
+- Kept on purpose: database `upwork_gate`, table `skill_versions` and the URL `#/skill` (internal names).
+
 ## Feedback from Hamza's testing (not done yet)
 1. **Projects step: the whole project card should be clickable**, not only the small tick box.
    Having to untick one project before picking another is fine. (`backend/public/app.js` around line 385.)
