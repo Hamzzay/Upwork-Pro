@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 011: early drafts, tracking fields, settings, AI call log
+npm run migrate        # applies 008 to 012: early drafts, tracking fields, settings, AI call log, status dates
 ```
 Then sign in: you land on the new **Dashboard**. Admin pages: Upwork JobGate, Rules, Settings, Users, Logs.
 
@@ -218,6 +218,20 @@ empty database, and each screen in the browser with real GLM jobs.
   **View details** link back.
 - Screening a new job still goes straight into the workflow, and a job that is still screening or failed opens
   the workflow page (progress and retry live there).
+
+### R9. One-click status updates (done)
+- **Status column on the Jobs list** (next to Progress) shows the latest thing that happened on Upwork (outcome,
+  else Interview, Replied, Viewed, Sent) and when, with an **Update** button on every row. The same **Update
+  status** button is on the job detail page.
+- **The dialog**: pick Sent, Viewed, Replied, Interview or an outcome (from Settings); the next logical one is
+  pre-selected. **"When it happened" is pre-filled with now** and only needs changing if it happened earlier.
+- **Saving records the status and its date-time**: Sent sets proceeded = yes, the sent date and `proposal_sent_at`;
+  Viewed sets client viewed = yes and `client_viewed_at`; likewise `client_replied_at`, `interviewed_at`,
+  `outcome_at`. Every change is also kept in the new `status_events` table (history in the dialog and in the job
+  timeline). Migration `012_status_dates.sql`.
+- Saving the Tracking form now also fills these date-times (now) the first time a milestone is set there.
+- The export gains Sent at, Viewed at, Replied at, Interview at, Outcome at and the full status history.
+- API: `GET /screenings/:id/status` (current, history, choices) and `POST /screenings/:id/status { status, at }`.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

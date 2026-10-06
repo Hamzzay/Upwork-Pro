@@ -74,14 +74,20 @@ const stageSql = `CASE
     WHEN p.finalized_at IS NULL THEN 'proposal'
     WHEN s.tracking_updated_at IS NULL THEN 'tracking'
     ELSE 'complete' END`;
+/** The latest thing that happened on Upwork after the proposal: outcome, then interview, replied, viewed, sent. */
+const statusSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome WHEN s.interviewed='yes' THEN 'Interview' WHEN s.client_replied='yes' THEN 'Replied'
+  WHEN s.client_viewed='yes' THEN 'Viewed' WHEN s.proposal_sent_date IS NOT NULL OR s.proposal_sent_at IS NOT NULL THEN 'Sent' ELSE NULL END`;
+const statusAtSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome_at WHEN s.interviewed='yes' THEN s.interviewed_at WHEN s.client_replied='yes' THEN s.client_replied_at
+  WHEN s.client_viewed='yes' THEN s.client_viewed_at ELSE COALESCE(s.proposal_sent_at, s.proposal_sent_date) END`;
 const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
   LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
-const listSelect = `SELECT s.id, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
+const listSelect = `SELECT s.id, s.user_id, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
   s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
   s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date,
   u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
   p.status AS proposal_status, p.finalized_at AS proposal_finalized_at, p.template_name,
-  TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, ${stageSql} AS stage
+  TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, ${stageSql} AS stage,
+  ${statusSql} AS current_status, ${statusAtSql} AS status_at
   ${listFrom}`;
 
 const PAGE_SIZE = 20;
@@ -307,8 +313,43 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   await exec(`UPDATE screenings SET ${sets.join(',')}, tracking_updated_at=NOW() WHERE id=?`, [...p, id]);
+  // a milestone set through the form gets its date-time too (now, unless it already had one), like the status button
+  await exec(`UPDATE screenings SET client_viewed_at=IF(client_viewed='yes', COALESCE(client_viewed_at, NOW()), client_viewed_at),
+    client_replied_at=IF(client_replied='yes', COALESCE(client_replied_at, NOW()), client_replied_at), interviewed_at=IF(interviewed='yes', COALESCE(interviewed_at, NOW()), interviewed_at),
+    outcome_at=IF(outcome IS NOT NULL, COALESCE(outcome_at, NOW()), outcome_at),
+    proposal_sent_at=IF(proposal_sent_date IS NOT NULL AND (proposal_sent_at IS NULL OR DATE(proposal_sent_at)<>proposal_sent_date), proposal_sent_date, proposal_sent_at) WHERE id=?`, [id]);
   await audit(req.user!.id, 'tracking_update', `screening=${id} fields=${Object.keys(b.data).join(',')}`);
   res.json({ ok: true });
+});
+
+// One click from the Jobs list: what happened on Upwork, and when (now unless the person changes it). Every change is kept.
+api.post('/screenings/:id/status', requireRole(), async (req, res) => {
+  const outcomes = (await getSettings())['tracking.outcomes'];
+  const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time') }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const st = b.data.status, at = b.data.at.replace('T', ' ').slice(0, 16) + ':00';
+  if (Number.isNaN(Date.parse(at.replace(' ', 'T')))) return void res.status(400).json({ error: 'Not a real date' });
+  const id = Number(req.params.id);
+  const s = (await query<any>('SELECT user_id, status FROM screenings WHERE id=?', [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  if (s.status !== 'done') return void res.status(409).json({ error: 'Wait until the screening is finished' });
+  const sets: Record<string, string> = {
+    Sent: `proceeded='yes', proposal_sent_date=DATE(?), proposal_sent_at=?`,
+    Viewed: `client_viewed='yes', client_viewed_at=?`, Replied: `client_replied='yes', client_replied_at=?`, Interview: `interviewed='yes', interviewed_at=?`,
+  };
+  if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
+  else if (outcomes.includes(st)) await exec('UPDATE screenings SET outcome=?, outcome_at=?, tracking_updated_at=NOW() WHERE id=?', [st, at, id]);
+  else return void res.status(400).json({ error: 'Unknown status' });
+  await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id) VALUES (?,?,?,?)', [id, st, at, req.user!.id]);
+  await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}`);
+  res.json({ ok: true });
+});
+api.get('/screenings/:id/status', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const s = (await query<any>(`SELECT s.user_id, ${statusSql} AS current_status FROM screenings s WHERE s.id=?`, [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  const events = await query('SELECT e.status, e.happened_at, e.created_at, u.name AS user_name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.happened_at DESC, e.id DESC', [id]);
+  res.json({ current: s.current_status, events, choices: ['Sent', 'Viewed', 'Replied', 'Interview', ...(await getSettings())['tracking.outcomes']] });
 });
 
 // ---------- step 2: continue, tag the job, match projects ----------
@@ -557,6 +598,7 @@ api.get('/screenings/:id/timeline', requireRole(), async (req, res) => {
   const p = (await query<any>('SELECT p.*, fu.name AS fin_by FROM proposals p LEFT JOIN users fu ON fu.id=p.finalized_by WHERE p.screening_id=?', [id]))[0];
   const versions = p ? await query<any>('SELECT v.version_no, v.source, v.created_at, u.name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no', [p.id]) : [];
   const calls = await query<any>('SELECT kind, step, model, ms, ok, error, created_at FROM llm_calls WHERE screening_id=? ORDER BY id', [id]);
+  const statuses = await query<any>('SELECT e.status, e.happened_at, u.name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.id', [id]);
   const ev: { at: any; what: string; who?: string | null; detail?: string | null; kind: string }[] = [];
   const add = (at: any, what: string, kind: string, who?: string | null, detail?: string | null) => { if (at) ev.push({ at, what, who: who ?? null, detail: detail ?? null, kind }); };
   add(s.created_at, 'Job pasted', 'step', s.user_name);
@@ -569,6 +611,7 @@ api.get('/screenings/:id/timeline', requireRole(), async (req, res) => {
   for (const v of versions) add(v.created_at, `Proposal version ${v.version_no} (${v.source === 'ai' ? 'written by AI' : v.source})`, 'step', v.name);
   add(p?.finalized_at, 'Proposal finished', 'step', p?.fin_by);
   add(s.tracking_updated_at, `Tracking saved${s.outcome ? ': ' + s.outcome : ''}`, 'step');
+  for (const e of statuses) add(e.happened_at, `Status: ${e.status}`, 'step', e.name);
   for (const c of calls) add(c.created_at, `AI call: ${c.kind}${c.step ? ' / ' + c.step : ''}`, c.ok ? 'call' : 'error', null, `${c.model ?? ''} · ${(c.ms / 1000).toFixed(1)} s${c.ok ? '' : ' · ' + (c.error ?? 'failed')}`);
   ev.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   res.json({ events: ev });

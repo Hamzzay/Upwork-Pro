@@ -318,6 +318,28 @@ async function dashboardView() {
   await load();
 }
 
+// ---------- status: what happened on Upwork after the proposal ----------
+/** Now, as the value a datetime-local input takes (local time, to the minute). */
+const nowLocal = () => { const d = new Date(); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const NEXT_STATUS = { '': 'Sent', Sent: 'Viewed', Viewed: 'Replied', Replied: 'Interview' };
+const canTrack = (userId) => userId === me.id || me.role === 'admin' || me.role === 'manager';
+/** One click to record a status and when it happened (now, unless changed). Every change is kept in the history. */
+async function statusDialog(id, onDone) {
+  const d = await api('GET', `/screenings/${id}/status`);
+  let pick = NEXT_STATUS[d.current || ''] || d.choices[0];
+  const when = h('input', { type: 'datetime-local', id: 'sat', value: nowLocal(), max: nowLocal() });
+  const grid = h('div', { class: 'statuspick', role: 'radiogroup', 'aria-label': 'Status' });
+  const draw = () => grid.replaceChildren(...d.choices.map((c) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === c, class: 'chip' + (pick === c ? ' brand' : '') + (c === d.current ? ' cur' : ''), onclick: () => { pick = c; draw(); } }, c)));
+  draw();
+  modal({ title: 'Update status', confirm: 'Save status', body: h('div', {},
+    d.current ? h('p', { class: 'small muted', style: 'margin-top:0' }, 'Now: ', h('strong', {}, d.current)) : null,
+    grid,
+    h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, h('div', { class: 'hint' }, 'Set to now. Change it only if it happened earlier.')),
+    d.events.length ? h('details', { class: 'desc', style: 'margin-top:12px' }, h('summary', {}, `History (${d.events.length})`),
+      h('ul', { class: 'plain' }, d.events.map((e) => h('li', {}, h('strong', {}, e.status), h('span', { class: 'muted' }, ` · ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}`))))) : null),
+    onConfirm: async () => { await api('POST', `/screenings/${id}/status`, { status: pick, at: when.value }); toast(`Status: ${pick}`); if (onDone) await onDone(); } });
+}
+
 // ---------- jobs list ----------
 /** The journey as dots: how many of the 5 steps are done for a stage. */
 const STAGE_INFO = {
@@ -337,6 +359,9 @@ const clip = (v, w) => (v ? h('span', { class: 'clip', title: v, style: `max-wid
 /** Every column the Jobs list can show. `def` ones are on until the person changes them. */
 const JOB_COLS = [
   { key: 'progress', label: 'Progress', sort: 'stage', def: true, cell: (r) => progressDots(r.stage) },
+  { key: 'status', label: 'Status', def: true, cell: (r, reload) => h('div', { class: 'statuscell' },
+    h('div', {}, r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null),
+    r.status === 'done' && canTrack(r.user_id) ? h('button', { class: 'btn sm', type: 'button', title: 'Update status', onclick: (e) => { e.stopPropagation(); statusDialog(r.id, reload); } }, 'Update') : null) },
   { key: 'verdict', label: 'Result', sort: 'verdict', def: true, cell: (r) => [verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null] },
   { key: 'country', label: 'Client', sort: 'country', def: true, cell: (r) => clip(r.client_country, 170) },
   { key: 'budget', label: 'Budget', def: true, cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
@@ -347,7 +372,7 @@ const JOB_COLS = [
   { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_date ? String(r.proposal_sent_date).slice(0, 10) : '') },
   { key: 'connects', label: 'Connects', cell: (r) => (r.connects_spent != null ? r.connects_spent + (r.boost_connects ? ' + ' + r.boost_connects : '') : '') },
   { key: 'response', label: 'Viewed / replied / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
-  { key: 'outcome', label: 'Outcome', sort: 'outcome', def: true, cell: (r) => clip(r.outcome, 120) },
+  { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => clip(r.outcome, 120) },
   { key: 'time', label: 'To proposal', sort: 'time', def: true, cell: (r) => mins(r.secs_to_proposal) },
   { key: 'created', label: 'When', sort: 'created', def: true, cell: (r) => h('span', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)) },
 ];
@@ -437,7 +462,7 @@ async function historyView() {
       : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
           h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id)),
-          shown.map((c) => h('td', {}, c.cell(r))))))));
+          shown.map((c) => h('td', {}, c.cell(r, load))))))));
     if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history'; });
     bodyEl.replaceChildren(table, pager(total, st.page, (n) => { st.page = n; load(); }));
   }
@@ -920,6 +945,7 @@ async function jobView(id) {
     ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
     ['Viewed / replied / interview', [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].some(Boolean) ? [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].map((v) => v || '-').join(' / ') : null],
     ['Outcome', s.outcome],
+    ['Status', s.client_viewed_at || s.proposal_sent_at || s.outcome_at ? h('span', {}, h('span', { class: 'chip brand' }, s.outcome || (s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Replied' : s.client_viewed === 'yes' ? 'Viewed' : 'Sent'))) : null],
   ];
   const section = (titleTxt, sub, content, extra) => h('div', { class: 'card', style: 'margin-top:16px' }, h('div', { class: 'card-head' }, h('h2', {}, titleTxt), extra || (sub ? h('span', { class: 'sub' }, sub) : null)), content);
 
@@ -933,7 +959,7 @@ async function jobView(id) {
 
   const parts = [
     h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs')),
-    pageHead(title, null, editBtn),
+    pageHead(title, null, h('div', { class: 'row', style: 'gap:8px' }, canEdit ? h('button', { class: 'btn', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null, editBtn)),
     h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
       s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null, s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
     h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, v || 'not yet'))))),
