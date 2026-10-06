@@ -10,6 +10,8 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
 npm run migrate        # applies 008 to 013: early drafts, tracking, settings, AI call log, status dates, posting and change history
+npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
+# optional, spends AI quota: npm run backfill:postings   (reads older jobs' posts into fields; add -- --dry-run to count)
 ```
 Then sign in: you land on the new **Dashboard**. Admin pages: Upwork JobGate, Rules, Settings, Users, Logs.
 
@@ -258,6 +260,18 @@ empty database, and each screen in the browser with real GLM jobs.
 - **Jobs list**: the Update status button is back at the end of the row, in a column pinned to the right edge,
   so it is always visible while the table scrolls.
 - **Every page now uses the Dashboard's full width** (`.page` max-width 1480px), so the pages look the same.
+
+### R11. Searchable dropdowns, seeders (done)
+- **Every dropdown is searchable**: `searchableSelect` in `app.js` turns each `<select>` into a button with a
+  search box (type to filter, arrow keys, Enter to pick, Escape to close). It is applied automatically to every
+  select added to the page (a MutationObserver), so new pages get it for free. The real `<select>` stays in the
+  page, hidden, and keeps the value, so `el.value`, `change` listeners and `<label for>` all work unchanged.
+  Add `data-plain` to a select to opt out.
+- **`npm run seed:settings`** (`scripts/seed-settings.ts`): inserts any missing admin setting with its default from
+  `src/settings.ts`. Never overwrites a value an admin changed.
+- **`npm run backfill:postings`** (`scripts/backfill-postings.ts`): queues posting extraction for jobs pasted before
+  R10. Spends one AI call per job, so it is not part of setup; `-- --dry-run` only counts (9 jobs locally).
+- Both have `:prod` variants for the built app, and the README's run steps list them.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

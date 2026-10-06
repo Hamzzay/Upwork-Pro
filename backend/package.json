@@ -19,7 +19,11 @@
     "sync:library": "ts-node scripts/sync-library.ts",
     "sync:library:prod": "node dist/scripts/sync-library.js",
     "seed:proposals": "ts-node scripts/seed-proposals.ts",
-    "seed:proposals:prod": "node dist/scripts/seed-proposals.js"
+    "seed:proposals:prod": "node dist/scripts/seed-proposals.js",
+    "seed:settings": "ts-node scripts/seed-settings.ts",
+    "seed:settings:prod": "node dist/scripts/seed-settings.js",
+    "backfill:postings": "ts-node scripts/backfill-postings.ts",
+    "backfill:postings:prod": "node dist/scripts/backfill-postings.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.282",

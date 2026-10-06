@@ -97,6 +97,70 @@ const verdictPill = (v, status) =>
     : status === 'error' ? h('span', { class: 'pill bad' }, 'Failed')
     : h('span', { class: 'pill wait' }, status === 'running' ? 'Screening' : 'Queued');
 
+// ---------- searchable dropdowns ----------
+/**
+ * Every <select> in the app becomes searchable: a button that opens a list with a search box (type to filter,
+ * arrow keys, Enter, Escape). The real <select> stays in the page, hidden, and keeps the value, so every existing
+ * `el.value` read and `change` listener works unchanged. Applied automatically to any select added to the page.
+ */
+function searchableSelect(sel) {
+  if (sel.__ss || sel.multiple || sel.dataset.plain !== undefined) return;
+  sel.__ss = true;
+  const wrap = h('div', { class: 'ss ' + (sel.className || '') });
+  if (sel.getAttribute('style')) wrap.setAttribute('style', sel.getAttribute('style'));
+  const btn = h('button', { type: 'button', class: 'ss-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': sel.getAttribute('aria-label') || null });
+  const search = h('input', { type: 'search', class: 'ss-search', placeholder: 'Search...', 'aria-label': 'Search options', autocomplete: 'off' });
+  const list = h('ul', { class: 'ss-list', role: 'listbox' });
+  const pop = h('div', { class: 'ss-pop', hidden: true }, search, list);
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.append(btn, pop, sel);
+  sel.classList.add('ss-native'); sel.tabIndex = -1;
+  let active = -1, shown = [];
+  const label = () => { const o = sel.options[sel.selectedIndex]; btn.textContent = o ? o.textContent : ''; btn.classList.toggle('ph', !sel.value); btn.disabled = sel.disabled; };
+  const choose = (o) => { if (o.disabled) return; sel.value = o.value; label(); close(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    shown = [...sel.options].filter((o) => !q || o.textContent.toLowerCase().includes(q));
+    if (active >= shown.length) active = shown.length - 1;
+    list.replaceChildren(...(shown.length ? shown.map((o, i) => h('li', { role: 'option', 'aria-selected': o.selected, class: (o.selected ? 'sel ' : '') + (i === active ? 'act' : '') + (o.disabled ? ' dis' : ''),
+      onmousedown: (e) => { e.preventDefault(); choose(o); }, onmousemove: () => { if (active !== i) { active = i; draw(); } } }, o.textContent)) : [h('li', { class: 'none' }, 'No matches')]));
+    list.querySelector('.act')?.scrollIntoView({ block: 'nearest' });
+  };
+  const open = () => {
+    if (sel.disabled) return;
+    document.querySelectorAll('.ss.open').forEach((x) => x !== wrap && x.__close && x.__close());
+    pop.hidden = false; wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
+    search.value = ''; active = Math.max(0, sel.selectedIndex); draw(); search.focus();
+  };
+  const close = () => { pop.hidden = true; wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+  wrap.__close = close;
+  btn.onclick = () => (pop.hidden ? open() : close());
+  btn.onkeydown = (e) => { if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); open(); } };
+  search.oninput = () => { active = 0; draw(); };
+  search.onkeydown = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(shown.length - 1, active + 1); draw(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(0, active - 1); draw(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (shown[active]) choose(shown[active]); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); btn.focus(); }
+    else if (e.key === 'Tab') close();
+  };
+  sel.addEventListener('change', label);
+  // code that sets .value or disabled without an event: keep the button text in step
+  new MutationObserver(label).observe(sel, { attributes: true, childList: true, subtree: true });
+  const v = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  Object.defineProperty(sel, 'value', { get() { return v.get.call(this); }, set(x) { v.set.call(this, x); label(); }, configurable: true });
+  label();
+}
+document.addEventListener('mousedown', (e) => { document.querySelectorAll('.ss.open').forEach((w) => { if (!w.contains(e.target)) w.__close(); }); });
+// a <label for="id"> of a hidden select opens its searchable button instead
+document.addEventListener('click', (e) => {
+  const lab = e.target.closest && e.target.closest('label[for]'); if (!lab) return;
+  const sel = document.getElementById(lab.htmlFor);
+  if (sel && sel.tagName === 'SELECT' && sel.__ss) { e.preventDefault(); sel.parentNode.querySelector('.ss-btn').click(); }
+});
+new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) (n.tagName === 'SELECT' ? [n] : n.querySelectorAll('select')).forEach(searchableSelect); })
+  .observe(document.documentElement, { childList: true, subtree: true });
+
 // ---------- pagination ----------
 const PAGE_SIZE = 20;
 function hashParams() { return Object.fromEntries(new URLSearchParams(location.hash.split('?')[1] || '')); }
