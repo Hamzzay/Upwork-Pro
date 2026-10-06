@@ -58,48 +58,104 @@ api.post('/screenings', requireRole(), async (req, res) => {
   res.status(202).json({ id: r.insertId, status: 'queued', input_type: parsed.type });
 });
 
+/** Where a job stands, as one word. The order is the journey; "skipped" and "failed" sit outside it. */
+export const STAGES = ['screening', 'decide', 'projects', 'profile', 'proposal', 'tracking', 'complete', 'skipped', 'failed'] as const;
+export const NEEDS_ACTION = ['decide', 'projects', 'profile', 'proposal', 'tracking'];
+const stageSql = `CASE
+    WHEN s.status IN ('queued','running') THEN 'screening'
+    WHEN s.status = 'error' THEN 'failed'
+    WHEN s.proceeded = 'no' THEN 'skipped'
+    WHEN s.continued_at IS NULL THEN 'decide'
+    WHEN s.selection_confirmed_at IS NULL THEN 'projects'
+    WHEN s.proposal_profile_confirmed_at IS NULL THEN 'profile'
+    WHEN p.finalized_at IS NULL THEN 'proposal'
+    WHEN s.tracking_updated_at IS NULL THEN 'tracking'
+    ELSE 'complete' END`;
+const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
+  LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
 const listSelect = `SELECT s.id, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
-  s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued, u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden
-  FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id`;
+  s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
+  s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date,
+  u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
+  p.status AS proposal_status, p.finalized_at AS proposal_finalized_at, p.template_name,
+  TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, ${stageSql} AS stage
+  ${listFrom}`;
 
 const PAGE_SIZE = 20;
 const likeEsc = (v: string) => v.replace(/[\\%_]/g, (c) => '\\' + c);
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const listFilters = z.object({
+  verdict: z.enum(['PASS', 'FLAG', 'FAIL']).optional(), mine: z.enum(['0', '1']).optional(), q: z.string().trim().max(100).optional(),
+  from: day.optional(), to: day.optional(), rule: z.string().trim().regex(/^[A-Z]\d{1,3}$/).optional(),
+  profile: z.coerce.number().int().positive().optional(), user: z.coerce.number().int().positive().optional(),
+  outcome: z.string().trim().max(60).optional(), stage: z.enum([...STAGES, 'needs_action']).optional(),
+});
+export type ListFilters = z.infer<typeof listFilters>;
 
-/** Shared by the list and the stats: which records this person may see, and the filters. */
-function listWhere(req: any, f: { verdict?: string; mine?: string; q?: string }) {
+/** Shared by the list, the counters and the export: which jobs this person may see, and the filters. */
+export function listWhere(req: any, f: ListFilters) {
   const where: string[] = []; const p: any[] = [];
   if (!canSeeAll(req.user.role) || f.mine === '1') { where.push('s.user_id=?'); p.push(req.user.id); }
   if (f.verdict) { where.push('s.verdict=?'); p.push(f.verdict); }
   if (f.q) {
     const like = `%${likeEsc(f.q)}%`;
-    where.push(`(s.title LIKE ? OR u.name LIKE ? OR pr.name LIKE ? OR s.rule_codes LIKE ? OR s.source_url LIKE ?)`);
-    p.push(like, like, like, like, like);
+    where.push(`(s.title LIKE ? OR u.name LIKE ? OR pr.name LIKE ? OR s.rule_codes LIKE ? OR s.source_url LIKE ? OR s.client_country LIKE ?)`);
+    p.push(like, like, like, like, like, like);
   }
+  if (f.from) { where.push('s.created_at >= ?'); p.push(f.from + ' 00:00:00'); }
+  if (f.to) { where.push('s.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(f.to); }
+  if (f.rule) { where.push(`CONCAT(', ', s.rule_codes, ',') LIKE ?`); p.push(`%, ${f.rule},%`); } // whole codes only: G1 never matches G14
+  if (f.profile) { where.push('s.upwork_profile_id=?'); p.push(f.profile); }
+  if (f.user && canSeeAll(req.user.role)) { where.push('s.user_id=?'); p.push(f.user); }
+  if (f.outcome) { if (f.outcome === 'none') where.push('s.outcome IS NULL'); else { where.push('s.outcome=?'); p.push(f.outcome); } }
+  if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
+  else if (f.stage) { where.push(`(${stageSql})=?`); p.push(f.stage); }
   return { sql: where.length ? 'WHERE ' + where.join(' AND ') : '', p };
 }
-const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id`;
-const listFilters = z.object({
-  verdict: z.enum(['PASS', 'FLAG', 'FAIL']).optional(), mine: z.enum(['0', '1']).optional(), q: z.string().trim().max(100).optional(),
-});
+
+/** Columns the list can be sorted by. Anything else falls back to newest first. */
+const SORTS: Record<string, string> = {
+  created: 's.id', title: 's.title', verdict: `FIELD(s.verdict,'PASS','FLAG','FAIL')`, country: 's.client_country',
+  hire_rate: `CAST(REGEXP_SUBSTR(s.hire_rate, '[0-9]+') AS UNSIGNED)`, user: 'u.name', profile: 'pr.name', outcome: 's.outcome',
+  stage: `FIELD(${stageSql}, ${STAGES.map((x) => `'${x}'`).join(',')})`, time: 'TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)',
+};
+export const orderBy = (sort?: string, dir?: string) => {
+  const col = SORTS[sort ?? ''] ?? SORTS.created;
+  const d = dir === 'asc' ? 'ASC' : 'DESC';
+  return `ORDER BY ${col} IS NULL, ${col} ${d}, s.id DESC`; // empty values last, whichever way
+};
 
 api.get('/screenings', requireRole(), async (req, res) => {
-  const f = listFilters.extend({ page: z.coerce.number().int().min(1).default(1) }).parse(req.query);
+  const f = listFilters.extend({ page: z.coerce.number().int().min(1).default(1), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
   const w = listWhere(req, f);
   const total = Number((await query<any>(`SELECT COUNT(*) AS n ${listFrom} ${w.sql}`, w.p))[0].n);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(f.page, pages);
-  const rows = await query(`${listSelect} ${w.sql} ORDER BY s.id DESC LIMIT ? OFFSET ?`, [...w.p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
+  const rows = await query(`${listSelect} ${w.sql} ${orderBy(f.sort, f.dir)} LIMIT ? OFFSET ?`, [...w.p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
   res.json({ screenings: rows, total, page, pages, page_size: PAGE_SIZE });
 });
 
-// Counts for the summary tiles: always across everything the person may see, ignoring the verdict and search filters.
+// Counts for the summary tiles: every filter applies except the verdict, so the tiles can switch between verdicts.
 api.get('/screenings/stats', requireRole(), async (req, res) => {
-  const f = listFilters.pick({ mine: true }).parse(req.query);
-  const w = listWhere(req, f);
+  const f = listFilters.parse(req.query);
+  const w = listWhere(req, { ...f, verdict: undefined });
   const r = (await query<any>(
-    `SELECT COUNT(*) AS total, SUM(s.verdict='PASS') AS pass_n, SUM(s.verdict='FLAG') AS flag_n, SUM(s.verdict='FAIL') AS fail_n, SUM(o.id IS NOT NULL) AS overridden
-     ${listFrom} ${w.sql}`, w.p))[0];
-  res.json({ total: Number(r.total), PASS: Number(r.pass_n || 0), FLAG: Number(r.flag_n || 0), FAIL: Number(r.fail_n || 0), overridden: Number(r.overridden || 0) });
+    `SELECT COUNT(*) AS total, SUM(s.verdict='PASS') AS pass_n, SUM(s.verdict='FLAG') AS flag_n, SUM(s.verdict='FAIL') AS fail_n, SUM(o.id IS NOT NULL) AS overridden,
+       SUM((${stageSql}) IN (?)) AS needs_action
+     ${listFrom} ${w.sql}`, [NEEDS_ACTION, ...w.p]))[0];
+  res.json({ total: Number(r.total), PASS: Number(r.pass_n || 0), FLAG: Number(r.flag_n || 0), FAIL: Number(r.fail_n || 0), overridden: Number(r.overridden || 0), needs_action: Number(r.needs_action || 0) });
+});
+
+// What the filter menus can offer: the people, profiles, rule codes and outcomes that exist.
+api.get('/screenings/filter-options', requireRole(), async (req, res) => {
+  const all = canSeeAll(req.user!.role);
+  res.json({
+    users: all ? await query('SELECT id, name FROM users ORDER BY name') : [],
+    profiles: await query('SELECT id, name FROM upwork_profiles ORDER BY active DESC, name'),
+    rules: await query("SELECT code, type, rule FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
+    outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL ORDER BY outcome')).map((r) => r.outcome),
+    stages: STAGES, needs_action: NEEDS_ACTION,
+  });
 });
 
 

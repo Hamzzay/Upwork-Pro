@@ -157,7 +157,7 @@ function shell(active, content, wide) {
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
         h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; route(); } }, icon('out')))),
-    h('main', { class: 'content' }, h('div', { class: 'page', style: wide ? 'max-width:1180px' : null }, content))));
+    h('main', { class: 'content' }, h('div', { class: 'page', style: wide ? `max-width:${wide === true ? 1180 : wide}px` : null }, content))));
   window.scrollTo(0, 0);
 }
 const pageHead = (title, sub, actions) =>
@@ -219,52 +219,132 @@ async function newView() {
   box.focus();
 }
 
-// ---------- records ----------
+// ---------- jobs list ----------
+/** The journey as dots: how many of the 5 steps are done for a stage. */
+const STAGE_INFO = {
+  screening: [0, 'Screening'], decide: [1, 'Decide'], projects: [1, 'Pick projects'], profile: [2, 'Pick profile'], proposal: [3, 'Proposal'],
+  tracking: [4, 'Track'], complete: [5, 'Complete'], skipped: [1, 'Skipped'], failed: [0, 'Failed'],
+};
+function progressDots(stage) {
+  const [done, label] = STAGE_INFO[stage] || [0, stage];
+  const cls = stage === 'failed' ? ' bad' : stage === 'skipped' ? ' off' : stage === 'complete' ? ' ok' : '';
+  return h('div', { class: 'prog' + cls, title: label }, h('span', { class: 'dots', 'aria-hidden': 'true' }, STEPS.map((_, i) => h('i', { class: i < done ? 'on' : i === done && done < 5 ? 'cur' : '' }))),
+    h('span', { class: 'small' }, label));
+}
+const mins = (sec) => (sec == null ? '' : sec < 60 ? sec + ' s' : Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'));
+const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : '');
+/** Long model-written values (budget, client) stay on one line; the full text is on hover. */
+const clip = (v, w) => (v ? h('span', { class: 'clip', title: v, style: `max-width:${w}px` }, v) : '');
+/** Every column the Jobs list can show. `def` ones are on until the person changes them. */
+const JOB_COLS = [
+  { key: 'progress', label: 'Progress', sort: 'stage', def: true, cell: (r) => progressDots(r.stage) },
+  { key: 'verdict', label: 'Result', sort: 'verdict', def: true, cell: (r) => [verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null] },
+  { key: 'country', label: 'Client', sort: 'country', def: true, cell: (r) => clip(r.client_country, 170) },
+  { key: 'budget', label: 'Budget', def: true, cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
+  { key: 'hire_rate', label: 'Hire rate', sort: 'hire_rate', cell: (r) => clip(r.hire_rate, 120) },
+  { key: 'profile', label: 'Profile', sort: 'profile', def: true, cell: (r) => clip(r.profile_name, 140) },
+  { key: 'user', label: 'By', sort: 'user', def: true, cell: (r) => r.user_name },
+  { key: 'template', label: 'Template', cell: (r) => clip(r.template_name, 180) },
+  { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_date ? String(r.proposal_sent_date).slice(0, 10) : '') },
+  { key: 'connects', label: 'Connects', cell: (r) => (r.connects_spent != null ? r.connects_spent + (r.boost_connects ? ' + ' + r.boost_connects : '') : '') },
+  { key: 'response', label: 'Viewed / replied / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
+  { key: 'outcome', label: 'Outcome', sort: 'outcome', def: true, cell: (r) => clip(r.outcome, 120) },
+  { key: 'time', label: 'To proposal', sort: 'time', def: true, cell: (r) => mins(r.secs_to_proposal) },
+  { key: 'created', label: 'When', sort: 'created', def: true, cell: (r) => h('span', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)) },
+];
+function savedCols() {
+  try { const v = JSON.parse(localStorage.getItem('jobs.columns') || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
+  return new Set(JOB_COLS.filter((c) => c.def).map((c) => c.key));
+}
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage'];
+/** The list's filters as API query parameters (the export uses the same ones). */
+function jobQuery(st) {
+  const qs = new URLSearchParams();
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage' };
+  for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
+  if (st.mine) qs.set('mine', '1');
+  return qs;
+}
+
 async function historyView() {
   const hp = hashParams();
-  const st = { verdict: ['PASS', 'FLAG', 'FAIL'].includes(hp.v) ? hp.v : '', q: hp.q || '', mine: hp.mine === '1', page: Math.max(1, Number(hp.page) || 1) };
-  let stats = { total: 0, PASS: 0, FLAG: 0, FAIL: 0, overridden: 0 };
-  const statsEl = h('div', { class: 'stats' });
-  const bodyEl = h('div', {});
-  const searchIn = h('input', { type: 'search', placeholder: 'Search by job, person, profile or rule code', 'aria-label': 'Search jobs', value: st.q });
-  const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine });
-  const toolbar = h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn),
-    me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null);
-  const listEl = h('div', { class: 'card' }, toolbar, bodyEl);
+  const st = Object.fromEntries(FILTER_KEYS.map((k) => [k, hp[k] || '']));
+  st.mine = hp.mine === '1'; st.page = Math.max(1, Number(hp.page) || 1); st.sort = hp.sort || 'created'; st.dir = hp.dir === 'asc' ? 'asc' : 'desc';
+  let stats = { total: 0, PASS: 0, FLAG: 0, FAIL: 0, overridden: 0, needs_action: 0 }, cols = savedCols();
+  const opts = await api('GET', '/screenings/filter-options');
+  const statsEl = h('div', { class: 'stats six' }), bodyEl = h('div', {});
 
-  const tile = (key, label, value) => h('button', { class: `stat ${key} ${st.verdict === key ? 'on' : ''}`, onclick: () => { st.verdict = st.verdict === key ? '' : key; st.page = 1; load(); } },
-    h('span', { class: 'k' }, label), h('span', { class: 'v' }, value));
+  const sel = (key, label, options) => {
+    const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
+    el.onchange = () => { st[key] = el.value; st.page = 1; load(); };
+    return el;
+  };
+  const dateIn = (key, label) => { const el = h('input', { type: 'date', 'aria-label': label, title: label, value: st[key], class: 'fdate' }); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
+  const searchIn = h('input', { type: 'search', placeholder: 'Search by job, client country, person, profile or rule', 'aria-label': 'Search jobs', value: st.q });
+  searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; load().catch((x) => toast(x.message, true)); }, 300);
+  const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
+  const outcomes = [...new Set([...OUTCOMES, ...opts.outcomes])];
+  const stageOpts = [['needs_action', 'Needs action'], ...opts.stages.map((x) => [x, STAGE_INFO[x] ? STAGE_INFO[x][1] : x])];
+  const colBtn = h('button', { class: 'btn', type: 'button' }, 'Columns');
+  colBtn.onclick = () => modal({ title: 'Columns to show', noConfirm: true, body: h('div', { class: 'colpick' }, JOB_COLS.map((c) => {
+    const cb = h('input', { type: 'checkbox', id: 'col-' + c.key, checked: cols.has(c.key) });
+    cb.onchange = () => { if (cb.checked) cols.add(c.key); else cols.delete(c.key); try { localStorage.setItem('jobs.columns', JSON.stringify([...cols])); } catch { /* storage blocked */ } load(); };
+    return h('label', { for: 'col-' + c.key, class: 'row small' }, cb, c.label);
+  })) });
+  const clearBtn = h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/history'; } }, 'Clear filters');
+  const filters = h('div', { class: 'toolbar filters' },
+    h('div', { class: 'search' }, icon('search'), searchIn),
+    dateIn('from', 'From date'), dateIn('to', 'To date'),
+    sel('stage', 'Any stage', stageOpts),
+    sel('rule', 'Any rule', opts.rules.map((r) => [r.code, `${r.code}  ${r.rule}`])),
+    sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])),
+    opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null,
+    sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]),
+    me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null,
+    h('span', { class: 'grow' }), clearBtn, colBtn);
+  const listEl = h('div', { class: 'card' }, filters, bodyEl);
+
+  const tile = (key, label, value, onClick, on) => h('button', { class: `stat ${key} ${on ? 'on' : ''}`, onclick: onClick }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value));
+  const setV = (v) => () => { st.v = st.v === v ? '' : v; st.page = 1; load(); };
   function drawStats() {
-    statsEl.replaceChildren(h('button', { class: 'stat ' + (st.verdict ? '' : 'on'), onclick: () => { st.verdict = ''; st.page = 1; load(); } }, h('span', { class: 'k' }, 'All jobs'), h('span', { class: 'v' }, stats.total)),
-      tile('PASS', 'Pass', stats.PASS), tile('FLAG', 'Flag', stats.FLAG), tile('FAIL', 'Fail', stats.FAIL),
+    statsEl.replaceChildren(tile('', 'All jobs', stats.total, () => { st.v = ''; st.stage = ''; st.page = 1; load(); }, !st.v && !st.stage),
+      tile('PASS', 'Pass', stats.PASS, setV('PASS'), st.v === 'PASS'), tile('FLAG', 'Flag', stats.FLAG, setV('FLAG'), st.v === 'FLAG'), tile('FAIL', 'Fail', stats.FAIL, setV('FAIL'), st.v === 'FAIL'),
+      tile('NEED', 'Needs action', stats.needs_action, () => { st.stage = st.stage === 'needs_action' ? '' : 'needs_action'; st.page = 1; load(); }, st.stage === 'needs_action'),
       h('div', { class: 'stat', style: 'cursor:default' }, h('span', { class: 'k' }, 'Continued anyway'), h('span', { class: 'v' }, stats.overridden)));
   }
+  function headCell(label, sortKey) {
+    if (!sortKey) return h('th', {}, label);
+    const on = st.sort === sortKey;
+    const b = h('button', { type: 'button', class: 'sortbtn' + (on ? ' on' : '') }, label, on ? (st.dir === 'asc' ? ' ▲' : ' ▼') : '');
+    b.onclick = () => { if (on) st.dir = st.dir === 'asc' ? 'desc' : 'asc'; else { st.sort = sortKey; st.dir = sortKey === 'created' || sortKey === 'time' ? 'desc' : 'asc'; } load(); };
+    return h('th', { 'aria-sort': on ? (st.dir === 'asc' ? 'ascending' : 'descending') : null }, b);
+  }
   function drawRows(rows, total) {
+    const shown = JOB_COLS.filter((c) => cols.has(c.key));
+    const filtered = FILTER_KEYS.some((k) => st[k]);
     const table = !rows.length
-      ? emptyState('list', stats.total ? 'No matches' : 'No screenings yet', stats.total ? 'Try a different search or filter.' : 'Screen your first job to see it here.', stats.total ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
-      : h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Job', 'Profile', 'Result', 'Submitted by', 'When', 'Decision'].map((t) => h('th', {}, t)))),
+      ? emptyState('list', filtered ? 'No matches' : 'No jobs yet', filtered ? 'Try different filters.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
+      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
-          h('td', {}, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, r.input_type === 'link' ? 'Link' : 'Pasted text')),
-          h('td', {}, r.profile_name || h('span', { class: 'faint' }, '-')),
-          h('td', {}, verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null), h('td', {}, r.user_name),
-          h('td', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)),
-          h('td', {}, r.selection_confirmed_at ? h('span', { class: 'chip brand' }, 'Projects chosen') : Number(r.continued) ? h('span', { class: 'chip' }, r.tagging_status === 'error' ? 'Matching failed' : r.tagging_status === 'done' ? 'Pick projects' : 'Matching') : r.verdict === 'FAIL' || r.verdict === 'FLAG' || r.verdict === 'PASS' ? h('span', { class: 'faint small' }, 'Open') : ''))))));
+          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id)),
+          shown.map((c) => h('td', {}, c.cell(r))))))));
+    if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history'; });
     bodyEl.replaceChildren(table, pager(total, st.page, (n) => { st.page = n; load(); }));
   }
   let seq = 0;
   async function load() {
     const my = ++seq;
-    const qs = new URLSearchParams({ page: st.page }); if (st.verdict) qs.set('verdict', st.verdict); if (st.q) qs.set('q', st.q); if (st.mine) qs.set('mine', '1');
-    const [list, s2] = await Promise.all([api('GET', '/screenings?' + qs), api('GET', '/screenings/stats' + (st.mine ? '?mine=1' : ''))]);
+    const qs = jobQuery(st); const sq = new URLSearchParams(qs); sq.delete('verdict');
+    qs.set('page', st.page); qs.set('sort', st.sort); qs.set('dir', st.dir);
+    const [list, s2] = await Promise.all([api('GET', '/screenings?' + qs), api('GET', '/screenings/stats?' + sq)]);
     if (my !== seq) return; // a newer request was started while this one was loading
     st.page = list.page; stats = s2;
-    setHashParams({ page: st.page, v: st.verdict, q: st.q, mine: st.mine ? '1' : '' }); lastList.history = location.hash;
+    setHashParams({ ...Object.fromEntries(FILTER_KEYS.map((k) => [k, st[k]])), mine: st.mine ? '1' : '', page: st.page, sort: st.sort === 'created' ? '' : st.sort, dir: st.dir === 'desc' ? '' : st.dir });
+    lastList.history = location.hash; lastList.query = jobQuery(st).toString();
     drawStats(); drawRows(list.screenings, list.total);
   }
-  searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; load().catch((x) => toast(x.message, true)); }, 300);
-  mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
-  shell('history', [pageHead(me.role === 'employee' ? 'My jobs' : 'Jobs', 'Every job screened, with its result, decision and proposal.',
-    h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), statsEl, listEl]);
+  shell('history', [pageHead(me.role === 'employee' ? 'My jobs' : 'Jobs', 'Every job screened, with where it stands, its result and its outcome.',
+    h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), statsEl, listEl], 1480);
   bodyEl.append(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:45%' })));
   await load();
 }

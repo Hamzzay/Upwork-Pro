@@ -111,6 +111,22 @@ branch. Items still listed under "Still to do" are for Usman.
 - Static files are served with `Cache-Control: no-cache`, so after a deploy people get the new screens
   without a hard reload (`server.ts`).
 
+### R3. Jobs list (done)
+- **Stage per job**, computed in SQL (`stageSql` in `routes.ts`): screening, decide, projects, profile,
+  proposal, tracking, complete, skipped, failed. **Needs action** = decide, projects, profile, proposal or
+  tracking (`NEEDS_ACTION`).
+- **Filters** (all in the URL, so Back returns to the same view): search (title, client country, person,
+  profile, rule, link), date from / to, stage (incl. Needs action), rule code (whole codes only, G1 never
+  matches G14), profile, person (managers and admins), outcome (incl. "No outcome yet"), only mine.
+  `GET /screenings/filter-options` feeds the menus from the database.
+- **Sortable columns** (`SORTS` whitelist in `routes.ts`; empty values sort last). Default: newest first.
+- **More columns**, chosen per person with **Columns** (saved in the browser): progress dots + stage, result
+  and rule codes, client, budget and job type, hire rate, profile, by, template, sent date, Connects,
+  viewed/replied/interview, outcome, time to proposal, when. Long model-written values are clipped with
+  the full text on hover.
+- **Counter tiles** now include **Needs action** (click to filter) and respect every filter except verdict.
+- `listFilters` / `listWhere` / `orderBy` are exported so the export (R4) uses exactly the same filters.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

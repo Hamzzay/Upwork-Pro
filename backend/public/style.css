@@ -375,3 +375,25 @@ input[type=number], input[type=date] { width: 100%; padding: 9px 12px; border: 1
 .complete-head .ico svg { width: 22px; height: 22px; }
 .mcard.pickable { cursor: pointer; }
 .mcard.pickable:hover { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); }
+
+/* jobs list */
+.stats.six { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1100px) { .stats.six { grid-template-columns: repeat(3, 1fr); } }
+.stat.NEED .v { color: var(--brand); }
+.toolbar.filters .fsel { width: auto; min-width: 0; max-width: 190px; }
+.toolbar.filters .fdate { width: 150px; }
+.sortbtn { all: unset; cursor: pointer; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; }
+.sortbtn:hover, .sortbtn.on { color: var(--text); }
+.sortbtn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+table.jobs td { white-space: nowrap; }
+table.jobs td.jobcell { white-space: normal; min-width: 240px; max-width: 360px; }
+.prog { display: grid; gap: 4px; }
+.prog .dots { display: inline-flex; gap: 4px; }
+.prog .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); display: inline-block; }
+.prog .dots i.on { background: var(--brand); }
+.prog .dots i.cur { background: color-mix(in srgb, var(--brand) 35%, var(--line)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 25%, transparent); }
+.prog.ok .dots i.on { background: var(--pass); }
+.prog.bad .small { color: var(--fail); } .prog.off .small { color: var(--faint); }
+.colpick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.colpick label { gap: 8px; }
+.clip { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
