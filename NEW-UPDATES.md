@@ -8,9 +8,10 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 
 ```
 cd backend
-npm install
-npm run migrate        # applies 008_early_drafts.sql (new table)
+npm install            # exceljs is now a runtime dependency (export)
+npm run migrate        # applies 008 to 011: early drafts, tracking fields, settings, AI call log
 ```
+Then sign in: you land on the new **Dashboard**. Admin pages: Upwork JobGate, Rules, Settings, Users, Logs.
 
 Recommended model in `.env`: `LLM_MODEL=glm-5.3[1m]` (the full model). On the same job it screened in
 0:57 against 2:50 for `glm-5.3-flash[1m]`, and wrote the proposal in 3:10 against 5:33. It uses the
@@ -82,8 +83,10 @@ Screening is now the biggest step. Getting under 3 minutes on GLM needs a shorte
 
 ## Refinement round (7 October)
 
-Hamza and Claude started the cleanup that was planned for Usman. Each item below is its own commit on this
-branch. Items still listed under "Still to do" are for Usman.
+Hamza and Claude did the cleanup that was planned for Usman: naming, tracking, the Jobs list, export, the
+dashboard, settings and rules, and logs. Each item below (R1 to R7) is its own commit on this branch, so each can be
+reviewed on its own. Checked from a fresh clone: `npm run build`, `npm test`, all migrations and seeders on an
+empty database, and each screen in the browser with real GLM jobs.
 
 ### R1. Naming, logo and navigation (done)
 - The app is **Upwork Pro** everywhere: sidebar, sign-in page, browser tab (new favicon), README, package name.
@@ -203,3 +206,12 @@ branch. Items still listed under "Still to do" are for Usman.
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
+
+## Next for Usman
+1. Review R1 to R7 on this branch (one commit each) and sign in to try each page.
+2. Update the README for the new pages (Dashboard, Jobs filters and export, Rules, Settings, Logs) and the
+   migrations.
+3. Rules: bring the gate prompt in Upwork JobGate in step with the Rules page (codes in the prompt), and decide
+   whether to activate gate version 2 (adds G17).
+4. UI polish still open: the Proposal step itself, and phone widths for the new tables and dashboard.
+5. Profiles: only Wasif is set up; the early draft guesses the profile, so it works best once all seven exist.
