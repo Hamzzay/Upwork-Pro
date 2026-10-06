@@ -102,6 +102,8 @@ npm test                        # no DB, no model
 Default `LLM_PROVIDER=mock` spends nothing: it returns a canned FLAG (add `[mock-pass]` or `[mock-fail]`
 to the pasted text for the other verdicts). For the real model set `LLM_PROVIDER=claude-cli`,
 `LLM_API_KEY` (in `.env` only, never in git) and run `npm run probe` once to check key and model name.
+To use Anthropic directly (Claude Sonnet 5.5 on a Claude subscription) instead of Z.ai, set `LLM_OAUTH_TOKEN` to a long-lived
+token from `claude setup-token`; `LLM_BASE_URL` and `LLM_API_KEY` are then ignored and `LLM_MODEL` defaults to `claude-sonnet-5-5`.
 
 ## Not done yet
 

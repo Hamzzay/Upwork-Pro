@@ -31,7 +31,7 @@ function errorInfo(e: unknown): { code: string; message: string } {
     return { code: 'llm_rate_limit', message: 'The AI service is busy or out of quota. Try again later.' };
   }
   const m = e instanceof Error ? e.message : '';
-  if (/LLM_BASE_URL \/ LLM_API_KEY are not set/.test(m)) return { code: 'llm_config', message: 'The AI key is not set on the server. Tell an admin to add LLM_API_KEY to the .env file and restart the worker.' };
+  if (/LLM_OAUTH_TOKEN or LLM_BASE_URL \/ LLM_API_KEY are not set/.test(m)) return { code: 'llm_config', message: 'The AI key is not set on the server. Tell an admin to add LLM_OAUTH_TOKEN (or LLM_API_KEY) to the .env file and restart the worker.' };
   if (m === 'missing_inputs') return { code: 'missing_inputs', message: 'The selected projects or the profile are missing. Confirm them first.' };
   if (m === 'no_template') return { code: 'no_template', message: 'There is no active template. An admin can add one under Templates.' };
   if (m === 'no_version') return { code: 'no_version', message: 'The proposal has no text yet.' };

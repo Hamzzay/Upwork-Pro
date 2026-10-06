@@ -58,9 +58,14 @@ function claudeBin(): string {
 }
 
 export async function runClaude(o: RunOptions): Promise<RunResult> {
+  // LLM_OAUTH_TOKEN (from `claude setup-token`) goes straight to Anthropic; otherwise base URL + key (Z.ai).
+  const oauthToken = process.env.LLM_OAUTH_TOKEN;
   const baseUrl = process.env.LLM_BASE_URL;
   const apiKey = process.env.LLM_API_KEY;
-  if (!baseUrl || !apiKey) throw new Error('LLM_BASE_URL / LLM_API_KEY are not set');
+  if (!oauthToken && (!baseUrl || !apiKey)) throw new Error('LLM_OAUTH_TOKEN or LLM_BASE_URL / LLM_API_KEY are not set');
+  const auth: Record<string, string> = oauthToken
+    ? { CLAUDE_CODE_OAUTH_TOKEN: oauthToken }
+    : { ANTHROPIC_BASE_URL: baseUrl!, ANTHROPIC_API_KEY: apiKey! };
   const timeoutMs = o.timeoutMs ?? 120_000;
 
   const root = mkdtempSync(join(tmpdir(), SCRATCH_PREFIX));
@@ -85,8 +90,7 @@ export async function runClaude(o: RunOptions): Promise<RunResult> {
     // The child gets ONLY this. Never hand it process.env: that holds the DB password.
     const env = {
       PATH: process.env.PATH ?? '/usr/bin:/bin',
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_API_KEY: apiKey,
+      ...auth,
       CLAUDE_CONFIG_DIR: config,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       API_TIMEOUT_MS: String(timeoutMs),
