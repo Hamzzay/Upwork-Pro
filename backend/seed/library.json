@@ -1961,72 +1961,86 @@
   {
    "code": "F1",
    "type": "fail",
-   "rule": "Client already hired for this job"
+   "rule": "Client already hired for this job",
+   "details": "Fails when the Hires count in Activity on this job covers all positions needed."
   },
   {
    "code": "F2",
    "type": "fail",
-   "rule": "Client asks to move off Upwork, asks for logins or bank details, or wants unpaid test work"
+   "rule": "Client asks to move off Upwork, asks for logins or bank details, or wants unpaid test work",
+   "details": "A paid test is fine."
   },
   {
    "code": "F3",
    "type": "fail",
-   "rule": "Client posted 2 or more similar jobs and interviewed no one"
+   "rule": "Client posted 2 or more similar jobs and interviewed no one",
+   "details": "Check the client's other open jobs and recent history."
   },
   {
    "code": "F4",
    "type": "fail",
-   "rule": "Payment unverified, more than 3 jobs posted, and joined more than 7 days before posting"
+   "rule": "Payment unverified, more than 3 jobs posted, and joined more than 7 days before posting",
+   "details": "All three must hold. An unverified client with 3 or fewer jobs posted, or who joined within 7 days before posting, is G6 instead."
   },
   {
    "code": "F5",
    "type": "fail",
-   "rule": "Outside accepted regions, under $1,000 per hire, and not mostly long term"
+   "rule": "Outside accepted regions, under $1,000 per hire, and not mostly long term",
+   "details": "All three must hold. A client outside the accepted regions who averages $1,000 or more per hire, or mostly offers long term work, is G7 instead."
   },
   {
    "code": "G1",
    "type": "flag",
-   "rule": "Core work outside services, or standalone UI/UX or DevOps"
+   "rule": "Core work outside services, or standalone UI/UX or DevOps",
+   "details": "Judge the work from the description, not the skill tags. UI/UX design and DevOps are fine only as part of a from scratch build."
   },
   {
    "code": "G2",
    "type": "flag",
-   "rule": "No clear scope"
+   "rule": "No clear scope",
+   "details": "A short post with no features, deliverables or specific problem."
   },
   {
    "code": "G3",
    "type": "flag",
-   "rule": "Avg hourly paid $20 or below, or not shown"
+   "rule": "Avg hourly paid $20 or below, or not shown",
+   "details": "Use the stated average hourly rate paid. If not stated, total spent divided by total hours when both are shown."
   },
   {
    "code": "G4",
    "type": "flag",
-   "rule": "Hire rate below 50%"
+   "rule": "Hire rate below 50%",
+   "details": "A new client with no history is only noted as \"new client, no history\", not flagged."
   },
   {
    "code": "G5",
    "type": "flag",
-   "rule": "Client rating below 3.5"
+   "rule": "Client rating below 3.5",
+   "details": "No reviews yet is not a flag."
   },
   {
    "code": "G6",
    "type": "flag",
-   "rule": "Payment unverified, rescued by new client fallback"
+   "rule": "Payment unverified, rescued by new client fallback",
+   "details": "New client fallback: 3 or fewer jobs posted, or joined within 7 days before posting."
   },
   {
    "code": "G7",
    "type": "flag",
-   "rule": "Outside accepted regions, rescued by spend or long term work"
+   "rule": "Outside accepted regions, rescued by spend or long term work",
+   "details": "Rescued by averaging $1,000 or more per hire, or by mostly long term contracts."
   },
   {
    "code": "G8",
    "type": "flag",
-   "rule": "No Stackup sample clearly matches"
+   "rule": "No Stackup sample clearly matches",
+   "details": "No Stackup project plausibly proves the same kind of work. Match against the project library."
   },
   {
    "code": "G9",
    "type": "flag",
-   "rule": "Required tools near our stack but not in it"
+   "rule": "Required tools near our stack but not in it",
+   "details": "Some required tools are near the stack but not in it."
   },
   {
    "code": "G10",
@@ -2036,32 +2050,38 @@
   {
    "code": "G11",
    "type": "flag",
-   "rule": "Screening question cannot be answered honestly"
+   "rule": "Screening question cannot be answered honestly",
+   "details": "For example years of a language we do not use, or showing a system we have not built."
   },
   {
    "code": "G12",
    "type": "flag",
-   "rule": "Hidden instructions such as required opening words"
+   "rule": "Hidden instructions such as required opening words",
+   "details": "Required opening words or keywords hidden in the post."
   },
   {
    "code": "G13",
    "type": "flag",
-   "rule": "Location or timezone rule"
+   "rule": "Location or timezone rule",
+   "details": "A location rule or a preferred timezone in the post."
   },
   {
    "code": "G14",
    "type": "flag",
-   "rule": "50+ proposals, or 16 or more Connects"
+   "rule": "50+ proposals, or 16 or more Connects",
+   "details": "Proposals shows 50+, or \"Send a proposal for\" costs 16 or more Connects."
   },
   {
    "code": "G15",
    "type": "flag",
-   "rule": "Key client data missing"
+   "rule": "Key client data missing",
+   "details": "Key client data is missing from the job page."
   },
   {
    "code": "G16",
    "type": "flag",
-   "rule": "Low ratings or negative freelancer feedback in recent history"
+   "rule": "Low ratings or negative freelancer feedback in recent history",
+   "details": "Recent history shows low ratings or negative feedback from freelancers about this client."
   },
   {
    "code": "G17",

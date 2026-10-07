@@ -1,16 +1,14 @@
 // Seeds categories, tags, projects (with their tags), rule codes and Upwork profiles from seed/library.json.
-// Insert-if-missing only: re-running never overwrites edits made through the app.
+// Insert-if-missing only: re-running never overwrites edits made through the app (a rule's details are only filled when empty).
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appRoot } from '../src/config';
 import { exec, pool, query } from '../src/db';
 
-const G17 = '17. The work requires breaking platform rules, such as fake or multiple social accounts.';
-
 (async () => {
   const lib = JSON.parse(readFileSync(join(appRoot, 'seed', 'library.json'), 'utf8'));
-  const n = { cat: 0, tag: 0, proj: 0, link: 0, rule: 0, prof: 0 };
+  const n = { cat: 0, tag: 0, proj: 0, link: 0, rule: 0, details: 0, prof: 0 };
 
   // the sheet's compliance category is flagged on insert; after that the flag belongs to the app (Tag dictionary, Categories)
   for (const c of lib.categories) n.cat += (await exec('INSERT IGNORE INTO tag_categories (name, sort_order, is_compliance) VALUES (?,?,?)', [c.name, c.sort, c.name === 'Compliance / sensitive data' ? 1 : 0])).affectedRows;
@@ -31,7 +29,10 @@ const G17 = '17. The work requires breaking platform rules, such as fake or mult
       n.link += (await exec('INSERT IGNORE INTO project_tags (project_id, tag_id) VALUES (?,?)', [r.insertId, id])).affectedRows;
     }
   }
-  for (const r of lib.rules) n.rule += (await exec('INSERT IGNORE INTO rules (code, type, rule) VALUES (?,?,?)', [r.code, r.type, r.rule])).affectedRows;
+  for (const r of lib.rules) {
+    n.rule += (await exec('INSERT IGNORE INTO rules (code, type, rule, details) VALUES (?,?,?,?)', [r.code, r.type, r.rule, r.details ?? null])).affectedRows;
+    if (r.details) n.details += (await exec("UPDATE rules SET details=? WHERE code=? AND (details IS NULL OR details='')", [r.details, r.code])).affectedRows;
+  }
   for (const name of lib.profiles) n.prof += (await exec('INSERT IGNORE INTO upwork_profiles (name) VALUES (?)', [name])).affectedRows;
 
   // Industries: created ONCE from the "Industry" tag category and each project's industry tags, then owned by the app
@@ -46,18 +47,18 @@ const G17 = '17. The work requires breaking platform rules, such as fake or mult
     console.log(`industries seeded: ${ind.affectedRows}, project links: ${map.affectedRows}`);
   }
 
-  // Rule G17 is in the team's sheet but not in skill v1. Save it as an INACTIVE new version for an admin to review.
-  const note = 'Adds flag 17 (platform rule breaking), matching rule code G17';
+  // The gate prompt used to hold the FAIL and FLAG lists itself. Now the rules come from the Rules page and are added to the
+  // gate instructions for every job, so an install still running a prompt with its own rule lists gets the instructions-only
+  // version once, made active (the older versions stay in the history and can be activated again).
+  const note = 'Gate instructions only: the FAIL and FLAG rules now come from the Rules page';
   const active = (await query<any>('SELECT content FROM skill_versions WHERE is_active=1 LIMIT 1'))[0];
-  if (active && !active.content.includes(G17) && !(await query('SELECT id FROM skill_versions WHERE change_note=?', [note])).length) {
-    const lines = active.content.split('\n');
-    const i = lines.findIndex((l: string) => /^16\. /.test(l));
-    if (i >= 0) {
-      lines.splice(i + 1, 0, G17);
-      const next = (await query<any>('SELECT COALESCE(MAX(version),0)+1 AS v FROM skill_versions'))[0].v;
-      await exec('INSERT INTO skill_versions (version, content, change_note, is_active) VALUES (?,?,?,0)', [next, lines.join('\n'), note]);
-      console.log(`saved inactive skill v${next} with flag 17`);
-    }
+  if (active && /^###\s+(FAIL|FLAG)\b/m.test(active.content) && !(await query('SELECT id FROM skill_versions WHERE change_note=?', [note])).length) {
+    const content = readFileSync(join(appRoot, 'seed', 'gate-instructions.md'), 'utf8');
+    const next = (await query<any>('SELECT COALESCE(MAX(version),0)+1 AS v FROM skill_versions'))[0].v;
+    const r = await exec('INSERT INTO skill_versions (version, content, change_note, is_active) VALUES (?,?,?,0)', [next, content, note]);
+    await exec('UPDATE skill_versions SET is_active = (id=?)', [r.insertId]);
+    await exec('INSERT INTO audit_log (user_id, action, detail) VALUES (NULL, ?, ?)', ['skill_activate', `version=${next} gate instructions without rule lists`]);
+    console.log(`gate instructions v${next} saved and active (rules now come from the Rules page)`);
   }
   console.log('added:', n);
   await pool.end();

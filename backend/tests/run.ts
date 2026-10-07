@@ -4,7 +4,7 @@ process.env.LLM_PROVIDER = 'mock';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectInput, InputError, jobIdFromUrl } from '../src/screening/jobsource';
-import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, normalizeReport, report } from '../src/screening/contract';
+import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, gatePrompt, normalizeReport, report, rulesSection } from '../src/screening/contract';
 import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
@@ -15,7 +15,6 @@ import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, typ
 import { rankTemplates } from '../src/proposal/rank';
 import { checkProposal } from '../src/proposal/checks';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
-import { addRuleCodes, codesMissingFromPrompt } from '../src/screening/gatecodes';
 import { settingsConflict } from '../src/settings';
 import { createServer } from 'node:http';
 import { runOpenAI, strictSchema } from '../src/llm/openai';
@@ -23,7 +22,7 @@ import { postingSchema } from '../src/screening/posting';
 import { writerSchema, chatSchema } from '../src/proposal/writer';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
-const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string }[];
+const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string; details?: string }[];
 const projects = lib.projects.map((p: any) => ({ name: p.name, tags: p.tags }));
 const ctx = { rules, projects };
 
@@ -50,9 +49,9 @@ const ctx = { rules, projects };
   assert.deepEqual(schema.properties.job.properties.flags.items.properties.code.enum, rules.map((r) => r.code));
   assert.deepEqual(Object.keys(schema.properties.job.properties.columns.properties), [...COLUMN_KEYS]);
 
-  // addendum carries the code legend and the project library
+  // addendum names the allowed codes and carries the project library
   const add = contractAddendum(rules, projects);
-  assert.ok(add.includes('G14 (flag)') && add.includes('F1 (fail)') && add.includes('Open Dental AI Calling (Chloe): '));
+  assert.ok(add.includes('(F1, F2,') && add.includes('G17)') && add.includes('Open Dental AI Calling (Chloe): '));
   assert.ok(contractAddendum(rules, []).includes('no projects provided'));
 
   // mock end to end through the service
@@ -213,17 +212,20 @@ const ctx = { rules, projects };
   assert.ok(ws.some((x) => x.includes('60–80%')), 'an invented percentage'); assert.ok(ws.some((x) => x.includes('"we"')), '"we"'); assert.ok(ws.some((x) => x.includes('sender name "Jane Doe"')) && ws.some((x) => x.includes('GitLab link')), 'sign-off');
   assert.ok(!checkProposal({ ...base, text: good }).some((x) => x.includes('figure')), 'a percentage that is in the project notes is fine');
 
-  // ---- gate prompt with rule codes ----
-  const gate = readFileSync(join(__dirname, '..', 'seed', 'SKILL.md'), 'utf8');
-  const coded = addRuleCodes(gate, rules.filter((r) => r.code !== 'G17'));
-  assert.equal(coded.fail, 5); assert.equal(coded.flag, 16);
-  assert.ok(coded.text.includes('\nF1. The client already hired') && coded.text.includes('\nG14. 50+ proposals') && coded.text.includes('\nG16. Recent history'));
-  assert.ok(!/^\d+\. The client already hired/m.test(coded.text), 'the numbering is replaced, not repeated');
-  assert.ok(coded.text.includes('Accepted regions:') && coded.text.includes('### PASS'), 'the rest of the prompt is untouched');
-  assert.throws(() => addRuleCodes(gate, rules), /16 FLAG lines but the Rules page has \d+ and 17/, 'a rule missing from the prompt is refused, not guessed');
-  assert.deepEqual(codesMissingFromPrompt(coded.text, rules.map((r) => ({ code: r.code, active: true }))), ['G17'], 'G17 is the one code the original prompt lacks');
-  assert.deepEqual(codesMissingFromPrompt(gate, [{ code: 'G1', active: true }]), ['G1'], 'the plain numbering does not count as a code');
-  assert.deepEqual(codesMissingFromPrompt(coded.text.replace('G1.', 'G10 x.'), [{ code: 'G1', active: true }]), ['G1'], 'G10 is not G1');
+  // ---- gate prompt = gate instructions + the rules from the Rules page + the fixed contract ----
+  const instructions = readFileSync(join(__dirname, '..', 'seed', 'gate-instructions.md'), 'utf8');
+  assert.ok(!/^###\s+(FAIL|FLAG)\b/m.test(instructions) && !/^1\. The client already hired/m.test(instructions), 'the instructions hold no rule list of their own');
+  assert.ok(instructions.includes('Accepted regions:') && instructions.includes('## Reference: services'), 'the method and references stay in the instructions');
+  const sec = rulesSection(rules);
+  assert.ok(sec.includes('\nF1. Client already hired for this job. How to apply: Fails when the Hires count'), 'a rule line carries its code and its details');
+  assert.ok(sec.includes('\nG17. Work requires breaking platform rules, such as fake or multiple social accounts.\n'), 'a rule without details is one plain line');
+  assert.ok(sec.indexOf('\nF5.') < sec.indexOf('FLAG:') && sec.indexOf('FLAG:') < sec.indexOf('\nG1.'), 'fail rules under FAIL, flag rules under FLAG');
+  assert.ok(sec.includes('How to apply: A paid test is fine.') && sec.includes('No reviews yet is not a flag.'), 'the exceptions from the old prompt are kept');
+  for (const r of rules) assert.ok(sec.includes(`\n${r.code}. `), `${r.code} is in the prompt`);
+  const full = gatePrompt(instructions, rules, projects);
+  assert.ok(full.startsWith('# Gate instructions') && full.indexOf('RULES (') < full.indexOf('OUTPUT CONTRACT') && full.indexOf('OUTPUT CONTRACT') < full.indexOf('PROJECT LIBRARY'), 'instructions, then rules, then the contract');
+  assert.ok(!rulesSection(rules.filter((r) => r.code !== 'G4')).includes('\nG4. '), 'a retired rule is left out');
+  assert.ok(rulesSection([]).includes('FAIL: any one of these fails the job.\n(none)'), 'no rules is said plainly');
 
   // ---- settings that depend on each other ----
   const okCfg = { 'matching.shown': 5, 'matching.recommended': 2, 'selection.min': 1, 'selection.max': 2 };

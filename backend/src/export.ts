@@ -12,6 +12,8 @@ export const EXPORT_LIMIT = 5000;
 
 const label = (k: string) => k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const secs = (a: any, b: any) => (a && b ? Math.round((new Date(b).getTime() - new Date(a).getTime()) / 1000) : null);
+/** The codes a job was screened against, from the snapshot kept with it (older jobs have none). */
+const rulesApplied = (v: string | null) => { try { return v ? (JSON.parse(v) as { code: string }[]).map((r) => r.code).join(', ') : null; } catch { return null; } };
 const dt = (v: any) => (v ? new Date(v).toISOString().replace('T', ' ').slice(0, 19) : null);
 const group = <T extends Record<string, any>>(rows: T[], key: keyof T) => {
   const m = new Map<number, T[]>();
@@ -38,7 +40,7 @@ export async function exportRows(ids: number[], stages: Map<number, string> = ne
 
   const headers = [
     'ID', 'Date screened', 'Submitted by', 'Stage', 'Job title', 'Job URL', ...COLUMN_KEYS.map(label),
-    'Verdict', 'Rule codes', 'Fail reasons', 'Flag reasons', 'Gate version', 'Model', 'Proceeded', 'Override reason',
+    'Verdict', 'Rule codes', 'Fail reasons', 'Flag reasons', 'Gate instructions version', 'Rules applied', 'Model', 'Proceeded', 'Override reason',
     'Job tags', 'Projects shown (score)', 'Projects chosen', 'Upwork profile', 'Signals', 'Template', 'Proposal status',
     'Proposal versions', 'Proposal warnings', 'Final proposal', 'Proposal sent date', 'Connects spent', 'Boost (Connects)',
     'Client viewed', 'Chat opened', 'Interview', 'Outcome', 'Lost reason', 'Lost note', 'Notes',
@@ -55,7 +57,7 @@ export async function exportRows(ids: number[], stages: Map<number, string> = ne
     let warnings = 0; try { warnings = p?.warnings ? JSON.parse(p.warnings).length : 0; } catch { /* old value */ }
     return [
       r.id, dt(r.created_at), r.user_name, stages.get(r.id) ?? null, r.title, r.source_url, ...COLUMN_KEYS.map((k) => r[k] ?? null),
-      r.verdict, r.rule_codes, r.fail_reasons, r.flag_reasons, r.gate_version ? `v${r.gate_version}` : null, r.model, r.proceeded, r.override_reason,
+      r.verdict, r.rule_codes, r.fail_reasons, r.flag_reasons, r.gate_version ? `v${r.gate_version}` : null, rulesApplied(r.gate_rules), r.model, r.proceeded, r.override_reason,
       (tags.get(r.id) ?? []).map((t) => `${t.category_name}: ${t.tag_name}`).join('; ') || null,
       m.map((x) => `${x.project_name} (${x.score}/${x.max_score}${x.recommended ? ', recommended' : ''})`).join('; ') || null,
       m.filter((x) => x.selected).map((x) => x.project_name).join('; ') || null,

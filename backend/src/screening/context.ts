@@ -4,7 +4,7 @@ import type { LibProject } from './matching';
 import type { DictTag } from './tagging';
 
 export async function loadContext(): Promise<{ rules: RuleRow[]; projects: ProjectLite[] }> {
-  const rules = await query<RuleRow>(`SELECT code, type, rule FROM rules WHERE active=1
+  const rules = await query<RuleRow>(`SELECT code, type, rule, details FROM rules WHERE active=1
     ORDER BY type, CAST(SUBSTRING(code, 2) AS UNSIGNED)`); // ENUM sorts by its definition order: fail, then flag
   const rows = await query<{ name: string; tag: string | null }>(
     `SELECT p.name, t.name AS tag FROM projects p LEFT JOIN project_tags pt ON pt.project_id=p.id LEFT JOIN tags t ON t.id=pt.tag_id AND t.active=1

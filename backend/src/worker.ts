@@ -43,7 +43,7 @@ function errorInfo(e: unknown): { code: string; message: string } {
   if (m === 'no_version') return { code: 'no_version', message: 'The proposal has no text yet.' };
   if (m === 'no_tags') return { code: 'no_tags', message: 'The model found no matching tags. Try again.' };
   if (m === 'invalid_output') return { code: 'invalid_output', message: 'The AI answer was not in the expected format. Try again.' };
-  if (m === 'no_active_skill') return { code: 'no_skill', message: 'No active job gate version. Tell an admin.' };
+  if (m === 'no_active_skill') return { code: 'no_skill', message: 'No active gate instructions version. Tell an admin.' };
   if (m.startsWith('timeout')) return { code: 'timeout', message: 'The AI call timed out. Try again.' };
   return { code: 'error', message: 'Screening failed. Try again.' }; // never echo model text or stderr
 }
@@ -62,11 +62,11 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
     const v = sheetValues(rep, ctx.rules.map((r) => r.code), ctx.projects.map((p) => p.name));
     await exec(
       // PASS needs no decision, so tagging and signals start now; FLAG and FAIL wait until the person continues with a reason
-      `UPDATE screenings SET status='done', job_text=?, title=?, verdict=?, report_json=?, skill_version_id=?, model=?, provider=?, finished_at=NOW(),
+      `UPDATE screenings SET status='done', job_text=?, title=?, verdict=?, report_json=?, skill_version_id=?, gate_rules=?, model=?, provider=?, finished_at=NOW(),
          fail_reasons=?, flag_reasons=?, rule_codes=?, ${COLUMN_KEYS.map((k) => `${k}=?`).join(', ')},
          tagging_status=IF(? = 'PASS', COALESCE(tagging_status, 'queued'), tagging_status)
        WHERE id=?`,
-      [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, lastUsed()?.model ?? config.llm.model, lastUsed()?.provider ?? 'mock',
+      [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, JSON.stringify(ctx.rules), lastUsed()?.model ?? config.llm.model, lastUsed()?.provider ?? 'mock',
        v.fail_reasons || null, v.flag_reasons || null, v.rule_codes || null, ...COLUMN_KEYS.map((k) => v.columns[k]), v.verdict, row.id],
     );
   } catch (e) {

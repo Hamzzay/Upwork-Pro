@@ -223,7 +223,7 @@ const NAV = [
     { key: 'templates', icon: 'doc', label: 'Templates', roles: STAFF },
     { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF }] },
   { label: 'Admin', links: [
-    { key: 'skill', icon: 'skill', label: 'Upwork JobGate', roles: ADMIN },
+    { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
@@ -1223,7 +1223,7 @@ async function jobView(id) {
     pageHead(title, null, h('div', { class: 'row', style: 'gap:8px' }, canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
     waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn)),
     h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, s.source === 'claude_plugin' ? h('span', { class: 'chip brand', title: 'Screened and written in the Claude plugin, saved as it was sent' }, 'From the Claude plugin') : null, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
-      s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null, s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
+      gateChip(s), s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
     h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
     postingCard(s, true),
     override ? section('Why it was continued', null, h('div', { class: 'card-pad' }, h('blockquote', { style: 'margin:0' }, override.reason), h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`))) : null,
@@ -1231,12 +1231,25 @@ async function jobView(id) {
       proposal.warnings && proposal.warnings.length ? h('details', { class: 'desc' }, h('summary', {}, `Warnings to check (${proposal.warnings.length})`), h('ul', { class: 'plain' }, proposal.warnings.map((w) => h('li', {}, w.text)))) : null),
       h('div', { class: 'row', style: 'gap:8px;margin-left:auto' }, proposal.current ? h('span', { class: 'sub' }, `Version ${proposal.current.version_no}`) : null, copyBtn)) : null,
     projectList ? section('Projects', 'Shown to the person, with the ones chosen', projectList) : null,
-    section('Screening report', s.skill_version ? `Gate v${s.skill_version}` : null, h('div', { class: 'card-pad' }, s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1)))),
+    section('Screening report', s.skill_version ? `Gate instructions v${s.skill_version}` : null, h('div', { class: 'card-pad' }, s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1)))),
     h('div', { style: 'height:16px' }), recordDetails(s, override, matching, proposal),
   ];
   const tl = timelineCard(id); parts.push(tl);
   shell('history', parts, 1180);
   tl.open = true; tl.dispatchEvent(new Event('toggle'));
+}
+
+/** Which gate instructions version and which rules screened this job; click to see the rules exactly as they were applied. */
+function gateChip(s) {
+  if (!s.skill_version) return null;
+  const rules = s.gate_rules;
+  if (!rules) return h('span', { class: 'chip', title: 'Screened before the rules were kept with each job' }, 'Gate v' + s.skill_version);
+  const show = () => modal({ title: `Rules this job was screened against`, noConfirm: true, wide: true, body: h('div', {},
+    h('p', { class: 'muted', style: 'margin-top:0' }, `Gate instructions version ${s.skill_version}, with these ${rules.length} rules as they were worded at the time.`),
+    ['fail', 'flag'].map((t) => h('div', {}, h('h3', {}, t === 'fail' ? 'FAIL rules' : 'FLAG rules'), h('ul', { class: 'plain' }, rules.filter((r) => r.type === t).map((r) =>
+      h('li', { style: 'margin-bottom:6px' }, h('strong', { class: 'mono' }, r.code), ' ', r.rule, r.details ? h('div', { class: 'small muted' }, 'How to apply: ' + r.details) : null))))))
+  });
+  return h('button', { type: 'button', class: 'chip', style: 'cursor:pointer;font:inherit;font-size:12.5px', title: 'See the rules this job was screened against', onclick: show }, `Instructions v${s.skill_version} · ${rules.length} rules`);
 }
 
 async function detailView(id) {
@@ -1246,7 +1259,7 @@ async function detailView(id) {
   const meta = h('div', { class: 'row', style: 'gap:8px;margin-top:10px' },
     h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, ago(s.created_at)),
     s.profile_name ? h('span', { class: 'chip' }, icon('badge'), s.profile_name) : null,
-    s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null,
+    gateChip(s),
     s.rule_codes ? h('span', { class: 'chip mono', title: 'Rule codes' }, s.rule_codes) : null,
     s.provider === 'mock' ? h('span', { class: 'chip' }, 'Mock model') : null);
   const parts = [h('div', { class: 'row small', style: 'margin-bottom:14px;gap:16px' }, h('a', { href: lastList.history, class: 'row', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs'),
@@ -1649,12 +1662,12 @@ async function usersView() {
   shell('users', [pageHead('Users', 'Control who can use the gate and what they can see.', h('button', { class: 'btn primary', onclick: addUser }, icon('screen'), 'Add user')), h('div', { class: 'card' }, table)]);
 }
 
-// ---------- Upwork JobGate: the gate prompt (admin) ----------
+// ---------- Gate instructions: the method part of the gate prompt (admin); the rules come from the Rules page ----------
 async function skillView() {
   const { versions } = await api('GET', '/admin/skill');
   const active = versions.find((v) => Number(v.is_active)) || versions[0];
   const cur = active ? (await api('GET', '/admin/skill/' + active.id)).skill : { content: '' };
-  const ta = h('textarea', { class: 'editor', id: 'sk', spellcheck: 'false', 'aria-label': 'Gate prompt' }); ta.value = cur.content;
+  const ta = h('textarea', { class: 'editor', id: 'sk', spellcheck: 'false', 'aria-label': 'Gate instructions' }); ta.value = cur.content;
   const dirty = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
   ta.oninput = () => { dirty.hidden = ta.value === cur.content; };
   const note = h('input', { type: 'text', id: 'cn', placeholder: 'What did you change and why?' });
@@ -1667,6 +1680,15 @@ async function skillView() {
     catch (x) { toast(x.message, true); }
     testBtn.disabled = false; testBtn.replaceChildren('Test draft on sample');
   };
+  const previewBtn = h('button', { class: 'btn', type: 'button' }, 'See full prompt');
+  previewBtn.onclick = async () => {
+    try {
+      const r = await api('POST', '/admin/skill/preview', { content: ta.value });
+      modal({ title: 'Full prompt for one job', noConfirm: true, wide: true, body: h('div', {},
+        h('p', { class: 'muted', style: 'margin-top:0' }, `The instructions in the editor, then the ${r.rules} active rules from the Rules page, then the fixed output format and the ${r.projects} library projects. The job page is sent separately.`),
+        h('pre', { class: 'proposal-text', style: 'max-height:60vh;overflow:auto;white-space:pre-wrap' }, r.prompt)) });
+    } catch (x) { toast(x.message, true); }
+  };
   const saveBtn = h('button', { class: 'btn primary', type: 'button' }, 'Save as new version');
   saveBtn.onclick = async () => {
     btnBusy(saveBtn, 'Saving');
@@ -1677,13 +1699,13 @@ async function skillView() {
     h('div', { class: 'small muted' }, (v.change_note || 'No note') + ' · ' + ago(v.created_at)),
     h('div', { class: 'row', style: 'gap:6px' },
       h('button', { class: 'btn sm', onclick: async () => { const s = (await api('GET', '/admin/skill/' + v.id)).skill; ta.value = s.content; dirty.hidden = ta.value === cur.content; toast('Loaded version ' + v.version + ' into the editor'); window.scrollTo(0, 0); } }, 'Load'),
-      Number(v.is_active) ? null : h('button', { class: 'btn sm', onclick: () => modal({ title: 'Activate version ' + v.version + '?', confirm: 'Activate', body: h('p', { class: 'muted' }, 'New screenings will use this version straight away. Past records keep the version they used.'),
+      Number(v.is_active) ? null : h('button', { class: 'btn sm', onclick: () => modal({ title: 'Activate version ' + v.version + '?', confirm: 'Activate', body: h('p', { class: 'muted' }, 'New screenings will use these instructions, with the current rules, straight away. Past records keep the version and rules they used.'),
         onConfirm: async () => { await api('POST', `/admin/skill/${v.id}/activate`, {}); toast('Version ' + v.version + ' is now active'); route(); } }) }, 'Activate')));
-  shell('skill', [pageHead('Upwork JobGate', 'The gate prompt every job is screened against. Saving never overwrites: it creates a new version.'),
-    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), 'The report layout is fixed by the app, so editing the rules cannot break reports. Test a draft before you activate it.'),
+  shell('skill', [pageHead('Gate instructions', 'How the gate reads and judges a job. Saving never overwrites: it creates a new version.'),
+    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), h('span', {}, 'The FAIL and FLAG rules are not written here: they come from the ', h('a', { href: '#/rules' }, 'Rules'), ' page and are added after these instructions for every job. The report layout is fixed by the app. Test a draft before you activate it.')),
     h('div', { class: 'two' }, h('div', {},
-      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Rules'), h('span', { class: 'sub' }, dirty, ' Editing from version ' + (active ? active.version : '-'))), ta,
-        h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cn' }, 'Change note'), note), h('div', { class: 'row', style: 'margin-top:14px' }, saveBtn))),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Instructions'), h('span', { class: 'sub' }, dirty, ' Editing from version ' + (active ? active.version : '-'))), ta,
+        h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cn' }, 'Change note'), note), h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, saveBtn, previewBtn))),
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Try the draft')), h('div', { class: 'card-pad' }, sample, h('div', { style: 'margin-top:12px' }, testBtn), out))),
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Versions')), clientPaged(versions, (slice) => h('div', { class: 'vlist' }, slice.map(vitem)))))], true);
 }
@@ -1735,32 +1757,35 @@ async function auditView() {
 
 // ---------- rules (admin) ----------
 async function rulesView() {
-  const { rules, gate_version } = await api('GET', '/admin/rules');
-  const notInPrompt = rules.filter((r) => r.active && !r.in_prompt);
+  const { rules } = await api('GET', '/admin/rules');
+  const fields = (r) => {
+    const rule = h('textarea', { id: 'rr', style: 'min-height:70px', maxlength: 300 }); rule.value = r ? r.rule : '';
+    const det = h('textarea', { id: 'rd', style: 'min-height:90px', maxlength: 1000, placeholder: 'Optional. Exceptions, how to measure it, examples. e.g. A paid test is fine.' }); det.value = r?.details || '';
+    return { rule, det, body: (hint) => h('div', {},
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'rr' }, 'Rule'), rule, h('div', { class: 'hint' }, hint)),
+      h('div', { class: 'field', style: 'margin-top:12px' }, h('label', { class: 'lbl', for: 'rd' }, 'How to apply'), det, h('div', { class: 'hint' }, 'Sent to the AI with the rule. It is how the gate knows the exceptions.'))) };
+  };
   const add = (type) => {
-    const ta = h('textarea', { id: 'nr', style: 'min-height:80px', maxlength: 300, placeholder: type === 'fail' ? 'e.g. Client asks for work outside Upwork' : 'e.g. Job needs a language we do not use' });
-    modal({ title: type === 'fail' ? 'Add a FAIL rule' : 'Add a FLAG rule', confirm: 'Add rule', body: h('div', {},
-      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'nr' }, 'Rule'), ta, h('div', { class: 'hint' }, 'It gets the next free code. Codes are never reused, so old jobs keep their meaning.')),
-      h('div', { class: 'notice', style: 'margin-top:12px' }, icon('info'), 'Also add the rule, with its code, to the gate prompt in Upwork JobGate. The model only applies rules written in the prompt.')),
-      onConfirm: async () => { const r = await api('POST', '/admin/rules', { type, rule: ta.value }); toast('Added ' + r.code); route(); } });
+    const f = fields(null);
+    f.rule.placeholder = type === 'fail' ? 'e.g. Client asks for work outside Upwork' : 'e.g. Job needs a language we do not use';
+    modal({ title: type === 'fail' ? 'Add a FAIL rule' : 'Add a FLAG rule', confirm: 'Add rule', body: f.body('It gets the next free code. Codes are never reused, so old jobs keep their meaning. The gate applies it from the next job on.'),
+      onConfirm: async () => { const r = await api('POST', '/admin/rules', { type, rule: f.rule.value, details: f.det.value }); toast('Added ' + r.code); route(); } });
   };
   const edit = (r) => {
-    const ta = h('textarea', { id: 'er', style: 'min-height:80px', maxlength: 300 }); ta.value = r.rule;
-    modal({ title: 'Reword ' + r.code, confirm: 'Save', body: h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'er' }, 'Rule'), ta,
-      h('div', { class: 'hint' }, 'Keep the meaning: jobs already flagged with ' + r.code + ' were judged by the old wording. For a new meaning, add a new rule.')),
-      onConfirm: async () => { await api('PATCH', '/admin/rules/' + r.code, { rule: ta.value }); toast(r.code + ' saved'); route(); } });
+    const f = fields(r);
+    modal({ title: 'Edit ' + r.code, confirm: 'Save', body: f.body('Keep the meaning: jobs already flagged with ' + r.code + ' were judged by the old wording. For a new meaning, add a new rule.'),
+      onConfirm: async () => { await api('PATCH', '/admin/rules/' + r.code, { rule: f.rule.value, details: f.det.value }); toast(r.code + ' saved'); route(); } });
   };
   const toggle = async (r) => { await api('PATCH', '/admin/rules/' + r.code, { active: !r.active }); toast(r.code + (r.active ? ' retired' : ' restored')); route(); };
   const table = (type) => h('div', { class: 'tablewrap' }, h('table', { class: 'rulestable' }, h('thead', {}, h('tr', {}, ['Code', 'Rule', 'Fired on', 'Status', ''].map((x) => h('th', {}, x)))),
     h('tbody', {}, rules.filter((r) => r.type === type).map((r) => h('tr', { class: r.active ? '' : 'retired' },
-      h('td', { class: 'mono' }, h('strong', {}, r.code)), h('td', { style: 'white-space:normal' }, r.rule),
+      h('td', { class: 'mono' }, h('strong', {}, r.code)), h('td', { style: 'white-space:normal' }, r.rule, r.details ? h('div', { class: 'small muted', style: 'margin-top:4px' }, 'How to apply: ' + r.details) : null),
       h('td', {}, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-      h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired'), r.active && !r.in_prompt ? h('span', { class: 'chip nowrap', style: 'margin-left:6px', title: 'The active gate prompt never mentions this code, so the model does not apply it.' }, 'Not in the prompt') : null),
-      h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Reword'),
+      h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired')),
+      h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Edit'),
         h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore'))))))));
-  shell('rules', [pageHead('Rules', 'The FAIL and FLAG codes the gate reports. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.'),
-    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), 'This list is what the app knows each code means. The gate prompt in Upwork JobGate is what the model applies, so keep the two in step.'),
-    notInPrompt.length ? h('div', { class: 'warnbox', style: 'margin:0 0 16px' }, h('strong', {}, icon('warn'), `${notInPrompt.length} active rule${notInPrompt.length === 1 ? ' is' : 's are'} not written in the active gate prompt (version ${gate_version ?? '-'})`), h('p', { style: 'margin:6px 0 0' }, notInPrompt.map((r) => r.code).join(', ') + '. The model will not apply ' + (notInPrompt.length === 1 ? 'it' : 'them') + ' until the prompt names ' + (notInPrompt.length === 1 ? 'it' : 'them') + '. ', h('a', { href: '#/skill' }, 'Open Upwork JobGate'))) : null,
+  shell('rules', [pageHead('Rules', 'The FAIL and FLAG rules the gate applies. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.'),
+    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), h('span', {}, 'Every active rule, with its "How to apply" note, is added after the ', h('a', { href: '#/skill' }, 'Gate instructions'), ' for every job. A change here applies from the next job on, and each job keeps the rules it was screened against.')),
     h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'FAIL rules'), h('button', { class: 'btn sm primary', onclick: () => add('fail') }, 'Add FAIL rule')), table('fail')),
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'FLAG rules'), h('button', { class: 'btn sm primary', onclick: () => add('flag') }, 'Add FLAG rule')), table('flag'))], true);
 }

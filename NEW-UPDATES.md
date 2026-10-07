@@ -9,12 +9,13 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 015: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source
+npm run migrate        # applies 008 to 016: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split
+npm run seed:library   # fills each rule's "How to apply" note and makes the instructions-only gate version active (see R15)
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
 # optional, spends AI quota: npm run backfill:postings   (reads older jobs' posts into fields; add -- --dry-run to count)
 # dev/demo only: npm run seed:examples   (12 example jobs across every Jobs tab; -- --remove takes them out)
 ```
-Then sign in: you land on the new **Dashboard**. Admin pages: Upwork JobGate, Rules, Settings, Users, Logs.
+Then sign in: you land on the new **Dashboard**. Admin pages: Gate instructions, Rules, Settings, Users, Logs.
 
 Recommended model in `.env`: `LLM_MODEL=glm-5.3[1m]` (the full model). On the same job it screened in
 0:57 against 2:50 for `glm-5.3-flash[1m]`, and wrote the proposal in 3:10 against 5:33. It uses the
@@ -351,6 +352,34 @@ Built on top of Usman's MCP and tokens (his commit "Choose the AI in Settings ..
   The test job is #47 (marked as an example); the test token was revoked.
 - Usman's own MCP test suite (`mcp/test/e2e.ts`) needs a scratch database on port 3055 and was not run here.
 
+### R15. Gate instructions and Rules are separate, and combined for every job (done)
+Before, the gate prompt (Upwork JobGate) held its own numbered FAIL and FLAG lists, and the Rules page held the same rules again as codes,
+kept in step by hand. Now each thing lives in one place:
+- **Gate instructions** (renamed from Upwork JobGate; URL still `#/skill`, table still `skill_versions`): only the method. How to read the
+  job page, the derived values, accepted regions, services, tech stack, sample match and the report parts. Versions work as before.
+- **Rules**: every FAIL and FLAG rule, once, with a new optional **How to apply** note (`rules.details`, migration
+  `016_gate_instructions_and_rules.sql`). The exceptions that were in the old prompt moved there, e.g. F2 "A paid test is fine",
+  G4 "A new client with no history is not flagged", G5 "No reviews yet is not a flag", F4/F5 pointing to their G6/G7 rescues.
+- **For every job the model gets**: the active gate instructions, then RULES (active rules grouped as FAIL and FLAG, each line
+  `F1. Rule. How to apply: ...`), then the fixed output contract and the project library (`gatePrompt` and `rulesSection` in
+  `src/screening/contract.ts`). Retired rules are left out. A rule added or edited applies from the next job, no new gate version needed.
+- **Each job keeps the rules it was screened against** (`screenings.gate_rules`, the rules as worded at the time). The job page chip
+  reads "Instructions v3 · 22 rules" and opens the list; older jobs still show "Gate v1". The export has "Gate instructions version" and a
+  new "Rules applied" column. `plugin_options` (MCP) now returns each rule's details too.
+- **Gate instructions page**: a **See full prompt** button shows exactly what the model gets for one job (instructions in the editor + rules
+  + contract). The Rules page edits the rule and its How to apply note together; the "Not in the prompt" warning is gone (nothing to keep
+  in step any more).
+- **Moving an existing install over**: `npm run seed:library` fills empty How to apply notes from `seed/library.json` and, if the active
+  gate version still has its own FAIL/FLAG lists, saves `seed/gate-instructions.md` as a new version and activates it (once; logged).
+  Here that made **version 3** active; versions 1 and 2 stay in the history. A fresh install imports `seed/gate-instructions.md` as v1
+  (`seed/SKILL.md` is gone).
+- Removed: `npm run gate:codes`, `scripts/gate-add-codes.ts`, `src/screening/gatecodes.ts` (they wrote codes into the old prompt).
+- Checked: tests (the instructions hold no rule list, every rule and its note is in the prompt, the order is instructions, rules, contract,
+  retired rules left out). A real GLM screening with version 3 returned FLAG with correct codes (G1, G2, G3, G8, G9, G15) and saved its 22
+  rules; the job page chip, the rules list, the full prompt preview and the export were checked in the browser. The test job is #49 (marked
+  as an example).
+- Not changed: the Claude plugin's job-gate skill keeps its own copy of the rules. It could later read them through `plugin_options`.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
@@ -359,7 +388,6 @@ screen.
 1. Review R1 to R7 on this branch (one commit each) and sign in to try each page.
 2. Update the README for the new pages (Dashboard, Jobs filters and export, Rules, Settings, Logs) and the
    migrations.
-3. Rules: bring the gate prompt in Upwork JobGate in step with the Rules page (codes in the prompt), and decide
-   whether to activate gate version 2 (adds G17).
+3. Rules: done in R15 (the rules now come only from the Rules page; gate version 2 is superseded by version 3).
 4. UI polish still open: the Proposal step itself, and phone widths for the new tables and dashboard.
 5. Profiles: only Wasif is set up; the early draft guesses the profile, so it works best once all seven exist.

@@ -15,9 +15,9 @@ import { exec, pool, query } from '../src/db';
   } else console.log('admin already exists');
 
   if (!(await query('SELECT id FROM skill_versions LIMIT 1')).length) {
-    const content = readFileSync(join(appRoot, 'seed', 'SKILL.md'), 'utf8');
-    await exec('INSERT INTO skill_versions (version, content, change_note, is_active) VALUES (1, ?, ?, 1)', [content, 'Initial import from SKILL.md']);
-    console.log('skill v1 imported and active');
-  } else console.log('skill versions already present');
+    const content = readFileSync(join(appRoot, 'seed', 'gate-instructions.md'), 'utf8');
+    await exec('INSERT INTO skill_versions (version, content, change_note, is_active) VALUES (1, ?, ?, 1)', [content, 'Initial gate instructions']);
+    console.log('gate instructions v1 imported and active');
+  } else console.log('gate instructions already present');
   await pool.end();
 })().catch((e) => { console.error('seed failed:', e.message); process.exit(1); });

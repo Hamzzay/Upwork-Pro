@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The fixed output contract. The admin edits the SKILL.md rules, never this.
+ * The fixed output contract. The admin edits the gate instructions and the rules, never this.
  * The app renders the report and fills the screening columns from this JSON,
  * so a skill edit cannot break parsing.
  */
@@ -106,11 +106,35 @@ export function buildReportJsonSchema(codes: string[]) {
   };
 }
 
-export interface RuleRow { code: string; type: 'fail' | 'flag'; rule: string }
+export interface RuleRow { code: string; type: 'fail' | 'flag'; rule: string; details?: string | null }
 export interface ProjectLite { name: string; tags: string[] }
 
+const sentence = (t: string) => (/[.!?]$/.test(t.trim()) ? t.trim() : t.trim() + '.');
+
+/** The active rules from the Rules page, written out for the model: one line per code, with its "how to apply" note. */
+export function rulesSection(rules: RuleRow[]): string {
+  const list = (type: 'fail' | 'flag') => rules.filter((r) => r.type === type)
+    .map((r) => `${r.code}. ${sentence(r.rule)}${r.details?.trim() ? ' How to apply: ' + sentence(r.details) : ''}`).join('\n') || '(none)';
+  return `
+
+---
+RULES (from the Rules page; apply exactly these, each by its code)
+
+FAIL: any one of these fails the job.
+${list('fail')}
+
+FLAG: does not fail the job, but needs a human look. Check these on FAIL jobs too.
+${list('flag')}
+
+PASS: clears every FAIL rule and has no FLAG.`;
+}
+
+/** Everything the model gets for one job: the gate instructions, then the rules, then the fixed output contract. */
+export function gatePrompt(instructions: string, rules: RuleRow[], projects: ProjectLite[]): string {
+  return instructions.trimEnd() + rulesSection(rules) + contractAddendum(rules, projects);
+}
+
 export function contractAddendum(rules: RuleRow[], projects: ProjectLite[]): string {
-  const legend = rules.map((r) => `${r.code} (${r.type}): ${r.rule}`).join('\n');
   const lib = projects.length
     ? projects.map((p) => `- ${p.name}${p.tags.length ? ': ' + p.tags.join(', ') : ''}`).join('\n')
     : '(no projects provided: write "none" for sample_match)';
@@ -121,11 +145,10 @@ OUTPUT CONTRACT (fixed by the application; it overrides anything above about lay
 - Reply only with data matching the provided JSON schema. No prose outside it.
 - The application screens ONE job per submission. If the input holds more than one job, screen only the first and add a proposal note saying the others must be submitted separately.
 - Fill every field. For anything not present in the input write "not shown". Never invent values.
-- "job", "client" and "competition" are lists of {label, value} rows, using the fields named in Step 3 of the rules above.
+- "job", "client" and "competition" are lists of {label, value} rows, using the fields named in Step 3 of the instructions above.
 - "fails": each failed rule with its code and the actual value. Empty unless the verdict is FAIL.
 - "flags": each flag with its code and the actual value, also on FAIL jobs. Use one entry per rule: never list the same code twice, put all values for that rule in one entry.
-- Every fail and flag must carry the matching rule code from this list:
-${legend}
+- Every fail and flag must carry its rule code from RULES above (${rules.map((r) => r.code).join(', ') || 'none'}). Never invent a code.
 - "override_note": one line saying an override may be worth it and why, only for a FAIL on an otherwise strong fit. Otherwise an empty string.
 - "proposal_notes": screening questions with whether each can be answered honestly, required opening words or keywords, and any timezone or location rule.
 - "columns" fills the tracking sheet. Each value is a short plain string:

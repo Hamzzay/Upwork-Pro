@@ -4,10 +4,9 @@ import { audit, exec, pool, query } from './db';
 import { attachUser, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
 import { detectInput, InputError, jobIdFromUrl } from './screening/jobsource';
 import { loadContext } from './screening/context';
-import { normalizeReport } from './screening/contract';
+import { gatePrompt, normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
 import { library } from './routes_library';
-import { codesMissingFromPrompt } from './screening/gatecodes';
 import { proposals, proposalFor } from './routes_proposals';
 import { imports } from './routes_import';
 import { validSelection } from './screening/matching';
@@ -304,7 +303,7 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
   const ov = await query<any>(`SELECT o.id, o.reason, o.verdict_at_time, o.created_at, u.name AS user_name FROM overrides o JOIN users u ON u.id=o.user_id WHERE o.screening_id=?`, [id]);
   res.json({
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
-      posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null },
+      posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null, gate_rules: s.gate_rules ? JSON.parse(s.gate_rules) : null },
     override: ov[0] ?? null,
     matching: await matchingFor(id),
     proposal: await proposalFor(id),
@@ -647,7 +646,7 @@ api.get('/admin/skill/:id', admin, async (req, res) => {
 });
 
 const skillBody = z.object({
-  content: z.string().min(200, 'The gate prompt looks too short').max(100_000),
+  content: z.string().min(200, 'The gate instructions look too short').max(100_000),
   change_note: z.string().trim().max(250).optional(),
 });
 
@@ -667,6 +666,13 @@ api.post('/admin/skill/:id/activate', admin, async (req, res) => {
   await exec('UPDATE skill_versions SET is_active = (id=?)', [id]);
   await audit(req.user!.id, 'skill_activate', `id=${id}`);
   res.json({ ok: true });
+});
+// The full text the model gets for a job: these instructions, the active rules and the fixed output format.
+api.post('/admin/skill/preview', admin, async (req, res) => {
+  const b = skillBody.pick({ content: true }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json(wrap(b.error));
+  const ctx = await loadContext();
+  res.json({ prompt: gatePrompt(b.data.content, ctx.rules, ctx.projects), rules: ctx.rules.length, projects: ctx.projects.length });
 });
 // Dry run of draft text against sample job text. Nothing is saved.
 api.post('/admin/skill/test', admin, async (req, res) => {
@@ -805,36 +811,36 @@ api.put('/admin/settings/:key', admin, async (req, res) => {
 });
 
 // ---------- rules: codes are never renumbered or reused, only reworded or retired ----------
+// Every active rule, with its "how to apply" details, is added to the gate instructions for every job (see gatePrompt).
+const ruleDetails = z.string().trim().max(1000).optional();
 api.get('/admin/rules', admin, async (_req, res) => {
-  const rules = await query<any>("SELECT code, type, rule, active, created_at, updated_at FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)");
+  const rules = await query<any>("SELECT code, type, rule, details, active, created_at, updated_at FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)");
   // how many jobs each code fired on, so a retire decision can be made with the history in view
   const fired = new Map<string, number>();
   for (const r of await query<any>('SELECT rule_codes FROM screenings WHERE rule_codes IS NOT NULL')) {
     for (const c of String(r.rule_codes).split(/\s*,\s*/).filter(Boolean)) fired.set(c, (fired.get(c) ?? 0) + 1);
   }
-  // which active codes the ACTIVE gate prompt never mentions: the model only applies rules the prompt names
-  const gate = (await query<any>('SELECT version, content FROM skill_versions WHERE is_active=1 LIMIT 1'))[0];
-  const missing = new Set(gate ? codesMissingFromPrompt(gate.content, rules.map((r) => ({ code: r.code, active: !!r.active }))) : rules.filter((r) => r.active).map((r) => r.code));
-  res.json({ rules: rules.map((r) => ({ ...r, active: !!r.active, fired: fired.get(r.code) ?? 0, in_prompt: !r.active || !missing.has(r.code) })), gate_version: gate ? gate.version : null });
+  res.json({ rules: rules.map((r) => ({ ...r, active: !!r.active, fired: fired.get(r.code) ?? 0 })) });
 });
 api.post('/admin/rules', admin, async (req, res) => {
-  const b = z.object({ type: z.enum(['fail', 'flag']), rule: z.string().trim().min(5, 'Describe the rule').max(300) }).safeParse(req.body);
+  const b = z.object({ type: z.enum(['fail', 'flag']), rule: z.string().trim().min(5, 'Describe the rule').max(300), details: ruleDetails }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const prefix = b.data.type === 'fail' ? 'F' : 'G';
   // the next number after every code ever used, retired ones included, so an old code never means something new
   const last = (await query<any>('SELECT MAX(CAST(SUBSTRING(code, 2) AS UNSIGNED)) AS n FROM rules WHERE code LIKE ?', [prefix + '%']))[0].n;
   const code = prefix + (Number(last || 0) + 1);
-  await exec('INSERT INTO rules (code, type, rule, active) VALUES (?,?,?,1)', [code, b.data.type, b.data.rule]);
+  await exec('INSERT INTO rules (code, type, rule, details, active) VALUES (?,?,?,?,1)', [code, b.data.type, b.data.rule, b.data.details || null]);
   await audit(req.user!.id, 'rule_add', `${code} ${b.data.rule.slice(0, 200)}`);
   res.status(201).json({ code });
 });
 api.patch('/admin/rules/:code', admin, async (req, res) => {
-  const b = z.object({ rule: z.string().trim().min(5).max(300).optional(), active: z.boolean().optional() }).safeParse(req.body);
+  const b = z.object({ rule: z.string().trim().min(5).max(300).optional(), details: ruleDetails, active: z.boolean().optional() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const r = (await query<any>('SELECT code FROM rules WHERE code=?', [req.params.code]))[0];
   if (!r) return void res.status(404).json({ error: 'Not found' });
   if (b.data.rule !== undefined) await exec('UPDATE rules SET rule=? WHERE code=?', [b.data.rule, r.code]);
+  if (b.data.details !== undefined) await exec('UPDATE rules SET details=? WHERE code=?', [b.data.details || null, r.code]);
   if (b.data.active !== undefined) await exec('UPDATE rules SET active=? WHERE code=?', [b.data.active ? 1 : 0, r.code]);
-  await audit(req.user!.id, 'rule_change', `${r.code}${b.data.rule !== undefined ? ' reworded' : ''}${b.data.active !== undefined ? (b.data.active ? ' restored' : ' retired') : ''}`);
+  await audit(req.user!.id, 'rule_change', `${r.code}${b.data.rule !== undefined ? ' reworded' : ''}${b.data.details !== undefined ? ' details' : ''}${b.data.active !== undefined ? (b.data.active ? ' restored' : ' retired') : ''}`);
   res.json({ ok: true });
 });

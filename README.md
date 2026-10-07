@@ -24,8 +24,8 @@ GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backe
 | Projects, Industries | everyone read; managers and admins edit | The project library, with tags and industries (many to many). |
 | Tag dictionary, Upwork profiles | admin | Tags and categories (with scores), and the profiles proposals are sent from. |
 | Templates, Signals | managers and admins (signals: admin edits) | Proposal templates (rich-text format, prompt, the signals each suits, sample proposals) and the 16 detection signals. |
-| **Upwork JobGate** | admin | The gate prompt, in versions. Saving never overwrites: it makes a new version that only counts once activated. Has a test box. |
-| **Rules** | admin | The FAIL and FLAG codes, how many jobs each fired on, add / reword / retire. Warns when an active code is not named in the active gate prompt. |
+| **Gate instructions** | admin | How the gate reads and judges a job (not the rules), in versions. Saving never overwrites: it makes a new version that only counts once activated. Has a test box and a full prompt preview. |
+| **Rules** | admin | The FAIL and FLAG rules with their codes and a How to apply note, how many jobs each fired on, add / edit / retire. Applied from the next job. |
 | **Settings** | admin | **The AI** (GLM, Claude or GPT, with a model and a connection test), projects shown, recommended, the fewest and most a person can pick (1 to 2), the minimum match score, the shortest override reason, outcome choices and lost reasons, quiet days, rules passed to the writer. Applied to the next job, no restart. |
 | **Connect Claude** | everyone | Makes personal tokens so Claude can save sheet data into Upwork Pro (see `mcp/README.md`). |
 | Users | admin | Accounts and roles. |
@@ -47,14 +47,15 @@ GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backe
 - A job is **Submitted** when marked Sent and **Closed** at a final outcome (Pending keeps it Submitted). The server enforces the order:
   Sent only after the proposal is finished; Viewed, Chat opened, Interview and outcomes only after Sent. Every change is kept as old value to new value.
 
-## Gate prompt and rule codes
+## Gate instructions and rules
 
-The model applies the rules written in the gate prompt (Upwork JobGate); the Rules page is what the app knows each code means. Keep the two in step:
+The model gets, for every job: the active **Gate instructions** (the method), then the active **Rules** (each with its code and How to apply
+note), then the fixed output format and the project library (`gatePrompt` in `src/screening/contract.ts`). Each lives in one place:
 
+- Add, reword or retire a rule on the Rules page; it applies from the next job, no new gate version needed. The instructions never list rules.
 - Rules are never renumbered or reused: reword or retire one, and give a new meaning a new code.
-- `npm run gate:codes` saves a new **inactive** gate version in which every FAIL and FLAG line carries its code (F1 to F5, G1 to G17). It starts from the newest
-  version that already has every rule (the one with flag 17). Activate it in Upwork JobGate once you are happy with it; until then screening is unchanged.
-- The Rules page lists any active code the active prompt does not mention.
+- Each job keeps the rules it was screened against (`screenings.gate_rules`), shown on the job page and in the export.
+- "See full prompt" on the Gate instructions page shows exactly what the model gets.
 
 ## Roles
 
@@ -63,7 +64,7 @@ The model applies the rules written in the gate prompt (Upwork JobGate); the Rul
 | Screen jobs, see and work on their own jobs, continue with a reason | yes | yes | yes |
 | See every job and every override reason; edit tracking on any job | no | yes | yes |
 | Add, edit and delete projects, industries, templates and samples | no | yes | yes |
-| Upwork profiles, users, tag dictionary, signals, Upwork JobGate, Rules, Settings, Logs | no | no | yes |
+| Upwork profiles, users, tag dictionary, signals, Gate instructions, Rules, Settings, Logs | no | no | yes |
 
 ## Run it
 
@@ -73,12 +74,11 @@ cp .env.example .env            # DB password, SEED_ADMIN_*, and the Z.ai key (L
 # 1. start MySQL from the XAMPP control panel
 # 2. as MySQL root, run sql/setup.sql (edit the password first): creates the database `upwork_gate` and a user
 npm install
-npm run migrate                 # creates and upgrades the tables (sql/migrations 002 to 014, tracked in schema_migrations)
-npm run seed                    # first admin + gate version 1 from seed/SKILL.md
-npm run seed:library            # tags, projects, rule codes, profiles from seed/library.json (insert-if-missing)
+npm run migrate                 # creates and upgrades the tables (sql/migrations 002 to 016, tracked in schema_migrations)
+npm run seed                    # first admin + gate instructions version 1 from seed/gate-instructions.md
+npm run seed:library            # tags, projects, rules (with How to apply notes), profiles from seed/library.json (insert-if-missing)
 npm run seed:proposals          # signals, templates (with a starter signal mapping) and sample proposals (insert-if-missing)
 npm run seed:settings           # admin settings with their defaults from src/settings.ts (insert-if-missing)
-npm run gate:codes              # optional: a new inactive gate version with the rule codes in the prompt
 npm run backfill:postings       # optional, spends AI quota: read older jobs' posts into fields (add -- --dry-run to count)
 npm run seed:examples           # dev/demo only: 12 example jobs across every Jobs tab (-- --remove takes them out)
 npm run sync:library            # dry run: how the database differs from seed/library.json (add -- --apply to apply)

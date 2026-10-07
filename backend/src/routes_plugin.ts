@@ -176,7 +176,7 @@ plugin.get('/plugin/options', anyone, async (_req, res) => {
   res.json({
     profiles: (await query<any>('SELECT id, name FROM upwork_profiles WHERE active=1 ORDER BY name')),
     projects: (await query<any>('SELECT name FROM projects WHERE active=1 ORDER BY name')).map((p) => p.name),
-    rules: await query("SELECT code, type, rule FROM rules WHERE active=1 ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
+    rules: await query("SELECT code, type, rule, details FROM rules WHERE active=1 ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
     statuses: ['Sent', 'Viewed', 'Chat opened', 'Interview'], outcomes: cfg['tracking.outcomes'], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'],
     min_continue_reason: cfg['override.min_reason'],
   });
