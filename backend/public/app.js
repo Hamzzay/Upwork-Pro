@@ -53,11 +53,13 @@ async function api(method, path, body) {
   if (!r.ok) { const e = new Error(data.error || 'Something went wrong. Try again.'); e.status = r.status; throw e; }
   return data;
 }
+/** First letter up: model-written values often start lower case ("not shown"). */
+const cap = (v) => (typeof v === 'string' && v ? v[0].toUpperCase() + v.slice(1) : v);
 const toDate = (s) => (s ? new Date(String(s).replace(' ', 'T')) : null);
 function ago(s) {
   const d = toDate(s); if (!d) return '';
   const sec = Math.max(0, (Date.now() - d.getTime()) / 1000);
-  if (sec < 60) return 'just now';
+  if (sec < 60) return 'Just now';
   if (sec < 3600) return Math.floor(sec / 60) + ' min ago';
   if (sec < 86400) return Math.floor(sec / 3600) + ' h ago';
   if (sec < 604800) return Math.floor(sec / 86400) + ' d ago';
@@ -356,7 +358,7 @@ async function dashboardView() {
         kpi('Proposals', c.proposals, `${c.finalized} finished`, jobsLink()),
         kpi('Sent', c.sent, c.connects ? `${c.connects} Connects` : 'Connects not recorded', jobsLink()),
         kpi('Hired', c.hired, `${pct(c.hired, c.sent)} of sent`, jobsLink({ outcome: 'Hired' }), 'PASS'),
-        kpi('Needs action', needs, 'waiting on someone', jobsLink({ stage: 'needs_action' }), 'NEED')),
+        kpi('Needs action', needs, 'Waiting on someone', jobsLink({ stage: 'needs_action' }), 'NEED')),
       h('div', { class: 'dgrid' },
         panel('Funnel', 'From screening to hire', h('div', { class: 'hbars' }, funnel.map(([l, v, ex]) => hbar(l, v, c.screened, pct(v, c.screened), jobsLink(ex))))),
         panel('Speed', 'Paste to proposal ready', h('div', {},
@@ -446,13 +448,93 @@ const progressDots = progressStep; // older callers
 const mins = (sec) => (sec == null ? '' : sec < 60 ? sec + ' s' : sec < 3600 ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min');
 const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : '');
 /** Long model-written values (budget, client) stay on one line; the full text is on hover. */
-const clip = (v, w) => (v ? h('span', { class: 'clip', title: v, style: `max-width:${w}px` }, v) : '');
+const clip = (v, w) => (v ? h('span', { class: 'clip', title: cap(v), style: `max-width:${w}px` }, cap(v)) : '');
+// ---------- list cells: one look for every phase, and a detail panel on click ----------
+/** A small panel under `anchor`, closed by a click elsewhere or Escape. `build` returns its content (it may be async). */
+function popover(anchor, build) {
+  document.querySelectorAll('.pop').forEach((p) => p.remove());
+  const pop = h('div', { class: 'pop', role: 'dialog' }, h('div', { class: 'skel', style: 'width:70%' }));
+  document.body.append(pop);
+  const place = () => { const r = anchor.getBoundingClientRect(); const w = pop.offsetWidth; pop.style.top = (r.bottom + window.scrollY + 6) + 'px'; pop.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - w - 12)) + 'px'; };
+  place();
+  const close = () => { pop.remove(); document.removeEventListener('mousedown', out, true); document.removeEventListener('keydown', esc, true); };
+  const out = (e) => { if (!pop.contains(e.target) && !anchor.contains(e.target)) close(); };
+  const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  setTimeout(() => { document.addEventListener('mousedown', out, true); document.addEventListener('keydown', esc, true); });
+  Promise.resolve(build(close)).then((c) => { if (pop.isConnected) { pop.replaceChildren(...[c].flat().filter(Boolean)); place(); } }).catch((x) => pop.replaceChildren(h('p', { class: 'err' }, x.message)));
+  return pop;
+}
+const cellBtn = (content, title, onOpen) => h('button', { type: 'button', class: 'cellbtn', title, onclick: (e) => { e.stopPropagation(); onOpen(e.currentTarget); } }, content);
+
+/** The phase colour and one label for every job, so all tabs read the same way. */
+function standing(r) {
+  const won = r.outcome && !cfg('tracking.loss_outcomes', []).includes(r.outcome);
+  const info = STAGE_INFO[r.stage] || [0, r.stage];
+  if (r.stage === 'screening' || r.stage === 'writing') return { tone: 'busy', label: info[1], detail: 'The AI is working', bar: r.stage === 'writing' ? 3.5 / 5 : 0 };
+  if (info[0]) return { tone: 'inprog', label: info[1], detail: `In progress · Step ${info[0]} of ${IN_PROGRESS_STEPS}`, bar: info[0] / IN_PROGRESS_STEPS };
+  if (r.stage === 'submitted') return { tone: 'submitted', label: r.current_status || 'Sent', detail: 'Submitted' + (r.status_at ? ' · ' + ago(r.status_at) : ''), bar: 1 };
+  if (r.stage === 'closed') return { tone: won ? 'won' : 'lost', label: r.outcome, detail: 'Closed' + (r.days_to_close != null ? ` · ${r.days_to_close} d after sending` : ''), bar: 1 };
+  if (r.stage === 'failed') return { tone: 'off', label: 'Screening failed', detail: 'Not pursued', bar: 1 };
+  return { tone: 'off', label: 'Skipped', detail: 'Not pursued', bar: 1 };
+}
+function standsCell(r) {
+  const x = standing(r);
+  return cellBtn(h('div', { class: 'stand ' + x.tone },
+    h('div', { class: 'l1' }, x.tone === 'busy' ? h('span', { class: 'spin' }) : h('i', { class: 'dot' }), h('strong', {}, x.label)),
+    h('div', { class: 'l2' }, x.detail), h('div', { class: 'bar' }, h('i', { style: `width:${Math.round(x.bar * 100)}%` }))),
+  'Where this job stands: click for its journey', (a) => popover(a, () => journeyPanel(r)));
+}
+/** The job's journey so far: every step with its date, from the timeline. */
+async function journeyPanel(r) {
+  const { events } = await api('GET', `/screenings/${r.id}/timeline`);
+  const steps = events.filter((e) => e.kind === 'step' || e.kind === 'error');
+  const x = standing(r);
+  return [h('div', { class: 'pop-head' }, h('strong', {}, x.label), h('span', { class: 'small muted' }, x.detail)),
+    h('ol', { class: 'tl compact' }, steps.map((e) => h('li', { class: 'tl-' + e.kind }, h('span', { class: 'when', title: full(e.at) }, shortDate(e.at)),
+      h('div', {}, h('span', {}, e.what), e.who ? h('span', { class: 'muted' }, ' · ' + e.who) : null, e.detail ? h('div', { class: 'small muted' }, e.detail) : null)))),
+    h('a', { class: 'btn sm', href: '#/s/' + r.id, style: 'margin-top:8px' }, 'Open job')];
+}
+const shortDate = (s) => { const d = toDate(s); return d ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''; };
+
+const VERDICT_WORD = { PASS: 'Pass', FLAG: 'Flag', FAIL: 'Fail' };
+/** The gate result: a quiet badge, the rule codes as chips (three, then "+N"), and the details on click. */
+function resultCell(r) {
+  if (!r.verdict) return verdictPill(r.verdict, r.status);
+  const codes = (r.rule_codes || '').split(/\s*,\s*/).filter(Boolean);
+  const content = h('div', { class: 'result' }, h('span', { class: 'vbadge ' + r.verdict }, h('i', {}), VERDICT_WORD[r.verdict]),
+    codes.length ? h('span', { class: 'codes' }, codes.slice(0, 3).map((c) => h('span', { class: 'code ' + (c[0] === 'F' ? 'F' : 'G') }, c)), codes.length > 3 ? h('span', { class: 'code more' }, '+' + (codes.length - 3)) : null) : null);
+  return codes.length ? cellBtn(content, 'See each rule and the value behind it', (a) => popover(a, () => flagsPanel(r))) : content;
+}
+async function flagsPanel(r) {
+  const d = await api('GET', `/screenings/${r.id}/flags`);
+  const item = (x, kind) => h('li', { class: kind }, h('div', {}, h('span', { class: 'code ' + (kind === 'fail' ? 'F' : 'G') }, x.code), ' ', h('strong', {}, x.rule)), x.value ? h('div', { class: 'small muted' }, cap(x.value)) : null);
+  return [h('div', { class: 'pop-head' }, h('span', { class: 'vbadge ' + d.verdict }, h('i', {}), VERDICT_WORD[d.verdict]),
+      h('span', { class: 'small muted' }, `${d.fails.length} fail rule${d.fails.length === 1 ? '' : 's'} · ${d.flags.length} flag${d.flags.length === 1 ? '' : 's'}`)),
+    h('ul', { class: 'flaglist' }, d.fails.map((x) => item(x, 'fail')), d.flags.map((x) => item(x, 'flag'))),
+    h('a', { class: 'btn sm', href: '#/s/' + r.id, style: 'margin-top:8px' }, 'Open job')];
+}
+/** Submitted jobs: Sent, Viewed, Chat opened, Interview as a strip, each with its date on hover. */
+function journeyStrip(r) {
+  const steps = [['Sent', r.proposal_sent_at || r.proposal_sent_date], ['Viewed', r.client_viewed === 'yes' && (r.client_viewed_at || true)],
+    ['Chat', r.client_replied === 'yes' && (r.client_replied_at || true)], ['Interview', r.interviewed === 'yes' && (r.interviewed_at || true)]];
+  return h('div', { class: 'strip' }, steps.map(([label, at], i) => [i ? h('span', { class: 'link' + (at ? ' on' : '') }) : null,
+    h('span', { class: 'ms' + (at ? ' on' : ''), title: at ? `${label}${typeof at === 'string' ? ': ' + full(at) : ''}` : `${label}: not yet` }, h('i', {}), label)]));
+}
+function outcomeCell(r) {
+  if (!r.outcome) return '';
+  const won = !cfg('tracking.loss_outcomes', []).includes(r.outcome);
+  return h('div', { class: 'outc' }, h('span', { class: 'obadge ' + (won ? 'won' : 'lost') }, r.outcome), r.outcome_reason ? h('div', { class: 'small muted' }, r.outcome_reason) : null);
+}
+const whyNot = (r) => (r.stage === 'failed' ? cap(r.error_message || 'The screening did not finish') : r.stage === 'skipped' ? cap(r.notes || 'Skipped after screening') : '');
+
 /** Every column the Jobs list can show, and which ones each tab starts with. */
 const JOB_COLS = [
-  { key: 'progress', label: 'Where it stands', sort: 'stage', cell: (r) => progressStep(r.stage) },
+  { key: 'progress', label: 'Where it stands', sort: 'stage', cell: (r) => standsCell(r) },
+  { key: 'journey', label: 'On Upwork', cell: (r) => journeyStrip(r) },
+  { key: 'why', label: 'Why not pursued', cell: (r) => clip(whyNot(r), 260) },
   { key: 'status', label: 'Status', sort: 'quiet', cell: (r) => [r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null] },
-  { key: 'since', label: 'Last update', sort: 'quiet', cell: (r) => (r.days_since_update == null ? '' : h('span', { class: r.stage === 'submitted' && r.days_since_update >= cfg('tracking.quiet_days', 5) ? 'quiet' : 'muted' }, r.days_since_update === 0 ? 'today' : `${r.days_since_update} d ago`)) },
-  { key: 'verdict', label: 'Result', sort: 'verdict', cell: (r) => [verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null] },
+  { key: 'since', label: 'Last update', sort: 'quiet', cell: (r) => (r.days_since_update == null ? '' : h('span', { class: r.stage === 'submitted' && r.days_since_update >= cfg('tracking.quiet_days', 5) ? 'quiet' : 'muted' }, r.days_since_update === 0 ? 'Today' : `${r.days_since_update} d ago`)) },
+  { key: 'verdict', label: 'Result', sort: 'verdict', cell: (r) => resultCell(r) },
   { key: 'country', label: 'Client', sort: 'country', cell: (r) => clip(r.client_country, 170) },
   { key: 'budget', label: 'Budget', cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
   { key: 'hire_rate', label: 'Hire rate', sort: 'hire_rate', cell: (r) => clip(r.hire_rate, 120) },
@@ -462,22 +544,22 @@ const JOB_COLS = [
   { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_at || r.proposal_sent_date ? h('span', { title: full(r.proposal_sent_at || r.proposal_sent_date) }, String(r.proposal_sent_at || r.proposal_sent_date).slice(0, 10)) : '') },
   { key: 'connects', label: 'Connects', cell: (r) => (r.connects_spent != null ? r.connects_spent + (r.boost_connects ? ' + ' + r.boost_connects : '') : '') },
   { key: 'response', label: 'Viewed / chat / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
-  { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => (r.outcome ? h('span', { class: 'chip ' + (cfg('tracking.loss_outcomes', []).includes(r.outcome) ? '' : 'brand') }, r.outcome) : '') },
+  { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => outcomeCell(r) },
   { key: 'reason', label: 'Why lost', cell: (r) => clip(r.outcome_reason, 180) },
-  { key: 'close', label: 'Sent to close', cell: (r) => (r.days_to_close == null ? '' : `${r.days_to_close} d`) },
+  { key: 'close', label: 'Sent to close', cell: (r) => (r.days_to_close == null ? '' : r.days_to_close === 0 ? 'Same day' : `${r.days_to_close} d`) },
   { key: 'time', label: 'To proposal', sort: 'time', cell: (r) => mins(r.secs_to_proposal) },
   { key: 'created', label: 'Screened', sort: 'created', cell: (r) => h('span', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)) },
 ];
 /** The tabs: each is a phase, with its own starting columns, stage filter and counter tile. */
 const JOB_TABS = [
-  { key: '', label: 'All', cols: ['progress', 'status', 'verdict', 'country', 'profile', 'user', 'created'] },
+  { key: '', label: 'All', cols: ['progress', 'verdict', 'country', 'profile', 'user', 'created'] },
   { key: 'in_progress', label: 'In progress', cols: ['progress', 'verdict', 'country', 'budget', 'profile', 'user', 'created'], stages: ['decide', 'projects', 'profile', 'review', 'ready', 'screening', 'writing'], need: true },
-  { key: 'submitted', label: 'Submitted', cols: ['status', 'since', 'sent', 'connects', 'response', 'profile', 'user', 'country'], quiet: true },
-  { key: 'closed', label: 'Closed', cols: ['outcome', 'reason', 'close', 'sent', 'profile', 'user', 'country'] },
-  { key: 'not_pursued', label: 'Not pursued', cols: ['progress', 'verdict', 'country', 'budget', 'user', 'created'], stages: ['skipped', 'failed'] },
+  { key: 'submitted', label: 'Submitted', cols: ['progress', 'journey', 'since', 'sent', 'connects', 'profile', 'user'], quiet: true },
+  { key: 'closed', label: 'Closed', cols: ['outcome', 'close', 'sent', 'verdict', 'profile', 'user', 'country'] },
+  { key: 'not_pursued', label: 'Not pursued', cols: ['progress', 'why', 'verdict', 'country', 'budget', 'user', 'created'], stages: ['skipped', 'failed'] },
 ];
 function savedCols(tab) {
-  try { const v = JSON.parse(localStorage.getItem('jobs.columns.' + (tab || 'all')) || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
+  try { const v = JSON.parse(localStorage.getItem('jobs.cols2.' + (tab || 'all')) || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
   return new Set((JOB_TABS.find((t) => t.key === tab) || JOB_TABS[0]).cols);
 }
 const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'review', 'ready'];
@@ -527,7 +609,7 @@ async function historyView() {
   const colBtn = h('button', { class: 'btn', type: 'button' }, 'Columns');
   colBtn.onclick = () => modal({ title: `Columns to show in ${tab().label}`, noConfirm: true, body: h('div', { class: 'colpick' }, JOB_COLS.map((c) => {
     const cb = h('input', { type: 'checkbox', id: 'col-' + c.key, checked: cols.has(c.key) });
-    cb.onchange = () => { if (cb.checked) cols.add(c.key); else cols.delete(c.key); try { localStorage.setItem('jobs.columns.' + (st.tab || 'all'), JSON.stringify([...cols])); } catch { /* storage blocked */ } load(); };
+    cb.onchange = () => { if (cb.checked) cols.add(c.key); else cols.delete(c.key); try { localStorage.setItem('jobs.cols2.' + (st.tab || 'all'), JSON.stringify([...cols])); } catch { /* storage blocked */ } load(); };
     return h('label', { for: 'col-' + c.key, class: 'row small' }, cb, c.label);
   })) });
   const clearBtn = h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } }, 'Clear filters');
@@ -622,7 +704,7 @@ function kvCard(title, rows) {
   return h('div', { class: 'card kv-card' }, h('h3', { class: 'section-title' }, title),
     rows.length ? h('dl', { class: 'kv' }, rows.map((r) => {
       const ns = /^not shown$/i.test(r.value.trim());
-      return h('div', {}, h('dt', {}, r.label), h('dd', { class: ns ? 'ns' : '' }, r.value));
+      return h('div', {}, h('dt', {}, r.label), h('dd', { class: ns ? 'ns' : '' }, cap(r.value)));
     })) : h('p', { class: 'faint small' }, 'Nothing reported'));
 }
 function issues(items, kind) {
@@ -837,20 +919,20 @@ function trackingCard(s, onSaved) {
 
 /** The end of the journey: what was sent and what happened, with the next things to do. */
 function completePanel(s, matching, proposal, onEdit) {
-  const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : 'not known');
-  const connects = s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ` + ${s.boost_connects} boost` : ''}` : 'not recorded';
+  const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : 'Not known');
+  const connects = s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ` + ${s.boost_connects} boost` : ''}` : 'Not recorded';
   const rows = [
     ['Verdict', `${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}`],
-    ['Projects', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join(', ') : 'not chosen'],
-    ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : 'not chosen'],
+    ['Projects', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join(', ') : 'Not chosen'],
+    ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : 'Not chosen'],
     ['Template', proposal && proposal.template ? proposal.template.name : 'none'],
-    ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : 'not recorded'], ['Connects', connects],
-    ['Client viewed', yn(s.client_viewed)], ['Chat opened', yn(s.client_replied)], ['Interview', yn(s.interviewed)], ['Outcome', s.outcome || 'not known yet'], ...(s.outcome_reason ? [['Why lost', s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '')]] : []),
+    ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : 'Not recorded'], ['Connects', connects],
+    ['Client viewed', yn(s.client_viewed)], ['Chat opened', yn(s.client_replied)], ['Interview', yn(s.interviewed)], ['Outcome', s.outcome || 'Not known yet'], ...(s.outcome_reason ? [['Why lost', s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '')]] : []),
   ];
   return h('div', { class: 'card complete' },
     h('div', { class: 'complete-head' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('h2', {}, 'Job complete'),
       h('p', { class: 'muted' }, 'Tracking saved' + (s.tracking_updated_at ? ' ' + ago(s.tracking_updated_at) : '') + '. Update it again when the client responds.'))),
-    h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: /not |none/.test(v) ? 'ns' : '' }, v)))),
+    h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: /^(not |none)/i.test(v) ? 'ns' : '' }, v)))),
       s.notes ? h('blockquote', {}, s.notes) : null,
       h('div', { class: 'row', style: 'margin-top:16px' }, h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen another job'),
         h('a', { class: 'btn', href: lastList.history }, 'Back to jobs'), onEdit ? h('button', { class: 'btn', type: 'button', onclick: onEdit }, 'Edit tracking') : null)));
@@ -880,7 +962,7 @@ function recordDetails(s, override, matching, proposal) {
   ];
   return h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', {}, 'Record details'), h('span', { class: 'sub' }, 'Every tracked field')),
-    h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([l, v]) => h('div', {}, h('dt', {}, l), h('dd', { class: v ? '' : 'ns' }, v || 'not recorded')))),
+    h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([l, v]) => h('div', {}, h('dt', {}, l), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not recorded')))),
       s.job_description ? h('details', { class: 'desc' }, h('summary', {}, 'Job description (the pasted page text)'), h('pre', {}, s.job_description)) : null));
 }
 
@@ -1029,7 +1111,7 @@ function postingCard(s, open = true) {
   const box = h('details', { class: 'card', open: open || null, style: 'margin-top:16px' },
     h('summary', { class: 'card-head', style: 'cursor:pointer;list-style:none' }, h('h2', {}, 'Job posting'), h('span', { class: 'sub' }, 'Everything copied from Upwork')), body);
   const raw = s.job_description ? h('details', { class: 'desc' }, h('summary', {}, 'The full pasted text'), h('pre', {}, s.job_description)) : null;
-  const grid = (rows) => (rows && rows.length ? h('dl', { class: 'terms' }, rows.filter((r) => r.value).map((r) => h('div', {}, h('dt', {}, r.label), h('dd', {}, r.value)))) : null);
+  const grid = (rows) => (rows && rows.length ? h('dl', { class: 'terms' }, rows.filter((r) => r.value).map((r) => h('div', {}, h('dt', {}, cap(r.label)), h('dd', {}, cap(r.value))))) : null);
   if (!p) {
     const busy = s.posting_status === 'queued' || s.posting_status === 'running';
     const go = h('button', { class: 'btn primary', type: 'button' }, s.posting_status === 'error' ? 'Try again' : 'Extract the posting');
@@ -1045,7 +1127,7 @@ function postingCard(s, open = true) {
     h('div', { style: 'margin-bottom:6px' }, h('strong', { style: 'font-size:17px' }, p.title || s.title || ''), h('div', { class: 'small muted' }, [p.posted, p.location].filter(Boolean).join(' · '))),
     grid(p.terms),
     p.skills.length ? [h('h3', {}, 'Skills'), h('div', { class: 'chips' }, p.skills.map((x) => h('span', { class: 'chip' }, x)))] : null,
-    [h('h3', {}, 'Description'), h('div', { class: 'desc-text' }, p.description || 'not shown')],
+    [h('h3', {}, 'Description'), h('div', { class: 'desc-text' }, p.description || 'Not shown')],
     p.screening_questions.length ? [h('h3', {}, 'Screening questions'), h('ol', {}, p.screening_questions.map((q) => h('li', {}, q)))] : null,
     p.activity.length ? [h('h3', {}, 'Activity on this job'), grid(p.activity)] : null,
     p.client.length ? [h('h3', {}, 'About the client'), grid(p.client)] : null,
@@ -1139,7 +1221,7 @@ async function jobView(id) {
     waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn)),
     h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
       s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null, s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
-    h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, v || 'not yet'))))),
+    h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
     postingCard(s, true),
     override ? section('Why it was continued', null, h('div', { class: 'card-pad' }, h('blockquote', { style: 'margin:0' }, override.reason), h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`))) : null,
     text ? section('Proposal', null, h('div', { class: 'card-pad' }, h('pre', { class: 'proposal-text' }, text),
@@ -1514,8 +1596,8 @@ async function projectDetailView(id) {
       [Number(p.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive'),
         canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(p, categories, (nid) => (nid ? route() : (location.hash = lastList.projects)), industries) }, 'Edit project') : null]),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'), h('dl', { class: 'kv cols2' },
-      h('div', {}, h('dt', {}, 'Live link'), h('dd', { class: link ? '' : 'ns' }, link || 'not recorded')),
-      h('div', {}, h('dt', {}, 'Showable publicly'), h('dd', { class: p.showable_publicly ? '' : 'ns' }, p.showable_publicly || 'not recorded')),
+      h('div', {}, h('dt', {}, 'Live link'), h('dd', { class: link ? '' : 'ns' }, link || 'Not recorded')),
+      h('div', {}, h('dt', {}, 'Showable publicly'), h('dd', { class: p.showable_publicly ? '' : 'ns' }, p.showable_publicly || 'Not recorded')),
       h('div', {}, h('dt', {}, 'Added'), h('dd', {}, full(p.created_at))), h('div', {}, h('dt', {}, 'Last updated'), h('dd', {}, full(p.updated_at))),
       p.notes ? h('div', { style: 'grid-column:1/-1' }, h('dt', {}, 'Notes'), h('dd', {}, p.notes)) : null)),
     h('div', { style: 'height:16px' }),
@@ -1668,7 +1750,7 @@ async function rulesView() {
   const table = (type) => h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Code', 'Rule', 'Fired on', 'Status', ''].map((x) => h('th', {}, x)))),
     h('tbody', {}, rules.filter((r) => r.type === type).map((r) => h('tr', { class: r.active ? '' : 'retired' },
       h('td', { class: 'mono' }, h('strong', {}, r.code)), h('td', { style: 'white-space:normal' }, r.rule),
-      h('td', {}, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'none')),
+      h('td', {}, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
       h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired')),
       h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Reword'),
         h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore'))))))));

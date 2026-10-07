@@ -95,6 +95,7 @@ npm run seed:library            # tags, projects, rule codes, profiles from seed
 npm run seed:proposals          # detection signals, proposal templates (with a starter signal mapping) and sample proposals (insert-if-missing)
 npm run seed:settings           # admin settings with their defaults from src/settings.ts (insert-if-missing)
 npm run backfill:postings       # optional, spends AI quota: read older jobs' posts into fields (add -- --dry-run to count)
+npm run seed:examples           # dev/demo only: 12 example jobs across every Jobs tab (-- --remove takes them out)
 npm run sync:library            # dry run: how the database differs from seed/library.json (add --apply via `-- --apply`)
 npm run dev                     # web app + API on PORT
 npm run worker                  # in a second terminal

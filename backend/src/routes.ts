@@ -43,7 +43,7 @@ api.post('/screenings', requireRole(), async (req, res) => {
     input: z.string(),
     job_url: z.string().trim().max(500).nullish(),
   }).safeParse(req.body);
-  if (!b.success) return void res.status(400).json({ error: 'input is required' });
+  if (!b.success) return void res.status(400).json({ error: 'Paste a job link or the job page text' });
   let parsed;
   try { parsed = detectInput(b.data.input); }
   catch (e) { if (e instanceof InputError) return void res.status(400).json({ error: e.message, code: e.code }); throw e; }
@@ -93,7 +93,7 @@ const statusAtSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome_at WHEN s.in
   WHEN s.client_viewed='yes' THEN s.client_viewed_at ELSE COALESCE(s.proposal_sent_at, s.proposal_sent_date) END`;
 const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
   LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
-const listSelect = `SELECT s.id, s.user_id, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
+const listSelect = `SELECT s.id, s.user_id, s.notes, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
   s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
   s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date,
   u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
@@ -376,6 +376,16 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   }
   await audit(req.user!.id, 'tracking_update', `screening=${id} fields=${Object.keys(b.data).join(',')}`);
   res.json({ ok: true });
+});
+
+// The gate's fails and flags for one job, with each rule and the value behind it: the Result column's detail.
+api.get('/screenings/:id/flags', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const s = (await query<any>('SELECT user_id, verdict, report_json FROM screenings WHERE id=?', [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  const rep = s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null;
+  const j: any = rep?.jobs?.[0] ?? null;
+  res.json({ verdict: s.verdict, fails: j?.fails ?? [], flags: j?.flags ?? [], override_note: j?.override_note || null });
 });
 
 // Read (or read again) the job post into fields, e.g. for jobs pasted before this existed.

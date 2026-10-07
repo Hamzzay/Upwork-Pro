@@ -153,18 +153,18 @@ function proposalSection(s, initial, matching) {
       try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: Number(sel.value) }); await reload(); drawAll(); startPolling(); } catch (x) { toast(x.message, true); again.disabled = false; again.replaceChildren('Write again with this template'); }
     };
     const rankRow = (r) => h('tr', {}, h('td', { class: 'muted' }, r.rank), h('td', {}, r.name), h('td', {}, h('strong', {}, r.score)),
-      h('td', { class: 'small muted' }, r.matched.length ? r.matched.map((m) => `${m.label} (+${m.weight})`).join('; ') : 'none'));
+      h('td', { class: 'small muted' }, r.matched.length ? r.matched.map((m) => `${m.label} (+${m.weight})`).join('; ') : 'None'));
     const rankTable = rk ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Template', 'Score', 'Matched signals'].map((x) => h('th', {}, x)))), h('tbody', {}, rk.items.map(rankRow)))) : null;
     const sigRow = (x) => h('tr', {},
       h('td', { class: 'muted' }, x.signal_number), h('td', {}, x.signal_name),
-      h('td', {}, h('strong', {}, x.value_name), ' ', x.is_fallback ? h('span', { class: 'chip' }, 'default') : h('span', { class: 'chip brand' }, x.confidence), x.signal_number === 7 && x.is_primary ? h('span', { class: 'chip', style: 'margin-left:4px' }, 'primary') : null),
+      h('td', {}, h('strong', {}, x.value_name), ' ', x.is_fallback ? h('span', { class: 'chip' }, 'Default') : h('span', { class: 'chip brand' }, x.confidence), x.signal_number === 7 && x.is_primary ? h('span', { class: 'chip', style: 'margin-left:4px' }, 'Primary') : null),
       h('td', { class: 'small muted' }, x.evidence ? h('span', {}, h('em', {}, `"${x.evidence}"`), ' ' + (x.reason || '')) : (x.reason || '-')));
     const sigTable = h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Value', 'Why'].map((x) => h('th', {}, x)))), h('tbody', {}, data.signals.map(sigRow))));
     const how = t ? 'Chosen by you' : '';
     return h('details', { class: 'explain' }, h('summary', {}, 'How this proposal was written: signals, template and samples'),
       h('div', { class: 'explain-body' },
         t ? h('div', {}, h('h3', { class: 'section-title' }, 'Template'),
-          h('p', {}, h('strong', {}, t.name), ' ', h('span', { class: 'chip' }, t.choice === 'manual' ? how : rk && rk.defaulted ? 'Default: no signal matched' : 'Best fit for the signals'), ' ', h('span', { class: 'faint' }, `score ${t.score ?? 0}`)),
+          h('p', {}, h('strong', {}, t.name), ' ', h('span', { class: 'chip' }, t.choice === 'manual' ? how : rk && rk.defaulted ? 'Default: no signal matched' : 'Best fit for the signals'), ' ', h('span', { class: 'faint' }, `Score ${t.score ?? 0}`)),
           rankTable, owner ? h('div', { class: 'row', style: 'margin-top:12px' }, sel, again) : null) : null,
         h('div', { style: 'margin-top:18px' }, h('h3', { class: 'section-title' }, `Signals detected (${new Set(data.signals.map((x) => x.signal_number)).size})`), sigTable)));
   }
@@ -325,7 +325,7 @@ function mappingCard(t, signals) {
       sSel.onchange = () => { r.signal_id = Number(sSel.value); r.value_id = null; r.source = 'manual'; draw(); };
       vSel.onchange = () => { r.value_id = vSel.value ? Number(vSel.value) : null; r.source = 'manual'; };
       w.onchange = () => { r.weight = Number(w.value); r.source = 'manual'; };
-      trs.push(h('tr', {}, h('td', {}, sSel), h('td', {}, vSel), h('td', {}, w), h('td', {}, r.source === 'starter' ? h('span', { class: 'chip', title: 'Suggested from the template text. Review it.' }, 'starter') : h('span', { class: 'faint small' }, 'yours')),
+      trs.push(h('tr', {}, h('td', {}, sSel), h('td', {}, vSel), h('td', {}, w), h('td', {}, r.source === 'starter' ? h('span', { class: 'chip', title: 'Suggested from the template text. Review it.' }, 'Starter') : h('span', { class: 'faint small' }, 'Yours')),
         h('td', {}, h('button', { class: 'btn sm danger', type: 'button', onclick: () => { rows.splice(i, 1); draw(); } }, 'Remove'))));
     }
     holder.replaceChildren(rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Signal', 'Value', 'Weight', '', ''].map((x) => h('th', {}, x)))), h('tbody', {}, trs))) : h('p', { class: 'faint small' }, 'No signals yet. Without any, this template can only be the default or be chosen by hand.'));
@@ -398,7 +398,7 @@ async function signalsView() {
     const slice = shown.slice((st.page - 1) * PAGE_SIZE, st.page * PAGE_SIZE);
     bodyEl.replaceChildren(shown.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Layer', 'Values', 'Templates', 'Status'].map((x) => h('th', {}, x)))),
       h('tbody', {}, slice.map((s) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/sig/' + s.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/sig/' + s.id; } },
-        h('td', { class: 'muted' }, s.number), h('td', {}, h('strong', {}, s.name), s.multi_select ? h('span', { class: 'chip', style: 'margin-left:8px' }, 'multi-select') : null, s.decides ? h('div', { class: 'meta' }, s.decides.slice(0, 110)) : null),
+        h('td', { class: 'muted' }, s.number), h('td', {}, h('strong', {}, s.name), s.multi_select ? h('span', { class: 'chip', style: 'margin-left:8px' }, 'Multi-select') : null, s.decides ? h('div', { class: 'meta' }, s.decides.slice(0, 110)) : null),
         h('td', { class: 'muted' }, s.layer_name), h('td', { class: 'muted' }, s.value_count), h('td', { class: 'muted' }, s.template_count),
         h('td', {}, Number(s.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Off'))))))) : emptyState('tag', 'No signals match', 'Try a different search or layer.'),
       pager(shown.length, st.page, (n) => { st.page = n; draw(); }));
@@ -449,12 +449,12 @@ async function signalView(id) {
     v.move ? h('div', { style: 'margin-top:10px' }, h('div', { class: 'faint small' }, 'The proposal move'), h('div', {}, v.move)) : null);
   shell('signals', [
     h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/signals', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to signals')),
-    pageHead(`${s.number}. ${s.name}`, s.layer_name, [Number(s.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Off'), s.multi_select ? h('span', { class: 'chip' }, 'multi-select') : null, isAdmin ? h('button', { class: 'btn primary', onclick: editSignal }, 'Edit signal') : null]),
+    pageHead(`${s.number}. ${s.name}`, s.layer_name, [Number(s.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Off'), s.multi_select ? h('span', { class: 'chip' }, 'Multi-select') : null, isAdmin ? h('button', { class: 'btn primary', onclick: editSignal }, 'Edit signal') : null]),
     s.decides || s.notes ? h('div', { class: 'card card-pad' }, s.decides ? [h('h3', { class: 'section-title' }, 'What it decides'), h('p', {}, s.decides)] : null, s.notes ? [h('h3', { class: 'section-title', style: 'margin-top:12px' }, 'Notes'), h('p', {}, s.notes)] : null) : null,
     h('div', { class: 'row spread', style: 'margin:20px 0 10px' }, h('h3', { class: 'section-title', style: 'margin:0' }, `Values (${s.values.length})`), isAdmin ? h('button', { class: 'btn', type: 'button', onclick: () => valueDialog(null) }, 'Add a value') : null),
     s.values.length ? clientPaged(s.values, (slice) => h('div', { style: 'display:grid;gap:12px' }, slice.map(vcard))) : emptyState('tag', 'No values yet', isAdmin ? 'Add the values this signal can take.' : 'This signal has no values.'),
     h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Templates that use it (${s.used_by.length})`),
-      s.used_by.length ? h('ul', { class: 'plain' }, s.used_by.map((u) => h('li', {}, h('a', { href: '#/t/' + u.id }, u.name), h('span', { class: 'muted' }, ` · ${u.value_name || 'any stated value'} · weight ${u.weight}`)))) : h('p', { class: 'faint small' }, 'No template is mapped to this signal yet.')),
+      s.used_by.length ? h('ul', { class: 'plain' }, s.used_by.map((u) => h('li', {}, h('a', { href: '#/t/' + u.id }, u.name), h('span', { class: 'muted' }, ` · ${u.value_name || 'Any stated value'} · weight ${u.weight}`)))) : h('p', { class: 'faint small' }, 'No template is mapped to this signal yet.')),
   ], true);
 }

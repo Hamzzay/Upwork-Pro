@@ -12,6 +12,7 @@ npm install            # exceljs is now a runtime dependency (export)
 npm run migrate        # applies 008 to 013: early drafts, tracking, settings, AI call log, status dates, posting and change history
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
 # optional, spends AI quota: npm run backfill:postings   (reads older jobs' posts into fields; add -- --dry-run to count)
+# dev/demo only: npm run seed:examples   (12 example jobs across every Jobs tab; -- --remove takes them out)
 ```
 Then sign in: you land on the new **Dashboard**. Admin pages: Upwork JobGate, Rules, Settings, Users, Logs.
 
@@ -300,6 +301,32 @@ itself moves on Upwork. This replaces the single stage list from R3.
 - Server: `stageSql` now returns screening, decide, projects, profile, writing, review, ready, submitted, closed,
   skipped, failed; `phaseSql` groups them; `GET /screenings?phase=` and `stage=quiet`; the counters return per-tab
   totals. The list also returns days since the last update and days from sent to close.
+
+### R13. Jobs list polish, click-for-detail, example jobs, capital letters (done)
+- **"Where it stands" looks the same in every tab**: a coloured dot, the label, a detail line and a thin bar.
+  In progress: "Projects pending / In progress · Step 2 of 5" with a partial bar. Submitted: the latest status
+  ("Chat opened / Submitted · 1 d ago"), full blue bar. Closed: the outcome ("Hired" green, lost outcomes red,
+  "Closed · 6 d after sending"). Not pursued: "Skipped" / "Screening failed", grey. AI at work: "Screening…" /
+  "Writing…" with a spinner. `standing()` and `standsCell()` in `app.js`.
+- **Result column redesigned**: a quiet Pass / Flag / Fail badge and the rule codes as small chips (fail codes red,
+  flag codes amber), three at most then "+N".
+- **Click for detail** (`popover()` in `app.js`): clicking the Result cell lists every fail and flag with its rule
+  and the value behind it (new `GET /screenings/:id/flags`); clicking "Where it stands" shows the job's journey,
+  every step with its date and who did it (from the timeline). Both link to the job. Escape or a click elsewhere
+  closes them.
+- **Tab layouts**: All (where it stands, result, client, profile, by, screened); In progress (adds budget, and the
+  next-action button); Submitted (a **Sent → Viewed → Chat → Interview** strip instead of "Yes / - / -", last update
+  in amber once it has gone quiet, sent date, Connects); Closed (outcome badge with the loss reason under it, days
+  from sent to close, sent date, result); Not pursued (why: the skip note or the screening error). Saved column
+  choices start fresh for the new layouts.
+- **`npm run seed:examples`** (`scripts/seed-examples.ts`, dev/demo only): 12 example jobs, three in each of In
+  progress, Submitted, Closed and Not pursued, with a report, a job posting, projects, a finished proposal, overrides
+  and status history where their phase has them. Marked `raw_input = "[example]"` and titled "Example · ...";
+  `npm run seed:examples -- --remove` removes them and everything attached. Loaded on Hamza's machine.
+- **Capital first letters everywhere**: "Just now", "Today", "Waiting on someone", "Not recorded", "Not known",
+  "Not yet", "None", "Default", "Primary", "Starter", "Yours", "Multi-select", "Any stated value", "Score", and the
+  server's "Paste a job link or the job page text". Values the model writes in lower case ("not shown") are shown
+  with a capital first letter on screen (`cap()` in `app.js`); the stored data is unchanged.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
