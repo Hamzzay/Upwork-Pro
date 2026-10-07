@@ -508,3 +508,15 @@ dialog .ss-pop { position: absolute; }
 .ss-clear:hover { background: var(--fail); color: #fff; }
 .ss-clear:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .ss-clear[hidden] { display: none; }
+
+/* jobs tabs and the step indicator */
+.jobtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
+.jobtabs button { font: inherit; font-weight: 600; font-size: 14px; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
+.jobtabs button.on { color: var(--brand); border-bottom-color: var(--brand); }
+.jobtabs .n { font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); }
+.jobtabs button.on .n { background: var(--brand-soft); border-color: transparent; color: var(--brand); }
+.stepind { display: grid; gap: 5px; min-width: 170px; }
+.stepbar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.stepbar i { display: block; height: 100%; background: var(--brand); border-radius: 99px; }
+.stat.QUIET .v { color: var(--flag); }
+.quiet { color: var(--flag); font-weight: 600; }

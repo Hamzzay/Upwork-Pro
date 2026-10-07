@@ -423,61 +423,96 @@ async function statusDialog(id, onDone) {
 }
 
 // ---------- jobs list ----------
-/** The journey as dots: how many of the 5 steps are done for a stage. */
+/**
+ * Our own work, counted only where the job waits on a person (steps 1 to 5); then Upwork.
+ * "Screening" and "Writing" are the AI at work for a minute or two, so they get no step number.
+ */
 const STAGE_INFO = {
-  screening: [0, 'Screening'], decide: [1, 'Decide'], projects: [1, 'Pick projects'], profile: [2, 'Pick profile'], proposal: [3, 'Proposal'],
-  tracking: [4, 'Track'], complete: [5, 'Complete'], skipped: [1, 'Skipped'], failed: [0, 'Failed'],
+  decide: [1, 'Decision pending'], projects: [2, 'Projects pending'], profile: [3, 'Profile pending'], review: [4, 'Review pending'], ready: [5, 'Ready to send'],
+  screening: [0, 'Screening…'], writing: [0, 'Writing…'],
+  submitted: [0, 'Submitted'], closed: [0, 'Closed'], skipped: [0, 'Skipped'], failed: [0, 'Failed'],
 };
-function progressDots(stage) {
-  const [done, label] = STAGE_INFO[stage] || [0, stage];
-  const cls = stage === 'failed' ? ' bad' : stage === 'skipped' ? ' off' : stage === 'complete' ? ' ok' : '';
-  return h('div', { class: 'prog' + cls, title: label }, h('span', { class: 'dots', 'aria-hidden': 'true' }, STEPS.map((_, i) => h('i', { class: i < done ? 'on' : i === done && done < 5 ? 'cur' : '' }))),
-    h('span', { class: 'small' }, label));
+const IN_PROGRESS_STEPS = 5;
+/** "Step 2 of 5 · Projects pending" with a thin bar while it waits on us; a short label otherwise. */
+function progressStep(stage) {
+  const [n, label] = STAGE_INFO[stage] || [0, stage];
+  if (stage === 'screening' || stage === 'writing') return h('span', { class: 'small muted row', style: 'gap:6px' }, h('span', { class: 'spin' }), label);
+  if (!n) return h('span', { class: 'chip ' + (stage === 'failed' ? 'bad' : stage === 'skipped' ? '' : 'brand') }, label);
+  return h('div', { class: 'stepind', title: `Step ${n} of ${IN_PROGRESS_STEPS}: ${label}` },
+    h('div', { class: 'small' }, h('span', { class: 'muted' }, `Step ${n} of ${IN_PROGRESS_STEPS} · `), h('strong', {}, label)),
+    h('div', { class: 'stepbar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round((n / IN_PROGRESS_STEPS) * 100)}%` })));
 }
+const progressDots = progressStep; // older callers
 const mins = (sec) => (sec == null ? '' : sec < 60 ? sec + ' s' : sec < 3600 ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min');
 const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : '');
 /** Long model-written values (budget, client) stay on one line; the full text is on hover. */
 const clip = (v, w) => (v ? h('span', { class: 'clip', title: v, style: `max-width:${w}px` }, v) : '');
-/** Every column the Jobs list can show. `def` ones are on until the person changes them. */
+/** Every column the Jobs list can show, and which ones each tab starts with. */
 const JOB_COLS = [
-  { key: 'progress', label: 'Progress', sort: 'stage', def: true, cell: (r) => progressDots(r.stage) },
-  { key: 'status', label: 'Status', def: true, cell: (r) => [r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null] },
-  { key: 'verdict', label: 'Result', sort: 'verdict', def: true, cell: (r) => [verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null] },
-  { key: 'country', label: 'Client', sort: 'country', def: true, cell: (r) => clip(r.client_country, 170) },
-  { key: 'budget', label: 'Budget', def: true, cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
+  { key: 'progress', label: 'Where it stands', sort: 'stage', cell: (r) => progressStep(r.stage) },
+  { key: 'status', label: 'Status', sort: 'quiet', cell: (r) => [r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null] },
+  { key: 'since', label: 'Last update', sort: 'quiet', cell: (r) => (r.days_since_update == null ? '' : h('span', { class: r.stage === 'submitted' && r.days_since_update >= cfg('tracking.quiet_days', 5) ? 'quiet' : 'muted' }, r.days_since_update === 0 ? 'today' : `${r.days_since_update} d ago`)) },
+  { key: 'verdict', label: 'Result', sort: 'verdict', cell: (r) => [verdictPill(r.verdict, r.status), r.rule_codes ? h('div', { class: 'meta mono' }, r.rule_codes) : null] },
+  { key: 'country', label: 'Client', sort: 'country', cell: (r) => clip(r.client_country, 170) },
+  { key: 'budget', label: 'Budget', cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
   { key: 'hire_rate', label: 'Hire rate', sort: 'hire_rate', cell: (r) => clip(r.hire_rate, 120) },
-  { key: 'profile', label: 'Profile', sort: 'profile', def: true, cell: (r) => clip(r.profile_name, 140) },
-  { key: 'user', label: 'By', sort: 'user', def: true, cell: (r) => r.user_name },
+  { key: 'profile', label: 'Profile', sort: 'profile', cell: (r) => clip(r.profile_name, 140) },
+  { key: 'user', label: 'By', sort: 'user', cell: (r) => r.user_name },
   { key: 'template', label: 'Template', cell: (r) => clip(r.template_name, 180) },
-  { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_date ? String(r.proposal_sent_date).slice(0, 10) : '') },
+  { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_at || r.proposal_sent_date ? h('span', { title: full(r.proposal_sent_at || r.proposal_sent_date) }, String(r.proposal_sent_at || r.proposal_sent_date).slice(0, 10)) : '') },
   { key: 'connects', label: 'Connects', cell: (r) => (r.connects_spent != null ? r.connects_spent + (r.boost_connects ? ' + ' + r.boost_connects : '') : '') },
   { key: 'response', label: 'Viewed / chat / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
-  { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => clip(r.outcome, 120) },
-  { key: 'time', label: 'To proposal', sort: 'time', def: true, cell: (r) => mins(r.secs_to_proposal) },
-  { key: 'created', label: 'When', sort: 'created', def: true, cell: (r) => h('span', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)) },
+  { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => (r.outcome ? h('span', { class: 'chip ' + (cfg('tracking.loss_outcomes', []).includes(r.outcome) ? '' : 'brand') }, r.outcome) : '') },
+  { key: 'reason', label: 'Why lost', cell: (r) => clip(r.outcome_reason, 180) },
+  { key: 'close', label: 'Sent to close', cell: (r) => (r.days_to_close == null ? '' : `${r.days_to_close} d`) },
+  { key: 'time', label: 'To proposal', sort: 'time', cell: (r) => mins(r.secs_to_proposal) },
+  { key: 'created', label: 'Screened', sort: 'created', cell: (r) => h('span', { class: 'muted', title: full(r.created_at) }, ago(r.created_at)) },
 ];
-function savedCols() {
-  try { const v = JSON.parse(localStorage.getItem('jobs.columns') || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
-  return new Set(JOB_COLS.filter((c) => c.def).map((c) => c.key));
+/** The tabs: each is a phase, with its own starting columns, stage filter and counter tile. */
+const JOB_TABS = [
+  { key: '', label: 'All', cols: ['progress', 'status', 'verdict', 'country', 'profile', 'user', 'created'] },
+  { key: 'in_progress', label: 'In progress', cols: ['progress', 'verdict', 'country', 'budget', 'profile', 'user', 'created'], stages: ['decide', 'projects', 'profile', 'review', 'ready', 'screening', 'writing'], need: true },
+  { key: 'submitted', label: 'Submitted', cols: ['status', 'since', 'sent', 'connects', 'response', 'profile', 'user', 'country'], quiet: true },
+  { key: 'closed', label: 'Closed', cols: ['outcome', 'reason', 'close', 'sent', 'profile', 'user', 'country'] },
+  { key: 'not_pursued', label: 'Not pursued', cols: ['progress', 'verdict', 'country', 'budget', 'user', 'created'], stages: ['skipped', 'failed'] },
+];
+function savedCols(tab) {
+  try { const v = JSON.parse(localStorage.getItem('jobs.columns.' + (tab || 'all')) || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
+  return new Set((JOB_TABS.find((t) => t.key === tab) || JOB_TABS[0]).cols);
 }
-const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'proposal', 'tracking'];
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage'];
+const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'review', 'ready'];
+/** What the person does next, as a button label, for each step that waits on them. */
+const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pick profile', review: 'Review proposal', ready: 'Mark as sent' };
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
+}
+/** The one action a row offers, by where the job stands. */
+function rowAction(r, reload) {
+  if (r.status !== 'done' || !canTrack(r.user_id)) return null;
+  const stop = (e) => e.stopPropagation();
+  const stepNo = { decide: 1, projects: 2, profile: 3, review: 4 }[r.stage]; // workflow step to open
+  if (stepNo && r.user_id === me.id) return h('a', { class: 'btn sm', href: `#/s/${r.id}/work?step=${stepNo}`, onclick: stop }, NEXT_ACTION[r.stage]);
+  if (r.stage === 'ready') return h('button', { class: 'btn sm primary', type: 'button', onclick: (e) => { stop(e); statusDialog(r.id, reload); } }, 'Mark as sent');
+  if (r.stage === 'submitted' || r.stage === 'closed') return h('button', { class: 'btn sm', type: 'button', onclick: (e) => { stop(e); statusDialog(r.id, reload); } }, 'Update status');
+  return null;
 }
 
 async function historyView() {
   const hp = hashParams();
   const st = Object.fromEntries(FILTER_KEYS.map((k) => [k, hp[k] || '']));
+  if (!JOB_TABS.some((t) => t.key === st.tab)) st.tab = '';
   st.mine = hp.mine === '1'; st.page = Math.max(1, Number(hp.page) || 1); st.sort = hp.sort || 'created'; st.dir = hp.dir === 'asc' ? 'asc' : 'desc';
-  let stats = { total: 0, PASS: 0, FLAG: 0, FAIL: 0, overridden: 0, needs_action: 0 }, cols = savedCols();
+  let stats = { total: 0, PASS: 0, FLAG: 0, FAIL: 0, overridden: 0, needs_action: 0, quiet: 0, tabs: {} };
   const opts = await api('GET', '/screenings/filter-options');
-  const statsEl = h('div', { class: 'stats six' }), bodyEl = h('div', {});
+  const tab = () => JOB_TABS.find((t) => t.key === st.tab) || JOB_TABS[0];
+  let cols = savedCols(st.tab);
+  const tabsEl = h('div', { class: 'jobtabs', role: 'tablist' }), statsEl = h('div', { class: 'stats' }), bodyEl = h('div', {}), filters = h('div', { class: 'toolbar filters' });
 
   const sel = (key, label, options) => {
     const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
@@ -489,43 +524,50 @@ async function historyView() {
   searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; load().catch((x) => toast(x.message, true)); }, 300);
   const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
   const outcomes = [...new Set([...outcomeList(), ...opts.outcomes])];
-  const stageOpts = [['needs_action', 'Needs action'], ...opts.stages.map((x) => [x, STAGE_INFO[x] ? STAGE_INFO[x][1] : x])];
   const colBtn = h('button', { class: 'btn', type: 'button' }, 'Columns');
-  colBtn.onclick = () => modal({ title: 'Columns to show', noConfirm: true, body: h('div', { class: 'colpick' }, JOB_COLS.map((c) => {
+  colBtn.onclick = () => modal({ title: `Columns to show in ${tab().label}`, noConfirm: true, body: h('div', { class: 'colpick' }, JOB_COLS.map((c) => {
     const cb = h('input', { type: 'checkbox', id: 'col-' + c.key, checked: cols.has(c.key) });
-    cb.onchange = () => { if (cb.checked) cols.add(c.key); else cols.delete(c.key); try { localStorage.setItem('jobs.columns', JSON.stringify([...cols])); } catch { /* storage blocked */ } load(); };
+    cb.onchange = () => { if (cb.checked) cols.add(c.key); else cols.delete(c.key); try { localStorage.setItem('jobs.columns.' + (st.tab || 'all'), JSON.stringify([...cols])); } catch { /* storage blocked */ } load(); };
     return h('label', { for: 'col-' + c.key, class: 'row small' }, cb, c.label);
   })) });
-  const clearBtn = h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/history'; } }, 'Clear filters');
-  // the export uses the filters on screen, so "last month's FLAG jobs" is two clicks
+  const clearBtn = h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } }, 'Clear filters');
+  // the export uses the filters on screen, so "last month's lost jobs" is two clicks
   const exportBtn = h('button', { class: 'btn', type: 'button' }, icon('doc'), 'Export');
   exportBtn.onclick = () => {
     const qs = jobQuery(st); qs.set('sort', st.sort); qs.set('dir', st.dir);
     const n = st.v ? stats[st.v] : stats.total; // the counters ignore the verdict, so pick its own count
-    const link = (fmt, text, hint) => h('a', { class: 'btn' + (fmt === 'xlsx' ? ' primary' : ''), href: `/api/screenings/export?format=${fmt}&${qs}`, download: '' }, text, h('span', { class: 'faint small' }, hint));
+    const link = (fmt, text) => h('a', { class: 'btn' + (fmt === 'xlsx' ? ' primary' : ''), href: `/api/screenings/export?format=${fmt}&${qs}`, download: '' }, text);
     modal({ title: 'Export jobs', noConfirm: true, body: h('div', {},
-      h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} matching the filters on screen${st.v ? ' (' + st.v + ' only)' : ''}: the job and client, the gate result, the decision, tags, projects, profile, signals, the final proposal, tracking and timings.`),
-      h('div', { class: 'row' }, link('xlsx', 'Excel (.xlsx)', ''), link('csv', 'CSV', ''))) });
+      h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} on screen (${tab().label}${st.v ? ', ' + st.v + ' only' : ''}, with the filters): the job post, the gate result, the decision, projects, profile, the final proposal, every status with its date and reason, and the full change history.`),
+      h('div', { class: 'row' }, link('xlsx', 'Excel (.xlsx)'), link('csv', 'CSV'))) });
   };
-  const filters = h('div', { class: 'toolbar filters' },
-    h('div', { class: 'search' }, icon('search'), searchIn),
-    dateIn('from', 'From date'), dateIn('to', 'To date'),
-    sel('stage', 'Any stage', stageOpts),
-    sel('rule', 'Any rule', opts.rules.map((r) => [r.code, `${r.code}  ${r.rule}`])),
-    sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])),
-    opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null,
-    sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]),
-    me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null,
-    h('span', { class: 'grow' }), clearBtn, colBtn, exportBtn);
-  const listEl = h('div', { class: 'card' }, filters, bodyEl);
-
+  function drawFilters() {
+    const t = tab();
+    const stageOpts = t.stages ? [...(t.need ? [['needs_action', 'Needs action']] : []), ...t.stages.map((x) => [x, STAGE_INFO[x][1]])] : t.quiet ? [['quiet', 'Gone quiet']] : null;
+    filters.replaceChildren(...[h('div', { class: 'search' }, icon('search'), searchIn), dateIn('from', 'From date'), dateIn('to', 'To date'),
+      stageOpts ? sel('stage', t.key === 'in_progress' ? 'Any step' : t.quiet ? 'Any submitted' : 'Skipped or failed', stageOpts) : null,
+      sel('rule', 'Any rule', opts.rules.map((r) => [r.code, `${r.code}  ${r.rule}`])),
+      sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])),
+      opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null,
+      t.key === 'closed' || t.key === 'submitted' || !t.key ? sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]) : null,
+      me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null,
+      h('span', { class: 'grow' }), clearBtn, colBtn, exportBtn].filter(Boolean)); // replaceChildren would print a null
+  }
+  function drawTabs() {
+    const total = Object.values(stats.tabs || {}).reduce((a, b) => a + b, 0);
+    tabsEl.replaceChildren(...JOB_TABS.map((t) => h('button', { type: 'button', role: 'tab', 'aria-selected': st.tab === t.key, class: st.tab === t.key ? 'on' : '',
+      onclick: () => { if (st.tab === t.key) return; st.tab = t.key; st.stage = ''; st.outcome = t.key === 'in_progress' || t.key === 'not_pursued' ? '' : st.outcome; st.page = 1; cols = savedCols(st.tab); drawFilters(); load(); } },
+      t.label, h('span', { class: 'n' }, String(t.key ? stats.tabs[t.key] || 0 : total)))));
+  }
   const tile = (key, label, value, onClick, on) => h('button', { class: `stat ${key} ${on ? 'on' : ''}`, onclick: onClick }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value));
   const setV = (v) => () => { st.v = st.v === v ? '' : v; st.page = 1; load(); };
   function drawStats() {
-    statsEl.replaceChildren(tile('', 'All jobs', stats.total, () => { st.v = ''; st.stage = ''; st.page = 1; load(); }, !st.v && !st.stage),
-      tile('PASS', 'Pass', stats.PASS, setV('PASS'), st.v === 'PASS'), tile('FLAG', 'Flag', stats.FLAG, setV('FLAG'), st.v === 'FLAG'), tile('FAIL', 'Fail', stats.FAIL, setV('FAIL'), st.v === 'FAIL'),
-      tile('NEED', 'Needs action', stats.needs_action, () => { st.stage = st.stage === 'needs_action' ? '' : 'needs_action'; st.page = 1; load(); }, st.stage === 'needs_action'),
-      h('div', { class: 'stat', style: 'cursor:default' }, h('span', { class: 'k' }, 'Continued anyway'), h('span', { class: 'v' }, stats.overridden)));
+    const t = tab();
+    const extra = t.need ? tile('NEED', 'Needs action', stats.needs_action, () => { st.stage = st.stage === 'needs_action' ? '' : 'needs_action'; st.page = 1; drawFilters(); load(); }, st.stage === 'needs_action')
+      : t.quiet ? tile('QUIET', `Gone quiet (${stats.quiet_days}+ days)`, stats.quiet, () => { st.stage = st.stage === 'quiet' ? '' : 'quiet'; st.page = 1; drawFilters(); load(); }, st.stage === 'quiet')
+      : h('div', { class: 'stat', style: 'cursor:default' }, h('span', { class: 'k' }, 'Continued anyway'), h('span', { class: 'v' }, stats.overridden));
+    statsEl.replaceChildren(tile('', 'All results', stats.total, () => { st.v = ''; st.page = 1; load(); }, !st.v),
+      tile('PASS', 'Pass', stats.PASS, setV('PASS'), st.v === 'PASS'), tile('FLAG', 'Flag', stats.FLAG, setV('FLAG'), st.v === 'FLAG'), tile('FAIL', 'Fail', stats.FAIL, setV('FAIL'), st.v === 'FAIL'), extra);
   }
   function headCell(label, sortKey) {
     if (!sortKey) return h('th', {}, label);
@@ -535,17 +577,19 @@ async function historyView() {
     return h('th', { 'aria-sort': on ? (st.dir === 'asc' ? 'ascending' : 'descending') : null }, b);
   }
   function drawRows(rows, total) {
-    const shown = JOB_COLS.filter((c) => cols.has(c.key));
-    const filtered = FILTER_KEYS.some((k) => st[k]);
+    const order = tab().cols; // the tab's own order first, then any extra column the person added
+    const shown = JOB_COLS.filter((c) => cols.has(c.key)).sort((a, b) => (order.includes(a.key) ? order.indexOf(a.key) : 99) - (order.includes(b.key) ? order.indexOf(b.key) : 99));
+    const filtered = FILTER_KEYS.some((k) => k !== 'tab' && st[k]);
+    const empty = { in_progress: 'Nothing in progress', submitted: 'Nothing submitted yet', closed: 'Nothing closed yet', not_pursued: 'Nothing skipped or failed' }[st.tab] || 'No jobs yet';
     const table = !rows.length
-      ? emptyState('list', filtered ? 'No matches' : 'No jobs yet', filtered ? 'Try different filters.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
+      ? emptyState('list', filtered ? 'No matches' : empty, filtered ? 'Try different filters.' : st.tab ? 'Jobs move here as they progress.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : st.tab ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
       : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)), h('th', { class: 'pin' }, ''))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
           h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id)),
           shown.map((c) => h('td', {}, c.cell(r))),
           // the row's action stays pinned to the right edge, visible however far the table scrolls
-          h('td', { class: 'pin' }, r.status === 'done' && canTrack(r.user_id) ? h('button', { class: 'btn sm', type: 'button', onclick: (e) => { e.stopPropagation(); statusDialog(r.id, load); } }, 'Update status') : null))))));
-    if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history'; });
+          h('td', { class: 'pin' }, rowAction(r, load)))))));
+    if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); });
     bodyEl.replaceChildren(table, pager(total, st.page, (n) => { st.page = n; load(); }));
   }
   let seq = 0;
@@ -558,10 +602,11 @@ async function historyView() {
     st.page = list.page; stats = s2;
     setHashParams({ ...Object.fromEntries(FILTER_KEYS.map((k) => [k, st[k]])), mine: st.mine ? '1' : '', page: st.page, sort: st.sort === 'created' ? '' : st.sort, dir: st.dir === 'desc' ? '' : st.dir });
     lastList.history = location.hash; lastList.query = jobQuery(st).toString();
-    drawStats(); drawRows(list.screenings, list.total);
+    drawTabs(); drawStats(); drawRows(list.screenings, list.total);
   }
-  shell('history', [pageHead(me.role === 'employee' ? 'My jobs' : 'Jobs', 'Every job screened, with where it stands, its result and its outcome.',
-    h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), statsEl, listEl], 1480);
+  drawFilters();
+  shell('history', [pageHead(me.role === 'employee' ? 'My jobs' : 'Jobs', 'Every job, from screening to outcome. In progress: we are preparing the proposal. Submitted: applied on Upwork, waiting on the client. Closed: hired or lost.',
+    h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), tabsEl, statsEl, h('div', { class: 'card' }, filters, bodyEl)]);
   bodyEl.append(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:45%' })));
   await load();
 }
@@ -1034,12 +1079,14 @@ function stageOf(s, matching, proposal) {
   if (s.status === 'queued' || s.status === 'running') return 'screening';
   if (s.status === 'error') return 'failed';
   if (s.proceeded === 'no') return 'skipped';
+  if (s.outcome && s.outcome !== 'Pending') return 'closed';
+  if (s.proposal_sent_at || s.proposal_sent_date) return 'submitted';
   if (!(matching && matching.continued)) return 'decide';
   if (!matching.confirmed_at) return 'projects';
   if (!matching.proposal_profile) return 'profile';
-  if (!(proposal && proposal.finalized_at)) return 'proposal';
-  if (!s.tracking_updated_at) return 'tracking';
-  return 'complete';
+  if (!proposal || proposal.status === 'queued' || proposal.status === 'running') return 'writing';
+  if (!proposal.finalized_at) return 'review';
+  return 'ready';
 }
 
 /** The job, read-only and all on one page. Edit opens the step-by-step workflow. */
@@ -1050,8 +1097,11 @@ async function jobView(id) {
   const stage = stageOf(s, matching, proposal);
   const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
   const waiting = NEEDS_ACTION_STAGES.includes(stage) && s.user_id === me.id;
-  const stepNo = { decide: 1, projects: 2, profile: 3, proposal: 4, tracking: 5 }[stage];
-  const editBtn = canEdit ? h('a', { class: 'btn primary', href: `#/s/${id}/work${stepNo ? '?step=' + stepNo : ''}` }, waiting ? `Continue: ${STAGE_INFO[stage][1]}` : 'Edit') : null;
+  const stepNo = { decide: 1, projects: 2, profile: 3, review: 4 }[stage];
+  // the next thing to do is the main button; ready to send opens the status dialog with Sent, everything else the workflow step
+  const editBtn = !canEdit ? null : waiting && stage === 'ready' ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Mark as sent')
+    : h('a', { class: waiting ? 'btn primary' : 'btn', href: `#/s/${id}/work${stepNo ? '?step=' + stepNo : ''}` }, waiting ? NEXT_ACTION[stage] : 'Edit');
+  const canStatus = canEdit && ['submitted', 'closed'].includes(stage);
   const title = s.title || 'Pasted job text';
   const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
   const toProposal = proposal && proposal.finished_at ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
@@ -1085,7 +1135,8 @@ async function jobView(id) {
 
   const parts = [
     h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs')),
-    pageHead(title, null, h('div', { class: 'row', style: 'gap:8px' }, canEdit ? h('button', { class: 'btn', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null, editBtn)),
+    pageHead(title, null, h('div', { class: 'row', style: 'gap:8px' }, canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
+    waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn)),
     h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
       s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null, s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
     h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, v || 'not yet'))))),

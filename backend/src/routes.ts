@@ -61,19 +61,31 @@ api.post('/screenings', requireRole(), async (req, res) => {
   res.status(202).json({ id: r.insertId, status: 'queued', input_type: parsed.type });
 });
 
-/** Where a job stands, as one word. The order is the journey; "skipped" and "failed" sit outside it. */
-export const STAGES = ['screening', 'decide', 'projects', 'profile', 'proposal', 'tracking', 'complete', 'skipped', 'failed'] as const;
-export const NEEDS_ACTION = ['decide', 'projects', 'profile', 'proposal', 'tracking'];
+/**
+ * Where a job stands. Two phases: our own work (screening .. ready to send), then Upwork (submitted .. closed).
+ * A job is submitted once it is marked Sent, and closed once it has a final outcome ("Pending" is the one outcome
+ * that is not final). Skipped and failed jobs are "not pursued".
+ */
+export const STAGES = ['screening', 'decide', 'projects', 'profile', 'writing', 'review', 'ready', 'submitted', 'closed', 'skipped', 'failed'] as const;
+export const IN_PROGRESS = ['screening', 'decide', 'projects', 'profile', 'writing', 'review', 'ready'];
+// waiting on a person: these are the steps. "screening" and "writing" are the AI at work for a minute or two.
+export const NEEDS_ACTION = ['decide', 'projects', 'profile', 'review', 'ready'];
+export const PHASES = ['in_progress', 'submitted', 'closed', 'not_pursued'] as const;
+const sentSql = `(s.proposal_sent_at IS NOT NULL OR s.proposal_sent_date IS NOT NULL)`;
+const closedSql = `(s.outcome IS NOT NULL AND s.outcome <> 'Pending')`;
 const stageSql = `CASE
     WHEN s.status IN ('queued','running') THEN 'screening'
     WHEN s.status = 'error' THEN 'failed'
     WHEN s.proceeded = 'no' THEN 'skipped'
+    WHEN ${closedSql} THEN 'closed'
+    WHEN ${sentSql} THEN 'submitted'
     WHEN s.continued_at IS NULL THEN 'decide'
     WHEN s.selection_confirmed_at IS NULL THEN 'projects'
     WHEN s.proposal_profile_confirmed_at IS NULL THEN 'profile'
-    WHEN p.finalized_at IS NULL THEN 'proposal'
-    WHEN s.tracking_updated_at IS NULL THEN 'tracking'
-    ELSE 'complete' END`;
+    WHEN p.id IS NULL OR p.status IN ('queued','running') THEN 'writing'
+    WHEN p.finalized_at IS NULL THEN 'review'
+    ELSE 'ready' END`;
+const phaseSql = `CASE WHEN (${stageSql}) IN ('skipped','failed') THEN 'not_pursued' WHEN (${stageSql}) IN ('submitted','closed') THEN (${stageSql}) ELSE 'in_progress' END`;
 /** The latest thing that happened on Upwork after the proposal: outcome, then interview, replied, viewed, sent. */
 const statusSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome WHEN s.interviewed='yes' THEN 'Interview' WHEN s.client_replied='yes' THEN 'Chat opened'
   WHEN s.client_viewed='yes' THEN 'Viewed' WHEN s.proposal_sent_date IS NOT NULL OR s.proposal_sent_at IS NOT NULL THEN 'Sent' ELSE NULL END`;
@@ -86,7 +98,9 @@ const listSelect = `SELECT s.id, s.user_id, s.input_type, s.source_url, s.title,
   s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date,
   u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
   p.status AS proposal_status, p.finalized_at AS proposal_finalized_at, p.template_name,
-  TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, ${stageSql} AS stage,
+  TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, ${stageSql} AS stage, ${phaseSql} AS phase,
+  TIMESTAMPDIFF(DAY, COALESCE(${statusAtSql}, s.created_at), NOW()) AS days_since_update,
+  TIMESTAMPDIFF(DAY, COALESCE(s.proposal_sent_at, s.proposal_sent_date), s.outcome_at) AS days_to_close, s.outcome_reason, s.proposal_sent_at,
   ${statusSql} AS current_status, ${statusAtSql} AS status_at
   ${listFrom}`;
 
@@ -97,12 +111,12 @@ export const listFilters = z.object({
   verdict: z.enum(['PASS', 'FLAG', 'FAIL']).optional(), mine: z.enum(['0', '1']).optional(), q: z.string().trim().max(100).optional(),
   from: day.optional(), to: day.optional(), rule: z.string().trim().regex(/^[A-Z]\d{1,3}$/).optional(),
   profile: z.coerce.number().int().positive().optional(), user: z.coerce.number().int().positive().optional(),
-  outcome: z.string().trim().max(60).optional(), stage: z.enum([...STAGES, 'needs_action']).optional(),
+  outcome: z.string().trim().max(60).optional(), stage: z.enum([...STAGES, 'needs_action', 'quiet']).optional(), phase: z.enum(PHASES).optional(),
 });
 export type ListFilters = z.infer<typeof listFilters>;
 
 /** Shared by the list, the counters and the export: which jobs this person may see, and the filters. */
-export function listWhere(req: any, f: ListFilters) {
+export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   const where: string[] = []; const p: any[] = [];
   if (!canSeeAll(req.user.role) || f.mine === '1') { where.push('s.user_id=?'); p.push(req.user.id); }
   if (f.verdict) { where.push('s.verdict=?'); p.push(f.verdict); }
@@ -117,7 +131,9 @@ export function listWhere(req: any, f: ListFilters) {
   if (f.profile) { where.push('s.upwork_profile_id=?'); p.push(f.profile); }
   if (f.user && canSeeAll(req.user.role)) { where.push('s.user_id=?'); p.push(f.user); }
   if (f.outcome) { if (f.outcome === 'none') where.push('s.outcome IS NULL'); else { where.push('s.outcome=?'); p.push(f.outcome); } }
+  if (f.phase) { where.push(`(${phaseSql})=?`); p.push(f.phase); }
   if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
+  else if (f.stage === 'quiet') { where.push(`(${stageSql})='submitted' AND COALESCE(${statusAtSql}, s.created_at) < NOW() - INTERVAL ? DAY`); p.push(quietDays); }
   else if (f.stage) { where.push(`(${stageSql})=?`); p.push(f.stage); }
   return { sql: where.length ? 'WHERE ' + where.join(' AND ') : '', p };
 }
@@ -126,7 +142,7 @@ export function listWhere(req: any, f: ListFilters) {
 const SORTS: Record<string, string> = {
   created: 's.id', title: 's.title', verdict: `FIELD(s.verdict,'PASS','FLAG','FAIL')`, country: 's.client_country',
   hire_rate: `CAST(REGEXP_SUBSTR(s.hire_rate, '[0-9]+') AS UNSIGNED)`, user: 'u.name', profile: 'pr.name', outcome: 's.outcome',
-  stage: `FIELD(${stageSql}, ${STAGES.map((x) => `'${x}'`).join(',')})`, time: 'TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)',
+  stage: `FIELD(${stageSql}, ${STAGES.map((x) => `'${x}'`).join(',')})`, quiet: `COALESCE(${statusAtSql}, s.created_at)`, time: 'TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)',
 };
 export const orderBy = (sort?: string, dir?: string) => {
   const col = SORTS[sort ?? ''] ?? SORTS.created;
@@ -136,7 +152,7 @@ export const orderBy = (sort?: string, dir?: string) => {
 
 api.get('/screenings', requireRole(), async (req, res) => {
   const f = listFilters.extend({ page: z.coerce.number().int().min(1).default(1), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
-  const w = listWhere(req, f);
+  const w = listWhere(req, f, (await getSettings())['tracking.quiet_days']);
   const total = Number((await query<any>(`SELECT COUNT(*) AS n ${listFrom} ${w.sql}`, w.p))[0].n);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(f.page, pages);
@@ -147,12 +163,19 @@ api.get('/screenings', requireRole(), async (req, res) => {
 // Counts for the summary tiles: every filter applies except the verdict, so the tiles can switch between verdicts.
 api.get('/screenings/stats', requireRole(), async (req, res) => {
   const f = listFilters.parse(req.query);
-  const w = listWhere(req, { ...f, verdict: undefined });
+  const quiet = (await getSettings())['tracking.quiet_days'];
+  const w = listWhere(req, { ...f, verdict: undefined }, quiet);
   const r = (await query<any>(
     `SELECT COUNT(*) AS total, SUM(s.verdict='PASS') AS pass_n, SUM(s.verdict='FLAG') AS flag_n, SUM(s.verdict='FAIL') AS fail_n, SUM(o.id IS NOT NULL) AS overridden,
-       SUM((${stageSql}) IN (?)) AS needs_action
-     ${listFrom} ${w.sql}`, [NEEDS_ACTION, ...w.p]))[0];
-  res.json({ total: Number(r.total), PASS: Number(r.pass_n || 0), FLAG: Number(r.flag_n || 0), FAIL: Number(r.fail_n || 0), overridden: Number(r.overridden || 0), needs_action: Number(r.needs_action || 0) });
+       SUM((${stageSql}) IN (?)) AS needs_action,
+       SUM((${stageSql})='submitted' AND COALESCE(${statusAtSql}, s.created_at) < NOW() - INTERVAL ? DAY) AS quiet
+     ${listFrom} ${w.sql}`, [NEEDS_ACTION, quiet, ...w.p]))[0];
+  // the tab counts ignore the tab (phase) and stage filters, so every tab shows its own size
+  const wt = listWhere(req, { ...f, verdict: undefined, phase: undefined, stage: undefined }, quiet);
+  const tabs = await query<any>(`SELECT (${phaseSql}) AS phase, COUNT(*) AS n ${listFrom} ${wt.sql} GROUP BY 1`, wt.p);
+  res.json({ total: Number(r.total), PASS: Number(r.pass_n || 0), FLAG: Number(r.flag_n || 0), FAIL: Number(r.fail_n || 0), overridden: Number(r.overridden || 0),
+    needs_action: Number(r.needs_action || 0), quiet: Number(r.quiet || 0), quiet_days: quiet,
+    tabs: Object.fromEntries(tabs.map((t) => [t.phase, Number(t.n)])) });
 });
 
 // The dashboard: counts, the funnel, timings, what needs attention, and who does what, for a period.
@@ -207,7 +230,7 @@ api.get('/dashboard', requireRole(), async (req, res) => {
 // Everything about every job the filters match, as CSV or Excel. Same filters and order as the Jobs list.
 api.get('/screenings/export', requireRole(), async (req, res) => {
   const f = listFilters.extend({ format: z.enum(['csv', 'xlsx']).default('csv'), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
-  const w = listWhere(req, f);
+  const w = listWhere(req, f, (await getSettings())['tracking.quiet_days']);
   const list = await query<any>(`${listSelect} ${w.sql} ${orderBy(f.sort, f.dir)} LIMIT ?`, [...w.p, EXPORT_LIMIT]);
   const { headers, rows } = await exportRows(list.map((r) => r.id), new Map(list.map((r) => [r.id, r.stage])));
   const name = `upwork-pro-jobs-${new Date().toLocaleDateString("sv")}.${f.format}`; // sv gives YYYY-MM-DD in local time
@@ -229,7 +252,7 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
     profiles: await query('SELECT id, name FROM upwork_profiles ORDER BY active DESC, name'),
     rules: await query("SELECT code, type, rule FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
     outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL ORDER BY outcome')).map((r) => r.outcome),
-    stages: STAGES, needs_action: NEEDS_ACTION,
+    stages: STAGES, needs_action: NEEDS_ACTION, in_progress: IN_PROGRESS, phases: PHASES,
   });
 });
 
@@ -386,6 +409,10 @@ api.post('/screenings/:id/status', requireRole(), async (req, res) => {
     Viewed: `client_viewed='yes', client_viewed_at=?`, 'Chat opened': `client_replied='yes', client_replied_at=?`, Interview: `interviewed='yes', interviewed_at=?`,
   };
   if (!sets[st] && !outcomes.includes(st)) return void res.status(400).json({ error: 'Unknown status' });
+  // the Upwork statuses follow the proposal: it must be finished before it is sent, and sent before anything else
+  const ph = (await query<any>(`SELECT (${stageSql}) AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0]?.stage;
+  if (st === 'Sent' && !['ready', 'submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Finish the proposal before marking it as sent' });
+  if (st !== 'Sent' && !['submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Mark the proposal as sent first' });
   const before = await trackSnapshot(id);
   if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
   else await exec('UPDATE screenings SET outcome=?, outcome_at=?, outcome_reason=?, outcome_note=?, tracking_updated_at=NOW() WHERE id=?', [st, at, lost ? b.data.reason : null, b.data.note || null, id]);
@@ -396,11 +423,11 @@ api.post('/screenings/:id/status', requireRole(), async (req, res) => {
 });
 api.get('/screenings/:id/status', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
-  const s = (await query<any>(`SELECT s.user_id, ${statusSql} AS current_status FROM screenings s WHERE s.id=?`, [id]))[0];
+  const s = (await query<any>(`SELECT s.user_id, ${statusSql} AS current_status, ${stageSql} AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const events = await query('SELECT e.status, e.happened_at, e.created_at, e.reason, e.note, u.name AS user_name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.happened_at DESC, e.id DESC', [id]);
   const cfg = await getSettings();
-  res.json({ current: s.current_status, events, choices: ['Sent', 'Viewed', 'Chat opened', 'Interview', ...cfg['tracking.outcomes']], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'] });
+  res.json({ current: s.current_status, stage: s.stage, events, choices: s.stage === 'ready' ? ['Sent'] : ['Sent', 'Viewed', 'Chat opened', 'Interview', ...cfg['tracking.outcomes']], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'] });
 });
 
 // ---------- step 2: continue, tag the job, match projects ----------

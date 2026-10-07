@@ -278,6 +278,29 @@ empty database, and each screen in the browser with real GLM jobs.
   R10. Spends one AI call per job, so it is not part of setup; `-- --dry-run` only counts (9 jobs locally).
 - Both have `:prod` variants for the built app, and the README's run steps list them.
 
+### R12. Jobs in phases: In progress, Submitted, Closed, Not pursued (done)
+The **job** is the main record. Its proposal is prepared while the job is **In progress**; after that the job
+itself moves on Upwork. This replaces the single stage list from R3.
+- **Tabs on the Jobs page**, each with its count: **All**, **In progress** (we are preparing the proposal),
+  **Submitted** (marked Sent, waiting on the client), **Closed** (a final outcome: hired or lost; "Pending" is the one
+  outcome that keeps a job Submitted), **Not pursued** (skipped or failed). Each tab has its own starting columns
+  (Columns is saved per tab) and its own filters; the URL keeps the tab (`?tab=in_progress`).
+- **Steps count only where the job waits on a person**: 1 Decision pending, 2 Projects pending, 3 Profile pending,
+  4 Review pending (the draft is written, someone must check and finish it), 5 Ready to send. Shown as
+  "Step 2 of 5 · Projects pending" with a thin bar. Screening and writing are the AI at work for a minute or two,
+  so they show as "Screening…" / "Writing…" with no step number.
+- **One action per row, by phase**: In progress shows the next thing to do (Decide, Pick projects, Pick profile,
+  Review proposal) opening that workflow step, and **Mark as sent** when ready; Submitted and Closed show
+  **Update status**. The job page's main button follows the same rule.
+- **The server enforces the order**: Sent only once the proposal is finished; Viewed, Chat opened, Interview and
+  outcomes only once it is Sent. The status dialog offers only "Sent" for a job that is ready to send.
+- **Needs action** (In progress tab) counts the jobs waiting on a person. **Gone quiet** (Submitted tab) counts
+  submitted jobs with no update for N days; N is the new setting "tracking.quiet_days" (5), added by
+  `npm run seed:settings`.
+- Server: `stageSql` now returns screening, decide, projects, profile, writing, review, ready, submitted, closed,
+  skipped, failed; `phaseSql` groups them; `GET /screenings?phase=` and `stage=quiet`; the counters return per-tab
+  totals. The list also returns days since the last update and days from sent to close.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

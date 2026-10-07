@@ -18,6 +18,8 @@ export const SETTINGS = {
     schema: z.array(z.string().trim().min(1).max(60)).max(20), def: ['Not hired', 'No response', 'Withdrawn', 'Job closed'] },
   'tracking.loss_reasons': { label: 'Reasons a client did not go ahead', help: 'Required when the outcome is lost, so lost jobs can be reported on. A note is always allowed too.',
     schema: z.array(z.string().trim().min(1).max(120)).min(1).max(30), def: ['Budget too low', 'Hired someone else', 'Went quiet after chat', 'Scope or timeline did not fit', 'Job cancelled by client', 'We withdrew', 'Other'] },
+  'tracking.quiet_days': { label: 'Days before a submitted proposal counts as "gone quiet"', help: 'A submitted proposal with no status update for this many days shows under Submitted, Gone quiet.',
+    schema: z.number().int().min(1).max(90), def: 5 },
   'writer.requirement_rules': { label: 'Rules passed to the proposal writer', help: 'When one of these flags fires, its text is given to the writer as a client requirement (e.g. screening questions, required words, location rules).',
     schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G11', 'G12', 'G13'] },
   'writer.structured_signal': { label: 'Signal that means "structured submission"', help: 'When this signal has this value, the writer follows the post\'s own structure first.',
