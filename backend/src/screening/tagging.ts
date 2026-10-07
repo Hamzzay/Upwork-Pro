@@ -44,7 +44,6 @@ ${listing}
 export async function tagJob(jobText: string, dict: DictTag[]): Promise<{ tag: DictTag; reason: string }[]> {
   const r = await run({
     label: 'tagging',
-    model: config.llm.model,
     system: tagSystemPrompt(dict),
     prompt: `<job_page>\n${jobText}\n</job_page>`,
     schema: buildTagSchema(dict.map((t) => t.name)),

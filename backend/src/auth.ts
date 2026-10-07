@@ -8,7 +8,7 @@ export type Role = 'admin' | 'manager' | 'employee';
 export interface AuthUser { id: number; name: string; email: string; role: Role }
 
 declare module 'express-serve-static-core' {
-  interface Request { user?: AuthUser }
+  interface Request { user?: AuthUser; viaToken?: boolean }
 }
 
 const COOKIE = 'ug_session';
@@ -40,7 +40,25 @@ export async function logout(req: Request, res: Response) {
   res.clearCookie(COOKIE, { path: '/' });
 }
 
+/** What a personal access token may reach: the import endpoints and read-only lookups. Never jobs, proposals, users or settings. */
+const tokenMayReach = (method: string, path: string) =>
+  path.startsWith('/import/') || (method === 'GET' && /^\/(projects|tags|profiles|industries|rules)(\/|$)/.test(path));
+
 export async function attachUser(req: Request, _res: Response, next: NextFunction) {
+  const bearer = /^Bearer (upw_[0-9a-f]{64})$/.exec(req.headers.authorization ?? '')?.[1];
+  if (bearer) {
+    if (tokenMayReach(req.method, req.path)) {
+      const rows = await query<any>(
+        `SELECT u.id, u.name, u.email, u.role, k.id AS kid FROM api_tokens k JOIN users u ON u.id=k.user_id
+         WHERE k.token_hash=? AND k.revoked_at IS NULL AND k.expires_at > NOW() AND u.active=1`, [sha(bearer)]);
+      if (rows[0]) {
+        const { kid, ...u } = rows[0];
+        req.user = u; req.viaToken = true;
+        exec('UPDATE api_tokens SET last_used_at=NOW() WHERE id=?', [kid]).catch(() => undefined);
+      }
+    }
+    return next(); // a token never falls back to a cookie
+  }
   const t = req.cookies?.[COOKIE];
   if (t) {
     const rows = await query<any>(

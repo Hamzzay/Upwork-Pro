@@ -4,6 +4,7 @@ import { config } from './config';
 import { LlmCallError, killAllChildren, sweepOldScratch } from './llm/claude-runner';
 import { withCallContext } from './llm/context';
 import { providerName } from './llm';
+import { lastUsed } from './llm/context';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects } from './screening/context';
 import { rankProjects, type JobTag } from './screening/matching';
@@ -34,6 +35,8 @@ function errorInfo(e: unknown): { code: string; message: string } {
     return { code: 'llm_rate_limit', message: 'The AI service is busy or out of quota. Try again later.' };
   }
   const m = e instanceof Error ? e.message : '';
+  const miss = /^llm_key_missing:(\w+)/.exec(m);
+  if (miss) { const k = miss[1] === 'claude' ? 'ANTHROPIC_API_KEY or LLM_OAUTH_TOKEN' : miss[1] === 'openai' ? 'OPENAI_API_KEY' : 'LLM_API_KEY'; return { code: 'llm_config', message: `The AI key is not set on the server. Tell an admin to add ${k} to the .env file and restart the worker, or choose another AI in Settings.` }; }
   if (/LLM_BASE_URL \/ LLM_API_KEY are not set/.test(m)) return { code: 'llm_config', message: 'The AI key is not set on the server. Tell an admin to add LLM_API_KEY to the .env file and restart the worker.' };
   if (m === 'missing_inputs') return { code: 'missing_inputs', message: 'The selected projects or the profile are missing. Confirm them first.' };
   if (m === 'no_template') return { code: 'no_template', message: 'There is no active template. An admin can add one under Templates.' };
@@ -63,7 +66,7 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
          fail_reasons=?, flag_reasons=?, rule_codes=?, ${COLUMN_KEYS.map((k) => `${k}=?`).join(', ')},
          tagging_status=IF(? = 'PASS', COALESCE(tagging_status, 'queued'), tagging_status)
        WHERE id=?`,
-      [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, config.llm.model, providerName,
+      [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, lastUsed()?.model ?? config.llm.model, lastUsed()?.provider ?? 'mock',
        v.fail_reasons || null, v.flag_reasons || null, v.rule_codes || null, ...COLUMN_KEYS.map((k) => v.columns[k]), v.verdict, row.id],
     );
   } catch (e) {
@@ -105,7 +108,7 @@ async function processTagging(id: number) {
           [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared)]);
       }
       await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=?, tagged_at=NOW(),
-        selection_confirmed_at=NULL, selection_confirmed_by=NULL WHERE id=?`, [config.llm.model, id]);
+        selection_confirmed_at=NULL, selection_confirmed_by=NULL WHERE id=?`, [lastUsed()?.model ?? config.llm.model, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });
@@ -256,7 +259,7 @@ async function main() {
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);
-  console.log(`worker started provider=${providerName} concurrency=${config.llm.concurrency}`);
+  console.log(`worker started ai=${providerName === 'mock' ? 'mock' : 'chosen in Settings'} concurrency=${config.llm.concurrency}`);
   while (!stopping) {
     try { await tick(); } catch (e) { console.error('tick failed', (e as Error).message); }
     await new Promise((r) => setTimeout(r, 1500));

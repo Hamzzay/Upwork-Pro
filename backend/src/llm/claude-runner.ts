@@ -5,12 +5,16 @@ import { dirname, join } from 'node:path';
 
 export interface RunOptions {
   label?: string; // which step of the job this call is, for the call log (not sent to the model)
-  model: string;
+  model?: string; // the call goes to the provider and model chosen in Settings; this is only used by scripts that call a runner directly
   system: string; // rules for this call, written to a file
   prompt: string; // input for this call, sent on stdin
   schema?: object; // JSON Schema draft-07 for the answer
   timeoutMs?: number;
   maxTurns?: number;
+  baseUrl?: string; // set by the provider choice; the original GLM settings from .env when empty
+  apiKey?: string;
+  keyName?: string; // for the error message when the key is missing
+  oauthToken?: string; // a Claude subscription token (from `claude setup-token`): used instead of an API key and base URL
 }
 
 export interface RunResult {
@@ -59,9 +63,9 @@ function claudeBin(): string {
 }
 
 export async function runClaude(o: RunOptions): Promise<RunResult> {
-  const baseUrl = process.env.LLM_BASE_URL;
-  const apiKey = process.env.LLM_API_KEY;
-  if (!baseUrl || !apiKey) throw new Error('LLM_BASE_URL / LLM_API_KEY are not set');
+  const baseUrl = o.baseUrl ?? process.env.LLM_BASE_URL;
+  const apiKey = o.apiKey ?? process.env.LLM_API_KEY;
+  if (!o.oauthToken && (!baseUrl || !apiKey)) throw new Error(o.keyName ? `llm_key_missing:${o.keyName}` : 'LLM_BASE_URL / LLM_API_KEY are not set');
   const timeoutMs = o.timeoutMs ?? 120_000;
 
   const root = mkdtempSync(join(tmpdir(), SCRATCH_PREFIX));
@@ -74,7 +78,7 @@ export async function runClaude(o: RunOptions): Promise<RunResult> {
 
     const argv = [
       '-p', '--output-format', 'json',
-      '--model', o.model,
+      '--model', o.model ?? process.env.LLM_MODEL ?? 'glm-5.3-flash[1m]',
       '--max-turns', String(o.maxTurns ?? 5),
       '--strict-mcp-config', '--no-session-persistence',
       '--tools', '', // no tools: pure text in, text out
@@ -86,8 +90,7 @@ export async function runClaude(o: RunOptions): Promise<RunResult> {
     // The child gets ONLY this. Never hand it process.env: that holds the DB password.
     const env = {
       PATH: process.env.PATH ?? '/usr/bin:/bin',
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_API_KEY: apiKey,
+      ...(o.oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: o.oauthToken } : { ANTHROPIC_BASE_URL: baseUrl!, ANTHROPIC_API_KEY: apiKey! }),
       CLAUDE_CONFIG_DIR: config,
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       API_TIMEOUT_MS: String(timeoutMs),

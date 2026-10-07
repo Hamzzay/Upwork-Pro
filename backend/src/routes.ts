@@ -9,15 +9,19 @@ import { screenJobText } from './screening/service';
 import { library } from './routes_library';
 import { codesMissingFromPrompt } from './screening/gatecodes';
 import { proposals, proposalFor } from './routes_proposals';
+import { imports } from './routes_import';
 import { validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { withCallContext } from './llm/context';
+import { testCall } from './llm';
+import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
 
 export const api = Router();
 api.use(attachUser);
 api.use(library);
 api.use(proposals);
+api.use(imports);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);
 
@@ -723,9 +727,39 @@ api.get('/screenings/:id/timeline', requireRole(), async (req, res) => {
 api.get('/settings', requireRole(), async (_req, res) => {
   res.json({ settings: await getSettings(), meta: Object.fromEntries(Object.entries(SETTINGS).map(([k, d]) => [k, { label: d.label, help: d.help }])) });
 });
+// ---- which AI does the work (admin) ----
+const aiBody = z.object({ provider: z.enum(PROVIDER_IDS), model: SETTINGS['ai.model.glm'].schema });
+const aiState = async () => {
+  const cur = await currentChoice(); const s = await getSettings();
+  return { mock: !realCallsEnabled(), current: cur,
+    providers: PROVIDER_IDS.map((id) => ({ id, label: PROVIDERS[id].label, note: PROVIDERS[id].note, key_env: PROVIDERS[id].keyEnv, key_present: keyPresent(id), models: PROVIDERS[id].models, model: s[`ai.model.${id}` as const] })) };
+};
+api.get('/admin/ai', admin, async (_req, res) => res.json(await aiState()));
+api.put('/admin/ai', admin, async (req, res) => {
+  const b = aiBody.safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: 'Not a valid choice: ' + b.error.issues[0].message });
+  const p = b.data.provider as ProviderId;
+  if (!keyPresent(p)) return void res.status(409).json({ error: `The key for ${PROVIDERS[p].label} is not on the server. Add ${PROVIDERS[p].keyEnv} to the .env file, restart, then choose it.` });
+  await setSetting(`ai.model.${p}` as SettingKey, b.data.model, req.user!.id);
+  await setSetting('ai.provider', p, req.user!.id);
+  await audit(req.user!.id, 'setting_change', `ai.provider=${p} model=${b.data.model}`);
+  res.json(await aiState());
+});
+api.post('/admin/ai/test', admin, async (req, res) => {
+  const b = aiBody.safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: 'Not a valid choice' });
+  if (!realCallsEnabled()) return void res.json({ ok: false, message: 'The server is in mock mode (LLM_PROVIDER=mock in .env), so no real AI is called.' });
+  if (!keyPresent(b.data.provider)) return void res.json({ ok: false, message: `The key is not set. Add ${PROVIDERS[b.data.provider].keyEnv} to the .env file and restart.` });
+  try { const r = await testCall(b.data); res.json({ ok: true, ms: r.ms, message: `Works. Answered in ${(r.ms / 1000).toFixed(1)} s.` }); }
+  catch (e) {
+    const st = (e as any)?.status;
+    res.json({ ok: false, message: st === 401 || st === 403 ? 'The provider rejected the key.' : st === 404 ? 'The provider does not know that model name.' : st === 429 ? 'The provider says busy or out of quota.' : /^timeout/.test((e as Error).message) ? 'No answer in 60 seconds.' : 'The call failed. Check the key and the model name.' });
+  }
+});
 api.put('/admin/settings/:key', admin, async (req, res) => {
   const key = req.params.key as SettingKey;
   if (!(key in SETTINGS)) return void res.status(404).json({ error: 'Unknown setting' });
+  if (key.startsWith('ai.')) return void res.status(400).json({ error: 'Change the AI on the AI card: it checks the key first' });
   try {
     // settings that depend on each other (how many are shown, recommended, and may be picked) must still agree after this change
     const cur = await getSettings(); const value = SETTINGS[key].schema.parse(req.body?.value);

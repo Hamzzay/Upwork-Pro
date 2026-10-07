@@ -3,12 +3,12 @@ import { getSettings } from '../settings';
 import { exec, pool, query, withRetry } from '../db';
 import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
+import { lastUsed } from '../llm/context';
 import { checkProposal } from './checks';
 import { rankTemplates } from './rank';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, writerOut, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 
-export const providerLabel = () => config.llm.provider;
 
 export async function loadSignalDefs(): Promise<{ defs: SignalDef[]; layers: { code: string; intro: string | null; rule: string | null }[] }> {
   const rows = await query<any>(
@@ -112,7 +112,7 @@ async function readSignals(screeningId: number, jobText: string, stillWanted: ()
   const answers = await Promise.all(layers.map(async (layer) => {
     const mine = defs.filter((d) => d.layer === layer.code);
     if (!mine.length) return [];
-    const r = await run({ label: 'signals: ' + layer.code, model: config.llm.model, system: detectionPrompt(mine, [layer]), prompt: `<job_page>\n${jobText}\n</job_page>`, schema: buildDetectionSchema(mine), timeoutMs: config.llm.timeoutMs });
+    const r = await run({ label: 'signals: ' + layer.code, system: detectionPrompt(mine, [layer]), prompt: `<job_page>\n${jobText}\n</job_page>`, schema: buildDetectionSchema(mine), timeoutMs: config.llm.timeoutMs });
     const got = (r.data as { signals?: unknown } | undefined)?.signals;
     if (!Array.isArray(got)) throw new Error('invalid_output'); // never let one bad layer quietly fall back to defaults
     return got;
@@ -178,7 +178,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const ss = (await getSettings())['writer.structured_signal']; // which signal value means "answer in the post's own structure" (admin setting)
   const structured = detected.find((d) => d.signal_number === ss.signal && d.value_name.trim().toLowerCase() === ss.value.trim().toLowerCase());
   if (structured) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
-  const w = await run({ label: 'writing', model: config.llm.model, system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements }),
+  const w = await run({ label: 'writing', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements }),
     prompt: `<job_page>\n${f.jobText}\n</job_page>\n\nWrite the proposal now.`, schema: writerSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = writerOut.safeParse(w.data);
   if (!parsed.success) throw new Error('invalid_output');
@@ -189,7 +189,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const warnings = [...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
     ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: x.notes })), otherProjectNames: library, foreignNames: await foreignNames(),
       sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link } }).map((t) => ({ source: 'check', text: t }))];
-  return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, warnings, model: config.llm.model };
+  return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, warnings, model: lastUsed()?.model ?? config.llm.model };
 }
 
 // ---------- early drafts ----------
@@ -290,7 +290,7 @@ export async function runChat(messageId: number) {
   const history = await query<any>(`SELECT role, content FROM proposal_messages WHERE proposal_id=? AND status='done' AND id<? ORDER BY id DESC LIMIT 12`, [p.id, m.id]);
   const transcript = history.reverse().map((h) => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');
   const basedOn = Number(cur.version_no);
-  const r = await run({ label: 'chat', model: config.llm.model, system: chatSystem({ template, detected, sender: f.sender, projects: f.projects, clientRequirements: f.requirements, currentProposal: htmlToPlain(cur.content_html) }),
+  const r = await run({ label: 'chat', system: chatSystem({ template, detected, sender: f.sender, projects: f.projects, clientRequirements: f.requirements, currentProposal: htmlToPlain(cur.content_html) }),
     prompt: `${transcript ? 'EARLIER MESSAGES\n' + transcript + '\n\n' : ''}USER REQUEST\n${m.content}\n\n<job_page>\n${f.jobText}\n</job_page>`, schema: chatSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = chatOut.safeParse(r.data);
   if (!parsed.success) throw new Error('invalid_output');

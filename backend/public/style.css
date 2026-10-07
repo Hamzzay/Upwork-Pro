@@ -597,3 +597,9 @@ dialog .ss-pop { position: absolute; }
   .setin { width: 100%; }
   .setin input, .setin select, .setin textarea { flex: 1; min-width: 0; }
 }
+.small.ok { color: var(--pass); font-weight: 600; }
+.small.bad { color: var(--fail); font-weight: 600; }
+.card-head { flex-wrap: wrap; }
+.card-head .sub { min-width: 0; overflow-wrap: anywhere; }
+.grid2 > * { min-width: 0; }
+.field input, .field select { max-width: 100%; }

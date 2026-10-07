@@ -9,8 +9,8 @@ A tool for the Stackup team that takes an Upwork job from paste to proposal to o
 5. **Proposal**: signals are detected, the best template is chosen, and the proposal is written, then edited by hand or by chat.
 6. **Track** what happens on Upwork: sent, viewed, chat opened, interview, outcome (a lost job needs a reason).
 
-Stack: Node (Express 5, TypeScript), MySQL/MariaDB, GLM through Z.ai via the pinned Claude Code CLI (see
-`claude-code-in-backend-glm-guide.pdf`). The browser app is plain JavaScript in `backend/public`.
+Stack: Node (Express 5, TypeScript), MySQL/MariaDB, and an AI of your choice (GLM through Z.ai, Claude, or GPT; see **Choosing the AI** below).
+GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backend-glm-guide.pdf`); GPT calls the OpenAI API. The browser app is plain JavaScript in `backend/public`.
 `NEW-UPDATES.md` is the change log of the speed and refinement rounds (branch `hamza`).
 
 ## Pages
@@ -26,7 +26,8 @@ Stack: Node (Express 5, TypeScript), MySQL/MariaDB, GLM through Z.ai via the pin
 | Templates, Signals | managers and admins (signals: admin edits) | Proposal templates (rich-text format, prompt, the signals each suits, sample proposals) and the 16 detection signals. |
 | **Upwork JobGate** | admin | The gate prompt, in versions. Saving never overwrites: it makes a new version that only counts once activated. Has a test box. |
 | **Rules** | admin | The FAIL and FLAG codes, how many jobs each fired on, add / reword / retire. Warns when an active code is not named in the active gate prompt. |
-| **Settings** | admin | Projects shown, recommended, the fewest and most a person can pick (1 to 2), the minimum match score, the shortest override reason, outcome choices and lost reasons, quiet days, rules passed to the writer. Applied to the next job, no restart. |
+| **Settings** | admin | **The AI** (GLM, Claude or GPT, with a model and a connection test), projects shown, recommended, the fewest and most a person can pick (1 to 2), the minimum match score, the shortest override reason, outcome choices and lost reasons, quiet days, rules passed to the writer. Applied to the next job, no restart. |
+| **Connect Claude** | everyone | Makes personal tokens so Claude can save sheet data into Upwork Pro (see `mcp/README.md`). |
 | Users | admin | Accounts and roles. |
 | **Logs** | admin | **Activity** (audit log with filters) and **AI calls** (every model call: job, step, model, time, failures). |
 
@@ -72,7 +73,7 @@ cp .env.example .env            # DB password, SEED_ADMIN_*, and the Z.ai key (L
 # 1. start MySQL from the XAMPP control panel
 # 2. as MySQL root, run sql/setup.sql (edit the password first): creates the database `upwork_gate` and a user
 npm install
-npm run migrate                 # creates and upgrades the tables (sql/migrations 002 to 013, tracked in schema_migrations)
+npm run migrate                 # creates and upgrades the tables (sql/migrations 002 to 014, tracked in schema_migrations)
 npm run seed                    # first admin + gate version 1 from seed/SKILL.md
 npm run seed:library            # tags, projects, rule codes, profiles from seed/library.json (insert-if-missing)
 npm run seed:proposals          # signals, templates (with a starter signal mapping) and sample proposals (insert-if-missing)
@@ -91,10 +92,29 @@ Database changes are numbered files in `sql/migrations/`, applied once and in or
 ### Settings in `.env`
 
 - `LLM_PROVIDER=mock` (default) spends nothing and returns canned answers (add `[mock-pass]` or `[mock-fail]` to pasted text for the other verdicts).
-  `claude-cli` uses the real model: set `LLM_API_KEY` (in `.env` only, never in git) and run `npm run probe` once.
-- `LLM_MODEL`: `glm-5.3[1m]` (full, faster, uses quota faster) or `glm-5.3-flash[1m]` (cheaper, slower).
+  `claude-cli` means real AI: which one is then chosen in **Settings, AI** (below). Mock ignores that choice.
+- Keys, one per provider, in `.env` only (never in git, never in the database, never shown in the app):
+  `LLM_API_KEY` and `LLM_BASE_URL` for GLM, `ANTHROPIC_API_KEY` for Claude (or `LLM_OAUTH_TOKEN`, a subscription token from `claude setup-token`; the API key wins if both are set), `OPENAI_API_KEY` for GPT (`OPENAI_BASE_URL` only for a proxy).
+- `LLM_MODEL`: the starting GLM model. After that, models are chosen in Settings.
 - `LLM_TIMEOUT_MS`: one model call. Real calls can take 2 to 3 minutes, so keep this at 600000.
-- `LLM_CONCURRENCY`: jobs in flight. One job can make several calls at once (tagging 2, signals 3); lower it if Z.ai answers "busy".
+- `LLM_CONCURRENCY`: jobs in flight. One job can make several calls at once (tagging 2, signals 3); lower it if the provider answers "busy".
+
+### Choosing the AI
+
+Settings, **AI** card: pick GLM (Z.ai), Claude (Anthropic) or GPT (OpenAI), pick or type a model, **Test connection**, then **Use this AI**.
+
+- It applies to the next call: no restart. Jobs already running finish on the AI they started with.
+- A provider whose key is not in `.env` cannot be chosen; Test connection says what is missing.
+- Every result stores the provider and model that produced it, and Logs, AI calls shows both.
+- Prompts were tuned on GLM. Before relying on another AI, run the same two or three real jobs through it and compare.
+- GPT uses strict JSON Schema output; the app's own schemas are translated automatically and every answer is still checked by the app.
+- `npm run probe` tests the GLM key from `.env` directly.
+
+## Importing sheets through Claude (MCP)
+
+`mcp/` is a small server that lets Claude save sheet data (rule codes, tag dictionary, projects, Upwork profiles) into Upwork Pro. Claude previews every import and you confirm before anything
+is saved; an import can be undone. It uses a personal token from the **Connect Claude** page and the import API (`/api/import/*`, migration 014), so it can do only what your role can do.
+See `mcp/README.md` for setup, safety rules, what is not imported yet, and the server notes.
 
 ## Link input
 

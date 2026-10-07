@@ -210,7 +210,8 @@ const NAV = [
   { label: 'Work', links: [
     { key: 'dashboard', icon: 'home', label: 'Dashboard' },
     { key: 'new', icon: 'screen', label: 'Screen a job' },
-    { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') }] },
+    { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
+    { key: 'connect', icon: 'link', label: 'Connect Claude' }] },
   { label: 'Library', links: [
     { key: 'projects', icon: 'folder', label: 'Projects' },
     { key: 'industries', icon: 'building', label: 'Industries' },
@@ -1777,15 +1778,100 @@ async function settingsView() {
   };
   const num = (key) => { const el = h('input', { type: 'number', min: 0, step: 1, value: settings[key], style: 'width:110px' }); return row(key, el, () => Number(el.value)); };
   const list = (key, ph) => { const el = h('input', { type: 'text', value: settings[key].join(', '), placeholder: ph, style: 'min-width:320px' }); return row(key, el, () => el.value.split(',').map((x) => x.trim()).filter(Boolean)); };
+  // which AI does the work: checked on the server (key present) before it is saved
+  const ai = await api('GET', '/admin/ai');
+  const aiCard = (() => {
+    const provSel = h('select', { id: 'aiprov', 'aria-label': 'AI provider' }, ai.providers.map((p) => h('option', { value: p.id, selected: p.id === ai.current.provider }, p.label + (p.key_present ? '' : ' (key missing)'))));
+    const modelIn = h('input', { type: 'text', id: 'aimodel', list: 'aimodels', autocomplete: 'off', style: 'width:100%' });
+    const dl = h('datalist', { id: 'aimodels' });
+    const info = h('div', { class: 'small muted' });
+    const keyChip = h('span', { class: 'pill' });
+    const result = h('div', { class: 'small', role: 'status', style: 'margin-top:8px;min-height:1.2em' });
+    const cur = () => ai.providers.find((p) => p.id === provSel.value);
+    const sync = (keepModel) => {
+      const p = cur();
+      if (!keepModel) modelIn.value = p.model;
+      dl.replaceChildren(...p.models.map((m) => h('option', { value: m.id }, m.label)));
+      info.textContent = p.note;
+      keyChip.className = 'pill ' + (p.key_present ? 'PASS' : 'FAIL');
+      keyChip.textContent = p.key_present ? 'Key found' : `Key missing: add ${p.key_env} to .env`;
+      result.textContent = '';
+    };
+    provSel.onchange = () => sync(false); sync(false);
+    const testBtn = h('button', { class: 'btn sm', type: 'button' }, 'Test connection');
+    const saveBtn = h('button', { class: 'btn sm primary', type: 'button' }, 'Use this AI');
+    testBtn.onclick = async () => {
+      btnBusy(testBtn, 'Testing'); result.className = 'small muted'; result.textContent = 'Calling ' + cur().label + '. This can take a few seconds.';
+      try { const r = await api('POST', '/admin/ai/test', { provider: provSel.value, model: modelIn.value.trim() }); result.className = 'small ' + (r.ok ? 'ok' : 'bad'); result.textContent = r.message; }
+      catch (x) { result.className = 'small bad'; result.textContent = x.message; }
+      testBtn.disabled = false; testBtn.replaceChildren('Test connection');
+    };
+    saveBtn.onclick = async () => {
+      btnBusy(saveBtn, 'Saving');
+      try { await api('PUT', '/admin/ai', { provider: provSel.value, model: modelIn.value.trim() }); toast('Now using ' + cur().label); route(); }
+      catch (x) { toast(x.message, true); saveBtn.disabled = false; saveBtn.replaceChildren('Use this AI'); }
+    };
+    const now = ai.providers.find((p) => p.id === ai.current.provider);
+    return h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'AI'), h('span', { class: 'sub' }, ai.mock ? 'Mock mode: no real AI is called' : `Now using ${now.label}, ${ai.current.model}`)),
+      h('div', { class: 'card-pad' },
+        ai.mock ? h('div', { class: 'notice', style: 'margin-bottom:12px' }, icon('info'), 'The server is in mock mode (LLM_PROVIDER=mock in .env). Switch it to claude-cli to use a real AI. The choice below is kept but is not used until then.') : null,
+        h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'Which AI does the screening, tagging, signals, proposals and chat. A change applies to the next job, with no restart. Keys stay in the .env file and are never shown here.'),
+        h('div', { class: 'grid2' },
+          h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'aiprov' }, 'Provider'), provSel, h('div', { style: 'margin-top:6px' }, keyChip)),
+          h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'aimodel' }, 'Model'), modelIn, dl, h('div', { class: 'hint' }, 'Pick one or type another model name.'))),
+        info, result,
+        h('div', { class: 'row', style: 'gap:8px;margin-top:12px;justify-content:flex-end' }, testBtn, saveBtn)));
+  })();
   const sig = settings['writer.structured_signal'];
   const sigNum = h('input', { type: 'number', min: 1, value: sig.signal, style: 'width:90px', 'aria-label': 'Signal number' });
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
   const group = (title, rows) => h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'card-pad setlist' }, rows));
-  shell('settings', [pageHead('Settings', 'Numbers and lists the app used to have fixed in code. Changes apply to the next job, no restart needed.'),
+  shell('settings', [pageHead('Settings', 'Numbers and lists the app used to have fixed in code. Changes apply to the next job, no restart needed.'), aiCard,
     group('Project matching', [num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
+}
+
+// ---------- connect Claude: personal tokens for the import MCP ----------
+async function connectView() {
+  const [{ tokens }, { types }] = await Promise.all([api('GET', '/tokens'), api('GET', '/import/types')]);
+  const name = h('input', { type: 'text', id: 'tkname', maxlength: 80, placeholder: 'e.g. My laptop, Claude Desktop' });
+  const days = h('select', { id: 'tkdays', 'aria-label': 'Expires after' }, [[30, '30 days'], [90, '90 days'], [365, '1 year']].map(([v, l]) => h('option', { value: v, selected: v === 90 }, l)));
+  const out = h('div', { 'aria-live': 'polite' });
+  const make = h('button', { class: 'btn primary', type: 'button' }, 'Make a token');
+  const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); toast(what + ' copied'); } catch { toast('Could not copy: select the text and copy it', true); } };
+  make.onclick = async () => {
+    btnBusy(make, 'Making');
+    try {
+      const r = await api('POST', '/tokens', { name: name.value, days: Number(days.value) });
+      const snippet = JSON.stringify({ mcpServers: { 'upwork-pro': { command: 'node', args: ['/path/to/Upwork-Pro/mcp/dist/src/index.js'], env: { UPWORK_PRO_URL: location.origin, UPWORK_PRO_TOKEN: r.token, IMPORT_DIR: '/path/to/your/workbooks' } } } }, null, 2);
+      out.replaceChildren(h('div', { class: 'warnbox', style: 'margin-top:16px' }, h('strong', {}, icon('warn'), 'Copy this token now. It is shown once and cannot be recovered.'),
+        h('code', { class: 'mono', style: 'display:block;word-break:break-all;margin:8px 0;user-select:all' }, r.token),
+        h('div', { class: 'row', style: 'gap:8px' }, h('button', { class: 'btn sm', type: 'button', onclick: () => copy(r.token, 'Token') }, 'Copy token'), h('button', { class: 'btn sm', type: 'button', onclick: () => copy(snippet, 'Settings') }, 'Copy Claude Desktop settings')),
+        h('pre', { class: 'mono small', style: 'white-space:pre-wrap;margin-top:12px;overflow:auto' }, snippet)));
+      name.value = '';
+    } catch (x) { toast(x.message, true); }
+    make.disabled = false; make.replaceChildren('Make a token');
+  };
+  const revoke = (t) => modal({ title: 'Revoke "' + t.name + '"?', confirm: 'Revoke', danger: true, body: h('p', {}, 'Anything using this token stops working at once. This cannot be undone.'),
+    onConfirm: async () => { await api('DELETE', '/tokens/' + t.id); toast('Token revoked'); route(); } });
+  const status = (t) => (t.revoked_at ? h('span', { class: 'pill wait' }, 'Revoked') : new Date(t.expires_at) < new Date() ? h('span', { class: 'pill wait' }, 'Expired') : h('span', { class: 'pill PASS' }, 'Active'));
+  const rows = tokens.map((t) => h('tr', {}, h('td', {}, t.name), h('td', {}, status(t)), h('td', {}, ago(t.created_at)), h('td', {}, t.last_used_at ? ago(t.last_used_at) : h('span', { class: 'faint' }, 'Never')), h('td', {}, new Date(t.expires_at).toLocaleDateString()),
+    h('td', {}, !t.revoked_at && new Date(t.expires_at) > new Date() ? h('button', { class: 'btn sm', type: 'button', onclick: () => revoke(t) }, 'Revoke') : null)));
+  shell('connect', [pageHead('Connect Claude', 'Let Claude save data from your sheets into Upwork Pro. Claude reads the sheet, shows you what would change, and saves only when you say yes.'),
+    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'What you can import')),
+      h('div', { class: 'card-pad' }, types.map((k) => h('div', { style: 'margin-bottom:10px' }, h('strong', {}, k.label + ' '), k.allowed ? h('span', { class: 'pill PASS' }, 'You can') : h('span', { class: 'pill wait' }, k.roles.join(' or ') + ' only'),
+        h('div', { class: 'small muted' }, k.description))),
+        h('p', { class: 'hint' }, 'You can only import what your role lets you edit on the website. Every import is previewed first, is written to the Logs, and can be undone as a whole.'))),
+    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'Make a token')),
+      h('div', { class: 'card-pad' },
+        h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'A token is like a password for Claude: it can import and look things up as you, and nothing else (no jobs, no proposals, no settings). Keep it private. Revoke it if it leaks.'),
+        h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tkname' }, 'Name'), name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tkdays' }, 'Expires after'), days)),
+        h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:12px' }, make), out)),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Your tokens')),
+      tokens.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Name', 'Status', 'Made', 'Last used', 'Expires', ''].map((x) => h('th', {}, x)))), h('tbody', {}, rows)))
+        : h('div', { class: 'card-pad' }, h('p', { class: 'muted' }, 'No tokens yet.')))], true);
 }
 
 // ---------- router ----------
@@ -1812,6 +1898,7 @@ async function route() {
     if (a === 'skill' && me.role === 'admin') return await skillView();
     if (a === 'rules' && me.role === 'admin') return await rulesView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();
+    if (a === 'connect') return await connectView();
     if (a === 'audit' && me.role === 'admin') return await auditView();
     return newView();
   } catch (e) {

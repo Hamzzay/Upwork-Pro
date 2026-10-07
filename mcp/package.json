@@ -1,0 +1,24 @@
+{
+  "name": "upwork-pro-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server that lets Claude save sheet data into Upwork Pro through its import API",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "start:http": "node dist/src/index.js --http",
+    "dev": "ts-node src/index.ts",
+    "test": "ts-node test/e2e.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "dotenv": "16.4.5",
+    "exceljs": "4.4.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
+  }
+}

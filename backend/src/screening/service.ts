@@ -7,7 +7,6 @@ export interface ScreeningContext { rules: RuleRow[]; projects: ProjectLite[] }
 export async function screenJobText(jobText: string, skillContent: string, ctx: ScreeningContext): Promise<Report> {
   const r = await run({
     label: 'screening',
-    model: config.llm.model,
     system: skillContent + contractAddendum(ctx.rules, ctx.projects),
     prompt: `<job_page>\n${jobText}\n</job_page>`,
     schema: buildReportJsonSchema(ctx.rules.map((x) => x.code)),

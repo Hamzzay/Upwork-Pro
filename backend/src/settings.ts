@@ -1,11 +1,17 @@
 import { z } from 'zod';
 import { exec, query } from './db';
+import { PROVIDER_IDS } from './llm/ids';
 
 /**
  * Everything an admin can tune without a deploy. Each key has a schema and a default; the database row wins.
  * Read on use (a handful of small rows), so a change applies to the next job without a restart.
  */
+const modelName = z.string().trim().min(1).max(80).regex(/^[\w.\-:\[\]]+$/, 'Use letters, digits and . - _ : [ ] only');
 export const SETTINGS = {
+  'ai.provider': { label: 'AI provider', help: 'Which AI does the screening, tagging, signals, proposals and chat. Set on the AI card below.', schema: z.enum(PROVIDER_IDS), def: 'glm' as (typeof PROVIDER_IDS)[number] },
+  'ai.model.glm': { label: 'GLM model', help: '', schema: modelName, def: process.env.LLM_MODEL || 'glm-5.3-flash[1m]' },
+  'ai.model.claude': { label: 'Claude model', help: '', schema: modelName, def: 'claude-sonnet-5-5' },
+  'ai.model.openai': { label: 'GPT model', help: '', schema: modelName, def: 'gpt-5' },
   'matching.shown': { label: 'Projects shown per job', help: 'How many matching projects the Projects step lists.', schema: z.number().int().min(1).max(20), def: 5 },
   'matching.recommended': { label: 'Projects recommended', help: 'How many of the shown projects are pre-selected (and used by the early draft).', schema: z.number().int().min(1).max(5), def: 2 },
   'matching.min_score': { label: 'Minimum match score', help: 'A project scoring below this is not shown. The plugin used 6.', schema: z.number().int().min(0).max(100), def: 1 },

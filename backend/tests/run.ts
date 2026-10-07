@@ -17,6 +17,10 @@ import { checkProposal } from '../src/proposal/checks';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
 import { addRuleCodes, codesMissingFromPrompt } from '../src/screening/gatecodes';
 import { settingsConflict } from '../src/settings';
+import { createServer } from 'node:http';
+import { runOpenAI, strictSchema } from '../src/llm/openai';
+import { postingSchema } from '../src/screening/posting';
+import { writerSchema, chatSchema } from '../src/proposal/writer';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
 const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string }[];
@@ -228,6 +232,60 @@ const ctx = { rules, projects };
   assert.match(settingsConflict({ ...okCfg, 'selection.min': 3, 'selection.max': 2 })!, /fewest projects/);
   assert.match(settingsConflict({ ...okCfg, 'matching.shown': 1 })!, /shown must be at least/);
   assert.match(settingsConflict({ ...okCfg, 'selection.min': 2, 'matching.recommended': 1 })!, /recommended cannot be fewer/);
+
+  // ---- OpenAI adapter: strict-schema translation and the call itself (against a fake local server) ----
+  const walk = (n: any, path = ''): string[] => {
+    if (!n || typeof n !== 'object') return [];
+    const bad: string[] = [];
+    if (n.type === 'object') {
+      if (n.additionalProperties !== false) bad.push(path + ': additionalProperties not false');
+      const keys = Object.keys(n.properties ?? {}).sort();
+      if (JSON.stringify([...(n.required ?? [])].sort()) !== JSON.stringify(keys)) bad.push(path + ': required differs from properties');
+    }
+    for (const k of Object.keys(n)) if (!['type', 'properties', 'required', 'items', 'enum', 'description', 'additionalProperties', 'anyOf'].includes(k)) bad.push(path + ': keyword ' + k);
+    for (const [k, v] of Object.entries(n.properties ?? {})) bad.push(...walk(v, path + '.' + k));
+    if (n.items) bad.push(...walk(n.items, path + '[]'));
+    for (const a of n.anyOf ?? []) bad.push(...walk(a, path + '|'));
+    return bad;
+  };
+  const sigDefs = [{ id: 1, number: 1, name: 'S', layer: 'A', multi: false, values: [{ id: 1, code: 'S1.1', name: 'x', is_fallback: false, description: 'd' }] }] as any;
+  const appSchemas: [string, any][] = [['screening', buildReportJsonSchema(['F1', 'G1'])], ['tagging', buildTagSchema(['a', 'b'])], ['posting', postingSchema], ['writer', writerSchema], ['chat', chatSchema], ['signals', buildDetectionSchema(sigDefs)]];
+  for (const [name, sc] of appSchemas) assert.deepEqual(walk(strictSchema(sc), name), [], `${name} schema must satisfy OpenAI strict mode`);
+  assert.deepEqual(strictSchema({ type: 'object', properties: { a: { type: 'string', minLength: 3 }, b: { type: 'array', items: { type: 'string' }, maxItems: 2 } }, required: ['a'], $schema: 'x' }),
+    { type: 'object', properties: { a: { type: 'string' }, b: { type: 'array', items: { type: 'string' } } }, required: ['a', 'b'], additionalProperties: false });
+
+  const seen: any[] = []; let mode = 'ok'; let hits = 0;
+  const fake = createServer((req, res) => {
+    const chunks: Buffer[] = []; req.on('data', (c) => chunks.push(c)); req.on('end', () => {
+      hits++; seen.push({ auth: req.headers.authorization, url: req.url, body: JSON.parse(Buffer.concat(chunks).toString() || '{}') });
+      const send = (st: number, o: unknown) => { res.statusCode = st; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(o)); };
+      if (mode === 'ok') return send(200, { choices: [{ finish_reason: 'stop', message: { content: '{"answer":"ok"}' } }] });
+      if (mode === '401') return send(401, { error: { message: 'secret prompt echo' } });
+      if (mode === 'flaky') return hits % 2 ? send(429, {}) : send(200, { choices: [{ finish_reason: 'stop', message: { content: '{"answer":"ok"}' } }] });
+      if (mode === 'refusal') return send(200, { choices: [{ finish_reason: 'stop', message: { content: null, refusal: 'no' } }] });
+      if (mode === 'length') return send(200, { choices: [{ finish_reason: 'length', message: { content: '{"answer":' } }] });
+      if (mode === 'notjson') return send(200, { choices: [{ finish_reason: 'stop', message: { content: 'hello' } }] });
+      if (mode === 'hang') return void 0;
+    });
+  });
+  await new Promise<void>((r) => fake.listen(0, '127.0.0.1', r));
+  process.env.OPENAI_BASE_URL = `http://127.0.0.1:${(fake.address() as any).port}/v1`;
+  const oa = { model: 'gpt-x', system: 'SYS', prompt: 'USER', schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'] }, timeoutMs: 3000 };
+  delete process.env.OPENAI_API_KEY;
+  await assert.rejects(runOpenAI(oa), /llm_key_missing:openai/);
+  process.env.OPENAI_API_KEY = 'sk-test-123';
+  const oaGood = await runOpenAI(oa);
+  assert.deepEqual(oaGood.data, { answer: 'ok' });
+  assert.equal(seen[0].auth, 'Bearer sk-test-123'); assert.equal(seen[0].url, '/v1/chat/completions');
+  assert.equal(seen[0].body.model, 'gpt-x'); assert.equal(seen[0].body.messages[0].role, 'system'); assert.equal(seen[0].body.response_format.json_schema.strict, true);
+  assert.equal(seen[0].body.response_format.json_schema.schema.additionalProperties, false);
+  mode = '401'; await assert.rejects(runOpenAI(oa), (e: any) => e.status === 401 && !/secret/.test(e.message)); // never echoes the provider's body
+  mode = 'flaky'; hits = 0; assert.deepEqual((await runOpenAI(oa)).data, { answer: 'ok' }); // one 429, then fine
+  mode = 'refusal'; await assert.rejects(runOpenAI(oa), /invalid_output/);
+  mode = 'length'; await assert.rejects(runOpenAI(oa), /invalid_output/);
+  mode = 'notjson'; await assert.rejects(runOpenAI(oa), /no structured output/);
+  mode = 'hang'; await assert.rejects(runOpenAI({ ...oa, timeoutMs: 400 }), /^Error: timeout after 400 ms/);
+  fake.closeAllConnections?.(); fake.close();
 
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

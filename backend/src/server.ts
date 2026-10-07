@@ -8,6 +8,7 @@ import { api } from './routes';
 
 const app = express();
 app.disable('x-powered-by');
+app.use('/api/import', express.json({ limit: '3mb' })); // a piece of a sheet with long job descriptions is bigger than the normal limit
 app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 app.use((_req, res, next) => {

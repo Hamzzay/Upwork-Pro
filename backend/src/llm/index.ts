@@ -1,6 +1,8 @@
 import 'dotenv/config'; // the provider is chosen at import time, so the env file must be loaded first
 import { LlmCallError, runClaude, type RunOptions, type RunResult } from './claude-runner';
 import { llmContext } from './context';
+import { runOpenAI } from './openai';
+import { currentChoice, realCallsEnabled, PROVIDERS, type Choice } from './providers';
 
 /** Canned answer: no network, no cost. Shape matches the report contract. Triggers: [mock-pass], [mock-fail]. */
 async function mockRun(o: RunOptions): Promise<RunResult> {
@@ -62,14 +64,24 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
   return { text: JSON.stringify(data), data, raw: {} };
 }
 
-const provider = process.env.LLM_PROVIDER === 'claude-cli' ? runClaude : mockRun;
-export const providerName = process.env.LLM_PROVIDER === 'claude-cli' ? 'claude-cli' : 'mock';
+/** 'mock' in .env means no real calls at all; otherwise the provider chosen in Settings. */
+export const providerName = realCallsEnabled() ? 'ai-settings' : 'mock';
+
+async function dispatch(o: RunOptions, c: Choice): Promise<RunResult> {
+  const withModel = { ...o, model: c.model };
+  if (c.provider === 'openai') return runOpenAI(withModel);
+  if (c.provider === 'claude') { // an API key wins; otherwise the subscription token from `claude setup-token`
+    const apiKey = process.env.ANTHROPIC_API_KEY, oauthToken = apiKey ? undefined : process.env.LLM_OAUTH_TOKEN;
+    return runClaude({ ...withModel, baseUrl: 'https://api.anthropic.com', apiKey, oauthToken, keyName: 'claude' });
+  }
+  return runClaude({ ...withModel, keyName: undefined }); // GLM: LLM_BASE_URL and LLM_API_KEY from .env
+}
 
 /** A short, safe description of a failed call: a status or a known runner message, never model text. */
 function callError(e: unknown): string {
   if (e instanceof LlmCallError) return `model error${e.status ? ' ' + e.status : ''}`;
   const m = e instanceof Error ? e.message : '';
-  if (/^(timeout|CLI |no structured output|LLM_|model error|invalid_output)/.test(m)) return m.slice(0, 200);
+  if (/^(timeout|CLI |no structured output|LLM_|llm_key_missing|model error|invalid_output)/.test(m)) return m.slice(0, 200);
   return 'error';
 }
 
@@ -77,12 +89,24 @@ function callError(e: unknown): string {
 export async function run(o: RunOptions): Promise<RunResult> {
   const ctx = llmContext.getStore();
   const t0 = Date.now(); let ok = false; let err: string | null = null;
-  try { const r = await provider(o); ok = true; return r; }
+  const choice: Choice | { provider: 'mock'; model: string } = realCallsEnabled() ? await currentChoice() : { provider: 'mock', model: o.model ?? 'mock' };
+  if (ctx) ctx.used = { provider: choice.provider, model: choice.model };
+  try { const r = choice.provider === 'mock' ? await mockRun(o) : await dispatch(o, choice); ok = true; return r; }
   catch (e) { err = callError(e); throw e; }
   finally {
     // only calls made inside a job are logged; tests and scripts call the model without a context and without a database
     if (ctx) require('../db').exec('INSERT INTO llm_calls (screening_id, proposal_id, kind, step, model, provider, ms, ok, error) VALUES (?,?,?,?,?,?,?,?,?)',
-      [ctx?.screeningId ?? null, ctx?.proposalId ?? null, ctx?.kind ?? 'other', o.label ?? null, o.model, providerName, Date.now() - t0, ok ? 1 : 0, err])
+      [ctx?.screeningId ?? null, ctx?.proposalId ?? null, ctx?.kind ?? 'other', o.label ?? null, choice.model, choice.provider, Date.now() - t0, ok ? 1 : 0, err])
       .catch((e: Error) => console.error('call log failed:', e.message)); // logging must never break the job
   }
+}
+
+export { PROVIDERS };
+
+/** One tiny call to a provider and model that may not be saved yet, so an admin can check a key before switching. Never logged. */
+export async function testCall(c: Choice): Promise<{ ms: number }> {
+  const t0 = Date.now();
+  const r = await dispatch({ system: 'Answer with the single word ok.', prompt: 'Say ok.', schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false }, timeoutMs: 60_000 }, c);
+  if (!r.data || typeof (r.data as any).answer !== 'string') throw new Error('invalid_output');
+  return { ms: Date.now() - t0 };
 }
