@@ -65,6 +65,8 @@ function ago(s) {
   if (sec < 604800) return Math.floor(sec / 86400) + ' d ago';
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
+/** ago() inside a sentence: "Finished just now", not "Finished Just now". */
+const agoIn = (s) => { const t = ago(s); return t === 'Just now' ? 'just now' : t; };
 const full = (s) => { const d = toDate(s); return d ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
 const initials = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
@@ -668,7 +670,7 @@ async function historyView() {
       ? emptyState('list', filtered ? 'No matches' : empty, filtered ? 'Try different filters.' : st.tab ? 'Jobs move here as they progress.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : st.tab ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
       : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)), h('th', { class: 'pin' }, ''))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
-          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id)),
+          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null)),
           shown.map((c) => h('td', {}, c.cell(r))),
           // the row's action stays pinned to the right edge, visible however far the table scrolls
           h('td', { class: 'pin' }, rowAction(r, load)))))));
@@ -932,7 +934,7 @@ function completePanel(s, matching, proposal, onEdit) {
   ];
   return h('div', { class: 'card complete' },
     h('div', { class: 'complete-head' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('h2', {}, 'Job complete'),
-      h('p', { class: 'muted' }, 'Tracking saved' + (s.tracking_updated_at ? ' ' + ago(s.tracking_updated_at) : '') + '. Update it again when the client responds.'))),
+      h('p', { class: 'muted' }, 'Tracking saved' + (s.tracking_updated_at ? ' ' + agoIn(s.tracking_updated_at) : '') + '. Update it again when the client responds.'))),
     h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: /^(not |none)/i.test(v) ? 'ns' : '' }, v)))),
       s.notes ? h('blockquote', {}, s.notes) : null,
       h('div', { class: 'row', style: 'margin-top:16px' }, h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen another job'),
@@ -1187,7 +1189,7 @@ async function jobView(id) {
   const canStatus = canEdit && ['submitted', 'closed'].includes(stage);
   const title = s.title || 'Pasted job text';
   const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
-  const toProposal = proposal && proposal.finished_at ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
+  const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null; // a plugin job arrives already written: no timing
   const yn2 = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : null);
   const facts = [
     ['Result', h('span', {}, verdictPill(s.verdict, s.status), s.rule_codes ? h('span', { class: 'mono small muted' }, '  ' + s.rule_codes) : null)],
@@ -1196,7 +1198,7 @@ async function jobView(id) {
     ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
     ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
     ['Template', proposal && proposal.template ? proposal.template.name : null],
-    ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + ago(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : proposal.status) : null],
+    ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : proposal.status) : null],
     ['Paste to proposal', toProposal != null ? mins(toProposal) : null],
     ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
     ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
@@ -1220,7 +1222,7 @@ async function jobView(id) {
     h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs')),
     pageHead(title, null, h('div', { class: 'row', style: 'gap:8px' }, canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
     waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn)),
-    h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
+    h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, s.source === 'claude_plugin' ? h('span', { class: 'chip brand', title: 'Screened and written in the Claude plugin, saved as it was sent' }, 'From the Claude plugin') : null, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
       s.skill_version ? h('span', { class: 'chip' }, 'Gate v' + s.skill_version) : null, s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
     h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
     postingCard(s, true),
@@ -1859,14 +1861,14 @@ async function connectView() {
   const status = (t) => (t.revoked_at ? h('span', { class: 'pill wait' }, 'Revoked') : new Date(t.expires_at) < new Date() ? h('span', { class: 'pill wait' }, 'Expired') : h('span', { class: 'pill PASS' }, 'Active'));
   const rows = tokens.map((t) => h('tr', {}, h('td', {}, t.name), h('td', {}, status(t)), h('td', {}, ago(t.created_at)), h('td', {}, t.last_used_at ? ago(t.last_used_at) : h('span', { class: 'faint' }, 'Never')), h('td', {}, new Date(t.expires_at).toLocaleDateString()),
     h('td', {}, !t.revoked_at && new Date(t.expires_at) > new Date() ? h('button', { class: 'btn sm', type: 'button', onclick: () => revoke(t) }, 'Revoke') : null)));
-  shell('connect', [pageHead('Connect Claude', 'Let Claude save data from your sheets into Upwork Pro. Claude reads the sheet, shows you what would change, and saves only when you say yes.'),
+  shell('connect', [pageHead('Connect Claude', 'Let Claude save into Upwork Pro: the jobs, proposals and statuses from your Claude plugin, and data from your sheets (previewed first, saved only when you say yes).'),
     h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'What you can import')),
       h('div', { class: 'card-pad' }, types.map((k) => h('div', { style: 'margin-bottom:10px' }, h('strong', {}, k.label + ' '), k.allowed ? h('span', { class: 'pill PASS' }, 'You can') : h('span', { class: 'pill wait' }, k.roles.join(' or ') + ' only'),
         h('div', { class: 'small muted' }, k.description))),
         h('p', { class: 'hint' }, 'You can only import what your role lets you edit on the website. Every import is previewed first, is written to the Logs, and can be undone as a whole.'))),
     h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'Make a token')),
       h('div', { class: 'card-pad' },
-        h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'A token is like a password for Claude: it can import and look things up as you, and nothing else (no jobs, no proposals, no settings). Keep it private. Revoke it if it leaks.'),
+        h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'A token is like a password for Claude: as you, it can import sheets, look things up, and save the jobs, proposals and statuses from your Claude plugin. Nothing else (no users, no settings). Keep it private. Revoke it if it leaks.'),
         h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tkname' }, 'Name'), name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tkdays' }, 'Expires after'), days)),
         h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:12px' }, make), out)),
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Your tokens')),

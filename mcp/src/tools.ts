@@ -53,6 +53,60 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
   T('list_tags', 'The tag dictionary: categories, tags and their weights.', {}, { readOnlyHint: true }, async () => api.call('GET', '/tags'));
   T('list_profiles', 'The Upwork profiles already in Upwork Pro.', {}, { readOnlyHint: true }, async () => api.call('GET', '/profiles'));
 
+  // ---------- the Claude plugin: save the job it screened, the proposal it wrote, and what happens on Upwork ----------
+  const PLUGIN_RULES = `HOW TO SAVE PLUGIN WORK INTO UPWORK PRO
+1. Call plugin_options once: it lists the profiles, project names, rule codes, statuses, outcomes and loss reasons the app accepts.
+2. Before save_job, call find_jobs with the job link: if the job is already saved, update that one instead of saving it again.
+3. save_job stores your screening as it is (the app does not screen it again): verdict, each fail and flag with its code and the value behind it,
+   the job and client facts, and the posting fields if you read them. Send the job page text exactly as pasted.
+4. If the person continues past a FLAG or FAIL, send their reason (decision.reason, or continue_reason on save_proposal). Never invent a reason.
+5. save_proposal stores the proposal text exactly as written, with the profile and project names you used. finished=true means ready to send.
+6. update_status only after it happened on Upwork: Sent first, then Viewed, Chat opened, Interview, then an outcome. "When" is now unless the person says otherwise.
+   A lost outcome needs one of the loss reasons, and the person's own words as the note if they gave any.`;
+
+  T('plugin_options', `The values Upwork Pro accepts from the Claude plugin: active Upwork profiles, project names, rule codes, statuses, outcomes and loss reasons. Call this first.\n\n${PLUGIN_RULES}`, {}, { readOnlyHint: true, openWorldHint: false },
+    async () => api.call('GET', '/plugin/options'));
+
+  T('find_jobs', 'Look up jobs already in Upwork Pro: by Upwork link (url) or job id, by text (q), or by phase. Use it before save_job so the same job is not saved twice.',
+    { url: z.string().optional(), job_id: z.string().optional(), q: z.string().optional(), phase: z.enum(['in_progress', 'submitted', 'closed', 'not_pursued']).optional(), limit: z.number().int().min(1).max(50).optional() },
+    { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/jobs?' + new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))));
+
+  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, and its latest proposal text.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
+
+  const pairs = z.array(z.object({ label: z.string(), value: z.string() }));
+  const rules = z.array(z.object({ code: z.string().describe('e.g. F2 or G14'), rule: z.string().optional(), value: z.string().optional().describe('The actual value behind it, e.g. "Hire rate 32%"') }));
+  T('save_job', 'Save a job the plugin screened. Stored as sent (the app does not screen it again) and marked as coming from the Claude plugin. Refused if the same Upwork job is already saved (use find_jobs), unless force_new.',
+    {
+      job_text: z.string().describe('The job page text exactly as pasted'), job_url: z.string().optional(), title: z.string(),
+      verdict: z.enum(['PASS', 'FLAG', 'FAIL']), fails: rules.optional(), flags: rules.optional(),
+      job: pairs.optional().describe('Job facts: posted, budget, length, hours, experience...'), client: pairs.optional(), competition: pairs.optional(),
+      fit: z.string().optional(), proposal_notes: z.array(z.string()).optional(),
+      client_country: z.string().optional(), budget: z.string().optional(), hire_rate: z.string().optional(), job_type: z.string().optional(),
+      posting: z.object({ posted: z.string().optional(), location: z.string().optional(), description: z.string().optional(), skills: z.array(z.string()).optional(), terms: pairs.optional(),
+        screening_questions: z.array(z.string()).optional(), activity: pairs.optional(), client: pairs.optional(),
+        client_history: z.array(z.object({ title: z.string().optional(), dates: z.string().optional(), amount: z.string().optional(), rating: z.string().optional(), feedback: z.string().optional() })).optional(),
+        other_open_jobs: z.array(z.string()).optional() }).optional().describe('The job post in fields, if you read them'),
+      decision: z.object({ continue: z.boolean(), reason: z.string().optional() }).optional().describe('If the person already decided: continue (a FLAG or FAIL needs their reason) or skip'),
+      force_new: z.boolean().optional(),
+    }, { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => api.call('POST', '/plugin/jobs', a));
+
+  T('record_decision', 'Record the person\'s decision on a saved job: continue (a FLAG or FAIL needs their reason) or skip.',
+    { id: z.number().int(), continue: z.boolean(), reason: z.string().optional() }, { readOnlyHint: false, destructiveHint: false }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/decision`, { continue: a.continue, reason: a.reason }));
+
+  T('save_proposal', 'Save the proposal the plugin wrote for a saved job, with the profile (name) and the project names it used. Saving again adds a new version. finished=true (default) means ready to send.',
+    { id: z.number().int(), text: z.string().describe('The proposal exactly as written'), profile: z.string().describe('Upwork profile name, see plugin_options'), projects: z.array(z.string()).optional(),
+      template: z.string().optional().describe('Proposal type or template used'), finished: z.boolean().optional(), continue_reason: z.string().optional().describe('Only for a FLAG or FAIL job with no decision yet') },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => { const { id, ...body } = a; return api.call('POST', `/plugin/jobs/${id}/proposal`, body); });
+
+  T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now.',
+    { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
+      reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional() },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    async (a) => {
+      const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      return api.call('POST', `/plugin/jobs/${a.id}/status`, { status: a.status, at: a.at || local, reason: a.reason, note: a.note });
+    });
+
   if (opts.importDir) {
     T('list_workbook_sheets', 'Local mode only: the sheets of an .xlsx workbook in the import folder.', { file: z.string().describe('File name inside the import folder') }, { readOnlyHint: true },
       async (a) => ({ file: a.file, sheets: await sheetNames(safePath(opts.importDir, a.file)) }));

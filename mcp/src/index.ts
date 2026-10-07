@@ -8,7 +8,7 @@ import { registerTools } from './tools';
 
 const BASE = process.env.UPWORK_PRO_URL || 'http://localhost:3000';
 export const makeServer = (api: Api, importDir?: string) => {
-  const s = new McpServer({ name: 'upwork-pro', version: '0.1.0' }, { instructions: 'Imports sheet data into Upwork Pro. Always preview, show the person, and get a yes before commit_import.' });
+  const s = new McpServer({ name: 'upwork-pro', version: '0.1.0' }, { instructions: 'Saves into Upwork Pro: the jobs, proposals and statuses from the Claude plugin (call plugin_options first, find_jobs before save_job), and sheet data (always preview, show the person, and get a yes before commit_import).' });
   registerTools(s, api, { importDir });
   return s;
 };

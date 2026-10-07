@@ -40,9 +40,12 @@ export async function logout(req: Request, res: Response) {
   res.clearCookie(COOKIE, { path: '/' });
 }
 
-/** What a personal access token may reach: the import endpoints and read-only lookups. Never jobs, proposals, users or settings. */
+/**
+ * What a personal access token may reach: the import endpoints, the Claude plugin endpoints (saving the person's own jobs,
+ * proposals and statuses) and read-only lookups. Never users, settings, or the website's own job pages.
+ */
 const tokenMayReach = (method: string, path: string) =>
-  path.startsWith('/import/') || (method === 'GET' && /^\/(projects|tags|profiles|industries|rules)(\/|$)/.test(path));
+  path.startsWith('/import/') || path.startsWith('/plugin/') || (method === 'GET' && /^\/(projects|tags|profiles|industries|rules)(\/|$)/.test(path));
 
 export async function attachUser(req: Request, _res: Response, next: NextFunction) {
   const bearer = /^Bearer (upw_[0-9a-f]{64})$/.exec(req.headers.authorization ?? '')?.[1];

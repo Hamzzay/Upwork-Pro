@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 013: early drafts, tracking, settings, AI call log, status dates, posting and change history
+npm run migrate        # applies 008 to 015: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
 # optional, spends AI quota: npm run backfill:postings   (reads older jobs' posts into fields; add -- --dry-run to count)
 # dev/demo only: npm run seed:examples   (12 example jobs across every Jobs tab; -- --remove takes them out)
@@ -327,6 +327,29 @@ itself moves on Upwork. This replaces the single stage list from R3.
   "Not yet", "None", "Default", "Primary", "Starter", "Yours", "Multi-select", "Any stated value", "Score", and the
   server's "Paste a job link or the job page text". Values the model writes in lower case ("not shown") are shown
   with a capital first letter on screen (`cap()` in `app.js`); the stored data is unchanged.
+
+### R14. The Claude plugin saves its jobs, proposals and statuses through the MCP (done)
+Built on top of Usman's MCP and tokens (his commit "Choose the AI in Settings ... import sheets through Claude (MCP)").
+- **Decision (Hamza): the app stores what the plugin sends as is.** It never screens the job again or rewrites the proposal: the plugin
+  is Claude itself. Every such job is marked `screenings.source = 'claude_plugin'` (migration `015_plugin_source.sql`), shown as
+  "Claude plugin" in the Jobs list and "From the Claude plugin" on the job page.
+- **New MCP tools** (`mcp/src/tools.ts`): `plugin_options`, `find_jobs`, `get_job`, `save_job`, `record_decision`, `save_proposal`,
+  `update_status`, with instructions telling Claude the order (options first, find before save, never invent a reason). Documented in
+  `mcp/README.md`.
+- **New API** (`src/routes_plugin.ts`, plus lookups in `routes.ts`): `GET /plugin/options`, `GET /plugin/jobs` (by link, job id, text,
+  phase), `GET /plugin/jobs/:id`, `POST /plugin/jobs`, `POST /plugin/jobs/:id/decision`, `POST /plugin/jobs/:id/proposal`, and
+  `GET/POST /plugin/jobs/:id/status`, which is **the same handler as the website's** status endpoint, so the rules and the history are
+  identical.
+- **Rules kept**: one job per Upwork job id (a second save is refused with the existing job's number, unless `force_new`); continuing past a
+  FLAG or FAIL needs a reason of the minimum length; Sent only once the proposal is finished; other statuses only after Sent; a lost outcome
+  needs a loss reason; profiles must be active ones; project names not in the library are kept and reported back.
+- **Tokens** (`auth.ts`): may now reach `/plugin/...` as well as imports and lookups. Still refused on the website's own pages, users,
+  settings and admin (checked: 401 on /screenings, /admin/*, /settings, /dashboard).
+- Plugin jobs are left out of every speed figure (time to proposal, dashboard averages): they arrive already written.
+- Checked end to end through the MCP SDK client against the running app: options, find, save, duplicate refused, FLAG without reason
+  refused, Sent before the proposal refused, proposal saved (unknown project reported), Sent, Viewed, lost without reason refused, get_job.
+  The test job is #47 (marked as an example); the test token was revoked.
+- Usman's own MCP test suite (`mcp/test/e2e.ts`) needs a scratch database on port 3055 and was not run here.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

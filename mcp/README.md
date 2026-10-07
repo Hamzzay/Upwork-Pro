@@ -19,6 +19,25 @@ Order for a full set: rules, tag dictionary, projects, profiles.
 **Not yet imported** (no place for them in the app yet, or waiting on a decision): the Job Log (past jobs), the per-person Proposals sheets (tracking),
 Daily Update, Connects, Active Chats, Potential Clients, Marketing Qualified Leads, Keywords and the rest of "Upwork Details". The chat and lead sheets hold client names, emails and contact details.
 
+## Saving work from the Claude plugin
+
+Besides sheet imports, the same MCP lets the **Claude plugin** (stackup-proposals) save its own work into Upwork Pro. The app stores what the
+plugin sends **as is**: it never screens the job again or rewrites the proposal, and every such job is marked "From the Claude plugin".
+
+| Tool | What it does |
+|---|---|
+| `plugin_options` | The profiles, project names, rule codes, statuses, outcomes and loss reasons the app accepts. Call it first. |
+| `find_jobs` | Look up saved jobs by Upwork link, job id, text or phase, so the same job is never saved twice. |
+| `get_job` | One job: where it stands, its status history and its latest proposal text. |
+| `save_job` | The job the plugin screened: page text, link, title, verdict, each fail and flag (code, rule, value), job and client facts, the posting fields, and the person's decision. Refused if that Upwork job is already saved (unless `force_new`). |
+| `record_decision` | Continue (a FLAG or FAIL needs the person's reason) or skip. |
+| `save_proposal` | The proposal text exactly as written, the profile and project names used, the template. A second save adds a version. `finished` (default true) means ready to send. |
+| `update_status` | What happened on Upwork, with its date and time (default now): Sent, Viewed, Chat opened, Interview, then an outcome (a lost outcome needs a loss reason). |
+
+The same rules as the website apply, because the plugin calls the same API: Sent only once the proposal is finished, the other statuses
+only once it is Sent, a reason for every lost outcome, every change kept in the status and change history. A token reaches only the
+person's own jobs (managers and admins: all), and never users, settings or the website's own pages.
+
 ## Run it on your machine (test)
 
 ```
@@ -49,7 +68,7 @@ Then ask Claude, for example: *"Import the Rule Codes sheet from Upwork Jobs His
 
 ## Safety, in short
 
-- A token reaches only the import endpoints and read-only lookups: never jobs, proposals, users or settings. It expires (default 90 days), can be revoked, and is stored only as a hash.
+- A token reaches only the import endpoints, the Claude plugin endpoints (`/plugin/...`: the person's own jobs, proposals and statuses) and read-only lookups: never users, settings or the website's own pages. It expires (default 90 days), can be revoked, and is stored only as a hash.
 - `commit_import` needs the `preview_checksum` of the preview the person saw. Rows added after, or a changed preview, mean it must be looked at again.
 - All rows are saved together or not at all. If someone else changed the data after the preview, the save stops and says which row.
 - Rows are never fixed silently: invalid rows are listed with the reason and left out only if the person agrees (`skip_invalid`).

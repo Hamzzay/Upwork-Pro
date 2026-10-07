@@ -13,6 +13,8 @@ import { imports } from './routes_import';
 import { validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
+import { plugin } from './routes_plugin';
+import { htmlToPlain } from './html';
 import { withCallContext } from './llm/context';
 import { testCall } from './llm';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
@@ -22,6 +24,7 @@ api.use(attachUser);
 api.use(library);
 api.use(proposals);
 api.use(imports);
+api.use(plugin);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);
 
@@ -98,12 +101,12 @@ const statusAtSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome_at WHEN s.in
   WHEN s.client_viewed='yes' THEN s.client_viewed_at ELSE COALESCE(s.proposal_sent_at, s.proposal_sent_date) END`;
 const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
   LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
-const listSelect = `SELECT s.id, s.user_id, s.notes, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
+const listSelect = `SELECT s.id, s.user_id, s.notes, s.source, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
   s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
   s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date,
   u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
   p.status AS proposal_status, p.finalized_at AS proposal_finalized_at, p.template_name,
-  TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, ${stageSql} AS stage, ${phaseSql} AS phase,
+  IF(s.source = 'claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS secs_to_proposal, ${stageSql} AS stage, ${phaseSql} AS phase,
   TIMESTAMPDIFF(DAY, COALESCE(${statusAtSql}, s.created_at), NOW()) AS days_since_update,
   TIMESTAMPDIFF(DAY, COALESCE(s.proposal_sent_at, s.proposal_sent_date), s.outcome_at) AS days_to_close, s.outcome_reason, s.proposal_sent_at,
   ${statusSql} AS current_status, ${statusAtSql} AS status_at
@@ -195,11 +198,11 @@ api.get('/dashboard', requireRole(), async (req, res) => {
       SUM(p.finished_at IS NOT NULL) AS proposals, SUM(p.finalized_at IS NOT NULL) AS finalized, SUM(s.proposal_sent_date IS NOT NULL) AS sent,
       SUM(s.client_viewed='yes') AS viewed, SUM(s.client_replied='yes') AS replied, SUM(s.interviewed='yes') AS interviewed, SUM(s.outcome='Hired') AS hired,
       SUM(s.connects_spent) + COALESCE(SUM(s.boost_connects), 0) AS connects,
-      AVG(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS avg_to_proposal, MIN(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS min_to_proposal,
-      MAX(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS max_to_proposal,
-      AVG(TIMESTAMPDIFF(SECOND, COALESCE(s.started_at, s.created_at), s.finished_at)) AS avg_screening,
+      AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS avg_to_proposal, MIN(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS min_to_proposal,
+      MAX(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS max_to_proposal,
+      AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, COALESCE(s.started_at, s.created_at), s.finished_at))) AS avg_screening,
       AVG(TIMESTAMPDIFF(SECOND, s.continued_at, s.tagged_at)) AS avg_matching,
-      AVG(TIMESTAMPDIFF(SECOND, p.created_at, p.finished_at)) AS avg_writing
+      AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, p.created_at, p.finished_at))) AS avg_writing
     ${listFrom} ${w.sql}`);
   const stages = await query<any>(`SELECT (${stageSql}) AS stage, COUNT(*) AS n ${listFrom} ${w.sql} GROUP BY 1`, w.p);
   const waiting = await query<any>(`SELECT s.id, s.title, u.name AS user_name, s.created_at, (${stageSql}) AS stage ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} (${stageSql}) IN (?)
@@ -208,7 +211,7 @@ api.get('/dashboard', requireRole(), async (req, res) => {
     ${listFrom} ${w.sql} GROUP BY DATE(s.created_at) ORDER BY d DESC LIMIT 31`, w.p);
   const by = (col: string, name: string) => query<any>(`SELECT ${col} AS id, ${name} AS name, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued,
       SUM(p.finished_at IS NOT NULL) AS proposals, SUM(s.proposal_sent_date IS NOT NULL) AS sent, SUM(s.outcome='Hired') AS hired,
-      AVG(TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS avg_to_proposal
+      AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS avg_to_proposal
     ${listFrom} ${w.sql} GROUP BY ${col}, ${name} ORDER BY screened DESC LIMIT 20`, w.p)
     .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, screened: n(r.screened), continued: n(r.continued), proposals: n(r.proposals), sent: n(r.sent), hired: n(r.hired),
       avg_to_proposal: r.avg_to_proposal == null ? null : Math.round(Number(r.avg_to_proposal)) })));
@@ -394,6 +397,29 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- the Claude plugin: look jobs up before saving, so the same job is not saved twice ----------
+const pluginSelect = () => listSelect.replace(listFrom, `, s.upwork_job_id ${listFrom}`);
+const pluginRow = (r: any) => ({ id: r.id, title: r.title, source: r.source, job_url: r.source_url, upwork_job_id: r.upwork_job_id, verdict: r.verdict, rule_codes: r.rule_codes,
+  stage: r.stage, phase: r.phase, status: r.current_status, status_at: r.status_at, outcome: r.outcome, profile: r.profile_name, by: r.user_name, created_at: r.created_at, url: `/#/s/${r.id}` });
+api.get('/plugin/jobs', requireRole(), async (req, res) => {
+  const f = z.object({ url: z.string().max(500).optional(), job_id: z.string().regex(/^\d{10,30}$/).optional(), q: z.string().trim().max(100).optional(),
+    phase: z.enum(PHASES).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }).parse(req.query);
+  const w = listWhere(req, { q: f.q, phase: f.phase });
+  const jid = f.job_id ?? (f.url ? jobIdFromUrl(f.url) : null);
+  const where = [w.sql ? w.sql.replace(/^WHERE /, '') : '', jid ? 's.upwork_job_id=?' : f.url ? 's.source_url=?' : ''].filter(Boolean);
+  const rows = await query<any>(`${pluginSelect()} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY s.id DESC LIMIT ?`,
+    [...w.p, ...(jid ? [jid] : f.url ? [f.url] : []), f.limit]);
+  res.json({ jobs: rows.map(pluginRow) });
+});
+api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const r = (await query<any>(`${pluginSelect()} WHERE s.id=?`, [id]))[0];
+  if (!r || (!canSeeAll(req.user!.role) && r.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  const cur = (await query<any>('SELECT v.version_no, v.content_html FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
+  const events = await query('SELECT status, happened_at, reason, note FROM status_events WHERE screening_id=? ORDER BY happened_at, id', [id]);
+  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html) } : null, status_history: events } });
+});
+
 // The gate's fails and flags for one job, with each rule and the value behind it: the Result column's detail.
 api.get('/screenings/:id/flags', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
@@ -416,7 +442,7 @@ api.post('/screenings/:id/posting', requireRole(), async (req, res) => {
 });
 
 // One click from the Jobs list: what happened on Upwork, and when (now unless the person changes it). Every change is kept.
-api.post('/screenings/:id/status', requireRole(), async (req, res) => {
+const postStatus = async (req: any, res: any) => {
   const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
   const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time'),
     reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish() }).safeParse(req.body);
@@ -446,15 +472,19 @@ api.post('/screenings/:id/status', requireRole(), async (req, res) => {
   await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, req.user!.id, lost ? b.data.reason : null, b.data.note || null]);
   await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}`);
   res.json({ ok: true });
-});
-api.get('/screenings/:id/status', requireRole(), async (req, res) => {
+};
+api.post('/screenings/:id/status', requireRole(), postStatus);
+api.post('/plugin/jobs/:id/status', requireRole(), postStatus); // the same rules for the Claude plugin
+const getStatus = async (req: any, res: any) => {
   const id = Number(req.params.id);
   const s = (await query<any>(`SELECT s.user_id, ${statusSql} AS current_status, ${stageSql} AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const events = await query('SELECT e.status, e.happened_at, e.created_at, e.reason, e.note, u.name AS user_name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.happened_at DESC, e.id DESC', [id]);
   const cfg = await getSettings();
   res.json({ current: s.current_status, stage: s.stage, events, choices: s.stage === 'ready' ? ['Sent'] : ['Sent', 'Viewed', 'Chat opened', 'Interview', ...cfg['tracking.outcomes']], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'] });
-});
+};
+api.get('/screenings/:id/status', requireRole(), getStatus);
+api.get('/plugin/jobs/:id/status', requireRole(), getStatus); // the same rules for the Claude plugin
 
 // ---------- step 2: continue, tag the job, match projects ----------
 const ownedDone = async (req: any, res: any) => {
