@@ -24,7 +24,9 @@
     "seed:settings:prod": "node dist/scripts/seed-settings.js",
     "backfill:postings": "ts-node scripts/backfill-postings.ts",
     "backfill:postings:prod": "node dist/scripts/backfill-postings.js",
-    "seed:examples": "ts-node scripts/seed-examples.ts"
+    "seed:examples": "ts-node scripts/seed-examples.ts",
+    "gate:codes": "ts-node scripts/gate-add-codes.ts",
+    "gate:codes:prod": "node dist/scripts/gate-add-codes.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.282",

@@ -195,7 +195,9 @@ function proposalSection(s, initial, matching) {
 
   function workspace() {
     const cur = data.current; loaded = cur.version_no;
-    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { saveBtn.disabled = !d; dirtyChip.hidden = !d; } });
+    const counter = h('div', { class: 'counter-line faint small' });
+    const count = () => { const t = htmlToPlainText(editor.getHtml()); const words = t.trim() ? t.trim().split(/\s+/).length : 0; counter.textContent = `${words} words · ${t.length.toLocaleString()} characters` + (t.length > 5000 ? ' · over 5,000: Upwork may cut it off' : ''); counter.classList.toggle('over', t.length > 5000); };
+    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { saveBtn.disabled = !d; dirtyChip.hidden = !d; count(); } });
     const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
     const saveBtn = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Save as new version');
     saveBtn.onclick = async () => {
@@ -217,11 +219,12 @@ function proposalSection(s, initial, matching) {
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
     const staleBox = stale ? h('div', { class: 'newer', style: 'margin-top:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name} after this proposal was written, so the sign-off is out of date.`), owner ? startBtn('Write it again') : null) : null;
     const warns = data.warnings.length ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'Check before you send'), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
+    count();
     return h('div', {},
       staleBox,
       warns,
       h('div', { class: 'row spread', style: 'margin:12px 0 8px' }, h('div', { class: 'row', style: 'gap:8px' }, vsel, dirtyChip), h('div', { class: 'row' }, owner ? saveBtn : null, copyBtn)),
-      viewing, bannerEl, editor.el,
+      viewing, bannerEl, editor.el, counter,
       h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`),
       h('div', { style: 'height:16px' }), explain(), h('div', { style: 'height:16px' }), h('div', { class: 'chatpanel' }));
   }

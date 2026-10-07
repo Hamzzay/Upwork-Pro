@@ -563,3 +563,37 @@ dialog .ss-pop { position: absolute; }
 .flaglist li { display: grid; gap: 3px; }
 .tl.compact li { grid-template-columns: 110px 1fr; padding: 5px 0 5px 12px; font-size: 13px; }
 .tl.compact li::before { top: 10px; }
+
+/* ---------- phone widths ---------- */
+.dgrid > *, .dpanel, .card { min-width: 0; }
+.hbar { grid-template-columns: minmax(90px, 34%) minmax(0, 1fr) 40px auto; }
+@media (max-width: 700px) {
+  .hbar { grid-template-columns: minmax(0, 1fr) 40px auto; row-gap: 4px; }
+  .hbar .track { grid-column: 1 / -1; grid-row: 2; }
+  .bigtime { font-size: 28px; }
+  .dashbar { padding: 4px; }
+  .seg { max-width: 100%; overflow-x: auto; }
+  /* wide tables scroll sideways: a soft shadow on the edge shows there is more */
+  .tablewrap { background: linear-gradient(to right, var(--surface) 30%, transparent), linear-gradient(to left, var(--surface) 30%, transparent) 100% 0,
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.18), transparent), radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.18), transparent) 100% 0;
+    background-repeat: no-repeat; background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%; background-attachment: local, local, scroll, scroll; -webkit-overflow-scrolling: touch; }
+  table.jobs td.jobcell { min-width: 170px; max-width: 220px; }
+}
+@media (max-width: 900px) {
+  /* the sidebar becomes one row: the links scroll sideways instead of stacking in three rows */
+  .side { flex-wrap: nowrap; }
+  .nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { flex: none; }
+}
+
+.counter-line { margin-top: 6px; display: flex; gap: 6px; }
+.counter-line.over { color: var(--flag); font-weight: 600; }
+
+.nowrap { white-space: nowrap; }
+.rulestable { min-width: 640px; }
+@media (max-width: 700px) {
+  .setrow { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .setin { width: 100%; }
+  .setin input, .setin select, .setin textarea { flex: 1; min-width: 0; }
+}

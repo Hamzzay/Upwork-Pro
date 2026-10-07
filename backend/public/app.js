@@ -1228,7 +1228,7 @@ async function jobView(id) {
       proposal.warnings && proposal.warnings.length ? h('details', { class: 'desc' }, h('summary', {}, `Warnings to check (${proposal.warnings.length})`), h('ul', { class: 'plain' }, proposal.warnings.map((w) => h('li', {}, w.text)))) : null),
       h('div', { class: 'row', style: 'gap:8px;margin-left:auto' }, proposal.current ? h('span', { class: 'sub' }, `Version ${proposal.current.version_no}`) : null, copyBtn)) : null,
     projectList ? section('Projects', 'Shown to the person, with the ones chosen', projectList) : null,
-    section('Screening report', `Gate v${s.skill_version || '-'}`, h('div', { class: 'card-pad' }, s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1)))),
+    section('Screening report', s.skill_version ? `Gate v${s.skill_version}` : null, h('div', { class: 'card-pad' }, s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1)))),
     h('div', { style: 'height:16px' }), recordDetails(s, override, matching, proposal),
   ];
   const tl = timelineCard(id); parts.push(tl);
@@ -1732,7 +1732,8 @@ async function auditView() {
 
 // ---------- rules (admin) ----------
 async function rulesView() {
-  const { rules } = await api('GET', '/admin/rules');
+  const { rules, gate_version } = await api('GET', '/admin/rules');
+  const notInPrompt = rules.filter((r) => r.active && !r.in_prompt);
   const add = (type) => {
     const ta = h('textarea', { id: 'nr', style: 'min-height:80px', maxlength: 300, placeholder: type === 'fail' ? 'e.g. Client asks for work outside Upwork' : 'e.g. Job needs a language we do not use' });
     modal({ title: type === 'fail' ? 'Add a FAIL rule' : 'Add a FLAG rule', confirm: 'Add rule', body: h('div', {},
@@ -1747,15 +1748,16 @@ async function rulesView() {
       onConfirm: async () => { await api('PATCH', '/admin/rules/' + r.code, { rule: ta.value }); toast(r.code + ' saved'); route(); } });
   };
   const toggle = async (r) => { await api('PATCH', '/admin/rules/' + r.code, { active: !r.active }); toast(r.code + (r.active ? ' retired' : ' restored')); route(); };
-  const table = (type) => h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Code', 'Rule', 'Fired on', 'Status', ''].map((x) => h('th', {}, x)))),
+  const table = (type) => h('div', { class: 'tablewrap' }, h('table', { class: 'rulestable' }, h('thead', {}, h('tr', {}, ['Code', 'Rule', 'Fired on', 'Status', ''].map((x) => h('th', {}, x)))),
     h('tbody', {}, rules.filter((r) => r.type === type).map((r) => h('tr', { class: r.active ? '' : 'retired' },
       h('td', { class: 'mono' }, h('strong', {}, r.code)), h('td', { style: 'white-space:normal' }, r.rule),
       h('td', {}, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-      h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired')),
+      h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired'), r.active && !r.in_prompt ? h('span', { class: 'chip nowrap', style: 'margin-left:6px', title: 'The active gate prompt never mentions this code, so the model does not apply it.' }, 'Not in the prompt') : null),
       h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Reword'),
         h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore'))))))));
   shell('rules', [pageHead('Rules', 'The FAIL and FLAG codes the gate reports. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.'),
     h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), 'This list is what the app knows each code means. The gate prompt in Upwork JobGate is what the model applies, so keep the two in step.'),
+    notInPrompt.length ? h('div', { class: 'warnbox', style: 'margin:0 0 16px' }, h('strong', {}, icon('warn'), `${notInPrompt.length} active rule${notInPrompt.length === 1 ? ' is' : 's are'} not written in the active gate prompt (version ${gate_version ?? '-'})`), h('p', { style: 'margin:6px 0 0' }, notInPrompt.map((r) => r.code).join(', ') + '. The model will not apply ' + (notInPrompt.length === 1 ? 'it' : 'them') + ' until the prompt names ' + (notInPrompt.length === 1 ? 'it' : 'them') + '. ', h('a', { href: '#/skill' }, 'Open Upwork JobGate'))) : null,
     h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'FAIL rules'), h('button', { class: 'btn sm primary', onclick: () => add('fail') }, 'Add FAIL rule')), table('fail')),
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'FLAG rules'), h('button', { class: 'btn sm primary', onclick: () => add('flag') }, 'Add FLAG rule')), table('flag'))], true);
 }

@@ -7,10 +7,11 @@ import { loadContext } from './screening/context';
 import { normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
 import { library } from './routes_library';
+import { codesMissingFromPrompt } from './screening/gatecodes';
 import { proposals, proposalFor } from './routes_proposals';
 import { validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
-import { getSettings, setSetting, SETTINGS, type SettingKey } from './settings';
+import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { withCallContext } from './llm/context';
 
 export const api = Router();
@@ -355,6 +356,17 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
     if (!reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
     if (!cfg['tracking.loss_reasons'].includes(reason)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
   } else if (b.data.outcome !== undefined) { b.data.outcome_reason = null; } // not lost: no loss reason
+  // the same order as the status button: sent only once the proposal is finished; viewed, chat, interview and outcomes only once it is sent
+  const changed = <K extends keyof typeof before>(k: K, v: any) => v !== undefined && (v === '' ? null : v) !== before[k];
+  const becomesSent = changed('proposal_sent_date', b.data.proposal_sent_date) && b.data.proposal_sent_date;
+  const becomesMilestone = (['client_viewed', 'client_replied', 'interviewed'] as const).some((k) => changed(k, b.data[k]) && b.data[k] === 'yes')
+    || (changed('outcome', b.data.outcome) && b.data.outcome && b.data.outcome !== 'Pending');
+  if (becomesSent || becomesMilestone) {
+    const stage = (await query<any>(`SELECT (${stageSql}) AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0]?.stage;
+    const sentAfter = b.data.proposal_sent_date !== undefined ? b.data.proposal_sent_date : before.proposal_sent_date;
+    if (becomesSent && !['ready', 'submitted', 'closed'].includes(stage)) return void res.status(409).json({ error: 'Finish the proposal before marking it as sent' });
+    if (becomesMilestone && !sentAfter && !before.proposal_sent_at) return void res.status(409).json({ error: 'Mark the proposal as sent first' });
+  }
   const sets: string[] = []; const p: any[] = [];
   for (const k of TRACK_KEYS) {
     if (b.data[k] !== undefined) { sets.push(`${k}=?`); p.push(b.data[k] === '' ? null : b.data[k]); }
@@ -715,10 +727,10 @@ api.put('/admin/settings/:key', admin, async (req, res) => {
   const key = req.params.key as SettingKey;
   if (!(key in SETTINGS)) return void res.status(404).json({ error: 'Unknown setting' });
   try {
-    // the pick range must stay valid: check against the other end before saving
+    // settings that depend on each other (how many are shown, recommended, and may be picked) must still agree after this change
     const cur = await getSettings(); const value = SETTINGS[key].schema.parse(req.body?.value);
-    const lo = key === 'selection.min' ? value : cur['selection.min'], hi = key === 'selection.max' ? value : cur['selection.max'];
-    if ((key === 'selection.min' || key === 'selection.max') && Number(lo) > Number(hi)) return void res.status(400).json({ error: 'The fewest projects to pick cannot be more than the most' });
+    const conflict = settingsConflict({ ...cur, [key]: value } as any);
+    if (conflict) return void res.status(400).json({ error: conflict });
     const v = await setSetting(key, value, req.user!.id);
     await audit(req.user!.id, 'setting_change', `${key}=${JSON.stringify(v).slice(0, 300)}`);
     res.json({ ok: true, value: v });
@@ -736,7 +748,10 @@ api.get('/admin/rules', admin, async (_req, res) => {
   for (const r of await query<any>('SELECT rule_codes FROM screenings WHERE rule_codes IS NOT NULL')) {
     for (const c of String(r.rule_codes).split(/\s*,\s*/).filter(Boolean)) fired.set(c, (fired.get(c) ?? 0) + 1);
   }
-  res.json({ rules: rules.map((r) => ({ ...r, active: !!r.active, fired: fired.get(r.code) ?? 0 })) });
+  // which active codes the ACTIVE gate prompt never mentions: the model only applies rules the prompt names
+  const gate = (await query<any>('SELECT version, content FROM skill_versions WHERE is_active=1 LIMIT 1'))[0];
+  const missing = new Set(gate ? codesMissingFromPrompt(gate.content, rules.map((r) => ({ code: r.code, active: !!r.active }))) : rules.filter((r) => r.active).map((r) => r.code));
+  res.json({ rules: rules.map((r) => ({ ...r, active: !!r.active, fired: fired.get(r.code) ?? 0, in_prompt: !r.active || !missing.has(r.code) })), gate_version: gate ? gate.version : null });
 });
 api.post('/admin/rules', admin, async (req, res) => {
   const b = z.object({ type: z.enum(['fail', 'flag']), rule: z.string().trim().min(5, 'Describe the rule').max(300) }).safeParse(req.body);

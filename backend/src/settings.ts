@@ -45,3 +45,12 @@ export async function setSetting(key: SettingKey, value: unknown, userId: number
   await exec('INSERT INTO app_settings (k, v, updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE v=VALUES(v), updated_by=VALUES(updated_by)', [key, JSON.stringify(parsed), userId]);
   return parsed;
 }
+
+/** Settings that must agree with each other. Returns what is wrong, in plain words, or null. */
+export function settingsConflict(c: Pick<Settings, 'matching.shown' | 'matching.recommended' | 'selection.min' | 'selection.max'>): string | null {
+  if (c['selection.min'] > c['selection.max']) return 'The fewest projects to pick cannot be more than the most';
+  if (c['selection.max'] > c['matching.shown']) return 'Projects shown must be at least the most a person can pick';
+  if (c['matching.recommended'] > c['selection.max']) return 'Projects recommended cannot be more than the most a person can pick';
+  if (c['matching.recommended'] < c['selection.min']) return 'Projects recommended cannot be fewer than the fewest a person must pick';
+  return null;
+}

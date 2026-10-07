@@ -1,121 +1,107 @@
 # Upwork Pro
 
-Screens an Upwork job against the Stackup SOP (the `SKILL.md` rules) and returns PASS, FLAG or FAIL.
-Input is a job link or pasted job page text. Every screening is saved. On FAIL or FLAG the user must
-give a reason to continue, and the reason is kept.
+A tool for the Stackup team that takes an Upwork job from paste to proposal to outcome:
 
-Stack: Node (Express 5, TypeScript), MySQL/MariaDB, GLM through Z.ai via the pinned Claude Code CLI
-(follows `claude-code-in-backend-glm-guide.pdf`).
+1. **Screen** the job against the Stackup SOP (the gate prompt) and get PASS, FLAG or FAIL with the rule codes behind it.
+2. **Decide**: continue (a FLAG or FAIL needs a reason that is kept on record).
+3. **Projects**: the job is tagged from the tag dictionary and matched to the Stackup project library; the person picks 1 or 2 of the top projects.
+4. **Profile**: the Upwork profile the proposal is sent from.
+5. **Proposal**: signals are detected, the best template is chosen, and the proposal is written, then edited by hand or by chat.
+6. **Track** what happens on Upwork: sent, viewed, chat opened, interview, outcome (a lost job needs a reason).
 
-## How it works
+Stack: Node (Express 5, TypeScript), MySQL/MariaDB, GLM through Z.ai via the pinned Claude Code CLI (see
+`claude-code-in-backend-glm-guide.pdf`). The browser app is plain JavaScript in `backend/public`.
+`NEW-UPDATES.md` is the change log of the speed and refinement rounds (branch `hamza`).
 
-1. `POST /api/screenings` detects link vs text and stores a `queued` row. It answers at once.
-2. `src/worker.ts` (separate process) claims queued rows, loads the active skill version from the database,
-   calls the model with `--tools ''` and a JSON schema, validates the answer with zod and saves it.
-3. The page polls the record until it is `done` or `error`.
-4. FAIL or FLAG: `POST /api/screenings/:id/override` with a reason (15+ characters). One per screening.
+## Pages
 
-The skill text is an editable database row (`skill_versions`). The output format is a fixed contract in
-`src/screening/contract.ts` appended after the skill text, so an admin edit cannot break report parsing.
-Saving a skill creates a new version; it only takes effect when activated. Each screening stores the version it used.
+| Page | Who | What it does |
+|---|---|---|
+| **Dashboard** | everyone (own jobs for employees) | KPIs, funnel from screened to hired, speed per step, jobs needing action, rules that fire most, by person and profile. Period and filters; every number opens the Jobs list with the same filters. |
+| **Screen a job** | everyone | Paste a job link or the page text. |
+| **Jobs** | everyone (own jobs for employees) | Tabs **All, In progress, Submitted, Closed, Not pursued** with counts; search and filters (dates, rule code, profile, person, outcome); sortable columns and a column picker; **Export** of exactly the filtered list to Excel or CSV; one-click **Update status**. |
+| **A job** | owner, managers, admins | A read-only detail page with everything about the job. **Edit** opens the five-step workflow (Screening, Projects, Profile, Proposal, Tracking) with Previous and Next. |
+| Projects, Industries | everyone read; managers and admins edit | The project library, with tags and industries (many to many). |
+| Tag dictionary, Upwork profiles | admin | Tags and categories (with scores), and the profiles proposals are sent from. |
+| Templates, Signals | managers and admins (signals: admin edits) | Proposal templates (rich-text format, prompt, the signals each suits, sample proposals) and the 16 detection signals. |
+| **Upwork JobGate** | admin | The gate prompt, in versions. Saving never overwrites: it makes a new version that only counts once activated. Has a test box. |
+| **Rules** | admin | The FAIL and FLAG codes, how many jobs each fired on, add / reword / retire. Warns when an active code is not named in the active gate prompt. |
+| **Settings** | admin | Projects shown, recommended, the fewest and most a person can pick (1 to 2), the minimum match score, the shortest override reason, outcome choices and lost reasons, quiet days, rules passed to the writer. Applied to the next job, no restart. |
+| Users | admin | Accounts and roles. |
+| **Logs** | admin | **Activity** (audit log with filters) and **AI calls** (every model call: job, step, model, time, failures). |
 
-## Project library and sheet columns
+## How a job moves
 
-- `tag_categories`, `tags`, `projects`, `project_tags` hold the Stackup tag dictionary and the delivered projects. `seed/library.json`
-  was generated from `Stackup Project Tag old.xlsx` and `Upwork Jobs History.xlsx` (`scripts/xlsx-to-seed.ts`, dev only).
-  Seeding never overwrites edits made in the app.
-- `rules` holds the F1 to F5 and G1 to G17 codes. Each screening records its rule codes.
-- Every column of the Upwork Jobs History sheet is a column of `screenings`. The app fills date, profile, URL and description;
-  the model fills the extracted fields (as text, since the sheet mixes numbers and notes); the app derives fail reasons, flag reasons
-  and rule codes; people fill Proceeded, Proposal sent date, Outcome and Notes on the record page.
-- Sample Match names real library projects. The model is shown the project list and names outside it are dropped.
-- Database changes are numbered files in `sql/migrations/`, applied by `npm run migrate` (tracked in `schema_migrations`).
+- The worker (`npm run worker`) does all model work: screening, reading the posting into fields, tagging, signals, early drafts, the proposal and the chat.
+  The web server only stores jobs and shows them; a page polls until the worker is done.
+- **On PASS**, tagging and matching start at once, before anyone clicks Continue; on FLAG or FAIL nothing else runs until the person continues with a reason.
+- **Signals** are read in three parallel calls (one per layer) alongside tagging. When matching finishes, an **early draft** is written for the 2 recommended
+  projects and the likely profile; it is used only if the person then confirms the same projects and profile.
+- Matching is done by the app, not the model: a project scores the sum of the weights of the tags it shares with the job; a missing compliance tag ranks a
+  project lower. The top projects are stored with their scores and shared tags; names are copied, so deleting a project later changes no old result.
+- The **template** is the best fit for the detected signals (sum of the weights of the matching rows; ties by priority; default when nothing matches).
+  The writer follows fixed rules that no template or sample can override: no invented facts, links or numbers; samples are tone and structure only;
+  sign-off with the profile's name and GitLab account; the client's own required structure wins. Checks run in code and show as warnings above the editor.
+- The proposal is rich text. Every save, chat revision and restore is a version; the chat is stored with the version each message was based on and produced.
+- A job is **Submitted** when marked Sent and **Closed** at a final outcome (Pending keeps it Submitted). The server enforces the order:
+  Sent only after the proposal is finished; Viewed, Chat opened, Interview and outcomes only after Sent. Every change is kept as old value to new value.
 
-## After the screening: continue, tags, matching projects
+## Gate prompt and rule codes
 
-1. PASS: a **Continue** button. FLAG or FAIL: **Continue anyway** with a reason (kept on record). Either one starts step 2.
-2. The worker asks the model to pick tags from the tag dictionary for the pasted job text, with a reason for each (`job_tags`).
-3. The app (not the model) scores every active library project: the sum of the weights of the tags it shares with the job
-   (`tags.weight`; "AI powered" is 0). If the job needs a compliance tag, projects missing it rank below those that have it.
-   The top 5 are stored with their scores and shared tags (`job_matches`); the best 2 are marked recommended.
-4. The submitter confirms exactly 2 of those 5 (default: the 2 recommended). Managers and admins can read everything.
-   Names of projects and tags are copied into the history rows, so deleting a project later does not change old results.
+The model applies the rules written in the gate prompt (Upwork JobGate); the Rules page is what the app knows each code means. Keep the two in step:
 
-- After the 2 projects are confirmed, the submitter picks the one Upwork profile the proposal will be sent from (`screenings.proposal_profile_id`).
-  This is separate from the profile chosen when the job was submitted (the sheet's "Upwork Profile" column).
-- The model may choose as many dictionary tags as apply: there is no limit.
-- **Tag dictionary** (admin): tags and categories can be added, edited, disabled and deleted, and a tag's score (0 to 10) edited inline.
-  A category flagged as *compliance* gets the stricter tagging rule and the push-down in matching.
-- **Industries** (admin and manager edit, everyone reads): many-to-many with projects, edited from either side. They were created once from the
-  "Industry" tag category and the projects' industry tags, and are independent of those tags from then on (matching still scores the Industry tags).
-
-## The record page is a stepper
-
-Five steps with Previous and Next: **Screening** (report, Continue or Continue anyway), **Projects** (tags and the 2 projects), **Profile**, **Proposal**, **Tracking**.
-A step opens once the one before it is done. The profile is no longer asked when a job is submitted: choosing it in step 3 starts the proposal by itself,
-and **Done** in step 4 opens Tracking. Changing the profile later does not rewrite the proposal; it shows a notice and a "Write it again" button.
-
-## Step 4: the proposal
-
-After the 2 projects and the sending profile are confirmed, **Write the proposal** runs a pipeline in the worker:
-
-1. **Signals.** The model reads the job and, for each of the 16 signals (`signals`, `signal_values`, seeded from the three detection guides), picks the value
-   that fits or the signal's fallback. Missing signals are filled with their fallback (signal 5 with "No"). Stored in `job_signals` with the evidence.
-2. **Template.** Each template lists the signals it suits (`template_signals`: a signal, optionally one value, and a weight). The score is the sum of the weights
-   of the rows that match; ties go to the lower priority number, and when nothing matches the lowest priority number is the default. The ranking is stored and shown.
-3. **Writing.** The writer gets the template format and prompt, the "move" of every detected signal, up to 3 sample proposals of that template, the sender profile,
-   the 2 projects, and the client's own requirements from the screening. Fixed rules (not editable) apply on top: no invented facts, links or numbers; samples are
-   tone and structure only; sign-off with the profile name and its GitLab account; the client's required structure or opening word wins.
-4. **Checks** run in code and show as warnings above the editor: a selected project missing, a library project or a sample author named, a link or percentage that was
-   not provided, the sign-off missing, "we" used.
-
-The proposal is rich text. Every save, chat revision and restore is a new version (`proposal_versions`); the chat is stored in `proposal_messages` with the version each
-message was based on and the version it produced. A chat revision never replaces text you are still editing: a banner offers it instead.
+- Rules are never renumbered or reused: reword or retire one, and give a new meaning a new code.
+- `npm run gate:codes` saves a new **inactive** gate version in which every FAIL and FLAG line carries its code (F1 to F5, G1 to G17). It starts from the newest
+  version that already has every rule (the one with flag 17). Activate it in Upwork JobGate once you are happy with it; until then screening is unchanged.
+- The Rules page lists any active code the active prompt does not mention.
 
 ## Roles
 
 | | employee | manager | admin |
 |---|---|---|---|
-| Screen jobs, see own records, continue with a reason | yes | yes | yes |
-| See all records and all override reasons (read only) | no | yes | yes |
-| Add, edit and delete projects; edit tracking on any record | no | yes | yes |
-| Upwork profiles, users, tag dictionary, Upwork JobGate editor and test box, audit log | no | no | yes |
+| Screen jobs, see and work on their own jobs, continue with a reason | yes | yes | yes |
+| See every job and every override reason; edit tracking on any job | no | yes | yes |
+| Add, edit and delete projects, industries, templates and samples | no | yes | yes |
+| Upwork profiles, users, tag dictionary, signals, Upwork JobGate, Rules, Settings, Logs | no | no | yes |
 
 ## Run it
 
 ```
 cd backend
-cp .env.example .env            # fill in DB password, SEED_ADMIN_*, and later the Z.ai key
+cp .env.example .env            # DB password, SEED_ADMIN_*, and the Z.ai key (LLM_API_KEY) yourself
 # 1. start MySQL from the XAMPP control panel
-# 2. as MySQL root, run sql/setup.sql (edit the password first) - creates DB `upwork_gate` and a user
+# 2. as MySQL root, run sql/setup.sql (edit the password first): creates the database `upwork_gate` and a user
 npm install
-npm run migrate                 # creates tables
-npm run seed                    # first admin + skill v1 from seed/SKILL.md
+npm run migrate                 # creates and upgrades the tables (sql/migrations 002 to 013, tracked in schema_migrations)
+npm run seed                    # first admin + gate version 1 from seed/SKILL.md
 npm run seed:library            # tags, projects, rule codes, profiles from seed/library.json (insert-if-missing)
-npm run seed:proposals          # detection signals, proposal templates (with a starter signal mapping) and sample proposals (insert-if-missing)
+npm run seed:proposals          # signals, templates (with a starter signal mapping) and sample proposals (insert-if-missing)
 npm run seed:settings           # admin settings with their defaults from src/settings.ts (insert-if-missing)
+npm run gate:codes              # optional: a new inactive gate version with the rule codes in the prompt
 npm run backfill:postings       # optional, spends AI quota: read older jobs' posts into fields (add -- --dry-run to count)
 npm run seed:examples           # dev/demo only: 12 example jobs across every Jobs tab (-- --remove takes them out)
-npm run sync:library            # dry run: how the database differs from seed/library.json (add --apply via `-- --apply`)
-npm run dev                     # web app + API on PORT
-npm run worker                  # in a second terminal
-npm test                        # no DB, no model
+npm run sync:library            # dry run: how the database differs from seed/library.json (add -- --apply to apply)
+npm run dev                     # web app and API on PORT
+npm run worker                  # in a second terminal: all the model work
+npm test                        # no database, no model
 ```
 
-Default `LLM_PROVIDER=mock` spends nothing: it returns a canned FLAG (add `[mock-pass]` or `[mock-fail]`
-to the pasted text for the other verdicts). For the real model set `LLM_PROVIDER=claude-cli`,
-`LLM_API_KEY` (in `.env` only, never in git) and run `npm run probe` once to check key and model name.
+Database changes are numbered files in `sql/migrations/`, applied once and in order by `npm run migrate`. Back the database up before you migrate.
 
-## Not done yet
+### Settings in `.env`
 
-- **Link input needs the Upwork API.** `src/upwork/client.ts` is a stub. Link input stores the job id
-  (parsed from `~02<id>` in the URL) and then fails with "paste the text instead". It needs an approved
-  Upwork API app (OAuth2). Write `fetchJob()` from Upwork's developer docs; the rest is already wired.
-  The API data may lack payment verified, proposal count and member since; those show as "not shown" (an SOP flag).
-- **Real-model output not verified.** With a bad key the CLI path returns the expected 401. A full
-  structured answer from GLM has not been run because no key was available. Run `npm run probe`, then screen
-  3 to 5 known jobs and compare with the SOP before trusting verdicts.
-- `/api/admin/skill/test` runs the model inside the HTTP request and outside `LLM_CONCURRENCY`. Fine for one admin; the Z.ai limit is per account, so keep it rare.
-- The browser UI has not been opened in a browser yet (files are served and the API behind it is tested).
-- Production: build with `npm run build`, then `npm start` and `npm run start:worker`; run the worker under PM2 with `instances: 1`, `exec_mode: 'fork'`, `kill_timeout: 10000`.
-  Use HTTPS (cookie is `secure` when `NODE_ENV=production`). Login throttling is in memory only.
+- `LLM_PROVIDER=mock` (default) spends nothing and returns canned answers (add `[mock-pass]` or `[mock-fail]` to pasted text for the other verdicts).
+  `claude-cli` uses the real model: set `LLM_API_KEY` (in `.env` only, never in git) and run `npm run probe` once.
+- `LLM_MODEL`: `glm-5.3[1m]` (full, faster, uses quota faster) or `glm-5.3-flash[1m]` (cheaper, slower).
+- `LLM_TIMEOUT_MS`: one model call. Real calls can take 2 to 3 minutes, so keep this at 600000.
+- `LLM_CONCURRENCY`: jobs in flight. One job can make several calls at once (tagging 2, signals 3); lower it if Z.ai answers "busy".
+
+## Link input
+
+Pasted text works. Pasting a link needs the Upwork API: `src/upwork/client.ts` is a stub that stores the job id (from `~02<id>`) and then asks the person to paste
+the text. It needs an approved Upwork API app (OAuth2); write `fetchJob()` from Upwork's developer docs and the rest is wired.
+
+## Production
+
+Build with `npm run build`, then `npm start` and `npm run start:worker` (and `:prod` variants of the scripts above). Run the worker under PM2 with
+`instances: 1`, `exec_mode: 'fork'`, `kill_timeout: 10000`. Use HTTPS (the cookie is `secure` when `NODE_ENV=production`). Login throttling is in memory only.

@@ -15,6 +15,8 @@ import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, typ
 import { rankTemplates } from '../src/proposal/rank';
 import { checkProposal } from '../src/proposal/checks';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
+import { addRuleCodes, codesMissingFromPrompt } from '../src/screening/gatecodes';
+import { settingsConflict } from '../src/settings';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
 const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string }[];
@@ -206,6 +208,26 @@ const ctx = { rules, projects };
   assert.ok(ws.some((x) => x.includes('"Hassan Ijaz"')), 'a sample author name'); assert.ok(ws.some((x) => x.includes('https://glassdoctor.com')) && ws.some((x) => x.includes('github.com/hassan-ijazz')), 'links that were not provided');
   assert.ok(ws.some((x) => x.includes('60–80%')), 'an invented percentage'); assert.ok(ws.some((x) => x.includes('"we"')), '"we"'); assert.ok(ws.some((x) => x.includes('sender name "Jane Doe"')) && ws.some((x) => x.includes('GitLab link')), 'sign-off');
   assert.ok(!checkProposal({ ...base, text: good }).some((x) => x.includes('figure')), 'a percentage that is in the project notes is fine');
+
+  // ---- gate prompt with rule codes ----
+  const gate = readFileSync(join(__dirname, '..', 'seed', 'SKILL.md'), 'utf8');
+  const coded = addRuleCodes(gate, rules.filter((r) => r.code !== 'G17'));
+  assert.equal(coded.fail, 5); assert.equal(coded.flag, 16);
+  assert.ok(coded.text.includes('\nF1. The client already hired') && coded.text.includes('\nG14. 50+ proposals') && coded.text.includes('\nG16. Recent history'));
+  assert.ok(!/^\d+\. The client already hired/m.test(coded.text), 'the numbering is replaced, not repeated');
+  assert.ok(coded.text.includes('Accepted regions:') && coded.text.includes('### PASS'), 'the rest of the prompt is untouched');
+  assert.throws(() => addRuleCodes(gate, rules), /16 FLAG lines but the Rules page has \d+ and 17/, 'a rule missing from the prompt is refused, not guessed');
+  assert.deepEqual(codesMissingFromPrompt(coded.text, rules.map((r) => ({ code: r.code, active: true }))), ['G17'], 'G17 is the one code the original prompt lacks');
+  assert.deepEqual(codesMissingFromPrompt(gate, [{ code: 'G1', active: true }]), ['G1'], 'the plain numbering does not count as a code');
+  assert.deepEqual(codesMissingFromPrompt(coded.text.replace('G1.', 'G10 x.'), [{ code: 'G1', active: true }]), ['G1'], 'G10 is not G1');
+
+  // ---- settings that depend on each other ----
+  const okCfg = { 'matching.shown': 5, 'matching.recommended': 2, 'selection.min': 1, 'selection.max': 2 };
+  assert.equal(settingsConflict(okCfg), null);
+  assert.match(settingsConflict({ ...okCfg, 'selection.max': 1 })!, /recommended cannot be more/);
+  assert.match(settingsConflict({ ...okCfg, 'selection.min': 3, 'selection.max': 2 })!, /fewest projects/);
+  assert.match(settingsConflict({ ...okCfg, 'matching.shown': 1 })!, /shown must be at least/);
+  assert.match(settingsConflict({ ...okCfg, 'selection.min': 2, 'matching.recommended': 1 })!, /recommended cannot be fewer/);
 
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
