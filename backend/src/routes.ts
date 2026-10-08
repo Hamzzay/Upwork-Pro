@@ -204,7 +204,7 @@ api.get('/dashboard', requireRole(), async (req, res) => {
       AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, p.created_at, p.finished_at))) AS avg_writing
     ${listFrom} ${w.sql}`);
   const stages = await query<any>(`SELECT (${stageSql}) AS stage, COUNT(*) AS n ${listFrom} ${w.sql} GROUP BY 1`, w.p);
-  const waiting = await query<any>(`SELECT s.id, s.title, u.name AS user_name, s.created_at, (${stageSql}) AS stage ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} (${stageSql}) IN (?)
+  const waiting = await query<any>(`SELECT s.id, s.title, s.user_id, u.name AS user_name, s.created_at, (${stageSql}) AS stage ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} (${stageSql}) IN (?)
     ORDER BY s.created_at LIMIT 8`, [...w.p, NEEDS_ACTION]);
   const daily = await query<any>(`SELECT DATE(s.created_at) AS d, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued, SUM(p.finished_at IS NOT NULL) AS proposals
     ${listFrom} ${w.sql} GROUP BY DATE(s.created_at) ORDER BY d DESC LIMIT 31`, w.p);

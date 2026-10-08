@@ -372,7 +372,7 @@ async function dashboardView() {
           h('p', { class: 'hint' }, 'Averages per step, model time only. Person time (reading, picking) is the rest.'))),
         panel('Needs attention', needs ? `${needs} job${needs === 1 ? '' : 's'} waiting` : 'Nothing waiting', d.waiting.length
           ? h('div', {}, h('div', { class: 'chips', style: 'margin-bottom:10px' }, d.needs_action.filter((k) => d.stages[k]).map((k) => h('a', { class: 'chip', href: jobsLink({ stage: k }) }, `${STAGE_INFO[k][1]}: ${d.stages[k]}`))),
-            h('ul', { class: 'waitlist' }, d.waiting.map((r) => h('li', {}, h('a', { href: '#/s/' + r.id }, r.title || 'Job #' + r.id), h('span', { class: 'small muted' }, `${STAGE_INFO[r.stage][1]} · ${r.user_name} · ${ago(r.created_at)}`)))))
+            h('ul', { class: 'waitlist' }, d.waiting.map((r) => h('li', {}, h('a', { href: jobHref(r) }, r.title || 'Job #' + r.id), h('span', { class: 'small muted' }, `${STAGE_INFO[r.stage][1]} · ${r.user_name} · ${ago(r.created_at)}`)))))
           : h('p', { class: 'muted' }, 'Every job in this period is complete or skipped.')),
         panel('Jobs per day', 'Screened, continued and proposals', d.daily.length ? h('div', { class: 'daybars' }, d.daily.map((x) => h('div', { class: 'day', title: `${x.day}: ${x.screened} screened, ${x.continued} continued, ${x.proposals} proposals` },
           h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(x.screened / maxDay) * 100}%` }), h('i', { class: 'p', style: `height:${(x.proposals / maxDay) * 100}%` })),
@@ -568,6 +568,10 @@ function savedCols(tab) {
 const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'review', 'ready'];
 /** What the person does next, as a button label, for each step that waits on them. */
 const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pick profile', review: 'Review proposal', ready: 'Mark as sent' };
+/** The workflow step a stage opens at. */
+const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, review: 4 };
+/** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
+const jobHref = (r) => (STEP_OF_STAGE[r.stage] && r.user_id === me.id ? `#/s/${r.id}/work?step=${STEP_OF_STAGE[r.stage]}` : '#/s/' + r.id);
 const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
@@ -581,8 +585,7 @@ function jobQuery(st) {
 function rowAction(r, reload) {
   if (r.status !== 'done' || !canTrack(r.user_id)) return null;
   const stop = (e) => e.stopPropagation();
-  const stepNo = { decide: 1, projects: 2, profile: 3, review: 4 }[r.stage]; // workflow step to open
-  if (stepNo && r.user_id === me.id) return h('a', { class: 'btn sm', href: `#/s/${r.id}/work?step=${stepNo}`, onclick: stop }, NEXT_ACTION[r.stage]);
+  if (STEP_OF_STAGE[r.stage] && r.user_id === me.id) return h('a', { class: 'btn sm', href: jobHref(r), onclick: stop }, NEXT_ACTION[r.stage]);
   if (r.stage === 'ready') return h('button', { class: 'btn sm primary', type: 'button', onclick: (e) => { stop(e); statusDialog(r.id, reload); } }, 'Mark as sent');
   if (r.stage === 'submitted' || r.stage === 'closed') return h('button', { class: 'btn sm', type: 'button', onclick: (e) => { stop(e); statusDialog(r.id, reload); } }, 'Update status');
   return null;
@@ -728,13 +731,12 @@ function jobReportView(j, multi) {
       h('ul', { class: 'plain' }, j.proposal_notes.map((n) => h('li', {}, n)))) : null);
 }
 
+/** Step 1 while the gate runs: one spinner and plain words, inside the same workflow as every other step. */
 function progressCard(status) {
-  const on = status === 'running' ? 1 : 0;
-  const step = (i, label) => h('span', { class: 's ' + (i < on ? 'done' : i === on ? 'on' : '') }, h('i', {}, i < on ? '✓' : String(i + 1)), label);
   return h('div', { class: 'card progress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }),
     h('strong', { style: 'font-size:17px' }, status === 'running' ? 'Screening this job' : 'Waiting for a free slot'),
-    h('p', { class: 'muted', style: 'margin-top:4px' }, 'This usually takes under a minute. You can leave this page; the result is saved.'),
-    h('div', { class: 'stepper' }, step(0, 'Queued'), h('span', { class: 'bar' }), step(1, 'Checking SOP rules'), h('span', { class: 'bar' }), step(2, 'Report ready')));
+    h('p', { class: 'muted', style: 'margin:4px 0 0' }, status === 'running' ? 'Checking the job against the gate rules. ' : 'It starts as soon as a slot is free. ',
+      'This usually takes under a minute. You can leave this page; the result is saved.'));
 }
 
 function overrideCard(s) {
@@ -1058,6 +1060,13 @@ function stepperView(data) {
   }
 
   function screeningStep() {
+    if (s.status === 'queued' || s.status === 'running') return h('div', {}, progressCard(s.status), postingCard(s, true));
+    if (s.status === 'error') {
+      const retry = h('button', { class: 'btn primary', onclick: async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } } }, 'Try again');
+      return h('div', {}, h('div', { class: 'card' }, emptyState('x', 'Screening did not finish', s.error_message || 'Something went wrong.',
+        owner ? h('div', { class: 'row', style: 'justify-content:center' }, retry, h('a', { class: 'btn', href: '#/new' }, 'Paste the text instead')) : null)), postingCard(s, true));
+    }
+    if (!s.report) return h('div', { class: 'notice' }, icon('info'), 'This job has no screening report.');
     const out = [postingCard(data.s, true), h('div', { style: 'height:16px' })];
     const blocks = s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1));
     blocks.forEach((b, i) => out.push(b, i < blocks.length - 1 ? h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:28px 0' }) : null));
@@ -1100,11 +1109,11 @@ function stepperView(data) {
     } else if (cur < STEPS.length - 1) {
       next = h('button', { class: 'btn primary', type: 'button', disabled: !st.unlocked[cur + 1], title: st.unlocked[cur + 1] ? '' : 'Finish this step first', onclick: () => go(cur + 1) }, STEPS[cur + 1][1], icon('arrow'));
     } else next = h('a', { class: 'btn', href: lastList.history }, 'Back to jobs');
-    nav.replaceChildren(prev, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, `Step ${cur + 1} of ${STEPS.length}`), next);
+    nav.replaceChildren(prev, h('span', { class: 'grow faint small' }, `Step ${cur + 1} of ${STEPS.length}`), next);
   }
   stepCtx = ctx;
   drawBar(); drawContent(); drawNav();
-  return h('div', { class: 'stepper' }, bar, content, nav);
+  return h('div', { class: 'workflow' }, bar, content, nav);
 }
 
 /** The job post as copied from Upwork, in fields: terms, description, skills, questions, activity, the client and their history. */
@@ -1174,6 +1183,22 @@ function stageOf(s, matching, proposal) {
   return 'ready';
 }
 
+/** The same header on every page of a job (the read-only page and the workflow): back to the list, the title, the actions, and one row of facts. */
+function jobHeader(s, actions) {
+  const title = s.title || (s.input_type === 'link' ? 'Upwork link' : 'Pasted job text');
+  return [
+    h('div', { class: 'jobback' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs')),
+    pageHead(title, null, actions),
+    h('div', { class: 'row jobchips' },
+      s.source === 'claude_plugin' ? h('span', { class: 'chip brand', title: 'Screened and written in the Claude plugin, saved as it was sent' }, 'From the Claude plugin') : null,
+      h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, ago(s.created_at)),
+      s.profile_name ? h('span', { class: 'chip' }, icon('badge'), s.profile_name) : null,
+      gateChip(s),
+      s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null,
+      s.provider === 'mock' ? h('span', { class: 'chip' }, 'Mock model') : null),
+  ];
+}
+
 /** The job, read-only and all on one page. Edit opens the step-by-step workflow. */
 async function jobView(id) {
   const { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
@@ -1182,12 +1207,11 @@ async function jobView(id) {
   const stage = stageOf(s, matching, proposal);
   const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
   const waiting = NEEDS_ACTION_STAGES.includes(stage) && s.user_id === me.id;
-  const stepNo = { decide: 1, projects: 2, profile: 3, review: 4 }[stage];
+  const stepNo = STEP_OF_STAGE[stage];
   // the next thing to do is the main button; ready to send opens the status dialog with Sent, everything else the workflow step
   const editBtn = !canEdit ? null : waiting && stage === 'ready' ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Mark as sent')
     : h('a', { class: waiting ? 'btn primary' : 'btn', href: `#/s/${id}/work${stepNo ? '?step=' + stepNo : ''}` }, waiting ? NEXT_ACTION[stage] : 'Edit');
   const canStatus = canEdit && ['submitted', 'closed'].includes(stage);
-  const title = s.title || 'Pasted job text';
   const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
   const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null; // a plugin job arrives already written: no timing
   const yn2 = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : null);
@@ -1219,11 +1243,8 @@ async function jobView(id) {
     matching.tags && matching.tags.length ? h('details', { class: 'desc' }, h('summary', {}, `Job tags (${matching.tags.length}) and why`), h('ul', { class: 'plain' }, matching.tags.map((t) => h('li', {}, h('strong', {}, t.name), h('span', { class: 'muted' }, ' · ' + t.category + ': ' + (t.reason || '')))))) : null) : null;
 
   const parts = [
-    h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs')),
-    pageHead(title, null, h('div', { class: 'row', style: 'gap:8px' }, canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
-    waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn)),
-    h('div', { class: 'row', style: 'gap:8px;margin:-6px 0 16px' }, s.source === 'claude_plugin' ? h('span', { class: 'chip brand', title: 'Screened and written in the Claude plugin, saved as it was sent' }, 'From the Claude plugin') : null, h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, full(s.created_at)),
-      gateChip(s), s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null),
+    ...jobHeader(s, [canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
+      waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn]),
     h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
     postingCard(s, true),
     override ? section('Why it was continued', null, h('div', { class: 'card-pad' }, h('blockquote', { style: 'margin:0' }, override.reason), h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`))) : null,
@@ -1252,31 +1273,14 @@ function gateChip(s) {
   return h('button', { type: 'button', class: 'chip', style: 'cursor:pointer;font:inherit;font-size:12.5px', title: 'See the rules this job was screened against', onclick: show }, `Instructions v${s.skill_version} · ${rules.length} rules`);
 }
 
+/** The workflow page. A new job, a job opened from the Dashboard or the Jobs list, and a job still screening or failed all get the same frame. */
 async function detailView(id) {
   const { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
   stepCtx = null;
-  const title = s.title || (s.input_type === 'link' ? 'Upwork link' : 'Pasted job text');
-  const meta = h('div', { class: 'row', style: 'gap:8px;margin-top:10px' },
-    h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, ago(s.created_at)),
-    s.profile_name ? h('span', { class: 'chip' }, icon('badge'), s.profile_name) : null,
-    gateChip(s),
-    s.rule_codes ? h('span', { class: 'chip mono', title: 'Rule codes' }, s.rule_codes) : null,
-    s.provider === 'mock' ? h('span', { class: 'chip' }, 'Mock model') : null);
-  const parts = [h('div', { class: 'row small', style: 'margin-bottom:14px;gap:16px' }, h('a', { href: lastList.history, class: 'row', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs'),
-    s.status === 'done' ? h('a', { href: '#/s/' + id }, 'View details') : null)];
-  const head = (v) => pageHead(title, null, v);
-
-  if (s.status === 'queued' || s.status === 'running') {
-    parts.push(head(), meta, h('div', { style: 'height:18px' }), progressCard(s.status), postingCard(s, true));
-    setTimeout(() => { if (location.hash.startsWith('#/s/' + id)) route(); }, 2500);
-  } else if (s.status === 'error') {
-    const retry = h('button', { class: 'btn primary', onclick: async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } } }, 'Try again');
-    parts.push(head(), meta, h('div', { style: 'height:18px' }), h('div', { class: 'card' }, emptyState('x', 'Screening did not finish', s.error_message || 'Something went wrong.',
-      s.user_id === me.id ? h('div', { class: 'row', style: 'justify-content:center' }, retry, h('a', { class: 'btn', href: '#/new' }, 'Paste the text instead')) : null)));
-  } else if (s.report) {
-    parts.push(head(), meta, h('div', { style: 'height:18px' }), stepperView({ s, id, override, matching, proposal }), timelineCard(id));
-  }
-  shell('history', parts);
+  // still screening: look again shortly, while this job is still on screen (opened as the workflow or as the job page)
+  if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/work)?([?]|$)`).test(location.hash)) route(); }, 2500);
+  shell('history', [...jobHeader(s, s.status === 'done' ? h('a', { class: 'btn', href: '#/s/' + id }, 'View details') : null),
+    stepperView({ s, id, override, matching, proposal }), timelineCard(id)]);
 }
 
 // ---------- industries ----------

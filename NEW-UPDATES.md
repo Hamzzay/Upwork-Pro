@@ -380,6 +380,20 @@ kept in step by hand. Now each thing lives in one place:
   as an example).
 - Not changed: the Claude plugin's job-gate skill keeps its own copy of the rules. It could later read them through `plugin_options`.
 
+### R16. One workflow view, wherever a job is opened from (done; visual check in the browser still to do)
+- **Layout bug fixed**: the workflow's wrapper had the class `stepper`, which the small screening tracker also styled as a centred,
+  wrapping flex row. The step bar, the step and the Previous/Next bar were laid out side by side at content width. The wrapper is now
+  `.workflow`, and the old tracker style is gone.
+- **Same frame for every entry point**: a new job (Screen a job), a job from the Dashboard, from the Jobs list, a job still screening and a
+  job whose screening failed all show the same header and the 5-step bar. Screening progress and "Try again" now live inside step 1
+  instead of separate layouts without the bar.
+- **One header for a job** (`jobHeader` in `app.js`), shared by the job page and the workflow: back link, title with its buttons, one row
+  of chips (plugin, who, when, profile, gate rules, Upwork post).
+- **Dashboard "Needs attention"** opens a job waiting on you at its step, like the Jobs list's action button (`jobHref`, one rule for
+  both; the dashboard query now returns `user_id`).
+- **Previous / Next stay in view** (sticky at the bottom). On phones the two buttons share the width and "Step 2 of 5" is hidden (the bar
+  shows it). Long titles wrap instead of pushing the buttons off.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
