@@ -5,7 +5,7 @@
 //   npm run setup:export                 writes seed/setup/setup.json (commit it: it is the copy we go live with)
 //   npm run setup:import                 dry run: what a restore would add and change
 //   npm run setup:import -- --apply      restores it (adds what is missing, makes what exists match; deletes nothing)
-// Add a new setup table (Loom videos, certifications...) to SPEC below so it is backed up too.
+// Add a new setup table to SPEC below so it is backed up too.
 import 'dotenv/config';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -30,6 +30,8 @@ const SPEC: Spec[] = [
     tags: { table: 'project_tags', self: 'project_id', other: 'tag_id', otherTable: 'tags', otherKey: 'name' },
     industries: { table: 'project_industries', self: 'project_id', other: 'industry_id', otherTable: 'industries', otherKey: 'name' } } },
   { table: 'upwork_profiles', key: ['name'], skip: ['created_at'] },
+  { table: 'loom_videos', key: ['profile_id', 'title'], skip: ['created_at', 'updated_at'], refs: { profile_id: { table: 'upwork_profiles', key: 'name' } }, links: {
+    tags: { table: 'loom_video_tags', self: 'video_id', other: 'tag_id', otherTable: 'tags', otherKey: 'name' } } },
   { table: 'rules', key: ['code'], skip: ['created_at', 'updated_at'] },
   { table: 'skill_versions', key: ['version'], skip: ['created_by', 'created_at'] },
   { table: 'writing_docs', key: ['doc_key'], skip: ['updated_by', 'updated_at'] },
@@ -105,7 +107,7 @@ async function importSetup(apply: boolean) {
         }
         for (const [name, l] of Object.entries(s.links ?? {})) {
           if (!apply) continue;
-          const selfId = await idOf(s.table, s.key[0], r[s.key[0]]);
+          const selfId = (await cq(`SELECT id FROM ${s.table} WHERE ${where} LIMIT 1`, wp))[0]?.id; // the full key, after the insert above
           await cq(`DELETE FROM ${l.table} WHERE ${l.self}=?`, [selfId]);
           for (const other of r[name] ?? []) { const oid = await idOf(l.otherTable, l.otherKey, other); if (oid) await cq(`INSERT IGNORE INTO ${l.table} (${l.self}, ${l.other}) VALUES (?,?)`, [selfId, oid]); }
         }

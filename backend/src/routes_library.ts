@@ -175,6 +175,62 @@ library.delete('/admin/tags/:id', admin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Loom videos ----------
+// several per Upwork profile, each tagged with the job tags it suits; the best one for a job is suggested with the profile
+export async function loomVideos(where = '1=1', params: any[] = []) {
+  const vids = await query<any>(`SELECT v.id, v.profile_id, p.name AS profile_name, v.title, v.url, v.topic, v.active, v.sort_order, v.updated_at
+    FROM loom_videos v JOIN upwork_profiles p ON p.id=v.profile_id WHERE ${where} ORDER BY p.name, v.sort_order, v.title`, params);
+  const tags = vids.length ? await query<any>('SELECT lt.video_id, t.id, t.name FROM loom_video_tags lt JOIN tags t ON t.id=lt.tag_id WHERE lt.video_id IN (?) ORDER BY t.name', [vids.map((v) => v.id)]) : [];
+  return vids.map((v) => ({ ...v, tags: tags.filter((t) => t.video_id === v.id).map((t) => ({ id: t.id, name: t.name })) }));
+}
+library.get('/looms', anyone, async (_req, res) => { res.json({ videos: await loomVideos() }); });
+const loomBody = z.object({
+  profile_id: z.number('Choose a profile').int().positive('Choose a profile'), title: z.string().trim().min(1, 'Title is required').max(200),
+  url, topic: optText(1000), active: z.boolean().optional(), sort_order: z.number().int().min(0).max(1000).optional(),
+  tag_ids: z.array(z.number().int().positive()).max(200).optional(),
+});
+async function saveLoom(req: any, res: any, vid: number | null) {
+  const b = (vid ? loomBody.partial() : loomBody).safeParse(req.body);
+  if (!b.success) return void bad(res, b.error);
+  const d: any = b.data;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    let vidId = vid;
+    if (!vidId) {
+      const [r]: any = await conn.query('INSERT INTO loom_videos (profile_id, title, url, topic, active, sort_order) VALUES (?,?,?,?,?,?)', [d.profile_id, d.title, d.url, d.topic, d.active === false ? 0 : 1, d.sort_order ?? 0]);
+      vidId = r.insertId;
+    } else {
+      const keys = ['profile_id', 'title', 'url', 'topic', 'sort_order'].filter((k) => k in d);
+      const sets = keys.map((k) => `${k}=?`), p = keys.map((k) => d[k]);
+      if (d.active !== undefined) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
+      const [r]: any = await conn.query(sets.length ? `UPDATE loom_videos SET ${sets.join(',')} WHERE id=?` : 'SELECT id FROM loom_videos WHERE id=?', [...p, vidId]);
+      if (!(sets.length ? r.affectedRows : r.length)) { await conn.rollback(); return void res.status(404).json({ error: 'Not found' }); }
+    }
+    if (d.tag_ids) {
+      await conn.query('DELETE FROM loom_video_tags WHERE video_id=?', [vidId]);
+      const ids = [...new Set<number>(d.tag_ids)];
+      if (ids.length) await conn.query('INSERT INTO loom_video_tags (video_id, tag_id) SELECT ?, id FROM tags WHERE id IN (?)', [vidId, ids]);
+    }
+    await conn.commit();
+    await audit(req.user.id, vid ? 'loom_update' : 'loom_create', `loom=${vidId}`);
+    res.status(vid ? 200 : 201).json({ ok: true, id: vidId });
+  } catch (e: any) {
+    await conn.rollback();
+    if (dup(e)) return void res.status(409).json({ error: 'This profile already has a video with that title' });
+    if (e?.code === 'ER_NO_REFERENCED_ROW_2') return void res.status(400).json({ error: 'That profile does not exist' });
+    throw e;
+  } finally { conn.release(); }
+}
+library.post('/looms', admin, (req, res) => saveLoom(req, res, null));
+library.patch('/looms/:id', admin, (req, res) => saveLoom(req, res, id(req.params.id)));
+library.delete('/looms/:id', admin, async (req, res) => {
+  const r = await exec('DELETE FROM loom_videos WHERE id=?', [id(req.params.id)]);
+  if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
+  await audit((req as any).user.id, 'loom_delete', `loom=${req.params.id}`);
+  res.json({ ok: true });
+});
+
 // ---------- industries ----------
 async function industryPayload(rows: any[]) {
   if (!rows.length) return rows;

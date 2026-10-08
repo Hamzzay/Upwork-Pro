@@ -1,5 +1,5 @@
 {
- "exported_at": "2026-10-08T23:00:25.688Z",
+ "exported_at": "2026-10-08T23:07:36.750Z",
  "note": "Upwork Pro setup data: no jobs, users or tokens. Restore with npm run setup:import -- --apply",
  "tables": {
   "signal_layers": [
@@ -4256,6 +4256,7 @@
     "added_via": null
    }
   ],
+  "loom_videos": [],
   "rules": [
    {
     "code": "F1",

@@ -96,6 +96,21 @@ export function jobNeeds(tags: JobTag[]): string {
   return [pl === 'not stated' ? '' : pl[0].toUpperCase() + pl.slice(1), pick('Product type', 2), pick('Workflow type', 2) || pick('AI capability', 2), pick('Industry', 2)].filter(Boolean).join(' · ');
 }
 
+export interface LoomVideo { id: number; title: string; url: string; topic?: string | null; tags: string[]; sort_order?: number }
+/**
+ * The Loom video that fits a job best: the one whose tags share the most weight with the job's tags (industry counts here: a dental
+ * walkthrough suits a dental job). Ties go to more shared tags, then the video's order, then the title. Null when none shares anything.
+ */
+export function pickLoom(jobTags: { name: string; weight: number }[], videos: LoomVideo[]): { video: LoomVideo; score: number; shared: string[] } | null {
+  const w = new Map(jobTags.map((t) => [t.name.toLowerCase(), Number(t.weight)]));
+  const rows = videos.map((v) => {
+    const shared = [...new Set(v.tags)].filter((t) => w.has(t.toLowerCase()));
+    return { video: v, shared, score: shared.reduce((n, t) => n + (w.get(t.toLowerCase()) ?? 0), 0) };
+  }).filter((r) => r.shared.length && r.score > 0);
+  rows.sort((a, b) => b.score - a.score || b.shared.length - a.shared.length || (a.video.sort_order ?? 0) - (b.video.sort_order ?? 0) || a.video.title.localeCompare(b.video.title));
+  return rows[0] ?? null;
+}
+
 /** The selection rule: between `min` and `max` distinct projects (admin settings), all taken from the matches shown. */
 export function validSelection(projectIds: number[], matches: { project_id: number | null }[], min = 2, max = 2): string | null {
   const ids = new Set(projectIds);

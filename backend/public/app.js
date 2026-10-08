@@ -29,6 +29,7 @@ const ICONS = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
   badge: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17c.8-2 2.2-3 3.5-3s2.7 1 3.5 3M15 9h3M15 13h3"/>',
   building: '<path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>',
 };
 function icon(name) {
@@ -48,7 +49,9 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 async function api(method, path, body) {
-  const r = await fetch('/api' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  // anything but GET goes as JSON, even with nothing to send (a delete): the server refuses other requests (cross-site form posts)
+  const json = method !== 'GET';
+  const r = await fetch('/api' + path, { method, headers: json ? { 'Content-Type': 'application/json' } : {}, body: json ? JSON.stringify(body || {}) : undefined });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(data.error || 'Something went wrong. Try again.'); e.status = r.status; throw e; }
   return data;
@@ -218,7 +221,8 @@ const NAV = [
     { key: 'projects', icon: 'folder', label: 'Projects' },
     { key: 'industries', icon: 'building', label: 'Industries' },
     { key: 'dictionary', icon: 'tag', label: 'Tag dictionary', roles: ADMIN },
-    { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN }] },
+    { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN },
+    { key: 'looms', icon: 'video', label: 'Loom videos', roles: ADMIN }] },
   { label: 'Proposal setup', links: [
     { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
     { key: 'writing', icon: 'doc', label: 'Writing guide' }] },
@@ -929,7 +933,8 @@ function profileSection(s, initial) {
       return h('button', { type: 'button', class: 'pcard2' + (on ? ' on' : ''), role: 'radio', 'aria-checked': on, disabled: !owner || null, onclick: pick },
         h('div', { class: 'row spread' }, h('span', { class: 'jp-sec' }, p.name), saved && saved.id === p.id ? h('span', { class: 'tagpill' }, 'Chosen') : on ? icon('check') : null),
         h('div', { class: 'jp-label' }, [p.price !== null && p.price !== undefined ? money(p.price) + ' / hr' : null, p.tagline].filter(Boolean).join(' · ') || 'No rate or headline yet'),
-        p.services ? h('div', { class: 'jp-label clamp2' }, p.services) : null);
+        p.services ? h('div', { class: 'jp-label clamp2' }, p.services) : null,
+        p.loom ? h('div', { class: 'jp-label', title: 'Shares ' + p.loom.shared.join(', ') + ' with this job' }, 'Loom video that fits: ' + p.loom.title) : null);
     };
     box.replaceChildren(h('div', { class: 'card card-pad' },
       h('div', { class: 'jp-sec' }, saved ? `Sent from ${saved.name}` : 'Which profile sends this proposal?'),
@@ -1492,6 +1497,58 @@ async function profilesView() {
   ]);
 }
 
+// ---------- Loom videos ----------
+/** Short Loom videos per profile (5 to 7 general topics), each tagged with the job tags it suits. The Profile step suggests the best one. */
+async function loomsView() {
+  const [{ videos }, { profiles }, { categories }] = await Promise.all([api('GET', '/looms'), api('GET', '/profiles?all=1'), api('GET', '/tags')]);
+  function editor(v, profileId) {
+    const picked = new Set(v ? v.tags.map((t) => t.id) : []);
+    const f = {
+      profile: h('select', { id: 'lp' }, h('option', { value: '' }, 'Choose a profile'), profiles.map((p) => h('option', { value: p.id, selected: (v ? v.profile_id : profileId) === p.id || null }, p.name + (Number(p.active) ? '' : ' (disabled)')))),
+      title: h('input', { type: 'text', id: 'lt', maxlength: 200, value: v ? v.title : '', placeholder: 'For example: How we build AI voice agents' }),
+      url: h('input', { type: 'text', id: 'lu', maxlength: 500, value: v ? v.url : '', placeholder: 'https://www.loom.com/share/...' }),
+      topic: h('textarea', { id: 'lc', maxlength: 1000, style: 'min-height:64px', placeholder: 'What the video shows, in a sentence or two' }),
+      order: h('input', { type: 'number', id: 'lo', min: 0, max: 1000, value: v ? v.sort_order : 0 }),
+      active: h('input', { type: 'checkbox', id: 'la', checked: v ? !!Number(v.active) : true }),
+    };
+    f.topic.value = v && v.topic ? v.topic : '';
+    const fld = (id, label, el, hint) => h('div', { class: 'field' }, h('label', { class: 'lbl', for: id }, label), el, hint ? h('div', { class: 'hint' }, hint) : null);
+    modal({ title: v ? 'Edit video' : 'Add a Loom video', confirm: v ? 'Save video' : 'Add video', wide: true,
+      body: h('div', { style: 'display:grid;gap:16px' },
+        h('div', { class: 'grid2' }, fld('lp', 'Profile', f.profile), h('div', { class: 'grid2' }, fld('lo', 'Order', f.order), h('div', { class: 'field row', style: 'align-self:end;padding-bottom:8px' }, f.active, h('label', { for: 'la', style: 'font-weight:600' }, 'Active')))),
+        fld('lt', 'Title', f.title), fld('lu', 'Loom link', f.url), fld('lc', 'What it shows (optional)', f.topic),
+        h('div', {}, tagPicker(categories, picked), h('div', { class: 'hint' }, 'The job tags this video suits, industries included. For each job, the video sharing the most tag weight with it is suggested.'))),
+      extra: v ? () => h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + v.title + '?', confirm: 'Delete video', danger: true,
+        body: h('p', { class: 'muted' }, 'The video is removed from Upwork Pro. The Loom itself is not touched.'),
+        onConfirm: async () => { await api('DELETE', '/looms/' + v.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Video deleted'); route(); } }) }, 'Delete') : null,
+      onConfirm: async () => {
+        await api(v ? 'PATCH' : 'POST', v ? '/looms/' + v.id : '/looms', { profile_id: Number(f.profile.value) || 0, title: f.title.value, url: f.url.value.trim(), topic: f.topic.value.trim() || null,
+          sort_order: Number(f.order.value) || 0, active: f.active.checked, tag_ids: [...picked] });
+        toast(v ? 'Video saved' : 'Video added'); route();
+      } });
+  }
+  const shownProfiles = profiles.filter((p) => Number(p.active) || videos.some((v) => v.profile_id === p.id));
+  const card = (p) => {
+    const mine = videos.filter((v) => v.profile_id === p.id);
+    return h('div', { class: 'card card-pad' },
+      h('div', { class: 'row spread' }, h('div', {}, h('div', { class: 'jp-sec' }, p.name), h('div', { class: 'jp-label' }, `${mine.length} video${mine.length === 1 ? '' : 's'}${Number(p.active) ? '' : ' · profile disabled'}`)),
+        h('button', { class: 'btn sm', onclick: () => editor(null, p.id) }, 'Add video')),
+      mine.length ? h('div', { class: 'tablewrap', style: 'margin-top:10px' }, h('table', {},
+        h('thead', {}, h('tr', {}, ['Video', 'Tags', 'Status', ''].map((t) => h('th', {}, t)))),
+        h('tbody', {}, mine.map((v) => h('tr', {},
+          h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null),
+          h('td', {}, v.tags.length ? h('div', { class: 'chips' }, v.tags.map((t) => h('span', { class: 'chip' }, t.name))) : h('span', { class: 'faint' }, 'No tags: never suggested')),
+          h('td', {}, Number(v.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Disabled')),
+          h('td', {}, h('button', { class: 'btn sm', onclick: () => editor(v) }, 'Edit')))))))
+        : null);
+  };
+  shell('looms', [
+    pageHead('Loom videos', 'Short videos per profile, each tagged with the jobs it suits. On a job\'s Profile step, each profile shows the video that fits best.',
+      h('button', { class: 'btn primary', onclick: () => editor(null, null) }, icon('screen'), 'Add video')),
+    shownProfiles.length ? h('div', { class: 'stack' }, shownProfiles.map(card)) : h('div', { class: 'card' }, emptyState('video', 'No profiles yet', 'Add an Upwork profile first, then its videos.')),
+  ]);
+}
+
 // ---------- projects ----------
 const SHOWABLE = ['Yes with client name', 'Yes without client name', 'No'];
 const canEditProjects = () => me.role === 'admin' || me.role === 'manager';
@@ -1527,7 +1584,7 @@ function tagPicker(categories, selected) {
       return h('div', { class: 'tagcat' }, h('div', { class: 'tc-title' }, c.name, h('span', { class: 'faint' }, ` (${tags.filter((t) => selected.has(t.id)).length}/${tags.length})`)),
         h('div', { class: 'chips' }, tags.map((t) => h('button', { type: 'button', class: 'tagbtn' + (selected.has(t.id) ? ' on' : ''), 'aria-pressed': selected.has(t.id) ? 'true' : 'false', title: t.description || '',
           onclick: (e) => { if (selected.has(t.id)) selected.delete(t.id); else selected.add(t.id); e.currentTarget.classList.toggle('on'); e.currentTarget.setAttribute('aria-pressed', selected.has(t.id) ? 'true' : 'false'); upd(); } }, t.name))));
-    }));
+    }).filter(Boolean)); // replaceChildren prints a null as the text "null"
   }
   find.oninput = drawTags; drawTags(); upd();
   return h('div', {}, h('div', { class: 'row spread', style: 'margin-bottom:8px' }, h('label', { class: 'lbl', style: 'margin:0' }, 'Tags'), count), find, wrap);
@@ -2007,6 +2064,7 @@ async function route() {
     if (a === 'p' && b) return await projectDetailView(Number(b));
     if (a === 'projects') return await projectsView();
     if (a === 'profiles' && me.role === 'admin') return await profilesView();
+    if (a === 'looms' && me.role === 'admin') return await loomsView();
     if (a === 'users' && me.role === 'admin') return await usersView();
     if (a === 'skill' && me.role === 'admin') return await skillView();
     if (a === 'rules' && me.role === 'admin') return await rulesView();

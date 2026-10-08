@@ -605,6 +605,26 @@ the setup backup is re-exported.
   that industry is not scored); job #50 matched again on GLM (four Real estate projects, then Apex from a related industry); the job
   page and the industry editor in the browser (five text styles, no console errors). The setup backup is re-exported.
 
+### R28. Loom videos per profile, the plugin's library fits again, and delete buttons work (done)
+- **Loom videos** (Library, Loom videos; admins): several short videos per Upwork profile, each with a title, the Loom link, what it
+  shows, an order and the job tags it suits (industries included). On a job's Profile step each profile card names its video that
+  fits the job best: the one sharing the most tag weight with the job (ties: more shared tags, then the order). A video with no tags
+  is never suggested. Proposal types that link a video come later, once Hamza picks the 5 to 7 topics per profile.
+- The Claude plugin gets the videos in `get_library` (`loom_videos`, per profile with tags). They are in the setup backup too.
+- Migration `024_loom_videos.sql` (`loom_videos`, `loom_video_tags`).
+- **The plugin's library had stopped fitting**: since the 42 project sheet (R26) `get_library` was 99,000 characters and the MCP cut it
+  to a note. Now case studies are left out by default (`has_case_study` says one exists) and the plugin asks for them by name once the
+  projects are chosen (`case_studies: ["Breesy", "Apex"]`); answers are compact JSON and the limit is 90,000 characters (about 22k tokens).
+  Default answer now about 53,000 characters. Rebuild the MCP (`cd mcp && npm run build`) and restart Claude to pick it up.
+- **Every delete button failed with "JSON only"** (projects, industries, tags, categories, profiles, tokens, connections, proposal
+  types, samples, signals, values), since the first commit: the server only takes JSON on changes, and a delete sent no body. The app
+  now always sends JSON on changes.
+- The tag search printed "null" for each category with no match (project and video editors). Fixed.
+- The setup restore now finds a row by its whole key when it re-links tags (needed for videos: profile plus title).
+- Checked: tests (the video choice: weight, ties, order, nothing shared); in the browser: add a video with tags, the suggestion on job
+  #51's Profile step, delete it; delete calls on industries, projects and tags reach the server; a backup restore of a deleted video
+  brings it back with its tags and a re-export after it is identical; the plugin library with and without case studies.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

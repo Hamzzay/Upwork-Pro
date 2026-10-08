@@ -6,7 +6,7 @@ import { typeFacts } from './proposal/guide';
 import { htmlToPlain, textToHtml } from './html';
 import { jobIdFromUrl } from './screening/jobsource';
 import { getSettings } from './settings';
-import { PROFILE_FIELDS, profileBody } from './routes_library';
+import { loomVideos, PROFILE_FIELDS, profileBody } from './routes_library';
 
 /**
  * The Claude plugin saves its own work here: the job it screened, the proposal it wrote, and (through the shared status
@@ -258,8 +258,11 @@ plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res
 });
 
 // ---------- what the plugin reads instead of keeping its own copy ----------
-/** The project library and the tag dictionary, as the app has them: the plugin matches projects from this, not from a sheet. */
-plugin.get('/plugin/library', anyone, async (_req, res) => {
+/** The project library and the tag dictionary, as the app has them: the plugin matches projects from this, not from a sheet.
+ *  Case studies are long, so they come only for the projects named in `case_studies` (comma separated), or all with `case_studies=all`. */
+plugin.get('/plugin/library', anyone, async (req, res) => {
+  const wantCs = String(req.query.case_studies ?? '').trim(), allCs = wantCs.toLowerCase() === 'all';
+  const csNames = new Set(wantCs.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
   const cats = await query<any>('SELECT id, name, is_compliance FROM tag_categories ORDER BY sort_order, name');
   const tags = await query<any>('SELECT id, category_id, name, weight, description FROM tags WHERE active=1 ORDER BY sort_order, name');
   const projects = await query<any>(`SELECT id, name, live_link, landing_link, system_link, mobile_link, staging_link, case_study_link, overview, case_study_summary
@@ -268,13 +271,16 @@ plugin.get('/plugin/library', anyone, async (_req, res) => {
   const inds = await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id');
   const clean = (o: any) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && !v.length)));
   res.json({
-    note: 'Industry is matched first (industries), then tags by their weight. Tags with weight 0 carry no matching weight.',
+    note: 'Industry is matched first (industries), then tags by their weight. Tags with weight 0 carry no matching weight. Case studies are left out: ask for them by project name once the projects are chosen.',
     tag_dictionary: cats.map((c) => ({ category: c.name, compliance: !!c.is_compliance,
       tags: tags.filter((t) => t.category_id === c.id).map((t) => clean({ name: t.name, weight: Number(t.weight), description: t.description })) })).filter((c) => c.tags.length),
     projects: projects.map((p) => clean({ name: p.name, proposal_link: p.live_link, landing_link: p.landing_link, system_link: p.system_link, mobile_link: p.mobile_link,
-      staging_link: p.staging_link, case_study_link: p.case_study_link, overview: p.overview, case_study_summary: p.case_study_summary,
+      staging_link: p.staging_link, case_study_link: p.case_study_link, overview: p.overview,
+      case_study_summary: allCs || csNames.has(String(p.name).toLowerCase()) ? p.case_study_summary : null, has_case_study: !!p.case_study_summary || null,
       industries: inds.filter((x) => x.project_id === p.id).map((x) => x.name),
       tags: links.filter((x) => x.project_id === p.id && x.category !== 'Industry').map((x) => x.name) })),
+    loom_videos_note: 'Short Loom videos per profile. Suggest the one from the sending profile whose tags share the most weight with the job (industry included); none if nothing is shared. Link one only when the proposal type asks for a video.',
+    loom_videos: (await loomVideos('v.active=1 AND p.active=1')).map((v) => clean({ profile: v.profile_name, title: v.title, url: v.url, topic: v.topic, tags: v.tags.map((t: any) => t.name) })),
   });
 });
 

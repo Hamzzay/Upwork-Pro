@@ -6,10 +6,10 @@ import { detectInput, InputError, jobIdFromUrl } from './screening/jobsource';
 import { loadContext } from './screening/context';
 import { gatePrompt, normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
-import { library } from './routes_library';
+import { library, loomVideos } from './routes_library';
 import { proposals, proposalFor } from './routes_proposals';
 import { imports } from './routes_import';
-import { validSelection } from './screening/matching';
+import { pickLoom, validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { plugin } from './routes_plugin';
@@ -293,6 +293,12 @@ async function matchingFor(id: number) {
   }));
   if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
     base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, github_url, profile_url, services, notes, active FROM upwork_profiles ORDER BY active DESC, name');
+    // each profile's Loom video that fits this job best, if it has any
+    const vids = (await loomVideos('v.active=1')).map((v) => ({ ...v, tags: v.tags.map((t: any) => t.name) }));
+    for (const p of base.profiles) {
+      const best = pickLoom(base.tags, vids.filter((v) => v.profile_id === p.id));
+      p.loom = best ? { id: best.video.id, title: best.video.title, url: best.video.url, shared: best.shared } : null;
+    }
   }
   return base;
 }

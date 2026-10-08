@@ -4,9 +4,9 @@ import { Api, ApiError } from './api';
 import { readSheet, safePath, sheetNames } from './xlsx';
 
 const CHUNK = 50;
-const LIMIT = 60_000;
+const LIMIT = 90_000; // characters, about 22k tokens: under the 25k tokens Claude takes from one tool answer
 const ok = (data: unknown) => {
-  let text = typeof data === 'string' ? data : JSON.stringify(data, null, 1);
+  let text = typeof data === 'string' ? data : JSON.stringify(data); // compact: the library is large
   if (text.length > LIMIT) text = JSON.stringify({ note: `The answer was ${text.length} characters, too long to show. Ask for less (a smaller sheet piece, or without tags).`, start: text.slice(0, 2000) });
   return { content: [{ type: 'text' as const, text }] };
 };
@@ -100,8 +100,9 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
       template: z.string().optional().describe('Proposal type or template used'), finished: z.boolean().optional(), continue_reason: z.string().optional().describe('Only for a FLAG or FAIL job with no decision yet') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => { const { id, ...body } = a; return api.call('POST', `/plugin/jobs/${id}/proposal`, body); });
 
-  T('get_library', 'The project library and tag dictionary from Upwork Pro: every active project with its links, overview, case study, industries and tags, and every tag with its category and match weight. Read it once per run for tagging and project matching; it is the only library (no sheet copy).',
-    {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/plugin/library'));
+  T('get_library', 'The project library and tag dictionary from Upwork Pro: every active project with its links, overview, industries and tags, every tag with its category and match weight, and the Loom videos per profile with their tags. Read it once per run for tagging and project matching; it is the only library (no sheet copy). Case studies are long and left out: once the projects are chosen, call again with case_studies set to their names.',
+    { case_studies: z.array(z.string()).max(10).optional().describe('Project names whose case study to include, e.g. ["Breesy", "Apex"]') }, { readOnlyHint: true, openWorldHint: false },
+    async (a) => api.call('GET', '/plugin/library' + (a.case_studies?.length ? '?' + new URLSearchParams({ case_studies: a.case_studies.join(',') }) : '')));
 
   T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), how to choose the type (type_selection), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
     { type: z.string().optional(), all: z.boolean().optional() }, { readOnlyHint: true, openWorldHint: false },

@@ -8,7 +8,7 @@ import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, gatePrompt, norma
 import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
-import { jobNeeds, jobPlatform, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
+import { jobNeeds, jobPlatform, pickLoom, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
@@ -148,6 +148,14 @@ const ctx = { rules, projects };
   // no industry on the job: one pool, no alternative
   assert.ok(rankProjects([wf1], [PP(140, 'X', [], ['Dental'], 1)]).every((x) => x.pool === 'none' && !x.alternative));
   assert.equal(jobNeeds([web, wf1, ind, tool]), 'Web · Web app · Lead generation · Dental');
+  // Loom videos: the most shared weight wins (industry counts), then more shared tags, then order; none when nothing is shared
+  const V = (id: number, title: string, tags: string[], sort_order = 0) => ({ id, title, url: 'https://www.loom.com/share/' + id, tags, sort_order });
+  const jt = [{ name: 'Lead generation', weight: 3 }, { name: 'Dental', weight: 2 }, { name: 'HubSpot', weight: 1 }, { name: 'AI powered', weight: 0 }];
+  assert.equal(pickLoom(jt, [V(1, 'Leads', ['Lead generation']), V(2, 'Dental CRM', ['dental', 'HubSpot'])])?.video.title, 'Dental CRM', 'a tie on 3: more shared tags wins (names match in any case)');
+  assert.equal(pickLoom(jt, [V(1, 'Leads', ['Lead generation', 'Dental']), V(2, 'Dental CRM', ['Dental', 'HubSpot'])])?.score, 5);
+  assert.equal(pickLoom(jt, [V(3, 'B', ['HubSpot'], 2), V(4, 'A', ['HubSpot'], 1)])?.video.title, 'A', 'same score and count: the order decides');
+  assert.equal(pickLoom(jt, [V(5, 'AI', ['AI powered']), V(6, 'Other', ['Shopify'])]), null, 'weight 0 and unshared tags suggest nothing');
+  assert.equal(pickLoom(jt, []), null);
 
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));
