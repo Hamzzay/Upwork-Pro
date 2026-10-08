@@ -103,7 +103,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
   T('get_library', 'The project library and tag dictionary from Upwork Pro: every active project with its links, overview, case study, industries and tags, and every tag with its category and match weight. Read it once per run for tagging and project matching; it is the only library (no sheet copy).',
     {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/plugin/library'));
 
-  T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
+  T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), how to choose the type (type_selection), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
     { type: z.string().optional(), all: z.boolean().optional() }, { readOnlyHint: true, openWorldHint: false },
     async (a) => api.call('GET', '/plugin/writing-guide?' + new URLSearchParams({ ...(a.type ? { type: a.type } : {}), ...(a.all ? { all: '1' } : {}) })));
 

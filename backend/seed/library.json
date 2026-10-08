@@ -2690,6 +2690,12 @@
    "details": "All three must hold. A client outside the accepted regions who averages $1,000 or more per hire, or mostly offers long term work, is G7 instead."
   },
   {
+   "code": "F6",
+   "type": "fail",
+   "rule": "Generic mass invite",
+   "details": "The job is an invite and the invite note or post uses boilerplate wording that refers to nothing specific in the profile, such as \"your profile looks like a great fit\" or \"I came across your profile and would like to invite you\". It fails even when the rest looks good. It does not fail when the note names something specific from the profile or the person's work."
+  },
+  {
    "code": "G1",
    "type": "flag",
    "rule": "Core work outside services, or standalone UI/UX or DevOps",
@@ -2788,6 +2794,12 @@
    "code": "G17",
    "type": "flag",
    "rule": "Work requires breaking platform rules, such as fake or multiple social accounts"
+  },
+  {
+   "code": "G18",
+   "type": "flag",
+   "rule": "Any other risk no rule covers",
+   "details": "A real risk the gate notices that no other rule names. Say what it is and why it matters."
   }
  ],
  "profiles": [

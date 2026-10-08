@@ -5,7 +5,7 @@ import { guideBlock, type Guide } from './guide';
 
 export interface ProjectFact { name: string; live_link: string | null; tags: string[]; industries: string[]; notes: string | null; overview?: string | null; case_study?: string | null }
 /** The profile the proposal is sent from. `gitlab_link` is its code link: the GitLab account, or else the GitHub link. */
-export interface SenderFact { name: string; gitlab_link: string | null; tagline: string | null; voice?: string | null; signature?: string | null; stats?: string | null; rules?: string | null }
+export interface SenderFact { name: string; gitlab_link: string | null; tagline: string | null; voice?: string | null; signature?: string | null; stats?: string | null; rules?: string | null; certifications?: string | null }
 export interface SampleFact { title: string; content: string }
 export interface TemplateFact { name: string; body_html: string; prompt: string | null }
 
@@ -29,6 +29,7 @@ function facts(sender: SenderFact, projects: ProjectFact[]) {
     sender.signature ? `  Signature: ${sender.signature}` : '', sender.voice ? `  Voice: ${sender.voice} (never "we")` : '',
     sender.stats ? `  Upwork stats you may mention (only these, word for word): ${sender.stats}` : '',
     sender.rules ? `  Profile rules (follow them; they come before the template): ${sender.rules}` : '',
+    `  Certifications (mention one ONLY if the client requires a certification, and only from this list; never any other): ${sender.certifications ? sender.certifications.split(/\n+/).filter(Boolean).join('; ') : '(none listed: never claim a certification)'}`,
     '',
     'PROJECTS (the only projects to write about)',
     ...projects.map((p, i) => lines([`  ${i + 1}. ${p.name}`, `     Link: ${p.live_link ?? '(none: omit the link line)'}`, `     Tags: ${p.tags.join(', ') || '(none)'}`,

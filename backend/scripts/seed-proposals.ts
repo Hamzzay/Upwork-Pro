@@ -29,14 +29,15 @@ const load = (f: string) => JSON.parse(readFileSync(join(appRoot, 'seed', f), 'u
   }
 
   for (const t of tpl.templates) {
-    const r = await exec('INSERT IGNORE INTO templates (name, description, body_html, prompt, priority) VALUES (?,?,?,?,?)', [t.name, t.description, sanitizeRich(t.body_html), t.prompt || null, t.priority]);
+    const r = await exec('INSERT IGNORE INTO templates (name, description, body_html, prompt, priority, is_default) VALUES (?,?,?,?,?,?)', [t.name, t.description, sanitizeRich(t.body_html), t.prompt || null, t.priority, t.is_default ? 1 : 0]);
     if (!r.affectedRows) continue; // already there: keep its edits and its mapping
     n.templates++;
-    for (const [code, valueName, weight] of t.signals) {
+    for (const [code, valueName, weight, role = 'weight', group = null] of t.signals) {
       const number = Number(String(code).replace(/^S/, ''));
       const v = (await query<any>('SELECT v.id FROM signal_values v JOIN signals s ON s.id=v.signal_id WHERE s.number=? AND v.name=?', [number, valueName]))[0];
       if (!v) throw new Error(`starter mapping for "${t.name}": no value "${valueName}" on signal ${number}`);
-      n.mappings += (await exec(`INSERT IGNORE INTO template_signals (template_id, signal_id, value_id, weight, source) VALUES (?,?,?,?, 'starter')`, [r.insertId, sigId.get(number), v.id, weight])).affectedRows;
+      n.mappings += (await exec(`INSERT IGNORE INTO template_signals (template_id, signal_id, value_id, weight, role, req_group, source) VALUES (?,?,?,?,?,?, 'starter')`,
+        [r.insertId, sigId.get(number), v.id, weight ?? 0, role, role === 'required' ? group ?? 1 : null])).affectedRows;
     }
   }
 

@@ -108,9 +108,21 @@
      "is_fallback": false
     },
     {
-     "name": "Rescue / extend",
-     "detect": "\"not a greenfield project\", \"already have\", \"existing\", \"previous/last developer\", \"take over\", \"migrate\", \"broke\", \"not working\", \"inspect\", \"refactor\".",
-     "move": "open with diagnosis — \"rebuilds like this fail because X, here's how I avoid it.\"",
+     "name": "Rescue / takeover",
+     "detect": "\"not working\", \"broke\", \"previous/last developer\", \"take over\", \"fix the existing\", \"unfinished\", \"inherited code\".",
+     "move": "Use the Rescue type: open with what likely went wrong and how you would audit before touching anything.",
+     "is_fallback": false
+    },
+    {
+     "name": "Extend existing product",
+     "detect": "\"add features to\", \"extend our\", \"existing platform\", \"already live\", \"new module\" on a working product.",
+     "move": "Show you can work inside what exists: name their stack and the first feature you would add.",
+     "is_fallback": false
+    },
+    {
+     "name": "Rebuild / migration",
+     "detect": "\"rebuild\", \"migrate\", \"move from X to Y\", \"rewrite\", \"modernize\", \"replatform\".",
+     "move": "Use the Rescue type: start with a first look at the current system, then the migration path.",
      "is_fallback": false
     },
     {
@@ -606,6 +618,99 @@
      "name": "Project",
      "detect": "anything in between.",
      "move": "A normal length proposal.",
+     "is_fallback": true
+    }
+   ]
+  },
+  {
+   "number": 20,
+   "layer": "structural",
+   "name": "Platform",
+   "decides": "which projects can prove the work: web, mobile, both, or backend only.",
+   "multi_select": false,
+   "has_fallback": true,
+   "notes": null,
+   "values": [
+    {
+     "name": "Web",
+     "detect": "\"web app\", \"dashboard\", \"portal\", \"website\", \"SaaS\", \"browser\".",
+     "move": "Show web projects only.",
+     "is_fallback": false
+    },
+    {
+     "name": "Mobile",
+     "detect": "\"iOS\", \"Android\", \"app store\", \"React Native\", \"Flutter\", \"mobile app\".",
+     "move": "Show mobile projects only.",
+     "is_fallback": false
+    },
+    {
+     "name": "Web and mobile",
+     "detect": "both a web app or dashboard and a mobile app are asked for.",
+     "move": "Prefer projects that are both; otherwise one web and one mobile.",
+     "is_fallback": false
+    },
+    {
+     "name": "Backend or API only",
+     "detect": "\"API\", \"integration\", \"backend\", \"webhook\", \"automation\" with no user interface asked for.",
+     "move": "Judge projects on the workflow, not the platform.",
+     "is_fallback": false
+    },
+    {
+     "name": "Desktop",
+     "detect": "\"desktop app\", \"Windows app\", \"macOS app\", \"Electron\".",
+     "move": "Use a desktop project if one exists, else the closest web product, flagged.",
+     "is_fallback": false
+    },
+    {
+     "name": "Not stated",
+     "detect": "nothing says what the product runs on.",
+     "move": "Infer from the post; if still unclear, do not filter.",
+     "is_fallback": true
+    }
+   ]
+  },
+  {
+   "number": 21,
+   "layer": "structural",
+   "name": "Job focus",
+   "decides": "whether the job is a product their users use, or fixing how their own business runs (the Problem first type).",
+   "multi_select": false,
+   "has_fallback": true,
+   "notes": null,
+   "values": [
+    {
+     "name": "Operations",
+     "detect": "manual work, inefficiency, disconnected tools, internal workflows: fixing or automating how their own business runs.",
+     "move": "Lead with their operational problem and how the system will work end to end.",
+     "is_fallback": false
+    },
+    {
+     "name": "Product",
+     "detect": "building something their users or customers use.",
+     "move": "Lead with the product and the first thing you would build.",
+     "is_fallback": true
+    }
+   ]
+  },
+  {
+   "number": 22,
+   "layer": "structural",
+   "name": "Decisions left open",
+   "decides": "whether key decisions are still open on a product build (the Approach first type, which asks questions).",
+   "multi_select": false,
+   "has_fallback": true,
+   "notes": null,
+   "values": [
+    {
+     "name": "Open decisions",
+     "detect": "the post leaves scope, integrations, data sources or users undefined.",
+     "move": "Lead with your approach, then ask the two questions that settle the open decisions.",
+     "is_fallback": false
+    },
+    {
+     "name": "None",
+     "detect": "the post says what to build, with what, for whom.",
+     "move": "Confirm and execute.",
      "is_fallback": true
     }
    ]

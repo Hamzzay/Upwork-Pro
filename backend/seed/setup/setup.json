@@ -1,5 +1,5 @@
 {
- "exported_at": "2026-10-08T22:40:52.782Z",
+ "exported_at": "2026-10-08T22:53:16.607Z",
  "note": "Upwork Pro setup data: no jobs, users or tokens. Restore with npm run setup:import -- --apply",
  "tables": {
   "signal_layers": [
@@ -196,6 +196,33 @@
     "multi_select": 0,
     "notes": null,
     "active": 1
+   },
+   {
+    "number": 20,
+    "layer_id": "structural",
+    "name": "Platform",
+    "decides": "which projects can prove the work: web, mobile, both, or backend only.",
+    "multi_select": 0,
+    "notes": null,
+    "active": 1
+   },
+   {
+    "number": 21,
+    "layer_id": "structural",
+    "name": "Job focus",
+    "decides": "whether the job is a product their users use, or fixing how their own business runs (the Problem first type).",
+    "multi_select": 0,
+    "notes": null,
+    "active": 1
+   },
+   {
+    "number": 22,
+    "layer_id": "structural",
+    "name": "Decisions left open",
+    "decides": "whether key decisions are still open on a product build (the Approach first type, which asks questions).",
+    "multi_select": 0,
+    "notes": null,
+    "active": 1
    }
   ],
   "signal_values": [
@@ -282,9 +309,9 @@
    },
    {
     "signal_id": 3,
-    "name": "Rescue / extend",
-    "detect": "\"not a greenfield project\", \"already have\", \"existing\", \"previous/last developer\", \"take over\", \"migrate\", \"broke\", \"not working\", \"inspect\", \"refactor\".",
-    "move": "open with diagnosis — \"rebuilds like this fail because X, here's how I avoid it.\"",
+    "name": "Rescue / takeover",
+    "detect": "\"not working\", \"broke\", \"previous/last developer\", \"take over\", \"fix the existing\", \"unfinished\", \"inherited code\".",
+    "move": "Use the Rescue type: open with what likely went wrong and how you would audit before touching anything.",
     "is_fallback": 0,
     "sort_order": 1,
     "active": 1
@@ -295,7 +322,7 @@
     "detect": "nothing stated — 55% of posts",
     "move": "open with ONE light diagnostic line that works either way (\"First thing I'd do is confirm what's already in place before touching anything\"). This reads as senior on a greenfield post AND correct on a rescue, so you never assume wrong.",
     "is_fallback": 1,
-    "sort_order": 2,
+    "sort_order": 4,
     "active": 1
    },
    {
@@ -764,6 +791,114 @@
     "move": "A normal length proposal.",
     "is_fallback": 1,
     "sort_order": 2,
+    "active": 1
+   },
+   {
+    "signal_id": 3,
+    "name": "Extend existing product",
+    "detect": "\"add features to\", \"extend our\", \"existing platform\", \"already live\", \"new module\" on a working product.",
+    "move": "Show you can work inside what exists: name their stack and the first feature you would add.",
+    "is_fallback": 0,
+    "sort_order": 2,
+    "active": 1
+   },
+   {
+    "signal_id": 3,
+    "name": "Rebuild / migration",
+    "detect": "\"rebuild\", \"migrate\", \"move from X to Y\", \"rewrite\", \"modernize\", \"replatform\".",
+    "move": "Use the Rescue type: start with a first look at the current system, then the migration path.",
+    "is_fallback": 0,
+    "sort_order": 3,
+    "active": 1
+   },
+   {
+    "signal_id": 20,
+    "name": "Web",
+    "detect": "\"web app\", \"dashboard\", \"portal\", \"website\", \"SaaS\", \"browser\".",
+    "move": "Show web projects only.",
+    "is_fallback": 0,
+    "sort_order": 0,
+    "active": 1
+   },
+   {
+    "signal_id": 20,
+    "name": "Mobile",
+    "detect": "\"iOS\", \"Android\", \"app store\", \"React Native\", \"Flutter\", \"mobile app\".",
+    "move": "Show mobile projects only.",
+    "is_fallback": 0,
+    "sort_order": 1,
+    "active": 1
+   },
+   {
+    "signal_id": 20,
+    "name": "Web and mobile",
+    "detect": "both a web app or dashboard and a mobile app are asked for.",
+    "move": "Prefer projects that are both; otherwise one web and one mobile.",
+    "is_fallback": 0,
+    "sort_order": 2,
+    "active": 1
+   },
+   {
+    "signal_id": 20,
+    "name": "Backend or API only",
+    "detect": "\"API\", \"integration\", \"backend\", \"webhook\", \"automation\" with no user interface asked for.",
+    "move": "Judge projects on the workflow, not the platform.",
+    "is_fallback": 0,
+    "sort_order": 3,
+    "active": 1
+   },
+   {
+    "signal_id": 20,
+    "name": "Desktop",
+    "detect": "\"desktop app\", \"Windows app\", \"macOS app\", \"Electron\".",
+    "move": "Use a desktop project if one exists, else the closest web product, flagged.",
+    "is_fallback": 0,
+    "sort_order": 4,
+    "active": 1
+   },
+   {
+    "signal_id": 20,
+    "name": "Not stated",
+    "detect": "nothing says what the product runs on.",
+    "move": "Infer from the post; if still unclear, do not filter.",
+    "is_fallback": 1,
+    "sort_order": 5,
+    "active": 1
+   },
+   {
+    "signal_id": 21,
+    "name": "Operations",
+    "detect": "manual work, inefficiency, disconnected tools, internal workflows: fixing or automating how their own business runs.",
+    "move": "Lead with their operational problem and how the system will work end to end.",
+    "is_fallback": 0,
+    "sort_order": 0,
+    "active": 1
+   },
+   {
+    "signal_id": 21,
+    "name": "Product",
+    "detect": "building something their users or customers use.",
+    "move": "Lead with the product and the first thing you would build.",
+    "is_fallback": 1,
+    "sort_order": 1,
+    "active": 1
+   },
+   {
+    "signal_id": 22,
+    "name": "Open decisions",
+    "detect": "the post leaves scope, integrations, data sources or users undefined.",
+    "move": "Lead with your approach, then ask the two questions that settle the open decisions.",
+    "is_fallback": 0,
+    "sort_order": 0,
+    "active": 1
+   },
+   {
+    "signal_id": 22,
+    "name": "None",
+    "detect": "the post says what to build, with what, for whom.",
+    "move": "Confirm and execute.",
+    "is_fallback": 1,
+    "sort_order": 1,
     "active": 1
    }
   ],
@@ -3921,6 +4056,7 @@
     "voice": null,
     "signature": null,
     "stats_allowed": null,
+    "certifications": null,
     "submitted_by": null,
     "rules": null,
     "added_via": null
@@ -3939,7 +4075,8 @@
     "industries": null,
     "voice": "I, as named lead, with team backup where useful",
     "signature": "Hamza Yaseen, then the GitHub link on the next line",
-    "stats_allowed": "Top Rated Plus, 100% Job Success Score, 300+ solutions delivered across 12+ industries, $400K+ earned",
+    "stats_allowed": "Top Rated Plus, 100% Job Success Score, 300+ solutions delivered across 12+ industries, $500K+ earned",
+    "certifications": null,
     "submitted_by": null,
     "rules": "No pricing and no timeline unless the client asks. No dashes, no emojis. Leave out white label work such as MD Driven.",
     "added_via": null
@@ -3959,6 +4096,7 @@
     "voice": null,
     "signature": null,
     "stats_allowed": null,
+    "certifications": null,
     "submitted_by": null,
     "rules": null,
     "added_via": null
@@ -3978,6 +4116,7 @@
     "voice": null,
     "signature": null,
     "stats_allowed": null,
+    "certifications": null,
     "submitted_by": null,
     "rules": "Never include timeline or budget lines unless the client explicitly asks.",
     "added_via": null
@@ -3997,6 +4136,7 @@
     "voice": null,
     "signature": null,
     "stats_allowed": null,
+    "certifications": null,
     "submitted_by": null,
     "rules": null,
     "added_via": null
@@ -4016,6 +4156,7 @@
     "voice": null,
     "signature": null,
     "stats_allowed": null,
+    "certifications": null,
     "submitted_by": null,
     "rules": null,
     "added_via": null
@@ -4035,6 +4176,7 @@
     "voice": null,
     "signature": null,
     "stats_allowed": null,
+    "certifications": null,
     "submitted_by": null,
     "rules": null,
     "added_via": null
@@ -4074,6 +4216,13 @@
     "type": "fail",
     "rule": "Outside accepted regions, under $1,000 per hire, and not mostly long term",
     "details": "All three must hold. A client outside the accepted regions who averages $1,000 or more per hire, or mostly offers long term work, is G7 instead.",
+    "active": 1
+   },
+   {
+    "code": "F6",
+    "type": "fail",
+    "rule": "Generic mass invite",
+    "details": "The job is an invite and the invite note or post uses boilerplate wording that refers to nothing specific in the profile, such as \"your profile looks like a great fit\" or \"I came across your profile and would like to invite you\". It fails even when the rest looks good. It does not fail when the note names something specific from the profile or the person's work.",
     "active": 1
    },
    {
@@ -4137,6 +4286,13 @@
     "type": "flag",
     "rule": "Work requires breaking platform rules, such as fake or multiple social accounts",
     "details": null,
+    "active": 1
+   },
+   {
+    "code": "G18",
+    "type": "flag",
+    "rule": "Any other risk no rule covers",
+    "details": "A real risk the gate notices that no other rule names. Say what it is and why it matters.",
     "active": 1
    },
    {
@@ -4222,7 +4378,7 @@
     "kind": "banned",
     "title": "Banned phrases",
     "sort_order": 20,
-    "content": "# Banned phrases\n\nNever use these in a cover letter or screening answer:\n\n* \"Perfect,\" as a stock opener\n* \"I've already built similar\"\n* \"I worked on [project] around\"\n* \"directly aligns\"\n* \"closely matches\"\n* \"exactly the kind of foundation you're looking for\"\n* \"I'm excited to apply\"\n* \"I understand your requirements\"\n* \"I'd be happy to\" as the closing line\n* Any list of more than three features in one sentence\n\nAlso avoid any opener that starts with \"I\", \"We\", \"My name\", \"Hello, I\", or the project name. The first words should be about the client's problem.\n",
+    "content": "# Banned phrases\n\nNever use these in a cover letter or screening answer:\n\n* \"Perfect,\" as an opener\n* \"I've already built similar\"\n* \"I worked on [project] around\"\n* \"directly aligns\"\n* \"closely matches\"\n* \"exactly the kind of foundation you're looking for\"\n* \"I'm excited to apply\"\n* \"I understand your requirements\"\n* \"I'll approach your system\"\n* \"I'd be happy to\" as the closing line\n* Any easy out in the close, such as \"if you're interested\" or \"no pressure\"\n* Any list of more than three features in one sentence\n\nOpeners: the first words are about the client's problem, never \"I\", \"We\", \"My name\", \"Hello, I\", or a project name. The only fixed openers allowed are the ones a type file sets (\"Hi [name], thanks for the invite.\" for Type 3, \"Understood.\" for Type 7, \"For your platform,\" or \"For you,\" for Type 8) or words the client asks for.\n",
     "active": 1
    },
    {
@@ -4230,7 +4386,7 @@
     "kind": "modules",
     "title": "Modules added by signals",
     "sort_order": 30,
-    "content": "# Modules added by signals\n\n| Module | Added when | What it adds |\n| --- | --- | --- |\n| Data handling | Compliance signal present | One sentence on access control, encryption and audit logging, naming their standard (HIPAA, GDPR, SOC 2, PCI) |\n| Staged autonomy | AI acts on the client's behalf | AI drafts or recommends first, a person approves, then selected actions are automated once proven |\n| Integration first look | Integration risk (EHR, ERP, CRM or legacy system named) | One sentence on confirming what their system exposes before committing |\n| Quote rule | Pricing requested | An honest line that an accurate estimate needs a short call, plus the offer of one. Also listed under \"Needs your eye\" |\n| Team backup | Who they want is \"either\" or \"team\" | One line that the team can add capacity |\n| Forwardable summary | Decision maker is a middleman | One plain line summarizing the approach that can be forwarded |\n| Volume line | Data and scale stated | One line on handling their stated volume |\n\nEach module is one or two sentences, placed where it reads naturally, never as a separate heading.\n",
+    "content": "# Modules added by signals\n\n| Module | Added when | What it adds |\n| --- | --- | --- |\n| Data handling | Compliance signal present | One sentence on access control, encryption and audit logging, naming their standard (HIPAA, GDPR, SOC 2, PCI) |\n| Staged autonomy | AI acts on the client's behalf | AI drafts or recommends first, a person approves, then selected actions are automated once proven |\n| Integration first look | Integration risk (EHR, ERP, CRM or legacy system named) | One sentence on confirming what their system exposes before committing |\n| Estimate answer | Pricing or timeline requested | See the estimate answer rule below. Also listed under \"Needs your eye\" |\n| Team backup | Who they want is \"either\" or \"team\" | One line that the team can add capacity |\n| Forwardable summary | Decision maker is a middleman | One plain line summarizing the approach that can be forwarded |\n| Volume line | Data and scale stated | One line on handling their stated volume |\n\nEach module is one or two sentences, placed where it reads naturally, never as a separate heading.\n\n## Estimate answer rule\n\nUsed by every type when the client asks for a timeline, budget or both.\n\n1. No numbers. Never guess a range to fill the answer.\n2. Sound confident, not unsure. Frame it as accuracy for their project.\n3. Name the details the post does not cover yet, then offer a short call to define the complete scope, after which we align with their preferred timeline and budget.\n4. Two or three sentences maximum.\n5. For Type 4, say plainly that a rescue estimate depends on the audit.\n\nExample: \"An accurate timeline and budget depend on details the post doesn't cover yet, like contract volume, file formats and who will use the assistant. Let's schedule a short call to define the complete scope, and I'll align the plan with your preferred timeline and budget.\"\n",
     "active": 1
    },
    {
@@ -4238,7 +4394,7 @@
     "kind": "screening",
     "title": "Screening answers",
     "sort_order": 40,
-    "content": "# Screening answers\n\n* Written separately from the cover letter, one per question, in the client's order.\n* Each opens with a direct answer: yes, no, or the fact asked for.\n* Then one or two sentences of proof, only from the project library and the profile record.\n* The same rules on numbers and banned phrases apply.\n* A question that cannot be answered honestly (years in a language Stackup does not use, a system never built, a certification not held) is flagged under \"Needs your eye\", never padded.\n* Pricing or estimate questions use the quote rule.\n* Keep each answer under 80 words unless the question asks for detail.\n",
+    "content": "# Screening answers\n\n* Written separately from the cover letter, one per question, in the client's order.\n* Each opens with a direct answer: yes, no, or the fact asked for.\n* Then one or two sentences of proof, only from the project library and the profile record.\n* The same rules on numbers and banned phrases apply.\n* A question that cannot be answered honestly (years in a language Stackup does not use, a system never built) is flagged under \"Needs your eye\", never padded.\n* Certification questions follow the rule below.\n* Pricing or estimate questions use the estimate answer rule in `modules.md`.\n* Keep each answer under 80 words unless the question asks for detail.\n\n## Certification questions\n\nOnly when the client explicitly asks for a certification: a screening question about certifications, or a certification the post lists as required. Never mention certifications otherwise.\n\n1. **Use only certifications on the sending profile** (Certifications in the profile record). Never choose, suggest or invent a certification the profile does not list, even if it is likely the person holds it.\n2. **Pick the listed certification that answers the question best:** the cloud, tool, compliance standard or role the client named. Write it as \"Certification name, Issuer, year\".\n3. **One to two sentences:** the certification, then one line of proof tying it to a library project or to the tool the job names.\n4. **No listed certification matches:** do not claim one, and do not answer with a flat negative either. Answer with the strongest true credentials (hands on projects with the named tool, compliance work delivered, platform status) and list it under \"Needs your eye\" as \"No matching certification on this profile.\"\n",
     "active": 1
    },
    {
@@ -4246,7 +4402,7 @@
     "kind": "checklist",
     "title": "Verification checklist",
     "sort_order": 50,
-    "content": "# Verification checklist\n\nRun every item. Mark pass or fail. Rewrite once on fail, then flag.\n\n## Client instructions\n\n- [ ] Every explicit ask and screening question answered, in order\n- [ ] Required words or format used exactly\n- [ ] Portfolio links included if asked\n- [ ] Pricing asks handled by the quote rule and flagged\n\n## Accuracy\n\n- [ ] Every tool the client named appears correctly, with no alternative offered\n- [ ] Every project is allowed for this profile and uses its link in the set order: landing page or mobile, then system, then case study, then staging (case study and staging flagged)\n- [ ] No email address, phone number, contact page or social handle appears anywhere in the proposal\n- [ ] Every claim traces to a stored project fact\n- [ ] Every number traces to a verified result\n- [ ] No white label work mentioned\n\n## Writing rules\n\n- [ ] First two lines use a detail from this post and say something useful\n- [ ] At least one insight the client did not state\n- [ ] No banned phrases and no feature list longer than three items\n- [ ] No dashes, no emojis\n- [ ] Length within the type's range\n- [ ] Closes on one specific question or a concrete first step\n- [ ] Signature matches the profile record\n- [ ] Profile rules followed (for example no timeline or budget for Hassan unless asked)\n",
+    "content": "# Verification checklist\n\nRun every item. Mark pass or fail. Rewrite once on fail, then flag.\n\n## Client instructions\n\n- [ ] Every explicit ask and screening question answered, in order\n- [ ] Required words or format used exactly\n- [ ] Portfolio links included if asked\n- [ ] Pricing or timeline asks handled by the estimate answer rule, no numbers, and flagged\n\n## Accuracy\n\n- [ ] Every tool the client named appears correctly, with no alternative offered\n- [ ] Every project is allowed for this profile and uses its link in the set order: landing page or mobile, then system, then case study, then staging (case study and staging flagged)\n- [ ] Every project and link matches the job's platform: no mobile store link or mobile only project on a web job, no web only project on a mobile job\n- [ ] No email address, phone number, contact page or social handle appears anywhere in the proposal\n- [ ] Every claim traces to a stored project fact\n- [ ] Any certification named comes with its issuer and is listed under \"Needs your eye\" for confirmation unless it is already in the profile's Certifications list; no screening answer says the profile lacks certifications\n- [ ] Every number traces to a verified result\n- [ ] No white label work mentioned\n\n## Writing rules\n\n- [ ] First two lines use a detail from this post and say something useful (after the fixed opener for Types 3, 7 and 8)\n- [ ] At least one insight the client did not state\n- [ ] No banned phrases and no feature list longer than three items\n- [ ] No dashes except in project title lines and link lines; no emojis\n- [ ] Length within the type's range\n- [ ] Structure follows the chosen type file in order\n- [ ] No project claim copied from a type sample; every project fact traces to the library\n- [ ] Closes on a one line call to action with no question; Type 8 has exactly two questions before it\n- [ ] Signature matches the profile record\n- [ ] Profile rules followed (for example no timeline or budget for Hassan unless asked)\n",
     "active": 1
    },
    {
@@ -4254,7 +4410,15 @@
     "kind": "rules",
     "title": "Writing rules for every type",
     "sort_order": 10,
-    "content": "# Writing rules for every type\n\n1. **The first two lines are the whole pitch.** They are all the client sees in the list. Use a detail only this client wrote, and say something useful about it: a risk, a tradeoff or a smarter first step. No stock opener, no project names, no talk about us.\n2. **One insight the client did not already have.** Restating their requirements back to them is not an insight.\n3. **Proof is specific.** Name what was built, what Stackup owned, one concrete detail, and a verified result if one exists. One strong project beats two weak ones.\n4. **Plain sentences.** No comma lists of features. If three or more features appear in a row, cut to the one that matters most for this client.\n5. **Commit to their stack.** Name the tools they named. Never offer \"X or Y\" when they already chose X.\n6. **Answer every explicit ask.** If something cannot be answered honestly, flag it before submitting.\n7. **Close on one specific, easy question** the client can answer in a line, or a concrete first step for invites and consulting work.\n8. **Numbers only from the library.** Never estimate or invent a result.\n9. **Length fits the type.** Usually 120 to 200 words for the cover letter.\n10. **Sign exactly as the profile record says.**\n\n## House style\n\n* Clear, simple English. Short sentences.\n* No dashes of any kind, no emojis, no checkmarks.\n* No pricing, estimates or timelines unless the client asks; then use the quote rule module.\n* Never mention white label work, such as MD Driven.\n* Project links go on their own line after the project's sentences.\n",
+    "content": "# Writing rules for every type\n\nThe chosen type file overrides these rules wherever they differ.\n\n1. **The first two lines are the whole pitch.** They are all the client sees in the list. Use a detail only this client wrote, and say something useful about it. Types 7 and 8 open with their fixed first words (\"Understood.\" or \"For your platform,\"); the words right after must still be specific to this client.\n2. **One insight the client did not already have.** Restating their requirements back to them is not an insight.\n3. **Proof is specific.** Types 1, 2, 4, 5, 7 and 8 include two projects in the project format; the second covers a different part of the job. Types 3 and 6 name projects with link lines instead of descriptions. If no genuine second project exists, use one and list it under \"Needs your eye\".\n4. **Plain sentences.** At most three features in one sentence.\n5. **Commit to their stack.** Name the tools they named. Never offer \"X or Y\" when they already chose X.\n6. **Answer every explicit ask.** If something cannot be answered honestly, flag it before submitting.\n7. **Close on a one line call to action** as the type file describes. No question in the close. Type 8 asks its two questions before the call to action.\n8. **Numbers only from the library.** Never estimate or invent a result.\n9. **Length fits the type.**\n10. **Sign exactly as the profile record says.** Types 7 and 8 put \"Best regards,\" before the signature.\n\n## House style\n\n* Clear, simple English. Short sentences. Always \"I\", never \"we\", unless the profile record says otherwise.\n* No dashes, except the dash between project name and project title, and in link lines.\n* No emojis, no checkmarks.\n* No pricing, estimates or timelines unless the client asks; then apply the estimate answer rule in `modules.md`.\n* Never mention white label work, such as MD Driven.\n* Project facts come only from the project library. Samples in type files illustrate structure; never copy their project claims.\n",
+    "active": 1
+   },
+   {
+    "doc_key": "type-selection",
+    "kind": "selection",
+    "title": "Choosing the proposal type",
+    "sort_order": 60,
+    "content": "# Choosing the proposal type\n\nEvery type is scored against the signals from `job-signals`. Signal names below are exactly the ones that skill produces.\n\n## The eight types\n\n| Type | Required (all must hold) | Supporting (each adds 1) | Exclude when (any rules it out) |\n| --- | --- | --- | --- |\n| 2 Structured submission | Explicit asks has 2 or more items | Pricing requested · Portfolio requested · Required words or format present | None |\n| 3 Invite | Invite is \"invite with name\" or \"invite without name\", and the gate did not fail it as a generic mass invite (F6) | Urgency ready now · Decision maker owner | Explicit asks has 2 or more items |\n| 4 Rescue or takeover | Project stage is rescue or takeover, or rebuild or migration | Pain frustrated · previous developer mentioned · Integration risk named | Scope size small task with a single defect |\n| 5 Architecture or consulting | Role seniority architect or consultant, or Engagement model discovery first with an assessment, strategy or roadmap deliverable | Compliance present · AI acts on behalf yes · Data and scale stated · Clarity vague | Scope size small task |\n| 6 Small fix | Scope size small task | Project stage small fix · Urgency ready now · Fixed budget under $500 | Multiple features requested · Project stage new build |\n| 7 Problem first | Job focus operations, and the post describes a current problem (manual work, inefficiency, disconnected tools) | Integration risk named · Named tools or APIs · AI acts on behalf yes · Engagement hourly ongoing | Any exclusion for Type 1 except Job focus |\n| 8 Approach first with questions | Job focus product, Project stage new build or extend, and Clarity vague or key decisions left open (scope, integrations, data or users not stated) | Urgency exploring · Product type SaaS or platform · Decision maker owner | Clarity precise · any exclusion for Type 1 except Clarity |\n| 1 Standard build | Project stage new build, MVP or extend, and Role seniority builder | Scope size project or platform · Named stack present · Clarity precise | Explicit asks 2 or more · Invite · Project stage rescue · Role architect · Scope small task · Job focus operations with a described problem (Type 7) · Clarity vague (Type 8) |\n\n## How to decide\n\n1. Drop every type whose required signals do not all hold, or that has an exclusion that applies.\n2. Among the rest, apply this priority: **2, then 3, then 4, 5 and 6, then 7, 8 and 1.**\n3. Within the same priority group, the type with more supporting signals wins. On a tie, prefer 4 over 5 over 6, and 1 over 7 over 8.\n4. If nothing qualifies, recommend Type 1 and say no type matched cleanly.\n\n## What to show the person\n\nShow the top two or three qualifying types as a visible table before asking:\n\n| Type | Required signals met | Supporting signals | Why |\n| --- | --- | --- | --- |\n\nMark one as recommended. The person picks; their pick always wins.\n\n## Adding a new type\n\nA new type needs a file in `types/` with its structure, rules, \"Do not\" and samples, plus one row in the table above using only signal names that `job-signals` produces. If a type needs a new signal, add the signal to `job-signals` first.\n",
     "active": 1
    }
   ],
@@ -4265,7 +4429,8 @@
     "body_html": "<h1>Stackup Proposal Architecture (Final Version)</h1><h2>Rule #1: Opening Line</h2><p>Always start with “Understood.” If the client specifies a starting word, use that instead. Keep tone human and natural, not AI-like.</p><h2>Paragraph 1: Problem Statement (20–30 words)</h2><p>Clearly show understanding of the client’s problem. Reflect system complexity, pain points, and inefficiencies. Imply confidence in delivering the exact solution.</p><h2>Paragraph 2: Sample Work Mention (20–30 words)</h2><p>Use “I’ve built…” (not “we”). Mention two relevant projects aligned with the client’s problem to establish credibility quickly.</p><h2>Paragraph 3: Sample Work #1 (~50 words)</h2><p>Structure: Project title, link, and conversational explanation starting with “In [Project], I have built…”. Clearly connect your implementation with the client’s requirements.</p><h2>Paragraph 4: Sample Work #2 (~50 words)</h2><p>Same structure as Paragraph 3. Maintain clarity, relevance, and direct alignment with the client’s needs.</p><h2>Paragraph 5: Approach (~50 words)</h2><p>Explain your technical and execution approach. Include tools, APIs, webhooks, and workflow structure. Keep it concise, execution-focused, and within 45–55 words.</p><h2>Paragraph 6: CTA (7–10 words)</h2><p>Short, direct, and action-driven closing line such as “Let’s finalize workflow and start implementation.”</p><h2>Closing Format</h2><p>Best regards, [Your Name] [GitHub Link]</p><h2>Critical Rules</h2><ol><li>Use human, natural tone. Avoid robotic phrasing.</li><li>Always use “I”, never “we”.</li><li>Ensure every line aligns with the client’s requirement.</li><li>Explicitly show how your sample work matches the client’s needs.</li><li>Avoid fluff. Keep everything concise and valuable.</li></ol><h2>Final Checklist</h2><ol><li>Starts with “Understood” or client keyword</li><li>Problem clearly defined</li><li>Relevant sample works included</li><li>Clear matching of features to requirements</li><li>Approach within ~50 words</li><li>Tone is human and direct</li></ol>",
     "prompt": null,
     "priority": 10,
-    "active": 0
+    "active": 0,
+    "is_default": 0
    },
    {
     "name": "Stackup Proposal Writing Framework SOP",
@@ -4273,7 +4438,8 @@
     "body_html": "<h1>Stackup Proposal Writing Framework (Locked SOP)</h1><h2>1. Tone &amp; Style (Non-Negotiable)</h2><ol><li>Write like a human, not AI</li><li>Use simple, clear, conversational English</li><li>Maintain a storytelling flow</li><li>Make it feel like you’re already thinking about their system</li><li>Avoid robotic phrases like “I understand your requirements” or “I’ll approach your system”</li><li>Use phrases like “I’ll start working on…” and “This is very similar to what I’ve built…”</li></ol><h2>2. Opening Rule (Very Important)</h2><ol><li>Always start with “For your platform,” or “For you,”</li><li>If the client uses a specific keyword, start with that phrasing</li></ol><h2>3. Proposal Structure (Strict Format)</h2><h3>Paragraph 1 – Approach (40–50 words)</h3><p>Start with “For your platform…” and explain how you’ll start working, including tech stack and process like APIs, workflows, and integrations.</p><h3>Paragraph 2 – Sample Works Mention (15–25 words)</h3><p>Mention 2 relevant projects naturally in a conversational tone.</p><h3>Paragraph 3 – First Project (50 words)</h3><p>Project Name – 7–9 word title, then link on next line, followed by conversational explanation matching client requirements.</p><h3>Paragraph 4 – Second Project (50 words)</h3><p>Same as paragraph 3.</p><h3>Paragraph 5 – Question 1 (12–15 words)</h3><p>Technical, thought-provoking, easy to answer.</p><h3>Paragraph 6 – Question 2 (12–15 words)</h3><p>Deeper thinking, encourages reply.</p><h3>Paragraph 7 – CTA (7–10 words)</h3><p>Short and action-driven.</p><h3>Paragraph 8–10 – Closing</h3><p>Best regards,<br />Stackup Solution<br />https://github.com/stackupsolutions</p><h2>4. Project Section Rules (Critical)</h2><p>Each project must include title (7–9 words), link on next line, and conversational explanation.</p><h2>5. Key Writing Principles</h2><ol><li>Match client’s features, tools, and industry</li><li>Show that you’ve already solved similar problems</li><li>Avoid generic claims and buzzwords</li></ol><h2>6. What Makes This High-Converting</h2><ol><li>Client feels you’ve already built this</li><li>Builds trust and relevance</li><li>Questions trigger reply instinct</li></ol><h2>7. Quick Checklist Before Sending</h2><ol><li>Starts with “For your platform / For you”</li><li>Conversational tone</li><li>Projects include title + link + explanation</li><li>Questions are engaging</li><li>CTA is strong and concise</li></ol>",
     "prompt": null,
     "priority": 20,
-    "active": 0
+    "active": 0,
+    "is_default": 0
    },
    {
     "name": "Upwork Proposal Writing System",
@@ -4281,55 +4447,80 @@
     "body_html": "<h1>Upwork Proposal Writing System (Final Locked Version)</h1><h2>Core Rule</h2><p>You are not an AI. You are a human expert who has already solved similar problems. Every proposal should feel conversational, confident, and tailored—never generic.</p><h2>Proposal Structure</h2><h3>1. Paragraph 1 — Solution + Experience + Metrics (40–45 words)</h3><ol><li>Start with “Perfect,” (or client’s specified word if mentioned)</li><li>Clearly state the solution to their problem</li><li>Mention similar project names (at least 2)</li><li>Add relevant performance improvement (%) based on client problem</li><li>Keep it result-driven, not descriptive</li></ol><h3>2. Paragraph 2 — Project Reference 1 (40–50 words)</h3><ol><li>Project Name – 7–8 word descriptive title</li><li>Next line: Project link</li><li>Start explanation in conversational tone</li><li>Explain what you built (features/specs)</li><li>Explain how it directly relates to client’s problem</li></ol><h3>3. Paragraph 3 — Project Reference 2 (40–50 words)</h3><ol><li>Project Name – 7–8 word descriptive title</li><li>Next line: Project link</li><li>Start explanation in conversational tone</li><li>Explain what you built (features/specs)</li><li>Explain how it directly relates to client’s problem</li></ol><h3>4. Paragraph 4 — Approach (~50 words)</h3><ol><li>Start conversationally: “For your project, I’ll…” or “For you, I’ll…”</li><li>Include approach, light tech stack mention, and architecture thinking</li><li>Balance: 50% general explanation, 50% technical clarity</li><li>Do NOT mention timeline/budget unless client explicitly asks</li></ol><h3>5. Paragraph 5 — CTA (9–11 words)</h3><p>Short, confident, action-oriented. No begging or over-politeness.</p><h3>6. Closing</h3><p>Best regards,<br />Anum Ahmad<br />GitHub Profile Link</p><h2>Critical Writing Rules</h2><h3>Do:</h3><ol><li>Sound like a problem-solver, not applicant</li><li>Be specific to client’s workflow</li><li>Use real system language (automation, workflows, integrations)</li><li>Show you’ve already done this before</li><li>Keep tone simple, clear, human</li></ol><h3>Do Not:</h3><ol><li>Do not use phrases like “I am excited to apply…”</li><li>Do not over-explain technical details</li><li>Do not write long, complex sentences</li><li>Do not sound like a template or AI</li><li>Do not add unnecessary fluff</li></ol><h2>Positioning Strategy</h2><p>You are not selling services. You are showing: “I’ve already built this system. I just need to implement it for you.”</p><h2>Final Mindset</h2><ol><li>This person understands my system</li><li>This person has already built something similar</li><li>This person can execute without hand-holding</li></ol>",
     "prompt": null,
     "priority": 30,
-    "active": 0
+    "active": 0,
+    "is_default": 0
    },
    {
     "name": "Type 1. Standard build",
-    "description": "Chosen when: new build, MVP or extend; builder role; no explicit asks. Length: 120 to 200 words.",
-    "body_html": "<h1>Type 1. Standard build</h1><p><strong>Chosen when:</strong> new build, MVP or extend; builder role; no explicit asks.</p><p><strong>Length:</strong> 120 to 200 words.</p><h2>Structure</h2><ol><li><strong>Hook, two lines.</strong> Their specific problem and one insight about it.</li><li><strong>Proof.</strong> One or two projects, each in two or three plain sentences: what we built, what we owned, the detail that matches them. Link on its own line.</li><li><strong>Plan.</strong> Their stack, committed. The first thing we would build and why.</li><li><strong>Close.</strong> One specific question.</li><li><strong>Signature</strong> from the profile record.</li></ol><h2>Example hook</h2><p>\"A niche talent marketplace lives or dies on whether employers trust the profiles they pay to unlock, so I'd design the verification and credit rules before the UI.\"</p>",
+    "description": "Chosen when: new build, MVP or extend; builder role; no explicit asks. Length: 170 to 240 words.",
+    "body_html": "<h1>Type 1. Standard Build</h1><p><strong>Chosen when:</strong> new build, MVP or extend; builder role; no explicit asks.</p><p><strong>Length:</strong> 170 to 240 words.</p><h2>Structure</h2><ol><li><strong>Hook, two lines.</strong> Natural, pain focused, and specific to this client.</li><li><strong>Proof, two projects.</strong> Each in the project format below.</li><li><strong>Plan.</strong> Their stack, committed. The first thing we would build and why. Name the concrete tools, APIs, webhooks and workflow pieces involved, in about 45 to 55 words.</li><li><strong>Close.</strong> A general call to action in one line. No question.</li><li><strong>Signature</strong> from the profile record.</li></ol><h2>Hook rules</h2><ol><li>Start from the pain, not the project. Ask what is costing the client money, time or customers right now.</li><li>Use a detail only this client wrote, so it is clear the post was read.</li><li>Line one names the pain. Line two shows what causes it or how to avoid it. The second line earns the click.</li><li>Sound like a person talking. If it sounds like a lecture, a slogan or a sales line, rewrite it.</li><li>No talk about us in the first two lines. No project names, no stats, no \"I can build\".</li></ol><h2>Project format</h2><p>Every proposal includes two projects. The second covers a different part of the job and is never a padded weak match. If no genuine second project exists, use one and list it under \"Needs your eye\".</p><pre>Project Name – Project Title\n[project link]\n\nProject description.</pre><p><strong>Project title rules</strong></p><ol><li>Seven to nine words, one line.</li><li>Targets the main feature this client needs, their industry, and the tech stack they named.</li><li>Written fresh for each job. The same project gets a different title for a different job.</li><li>Only true details. The stack in the title must be what the project actually used, from the library.</li><li>The dash between project name and title is allowed.</li></ol><p><strong>Project description rules.</strong> Two or three plain sentences, written as a direct match to the job:</p><ol><li>What I built and with what. The features from this project that match the client's required features, and the stack used.</li><li>Why it matters to them. Tie it directly to their feature, stack or industry.</li><li>Result, if verified. Only from the library, never estimated.</li></ol><p>When the industry differs, say why the work carries over. At most three features per sentence.</p><h2>Close rules</h2><ol><li>One line, 9 to 11 words.</li><li>Invites a clear next step, such as a short call to walk through their build.</li><li>Confident and forward looking. No question mark, no easy out, no banned phrases.</li></ol><p>Example: \"Let's set up a short call to walk through your build.\"</p><h2>Estimates</h2><p>If the client asks for timeline or budget, apply the estimate answer rule in ../modules.md.</p><h2>Do not</h2><p>| Weak hook | Why it fails | | --- | --- | | \"I can build your CRM with an AI voice agent.\" | About us, not their pain | | \"You need a CRM that integrates Retell and Laravel.\" | Restates the post, no insight | | \"Speed to lead is the most important metric in sales.\" | Lecture tone, generic | | \"Stop losing leads forever with AI!\" | Salesy, not believable |</p><h2>Sample</h2><p>Structure illustration only. Project facts in samples are not verified; never copy a sample's claims about a project. Take every project fact from the library.</p><p>Job: home services company wants a CRM on Laravel and React with a Retell voice agent that calls new leads within minutes.</p><pre>Leads that wait an hour for a callback have usually booked someone else by then. A voice agent fixes the speed, but if it can't see the last conversation it asks the same questions twice, and the lead walks anyway.\n\nApex Windows – AI CRM With Voice Agent for Home Services\n[project link]\n\nI built the lead pipeline and the AI voice agent for Apex Windows, where every call writes its outcome back to the lead record. That's the same call history your agent needs so it never repeats questions to a returning lead.\n\nDentAI Call – Retell Voice Agent for Appointment Booking and Follow Ups\n[project link]\n\nI built DentAI Call on Retell with appointment booking and follow up calls for dental practices. The follow up logic there is exactly what your leads who miss the first call will need.\n\nSince you're on Laravel, React and Retell, I'd start with the lead record and the Retell webhook that writes call outcomes back to it. The dashboard, follow up rules and reporting all read from that record, so building it first keeps everything else simple.\n\nLet's set up a short call to walk through your build.\n\n[Signature from profile record]</pre>",
     "prompt": null,
-    "priority": 1,
-    "active": 1
+    "priority": 41,
+    "active": 1,
+    "is_default": 1
    },
    {
     "name": "Type 2. Structured submission",
-    "description": "Chosen when: the client lists what proposals must include. Wins over every other type. Length: as long as the answers need, no padding.",
-    "body_html": "<h1>Type 2. Structured submission</h1><p><strong>Chosen when:</strong> the client lists what proposals must include. Wins over every other type.</p><p><strong>Length:</strong> as long as the answers need, no padding.</p><h2>Structure</h2><ol><li><strong>One line hook</strong> tied to their most important requirement. If the client set a required opening, use it exactly instead.</li><li><strong>Answers,</strong> numbered in their order, using their wording as short headings. Proof goes inside the answers.</li><li><strong>Gaps.</strong> If an item cannot be answered honestly, do not pad it. List it under \"Needs your eye\".</li><li><strong>Close.</strong> One specific question.</li><li><strong>Signature</strong> from the profile record.</li></ol><p>Pricing asks follow the quote rule module. Everything else is answered in full.</p>",
+    "description": "Chosen when: the client lists what proposals must include. Wins over every other type. Length: as long as the answers need, no padding. Soft ceiling about 350 words.",
+    "body_html": "<h1>Type 2. Structured Submission</h1><p><strong>Chosen when:</strong> the client lists what proposals must include. Wins over every other type.</p><p><strong>Length:</strong> as long as the answers need, no padding. Soft ceiling about 350 words.</p><h2>Structure</h2><ol><li><strong>Opening paragraph.</strong> Two hook sentences on the client's pain, then one experience sentence naming two or three similar projects.</li><li><strong>Link lines.</strong> One per project named in the opening.</li><li><strong>Answers,</strong> numbered in the client's order, using their wording as short headings.</li><li><strong>Two detailed projects</strong> in the project format.</li><li><strong>Gaps.</strong> Anything that cannot be answered honestly goes to \"Needs your eye\", never padded.</li><li><strong>Close.</strong> One line call to action.</li><li><strong>Signature</strong> from the profile record.</li></ol><h2>Opening paragraph</h2><p><strong>Hook, two sentences</strong></p><ol><li>Start from the pain behind their most important requirement, not the project.</li><li>Use a detail only this client wrote.</li><li>Sentence one names the pain. Sentence two shows what causes it or how to avoid it.</li><li>Sound like a person talking.</li><li>No talk about us in the hook. No project names, no stats, no \"I can build\", no \"I'd build\".</li><li>If the client set a required opening, use it exactly, then continue with the experience sentence.</li></ol><p><strong>Experience sentence</strong></p><ol><li>One sentence, 20 to 30 words, in the same paragraph directly after the hook.</li><li>Names the type of system and context that match this job, then names two or three similar projects.</li><li>Only true claims. Numbers only from the library or the profile's allowed stats.</li><li>Plain and confident, not a brag.</li></ol><h2>Link lines</h2><p>Directly below the opening paragraph, one line per named project:</p><pre>Project Name – [link]</pre><h2>Answers</h2><ol><li>Numbered in the client's order, using their wording as short headings.</li><li>Answer every item in full. Commit to their stack.</li><li>Proof belongs inside the answers where it fits naturally.</li><li>Timeline, budget or estimate asks: apply the estimate answer rule in ../modules.md.</li></ol><h2>Detailed projects</h2><ol><li>Two projects, different from the ones named in the opening. Reuse an opening project only when the library has no other strong match.</li><li>If the client asks for past work, both go inside that answer. If not, add a \"Relevant work\" section after the answers.</li><li>Project format, title rules and description rules are the same as Type 1.</li></ol><h2>Close rules</h2><ol><li>One line, 9 to 11 words. No question mark, no easy out, no banned phrases.</li><li>If no answer already invites a call, the close invites one. Example: \"Let's set up a short call to review your contract set.\"</li><li>If an answer already invites a call, such as the estimate answer, the close is forward looking instead. Example: \"Looking forward to building a contract assistant your team trusts.\"</li></ol><h2>Do not</h2><p>| Weak experience line | Why it fails | | --- | --- | | \"I have 6+ years of experience in AI development.\" | Generic | | \"I'm an expert in RAG, LLMs, LangChain, Pinecone and OpenAI.\" | Skills list | | \"I've built dozens of similar projects.\" | Unverified, vague |</p><h2>Sample</h2><p>Structure illustration only. Project facts in samples are not verified; never copy a sample's claims about a project. Take every project fact from the library.</p><p>Job: RAG assistant over company contracts. Client asks for a similar project, a vector database choice, how you prevent wrong answers, and an estimate.</p><pre>Contract answers are only useful if your team can trust them without opening the PDF. That trust comes from citing the exact clause, which means retrieval and citations matter more than the chat interface. I've built AI systems over legal and compliance documents, including ZD Law Firm Automation and LexGuard Pro, where accuracy on legal language comes first.\n\nZD Law Firm Automation – [link]\nLexGuard Pro – [link]\n\n1. Similar project you've built\n\nNavience – Multi Agent RAG for Policy Based Authorization Decisions\n[project link]\n\n[Two or three sentences from the library on what was built and why it matches.]\n\n[Second project] – [Project title]\n[project link]\n\n[Two or three sentences from the library.]\n\n2. Which vector database and why\n\nSince you already run PostgreSQL, I'd use pgvector. Contracts, metadata and embeddings stay in one database, so filtering by client or contract date stays simple.\n\n3. How you prevent wrong answers\n\nEvery answer cites the contract and clause it came from. When retrieval confidence is low, the assistant says it can't find the answer instead of guessing.\n\n4. Estimate\n\nAn accurate timeline and budget depend on details the post doesn't cover yet, like contract volume, file formats and who will use the assistant. Let's schedule a short call to define the complete scope, and I'll align the plan with your preferred timeline and budget.\n\nLooking forward to building a contract assistant your team trusts.\n\n[Signature from profile record]</pre>",
     "prompt": null,
-    "priority": 2,
-    "active": 1
+    "priority": 10,
+    "active": 1,
+    "is_default": 0
    },
    {
     "name": "Type 3. Invite",
     "description": "Chosen when: the client invited the profile. Length: 100 to 160 words.",
-    "body_html": "<h1>Type 3. Invite</h1><p><strong>Chosen when:</strong> the client invited the profile.</p><p><strong>Length:</strong> 100 to 160 words.</p><h2>Structure</h2><ol><li><strong>Greeting.</strong> \"Hi [name], thanks for the invite.\" If no name is given, go straight to the hook.</li><li><strong>Hook.</strong> One specific observation about their post.</li><li><strong>Proof.</strong> One project, closely matched. Link on its own line.</li><li><strong>Close.</strong> A concrete next step, since they already chose to look at us: a short call, or the first piece of work.</li><li><strong>Signature</strong> from the profile record.</li></ol>",
+    "body_html": "<h1>Type 3. Invite</h1><p><strong>Chosen when:</strong> the client invited the profile.</p><p><strong>Length:</strong> 100 to 160 words.</p><h2>Structure</h2><ol><li><strong>Greeting.</strong> \"Hi [name], thanks for the invite.\" If no name is given, start with the approach.</li><li><strong>Approach.</strong> Two or three sentences on how we would tackle their project.</li><li><strong>Similar projects line.</strong> One sentence naming two or three similar projects.</li><li><strong>Link lines.</strong> One per named project.</li><li><strong>Close.</strong> One line with a concrete next step.</li><li><strong>Signature</strong> from the profile record.</li></ol><p>Invites stay light. The client already chose to look at us, so the named projects with links carry the proof. No detailed project descriptions.</p><h2>Approach rules</h2><ol><li>Two or three sentences, anchored on the client's main pain from their post.</li><li>The first sentence must make the client feel understood, since it shows in the preview.</li><li>Commit to their stack. Name the tools they named.</li><li>Say what we would do first and why it matters to them.</li><li>Sound like a person talking. No lecture, slogan or sales line.</li></ol><h2>Similar projects line</h2><ol><li>One sentence, 20 to 30 words, in its own paragraph after the approach.</li><li>Names the type of system and context that match this job, then names two or three similar projects.</li><li>Only true claims. Numbers only from the library or the profile's allowed stats.</li><li>Plain and confident, not a brag.</li></ol><h2>Link lines</h2><p>Directly below the similar projects line, one line per named project:</p><pre>Project Name – [link]</pre><h2>Close rules</h2><ol><li>One line, 9 to 11 words.</li><li>A concrete next step, such as a short call this week. Invites are warm, so the close can be more direct than Type 1.</li><li>No question mark, no easy out, no banned phrases.</li></ol><p>Example: \"Let's book a 20 minute call this week to plan rollout.\"</p><h2>Estimates</h2><p>If the client asks for timeline or budget, apply the estimate answer rule in ../modules.md.</p><h2>Do not</h2><ol><li>Do not write detailed project descriptions; the link lines carry the proof.</li><li>Do not open with a pitch about us after the greeting; open with their pain.</li><li>Do not thank them twice or sound grateful to be picked. One \"thanks for the invite\" is enough.</li></ol><h2>Sample</h2><p>Structure illustration only. Project facts in samples are not verified; take every project fact from the library.</p><p>Job: invite to build an AI voice receptionist for a three location dental group. Client mentions after hours calls going to voicemail.</p><pre>Hi Daniel, thanks for the invite.\n\nFor your three locations, I'd set up the voice agent on Retell to triage after hours calls first, since those are often emergency patients who book with whoever answers. Routine bookings and reminders come next, synced with each location's calendar so no slot gets double booked.\n\nI've built AI voice agents for appointment based businesses, including DentAI Call and Apex Windows, where every missed call means a lost customer.\n\nDentAI Call – [link]\nApex Windows – [link]\n\nLet's book a 20 minute call this week to plan rollout.\n\n[Signature from profile record]</pre>",
     "prompt": null,
-    "priority": 3,
-    "active": 1
+    "priority": 20,
+    "active": 1,
+    "is_default": 0
    },
    {
     "name": "Type 4. Rescue or takeover",
-    "description": "Chosen when: the existing system is broken, unfinished or being rebuilt. Length: 140 to 200 words.",
-    "body_html": "<h1>Type 4. Rescue or takeover</h1><p><strong>Chosen when:</strong> the existing system is broken, unfinished or being rebuilt.</p><p><strong>Length:</strong> 140 to 200 words.</p><h2>Structure</h2><ol><li><strong>Hook.</strong> The likely cause or biggest risk in their current system, stated calmly. No blame on the previous developer.</li><li><strong>First look.</strong> What we would check in the first days before changing anything (access, repo state, deploy path, data).</li><li><strong>Proof.</strong> A project where we took over, fixed or rebuilt existing work. If none is in the library, say less rather than stretch a new build into a rescue.</li><li><strong>Close.</strong> A question about the current state or access.</li><li><strong>Signature</strong> from the profile record.</li></ol>",
+    "description": "Chosen when: the existing system is broken, unfinished or being rebuilt. Length: 170 to 240 words.",
+    "body_html": "<h1>Type 4. Rescue or Takeover</h1><p><strong>Chosen when:</strong> the existing system is broken, unfinished or being rebuilt.</p><p><strong>Length:</strong> 170 to 240 words.</p><h2>Structure</h2><ol><li><strong>Opening paragraph.</strong> Two hook sentences on the likely cause or biggest risk, then one experience sentence naming the takeover or rescue projects.</li><li><strong>Detailed projects,</strong> directly after the opening, in the order they were named. No separate link lines.</li><li><strong>First look.</strong> What we check in the first days before changing anything.</li><li><strong>Close.</strong> One line showing immediate availability.</li><li><strong>Signature</strong> from the profile record.</li></ol><h2>Opening paragraph</h2><p><strong>Hook, two sentences</strong></p><ol><li>Name the likely cause or biggest risk in their current system, using a detail only this client wrote.</li><li>State it calmly. Never blame the previous developer.</li><li>Sentence one names the problem. Sentence two explains what is probably causing it.</li><li>Sound like a person talking.</li><li>No talk about us in the hook. No project names, no stats, no \"I can fix\".</li></ol><p><strong>Experience sentence</strong></p><ol><li>One sentence, 20 to 30 words, in the same paragraph directly after the hook.</li><li>Names the type of takeover or rescue work, then names the projects detailed below.</li><li>Only true claims.</li></ol><h2>Detailed projects</h2><ol><li>The same projects named in the opening, in the same order. Usually two.</li><li>Only genuine takeovers, fixes or rebuilds, judged from the project overview and case study summary, not from the \"Rescue / takeover\" tag alone (that tag is over applied in the library). Never stretch a new build into a rescue. If only one genuine project exists, use one and flag it under \"Needs your eye\".</li><li>Project format and title rules as Type 1; the title targets the main fix or rebuild this client needs.</li></ol><p><strong>Project description rules</strong></p><ol><li>What I inherited and what I did. The state the project was in, the stack, and what we fixed or rebuilt.</li><li>Why it matters to them. Tie it directly to their problem, stack or industry.</li><li>Result, if verified. Only from the library.</li></ol><h2>First look</h2><ol><li>Two or three sentences, after the projects.</li><li>What we check before changing anything: access, repo state, deploy path, data.</li><li>End by showing how this separates what is broken from what is simply unfinished.</li></ol><h2>Close rules</h2><ol><li>One line, 9 to 11 words.</li><li>Shows immediate availability, since rescue clients are usually under pressure.</li><li>No question mark, no easy out, no banned phrases.</li></ol><p>Examples: \"I'm available today and can start the audit right away.\" · \"I can start today, beginning with a full code audit.\"</p><h2>Estimates</h2><p>Apply the estimate answer rule in ../modules.md. A rescue estimate is almost always unknown until the audit, so say that plainly.</p><h2>Do not</h2><ol><li>Do not blame or criticize the previous developer.</li><li>Do not promise a fix before the audit.</li><li>Do not present a from scratch build as a rescue.</li></ol><h2>Sample</h2><p>Structure illustration only. Project facts in samples are not verified; take every project fact from the library.</p><p>Job: half built Laravel and React store, previous developer left, payments fail intermittently.</p><pre>Payments that fail only sometimes usually point to webhooks, not the checkout itself. When Stripe events arrive twice or out of order and the app isn't built for that, orders get stuck between paid and pending. I've taken over unfinished and AI built apps, including [rescue project 1] and [rescue project 2], where the first job was finding out what actually worked.\n\n[Rescue project 1] – [Project title]\n[project link]\n\nI took over [what was inherited] on [stack] and fixed [main issue]. [Why it matters for their store.]\n\n[Rescue project 2] – [Project title]\n[project link]\n\n[Two or three sentences from the library.]\n\nBefore changing anything, I'd confirm access to the repo, server and Stripe account, check that what's deployed matches the latest code, and compare webhook logs against your order records. That separates what's broken from what's simply unfinished.\n\nI'm available today and can start the audit right away.\n\n[Signature from profile record]</pre>",
     "prompt": null,
-    "priority": 4,
-    "active": 1
+    "priority": 31,
+    "active": 1,
+    "is_default": 0
    },
    {
     "name": "Type 5. Architecture or consulting",
-    "description": "Chosen when: architect, lead, consultant or auditor role, or the job asks for strategy, assessment or a roadmap. Length: 160 to 240 words.",
-    "body_html": "<h1>Type 5. Architecture or consulting</h1><p><strong>Chosen when:</strong> architect, lead, consultant or auditor role, or the job asks for strategy, assessment or a roadmap.</p><p><strong>Length:</strong> 160 to 240 words.</p><h2>Structure</h2><ol><li><strong>Hook.</strong> A point of view on the key decision they face.</li><li><strong>Proof.</strong> Decisions we owned and why, not features we built.</li><li><strong>Deliverables.</strong> What they will have at the end: architecture, assessment, roadmap, standards.</li><li><strong>Close.</strong> An offer to start with a short discovery session.</li><li><strong>Signature</strong> from the profile record.</li></ol><p>Voice shifts from \"I built\" to \"I owned\" and \"I decided\", only where true.</p>",
+    "description": "Chosen when: architect, lead, consultant or auditor role, or the job asks for strategy, assessment or a roadmap. Length: 180 to 260 words.",
+    "body_html": "<h1>Type 5. Architecture or Consulting</h1><p><strong>Chosen when:</strong> architect, lead, consultant or auditor role, or the job asks for strategy, assessment or a roadmap.</p><p><strong>Length:</strong> 180 to 260 words.</p><h2>Structure</h2><ol><li><strong>Opening paragraph.</strong> Two hook sentences giving a point of view on the key decision they face, then one experience sentence naming projects where we owned the architecture.</li><li><strong>Detailed projects,</strong> directly after the opening, in the order they were named. No separate link lines.</li><li><strong>Deliverables.</strong> What they will hold at the end.</li><li><strong>Close.</strong> One line offering a short discovery session.</li><li><strong>Signature</strong> from the profile record.</li></ol><p>Voice shifts from \"I built\" to \"I owned\" and \"I decided\", only where true.</p><h2>Opening paragraph</h2><p><strong>Hook, two sentences</strong></p><ol><li>Give a clear point of view on the key decision the client faces, using a detail only this client wrote.</li><li>Sentence one challenges or reframes a common assumption. Sentence two names the decision that actually matters.</li><li>Sound like an experienced person talking, not a lecture, slogan or sales line.</li><li>No talk about us in the hook. No project names, no stats.</li></ol><p><strong>Experience sentence</strong></p><ol><li>One sentence, 20 to 30 words, in the same paragraph directly after the hook.</li><li>Names the type of architecture work, then names the projects detailed below.</li><li>Only true claims.</li></ol><h2>Detailed projects</h2><ol><li>The same projects named in the opening, in the same order. Usually two.</li><li>Only projects where we genuinely owned architecture or key technical decisions.</li><li>Project format as Type 1; the title targets the architecture focus this client needs.</li></ol><p><strong>Project description rules.</strong> Two or three plain sentences focused on decisions, not features:</p><ol><li>What I decided and why. The key architecture decision, the stack, and the reason behind it.</li><li>Why it matters to them. Tie the decision to the choice or tradeoff they face now.</li><li>Result, if verified. Only from the library.</li></ol><p>If the library holds no stored decision for a project, describe what was built and flag the missing decision under \"Needs your eye\". Never invent a decision.</p><h2>Deliverables</h2><ol><li>One or two sentences on what they will hold at the end: architecture, assessment, roadmap, standards.</li><li>Written as a sentence, not a list.</li></ol><h2>Close rules</h2><ol><li>One line, 9 to 11 words.</li><li>Offers a short discovery session tied to their problem.</li><li>No question mark, no easy out, no banned phrases.</li></ol><p>Example: \"Let's start with a short discovery session on your claims flow.\"</p><h2>Estimates</h2><p>Apply the estimate answer rule in ../modules.md.</p><h2>Do not</h2><ol><li>Do not list features; consultants are hired for judgment.</li><li>Do not claim ownership of decisions the library does not show we made.</li><li>Do not recommend a specific framework in the hook; the hook is about the decision, not the tool.</li></ol><h2>Sample</h2><p>Structure illustration only. Project facts in samples are not verified; take every project fact from the library.</p><p>Job: fractional AI architect for an insurtech deciding how to automate claims review.</p><pre>Most claims workflows don't need many agents on day one. The real decision is where a human must approve, because that boundary shapes the architecture more than any framework choice. I've owned architecture decisions for multi agent AI systems, including Navience and Breesy, where traceability and cost at scale drove every choice.\n\nNavience – Multi Agent Claude Architecture for Authorization Decisions\n[project link]\n\n[Decision, stack and reason, from the library.] [Tie to their claims flow.]\n\nBreesy – Multi Agent Platform Architecture With 50 Plus SaaS Agents\n[project link]\n\n[Decision and reason, from the library.] That's the same question you face on how many agents claims review really needs.\n\nAt the end you'll have a target architecture with the reasoning behind each choice, a build roadmap your team can follow, and clear rules for where AI decides and where people do.\n\nLet's start with a short discovery session on your claims flow.\n\n[Signature from profile record]</pre>",
     "prompt": null,
-    "priority": 5,
-    "active": 1
+    "priority": 32,
+    "active": 1,
+    "is_default": 0
    },
    {
     "name": "Type 6. Small fix or quick task",
-    "description": "Chosen when: a small, clearly bounded task. Length: 50 to 100 words.",
-    "body_html": "<h1>Type 6. Small fix or quick task</h1><p><strong>Chosen when:</strong> a small, clearly bounded task.</p><p><strong>Length:</strong> 50 to 100 words.</p><h2>Structure</h2><ol><li><strong>Likely cause</strong> in one line.</li><li><strong>The fix</strong> in one or two lines.</li><li><strong>Availability</strong> to start now.</li><li><strong>Close.</strong> One question to confirm access or scope.</li><li><strong>Signature</strong> from the profile record.</li></ol><p>A project link only if it proves the exact fix.</p>",
+    "description": "Chosen when: a small, clearly bounded task. Length: 70 to 120 words.",
+    "body_html": "<h1>Type 6. Small Fix or Quick Task</h1><p><strong>Chosen when:</strong> a small, clearly bounded task.</p><p><strong>Length:</strong> 70 to 120 words.</p><h2>Structure</h2><ol><li><strong>Cause and fix paragraph.</strong> One sentence on the likely cause, then one or two sentences on the fix.</li><li><strong>Similar projects line.</strong> One sentence naming two similar fixes.</li><li><strong>Link lines.</strong> One per named project.</li><li><strong>Close.</strong> One line showing immediate availability.</li><li><strong>Signature</strong> from the profile record.</li></ol><p>Small fixes stay short. Named projects with links carry the proof. No detailed project descriptions.</p><h2>Cause and fix paragraph</h2><ol><li>The first sentence names the likely cause, using a detail only this client wrote. It shows in the preview, so it must prove we already understand the problem.</li><li>One or two sentences on the fix, in plain words.</li><li>Commit to their stack. Name the tools they named.</li><li>No talk about us in this paragraph.</li></ol><h2>Similar projects line</h2><ol><li>One sentence, 15 to 25 words, in its own paragraph after the fix.</li><li>Names the type of fix, then names two similar projects.</li><li>Only projects that prove a similar fix. If none exists, drop this line and the link lines, and flag it under \"Needs your eye\".</li><li>Only true claims.</li></ol><h2>Link lines</h2><pre>Project Name – [link]</pre><h2>Close rules</h2><ol><li>One line, 9 to 11 words.</li><li>Shows immediate availability. No timeline promise unless the client asks.</li><li>No question mark, no easy out, no banned phrases.</li></ol><p>Example: \"I'm available now and can start on your form right away.\"</p><h2>Estimates</h2><p>If the scope is thin, apply the estimate answer rule in ../modules.md. When the fix is clearly bounded and the client asks for a price, still give no number in the proposal; flag it under \"Needs your eye\" so the person adds one if they choose.</p><h2>Do not</h2><ol><li>Do not pad a small fix with full project descriptions.</li><li>Do not name a large build as proof of a small fix unless it contains the same fix.</li><li>Do not exceed 120 words.</li></ol><h2>Sample</h2><p>Structure illustration only. Project facts in samples are not verified; take every project fact from the library.</p><p>Job: WordPress contact form submissions not reaching the inbox.</p><pre>Form emails that never arrive are usually sent through the server's default mail function, which inboxes flag as spam or reject. The fix is routing form mail through SMTP and adding SPF and DKIM records to your domain.\n\nI've handled WordPress and email delivery fixes before, including [fix project 1] and [fix project 2].\n\n[Fix project 1] – [link]\n[Fix project 2] – [link]\n\nI'm available now and can start on your form right away.\n\n[Signature from profile record]</pre>",
     "prompt": null,
-    "priority": 6,
-    "active": 1
+    "priority": 33,
+    "active": 1,
+    "is_default": 0
+   },
+   {
+    "name": "Type 7. Problem first",
+    "description": "Chosen when: the client describes an operational system or workflow problem (inefficiency, manual work, disconnected tools, integration pain) and the job is about how the system will work end to end. Length: about 230 to 280 words.",
+    "body_html": "<h1>Type 7. Problem First (Proposal Architecture)</h1><p>Source: \"Stackup Proposal Architecture (Final Version)\".</p><p><strong>Chosen when:</strong> the client describes an operational system or workflow problem (inefficiency, manual work, disconnected tools, integration pain) and the job is about how the system will work end to end.</p><p><strong>Length:</strong> about 230 to 280 words.</p><h2>Structure</h2><ol><li><strong>Opening line.</strong> \"Understood.\" If the client specifies a starting word, use that instead.</li><li><strong>Paragraph 1, problem statement (20 to 30 words).</strong> Show clear understanding of the client's problem: the system complexity, pain points and inefficiencies, using details only this client wrote. Imply confidence in delivering the exact solution.</li><li><strong>Paragraph 2, sample work mention (20 to 30 words).</strong> Start with \"I've built\", never \"we\". Name two relevant projects aligned with the client's problem.</li><li><strong>Paragraph 3, sample work 1 (about 50 words).</strong> Project title, link, then a conversational explanation starting \"In [Project], I have built\". Connect the implementation directly to the client's requirements.</li><li><strong>Paragraph 4, sample work 2 (about 50 words).</strong> Same structure as paragraph 3.</li><li><strong>Paragraph 5, approach (45 to 55 words).</strong> The technical and execution approach: tools, APIs, webhooks and workflow structure. Concise and execution focused.</li><li><strong>Paragraph 6, call to action (7 to 10 words).</strong> Short, direct and action driven, for example \"Let's finalize workflow and start implementation.\"</li><li><strong>Closing.</strong> \"Best regards,\" then the signature from the profile record.</li></ol><h2>Project format</h2><pre>Project Name – Project Title\n[project link]\n\nIn [Project], I have built ...</pre><p>Project titles follow the Type 1 title rules (seven to nine words, written fresh, only true details).</p><h2>Rules</h2><ol><li>Human, natural tone. No robotic phrasing.</li><li>Always \"I\", never \"we\".</li><li>Every line aligns with the client's requirement.</li><li>Show explicitly how the sample work matches the client's needs.</li><li>No fluff. Concise and valuable.</li></ol><h2>Checklist</h2><ul><li>[ ] Starts with \"Understood.\" or the client's keyword</li><li>[ ] Problem clearly defined in the client's own details</li><li>[ ] Two relevant sample works included</li><li>[ ] Features clearly matched to requirements</li><li>[ ] Approach within 45 to 55 words, naming tools, APIs, webhooks</li><li>[ ] Tone is human and direct</li></ul><h2>Estimates</h2><p>Apply the estimate answer rule in ../modules.md.</p><h2>Do not</h2><ol><li>Do not follow \"Understood.\" with \"your requirements\"; the next words must be about their problem.</li><li>Do not use \"we\" anywhere.</li><li>Do not write the approach as a feature list.</li></ol><h2>Samples</h2><p>None approved yet. Add three or four approved proposals here.</p>",
+    "prompt": null,
+    "priority": 42,
+    "active": 1,
+    "is_default": 0
+   },
+   {
+    "name": "Type 8. Approach first with questions",
+    "description": "Chosen when: the client has a platform or idea to build or extend but the post leaves key decisions open (scope, integrations, data, users), so engaging questions are the best way to start a conversation. Length: about 230 to 280 words.",
+    "body_html": "<h1>Type 8. Approach First With Questions (Writing Framework)</h1><p>Source: \"Stackup Proposal Writing Framework (Locked SOP)\".</p><p><strong>Chosen when:</strong> the client has a platform or idea to build or extend but the post leaves key decisions open (scope, integrations, data, users), so engaging questions are the best way to start a conversation.</p><p><strong>Length:</strong> about 230 to 280 words.</p><h2>Structure</h2><ol><li><strong>Paragraph 1, approach (40 to 50 words).</strong> Start with \"For your platform,\" or \"For you,\". If the client uses a specific keyword, start with that phrasing. Explain how you'll start working, including tech stack and process such as APIs, workflows and integrations.</li><li><strong>Paragraph 2, sample works mention (15 to 25 words).</strong> Mention two relevant projects naturally, in a conversational tone.</li><li><strong>Paragraph 3, first project (about 50 words).</strong> Project name and a 7 to 9 word title, link on the next line, then a conversational explanation matching the client's requirements.</li><li><strong>Paragraph 4, second project (about 50 words).</strong> Same as paragraph 3.</li><li><strong>Paragraph 5, question 1 (12 to 15 words).</strong> Technical, thought provoking, easy to answer.</li><li><strong>Paragraph 6, question 2 (12 to 15 words).</strong> Deeper thinking, encourages a reply.</li><li><strong>Paragraph 7, call to action (7 to 10 words).</strong> Short and action driven.</li><li><strong>Closing.</strong> \"Best regards,\" then the signature from the profile record.</li></ol><h2>Project format</h2><pre>Project Name – Project Title\n[project link]\n\nConversational explanation matching the client's requirements.</pre><h2>Tone and style</h2><ol><li>Write like a human, not AI. Simple, clear, conversational English.</li><li>Keep a storytelling flow. Make it feel like you are already thinking about their system.</li><li>Phrases that fit: \"I'll start working on...\" and \"This is very similar to what I've built...\".</li><li>Avoid robotic phrases such as \"I understand your requirements\" or \"I'll approach your system\".</li></ol><h2>Key principles</h2><ol><li>Match the client's features, tools and industry.</li><li>Show that you've already solved similar problems.</li><li>Avoid generic claims and buzzwords.</li><li>The questions should trigger the reply instinct: specific to their system, answerable in a line.</li></ol><h2>Checklist</h2><ul><li>[ ] Starts with \"For your platform,\" or \"For you,\" or the client's keyword</li><li>[ ] Conversational tone throughout</li><li>[ ] Each project has title, link and explanation</li><li>[ ] Two engaging questions, each 12 to 15 words</li><li>[ ] Call to action strong and concise</li></ul><h2>Estimates</h2><p>Apply the estimate answer rule in ../modules.md.</p><h2>Do not</h2><ol><li>Do not ask questions the post already answers.</li><li>Do not ask yes or no questions; they end the conversation.</li><li>Do not ask more than two questions.</li></ol><h2>Samples</h2><p>None approved yet. Add three or four approved proposals here.</p>",
+    "prompt": null,
+    "priority": 43,
+    "active": 1,
+    "is_default": 0
    }
   ],
   "template_signals": [
@@ -4338,147 +4529,612 @@
     "signal_id": 4,
     "value_id": "4|Technical",
     "weight": 2,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Architecture",
     "signal_id": 14,
     "value_id": "14|Precise",
     "weight": 2,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Architecture",
     "signal_id": 10,
     "value_id": "10|High",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Architecture",
     "signal_id": 11,
     "value_id": "11|Rescue / frustration",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Writing Framework SOP",
     "signal_id": 14,
     "value_id": "14|Vague",
     "weight": 2,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Writing Framework SOP",
     "signal_id": 16,
     "value_id": "16|Nurture",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Writing Framework SOP",
     "signal_id": 15,
     "value_id": "15|Open",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Stackup Proposal Writing Framework SOP",
     "signal_id": 2,
     "value_id": "2|Discovery-first",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Upwork Proposal Writing System",
     "signal_id": 4,
     "value_id": "4|Product / outcome",
     "weight": 2,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Upwork Proposal Writing System",
     "signal_id": 13,
     "value_id": "13|Value",
     "weight": 2,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Upwork Proposal Writing System",
     "signal_id": 12,
     "value_id": "12|Founder",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Upwork Proposal Writing System",
     "signal_id": 16,
     "value_id": "16|Ready",
     "weight": 1,
-    "source": "starter"
+    "source": "starter",
+    "role": "weight",
+    "req_group": null
    },
    {
     "template_id": "Type 1. Standard build",
     "signal_id": 3,
     "value_id": "3|Greenfield / MVP",
-    "weight": 2,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
    },
    {
     "template_id": "Type 1. Standard build",
-    "signal_id": 11,
-    "value_id": "11|Fresh / opportunity",
-    "weight": 1,
-    "source": "starter"
+    "signal_id": 3,
+    "value_id": "3|Extend existing product",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 18,
+    "value_id": "18|Builder",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 2
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 19,
+    "value_id": "19|Project",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 19,
+    "value_id": "19|Platform",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 8,
+    "value_id": "8|Named tools",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 14,
+    "value_id": "14|Precise",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 5,
+    "value_id": "5|Yes",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 17,
+    "value_id": "17|Invited",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 3,
+    "value_id": "3|Rescue / takeover",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 3,
+    "value_id": "3|Rebuild / migration",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 18,
+    "value_id": "18|Architect or consultant",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 19,
+    "value_id": "19|Small task",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 21,
+    "value_id": "21|Operations",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 1. Standard build",
+    "signal_id": 14,
+    "value_id": "14|Vague",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
    },
    {
     "template_id": "Type 2. Structured submission",
     "signal_id": 5,
     "value_id": "5|Yes",
-    "weight": 6,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
    },
    {
     "template_id": "Type 3. Invite",
     "signal_id": 17,
     "value_id": "17|Invited",
-    "weight": 5,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 3. Invite",
+    "signal_id": 16,
+    "value_id": "16|Ready",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 3. Invite",
+    "signal_id": 12,
+    "value_id": "12|Founder",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 3. Invite",
+    "signal_id": 5,
+    "value_id": "5|Yes",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
    },
    {
     "template_id": "Type 4. Rescue or takeover",
     "signal_id": 3,
-    "value_id": "3|Rescue / extend",
-    "weight": 1,
-    "source": "starter"
+    "value_id": "3|Rescue / takeover",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 4. Rescue or takeover",
+    "signal_id": 3,
+    "value_id": "3|Rebuild / migration",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
    },
    {
     "template_id": "Type 4. Rescue or takeover",
     "signal_id": 11,
     "value_id": "11|Rescue / frustration",
-    "weight": 3,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 4. Rescue or takeover",
+    "signal_id": 19,
+    "value_id": "19|Small task",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
    },
    {
     "template_id": "Type 5. Architecture or consulting",
     "signal_id": 18,
     "value_id": "18|Architect or consultant",
-    "weight": 4,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
    },
    {
     "template_id": "Type 5. Architecture or consulting",
     "signal_id": 2,
     "value_id": "2|Discovery-first",
-    "weight": 1,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 5. Architecture or consulting",
+    "signal_id": 9,
+    "value_id": "9|High",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 5. Architecture or consulting",
+    "signal_id": 10,
+    "value_id": "10|High",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 5. Architecture or consulting",
+    "signal_id": 14,
+    "value_id": "14|Vague",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 5. Architecture or consulting",
+    "signal_id": 19,
+    "value_id": "19|Small task",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
    },
    {
     "template_id": "Type 6. Small fix or quick task",
     "signal_id": 19,
     "value_id": "19|Small task",
-    "weight": 4,
-    "source": "starter"
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 6. Small fix or quick task",
+    "signal_id": 16,
+    "value_id": "16|Ready",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 6. Small fix or quick task",
+    "signal_id": 3,
+    "value_id": "3|Greenfield / MVP",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 21,
+    "value_id": "21|Operations",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 8,
+    "value_id": "8|Named tools",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 2,
+    "value_id": "2|Hourly / ongoing",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 5,
+    "value_id": "5|Yes",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 17,
+    "value_id": "17|Invited",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 3,
+    "value_id": "3|Rescue / takeover",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 3,
+    "value_id": "3|Rebuild / migration",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 18,
+    "value_id": "18|Architect or consultant",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 7. Problem first",
+    "signal_id": 19,
+    "value_id": "19|Small task",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 21,
+    "value_id": "21|Product",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 1
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 3,
+    "value_id": "3|Greenfield / MVP",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 2
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 3,
+    "value_id": "3|Extend existing product",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 2
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 22,
+    "value_id": "22|Open decisions",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 3
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 14,
+    "value_id": "14|Vague",
+    "weight": 0,
+    "source": "starter",
+    "role": "required",
+    "req_group": 3
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 16,
+    "value_id": "16|Nurture",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 12,
+    "value_id": "12|Founder",
+    "weight": 0,
+    "source": "starter",
+    "role": "supporting",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 14,
+    "value_id": "14|Precise",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 5,
+    "value_id": "5|Yes",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 17,
+    "value_id": "17|Invited",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 3,
+    "value_id": "3|Rescue / takeover",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 3,
+    "value_id": "3|Rebuild / migration",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 18,
+    "value_id": "18|Architect or consultant",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
+   },
+   {
+    "template_id": "Type 8. Approach first with questions",
+    "signal_id": 19,
+    "value_id": "19|Small task",
+    "weight": 0,
+    "source": "starter",
+    "role": "exclude",
+    "req_group": null
    }
   ],
   "template_samples": [

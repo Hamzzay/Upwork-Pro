@@ -26,6 +26,8 @@
     "seed:writing:prod": "node dist/scripts/seed-writing.js",
     "merge:writing": "ts-node scripts/merge-writing.ts",
     "merge:writing:prod": "node dist/scripts/merge-writing.js",
+    "upgrade:guide": "ts-node scripts/upgrade-guide.ts",
+    "upgrade:guide:prod": "node dist/scripts/upgrade-guide.js",
     "setup:export": "ts-node scripts/setup-data.ts export",
     "setup:import": "ts-node scripts/setup-data.ts import",
     "setup:import:prod": "node dist/scripts/setup-data.js import",

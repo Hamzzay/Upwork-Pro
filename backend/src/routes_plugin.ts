@@ -293,7 +293,7 @@ plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
       const match = all || (want && (t.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').includes(want) || key(t.name).replace(/-/g, ' ').includes(want)));
       return { key: key(t.name), title: t.name, ...typeFacts(text), content: match ? text : undefined };
     }),
-    writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
+    type_selection: one('selection'), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
     updated_at: [...docs, ...types].reduce((m: any, d: any) => (m && m > d.updated_at ? m : d.updated_at), null),
   });
 });

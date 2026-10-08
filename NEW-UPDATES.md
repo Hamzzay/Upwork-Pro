@@ -558,6 +558,29 @@ industries, projects (with their tags and industries), Upwork profiles and setti
 - New setup tables (Loom videos, certifications) go into `SPEC` in `scripts/setup-data.ts` so they are backed up too.
 - Checked: restored into a new empty database, exported it again, and the two files are identical; the test database was dropped.
 
+### R25. The team plugin's proposal work in Upwork Pro: eight types, type selection, writing guide, certifications (done)
+The team improved proposal writing in their copy of the plugin (v0.2.7, before the Upwork Pro connection). That work is now in Upwork
+Pro, so the app's writer and every Claude use it.
+- **Eight proposal types** (`seed/templates.json`): types 1 to 6 updated (longer: Type 1 and 4 now 170 to 240 words, 5 is 180 to 260, 6 is
+  70 to 120), and **Type 7 Problem first** and **Type 8 Approach first with questions** added (built from the old SOP templates).
+- **Type selection as the team wrote it** (`type-selection.md`, now in the Writing guide): per type, required signals (alternatives in a
+  group), supporting signals (one point each) and signals that rule it out; priority groups 2, then 3, then 4/5/6, then 1/7/8; Type 1 when
+  none qualifies. `rank.ts` does this (older weight rows still work); migration `022_type_selection.sql` adds `role`, `req_group` and
+  `is_default`. The type editor sets each row's role and group and the default type; the Proposal tab shows what each type met and what
+  ruled it out.
+- **Signals**: "Rescue / extend" is now "Rescue / takeover", with new values "Extend existing product" and "Rebuild / migration"; new
+  signals 20 Platform, 21 Job focus, 22 Decisions left open.
+- **Writing guide** (new versions; the old text stays): writing rules, banned phrases, modules (with the estimate answer rule), screening
+  answers and the checklist from the team. The certification rule is **strict** (Hamza): only when the client requires a certification,
+  only one listed on the sending profile, never invented; no match means real experience plus a "Needs your eye" note.
+- **Certifications** per profile (Upwork profiles, one per line); the writer sees them with that rule. The dash in a "Project name –
+  Project title" line (the team's project format) no longer raises a warning.
+- **Rules**: F6 Generic mass invite (fails boilerplate invites) and G18 Any other risk. Our G17 keeps its meaning.
+- **Upgrading a database**: `npm run migrate`, then `npm run upgrade:guide` (safe to run again). Fresh installs get it from the seeds.
+- Checked: tests (the eight types and lengths, every selection row resolves, the selection order on nine cases, the default, dashes);
+  GLM read the 22 signals on three example jobs and the type was right each time (WordPress tweaks: Small fix; SaaS MVP: Standard build;
+  a small automation: Small fix); the Writing guide page in the browser. The setup backup is re-exported.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

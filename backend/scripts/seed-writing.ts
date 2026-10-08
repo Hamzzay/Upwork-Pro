@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { appRoot } from '../src/config';
 import { exec, pool, query } from '../src/db';
 
-const KINDS: Record<string, [string, number]> = { 'writing-rules': ['rules', 10], 'banned-phrases': ['banned', 20], modules: ['modules', 30], 'screening-answers': ['screening', 40], 'verification-checklist': ['checklist', 50] };
+const KINDS: Record<string, [string, number]> = { 'writing-rules': ['rules', 10], 'banned-phrases': ['banned', 20], modules: ['modules', 30], 'screening-answers': ['screening', 40], 'verification-checklist': ['checklist', 50], 'type-selection': ['selection', 60] };
 
 (async () => {
   const dir = join(appRoot, 'seed', 'writing');

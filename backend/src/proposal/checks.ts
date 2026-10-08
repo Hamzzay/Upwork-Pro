@@ -34,7 +34,9 @@ export function checkProposal(i: CheckInput): string[] {
   // the Writing guide: banned phrases, dashes, and the type's length (the cover letter only, not the screening answers)
   const letter = t.split(/\n\s*Screening answers\s*:?\s*\n/i)[0];
   for (const b of i.banned ?? []) if (b.re.test(letter)) w.push(`The proposal uses a banned phrase: "${b.phrase}". Rewrite that line.`);
-  if (/[–—]/.test(t.replace(/https?:\/\/\S+/g, ''))) w.push('The proposal contains a dash (– or —). The writing guide allows none.');
+  const dashLines = t.split('\n').filter((l) => /[–—]/.test(l.replace(/https?:\/\/\S+/g, ''))
+    && !i.selectedProjects.some((p) => l.trim().toLowerCase().startsWith(p.name.toLowerCase())));
+  if (dashLines.length) w.push('The proposal contains a dash (– or —) outside a "Project name – Project title" line. The writing guide allows none elsewhere.');
   if (i.wordRange) {
     const words = letter.replace(/https?:\/\/\S+/g, '').split(/\s+/).filter(Boolean).length;
     const [lo, hi] = i.wordRange;

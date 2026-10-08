@@ -1429,6 +1429,7 @@ async function profilesView() {
     ['signature', 'Signature', 'text', 500, 'How the proposal signs off.', 'For example: the name, then the GitHub link on the next line'],
     ['stats_allowed', 'Upwork stats allowed in proposals', 'text', 500, 'The only figures the writer may use about this profile.', 'For example: Top Rated Plus, 100% Job Success Score'],
     ['rules', 'Profile rules', 'area', 4000, 'Followed in every proposal from this profile, before the proposal type.', 'For example: no pricing and no timeline unless the client asks'],
+    ['certifications', 'Certifications', 'area', 2000, 'One per line: name, issuer, year. Used in a proposal only when the client requires a certification, and never one that is not listed here.', 'For example: AWS Certified Solutions Architect Associate, Amazon Web Services, 2024'],
     ['submitted_by', 'Who submits', 'text', 300, '', 'For example: Hassan'],
     ['notes', 'Notes', 'text', 500, '', 'For example: main freelancer profile'],
   ];
@@ -1449,7 +1450,7 @@ async function profilesView() {
       h('div', { class: 'grid2' }, fld(by('github_url')), fld(by('gitlab_account'))),
       fld(by('services')), fld(by('industries')),
       h('div', { class: 'grid2' }, fld(by('voice')), fld(by('signature'))),
-      fld(by('stats_allowed')), fld(by('rules')),
+      fld(by('stats_allowed')), fld(by('rules')), fld(by('certifications')),
       h('div', { class: 'grid2' }, fld(by('submitted_by')), fld(by('notes')))) };
   }
   const values = (f) => Object.fromEntries([['name', f.name.value], ...FIELDS.map(([k, , type]) => [k, type === 'number' ? (f[k].value === '' ? null : Number(f[k].value)) : (f[k].value.trim() || null)])]);
@@ -1799,7 +1800,7 @@ async function rulesView() {
 }
 
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
-const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist' };
+const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist', selection: 'Type selection' };
 async function writingView() {
   const { types, docs } = await api('GET', '/writing-docs');
   const staff = me.role === 'admin' || me.role === 'manager';
@@ -1812,7 +1813,8 @@ async function writingView() {
     h('div', { class: 'small muted' }, [t.length, `${t.signal_count} signal${Number(t.signal_count) === 1 ? '' : 's'}`, `${t.sample_count} sample${Number(t.sample_count) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));
   const section = (title, sub, list, card, extra) => h('div', { style: 'margin-bottom:22px' }, h('div', { class: 'row spread', style: 'margin-bottom:4px' }, h('h2', { style: 'font-size:17px;margin:0' }, title), extra || null),
     h('p', { class: 'muted small', style: 'margin:0 0 12px' }, sub), h('div', { class: 'grid3' }, list.map(card)));
-  const active = types.filter((t) => Number(t.active)), retired = types.filter((t) => !Number(t.active));
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+  const active = types.filter((t) => Number(t.active)).sort(byName), retired = types.filter((t) => !Number(t.active));
   shell('writing', [pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.'),
     section('Proposal types', 'One is picked per job from its signals (the best score wins; nothing matching gives the lowest priority). Each has its format, length, signals and sample proposals.',
       active, typeCard, staff ? h('a', { class: 'btn sm primary', href: '#/t/new' }, 'Add a type') : null),

@@ -33,7 +33,7 @@ const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',')
 async function loadFacts(screeningId: number, basis?: Basis) {
   const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id FROM screenings s WHERE s.id=?', [screeningId]))[0];
   const profileId: number | null = basis ? basis.profileId : s.proposal_profile_id;
-  const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
+  const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules, certifications FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
   const matches = await query<any>(
     `SELECT jm.project_id, jm.project_name, p.live_link, p.notes, p.overview, p.case_study_summary FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id
      WHERE jm.screening_id=? AND ${basis ? 'jm.project_id IN (?)' : 'jm.selected=1'} ORDER BY jm.rank_no`, basis ? [screeningId, basis.projectIds] : [screeningId]);
@@ -43,7 +43,7 @@ async function loadFacts(screeningId: number, basis?: Basis) {
   const projects: ProjectFact[] = matches.map((m) => ({ name: m.project_name, live_link: m.live_link || null, notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
     tags: tags.filter((t) => t.project_id === m.project_id).map((t) => t.name), industries: inds.filter((t) => t.project_id === m.project_id).map((t) => t.name) }));
   const sender: SenderFact = { name: pr.name, gitlab_link: gitlabLink(pr.gitlab_account) || pr.github_url || null, tagline: pr.tagline || null,
-    voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null };
+    voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null, certifications: pr.certifications || null };
   let report: any = null; try { report = JSON.parse(s.report_json); } catch { /* old or missing */ }
   const job = report?.job ?? report?.jobs?.[0] ?? null;
   const requirements: string[] = [];
@@ -158,17 +158,19 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
 
   // 2. template: the best fit for the signals, or the one the user chose
   await stage('template');
-  const tpls = await query<any>('SELECT id, name, priority FROM templates WHERE active=1');
-  const maps = await query<any>('SELECT template_id, signal_id, value_id, weight FROM template_signals');
+  const tpls = await query<any>('SELECT id, name, priority, is_default FROM templates WHERE active=1');
+  const maps = await query<any>('SELECT template_id, signal_id, value_id, weight, role, req_group FROM template_signals');
   const ranked = rankTemplates(detected.map((d) => ({ signal_id: d.signal_id, value_id: d.value_id, is_fallback: d.is_fallback })),
-    tpls.map((t) => ({ id: t.id, name: t.name, priority: t.priority, mappings: maps.filter((m) => m.template_id === t.id).map((m) => ({ signal_id: m.signal_id, value_id: m.value_id, weight: m.weight })) })));
+    tpls.map((t) => ({ id: t.id, name: t.name, priority: t.priority, is_default: !!t.is_default,
+      mappings: maps.filter((m) => m.template_id === t.id).map((m) => ({ signal_id: m.signal_id, value_id: m.value_id, weight: m.weight, role: m.role, req_group: m.req_group })) })));
   if (!ranked.chosen) throw new Error('no_template');
   let chosen = ranked.chosen; let choice: 'auto' | 'manual' = 'auto';
   if (opts.templateId) { const m = ranked.ranking.find((x) => x.id === opts.templateId); if (m) { chosen = m; choice = 'manual'; } }
   const sigLabel = new Map(detected.map((d) => [`${d.signal_id}:${d.value_id}`, `${d.signal_name}: ${d.value_name}`]));
   const sigOnly = new Map(detected.map((d) => [d.signal_id, `${d.signal_name}: ${d.value_name}`]));
-  const ranking = JSON.stringify({ defaulted: ranked.defaulted && choice === 'auto', items: ranked.ranking.map((r) => ({ id: r.id, name: r.name, score: r.score, rank: r.rank,
-    matched: r.matched.map((m) => ({ label: (m.value_id ? sigLabel.get(`${m.signal_id}:${m.value_id}`) : sigOnly.get(m.signal_id)) ?? 'signal', weight: m.weight })) })) });
+  const lbl = (m: { signal_id: number; value_id: number | null }) => (m.value_id ? sigLabel.get(`${m.signal_id}:${m.value_id}`) : sigOnly.get(m.signal_id)) ?? 'signal';
+  const ranking = JSON.stringify({ defaulted: ranked.defaulted && choice === 'auto', items: ranked.ranking.map((r) => ({ id: r.id, name: r.name, score: r.score, rank: r.rank, qualified: r.qualified,
+    matched: r.matched.map((m) => ({ label: lbl(m), weight: m.weight, role: m.role })), excluded_by: r.excluded_by.map((m) => lbl(m)) })) });
   if (opts.onTemplate) await opts.onTemplate({ id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking });
   if (!opts.stillWanted()) return null;
   const template = (await loadTemplate(chosen.id))!;

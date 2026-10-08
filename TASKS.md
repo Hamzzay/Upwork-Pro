@@ -38,11 +38,11 @@ The running task list for Upwork Pro, kept so any Claude (or person) can pick up
 | --- | --- | --- |
 | 1 | This handoff file | done |
 | 2 | Back up the setup data into the repo (`npm run setup:export`, restore with `npm run setup:import -- --apply`), R24. Re-export after setup changes. | done |
-| 3 | Bring the team plugin's improvements (v0.2.7, `~/Downloads/stackup-proposals (2).plugin`) into Upwork Pro: new project sheet `19ZEAEguo0ZPyhM0diq2WAs6kf5sA9YfsiBmrknKpxss` (42 projects), types 7 and 8 and the updated types 1 to 6, writing rules, banned phrases, estimate rule, screening answers, checklist | to do |
-| 4 | Type selection as required / supporting / excluded signals with priority groups; new signals Platform, Job focus, Decisions left open | to do |
+| 3 | Team plugin content in Upwork Pro: eight types, writing guide, strict certification rule (R25). New project sheet `19ZEAEguo0ZPyhM0diq2WAs6kf5sA9YfsiBmrknKpxss` (42 projects) still to sync | partly done |
+| 4 | Type selection with required / supporting / excluded signals and priority groups; signals 20 to 22 (R25) | done |
 | 5 | Matching: the "job needs" line, platform filter, core workflow check | to do |
-| 6 | Gate: F6 generic mass invite; G18 any other risk | to do |
-| 7 | Certifications per profile (strict use) | to do |
+| 6 | Rules F6 generic mass invite and G18 any other risk (R25) | done |
+| 7 | Certifications per profile, used only when a client requires one (R25) | done |
 | 8 | Loom videos: a section with several videos per profile, tagged so the right one fits a job; proposal types that use them later, once Hamza picks the topics | to do |
 | 9 | Merged plugin v0.3.0: the team's content plus the Upwork Pro connection | to do |
 | 10 | Step-by-step guide for the team, with screenshots and arrows, every tab and screen | to do (after 3 to 8, so the screens are final) |

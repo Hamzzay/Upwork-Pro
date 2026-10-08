@@ -29,7 +29,7 @@ export function bannedPatterns(banned: string | null): { phrase: string; re: Reg
 
 /** "Length: 120 to 200 words" in a type's text. */
 export function wordRange(text: string): [number, number] | null {
-  const m = /Length:\**\s*(\d+)\s*(?:to|-|–)\s*(\d+)\s*words/i.exec(text);
+  const m = /Length:\**\s*(?:about\s+)?(\d+)\s*(?:to|-|–)\s*(\d+)\s*words/i.exec(text);
   return m ? [Number(m[1]), Number(m[2])] : null;
 }
 

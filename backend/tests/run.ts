@@ -37,7 +37,7 @@ const ctx = { rules, projects };
   assert.equal(detectInput('x'.repeat(200)).type, 'text');
 
   // seed file sanity
-  assert.equal(lib.rules.length, 22);
+  assert.equal(lib.rules.length, 24);
   assert.equal(lib.tags.length, 105);
   assert.equal(lib.projects.length, 43);
   assert.ok(lib.projects.every((p: any) => p.tags.length > 0), 'every library project is tagged');
@@ -52,7 +52,7 @@ const ctx = { rules, projects };
 
   // addendum names the allowed codes and carries the project library
   const add = contractAddendum(rules, projects);
-  assert.ok(add.includes('(F1, F2,') && add.includes('G17)') && add.includes('Open Dental AI Calling (Chloe): '));
+  assert.ok(add.includes('(F1, F2,') && add.includes('G17, G18)') && add.includes('Open Dental AI Calling (Chloe): '));
   assert.ok(contractAddendum(rules, []).includes('no projects provided'));
 
   // mock end to end through the service
@@ -151,14 +151,14 @@ const ctx = { rules, projects };
 
   // ---- signals: seed file, detection schema, normalisation ----
   const sigSeed = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'signals.json'), 'utf8'));
-  assert.equal(sigSeed.signals.length, 19); assert.equal(sigSeed.layers.length, 3);
-  assert.deepEqual(sigSeed.signals.map((x: any) => x.values.filter((v: any) => !v.is_fallback).length), [3, 3, 2, 2, 2, 8, 5, 1, 2, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2]);
+  assert.equal(sigSeed.signals.length, 22); assert.equal(sigSeed.layers.length, 3);
+  assert.deepEqual(sigSeed.signals.map((x: any) => x.values.filter((v: any) => !v.is_fallback).length), [3, 3, 4, 2, 2, 8, 5, 1, 2, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 5, 1, 1]);
   assert.equal(sigSeed.signals[4].values.some((v: any) => v.is_fallback), false, 'signal 5 has no fallback');
   let vid = 0;
   const defs: SignalDef[] = sigSeed.signals.map((x: any, i: number) => ({ id: i + 1, number: x.number, layer: x.layer, name: x.name, decides: x.decides, multi_select: x.multi_select,
     values: x.values.map((v: any) => ({ id: ++vid, name: v.name, detect: v.detect, move: v.move, is_fallback: v.is_fallback })) }));
-  const codes = codeMap(defs); assert.equal(codes.size, 63); assert.ok(codes.has('S7.1') && codes.has('S5.2') && !codes.has('S5.3'));
-  const dschema: any = buildDetectionSchema(defs); assert.equal('$schema' in dschema, false); assert.equal(dschema.properties.signals.items.properties.values.items.properties.code.enum.length, 63);
+  const codes = codeMap(defs); assert.equal(codes.size, 75); assert.ok(codes.has('S7.1') && codes.has('S5.2') && !codes.has('S5.3'));
+  const dschema: any = buildDetectionSchema(defs); assert.equal('$schema' in dschema, false); assert.equal(dschema.properties.signals.items.properties.values.items.properties.code.enum.length, 75);
   assert.ok(detectionPrompt(defs, []).includes('SIGNAL 7: Core capability (multi-select'));
   const sv = (code: string, primary = true, evidence = 'quote', reason = 'why') => ({ code, primary, confidence: 'high' as const, evidence, reason });
   // the model: S1 solo, S5 missing, S7 two values (primary second), a code from the wrong signal on S2, S3 fallback plus a stated value, everything else missing
@@ -175,7 +175,7 @@ const ctx = { rules, projects };
   assert.equal(pick(3).length, 1); assert.equal(pick(3)[0].value_name, 'Greenfield / MVP');
   assert.deepEqual(pick(7).map((d) => [d.value_name, d.is_primary]), [['RAG', false], ['Automation', true]], 'multi-select keeps both, de-duplicated, one primary');
   assert.equal(pick(4).length, 1); assert.equal(pick(5)[0].value_name, 'No', 'signal 5 defaults to No'); assert.equal(pick(16)[0].is_fallback, true);
-  assert.equal(new Set(det.map((d) => d.signal_number)).size, 19, 'every signal ends up with a value');
+  assert.equal(new Set(det.map((d) => d.signal_number)).size, 22, 'every signal ends up with a value');
   assert.throws(() => normalizeDetection({ nope: 1 }, defs), /invalid_output/);
 
   // ---- template ranking ----
@@ -293,20 +293,31 @@ const ctx = { rules, projects };
   // ---- one writing guide: the six types are the templates; the shared rules feed the writer and the checks ----
   {
     const tseed = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'templates.json'), 'utf8')).templates;
-    assert.deepEqual(tseed.map((t: any) => t.name), ['Type 1. Standard build', 'Type 2. Structured submission', 'Type 3. Invite', 'Type 4. Rescue or takeover', 'Type 5. Architecture or consulting', 'Type 6. Small fix or quick task']);
-    assert.deepEqual(tseed.map((t: any) => wordRange(htmlToPlain(t.body_html))), [[120, 200], null, [100, 160], [140, 200], [160, 240], [50, 100]], 'each type carries its length (structured: as long as needed)');
-    assert.equal(typeFacts(htmlToPlain(tseed[2].body_html)).chosen_when, 'the client invited the profile.');
-    // every starter mapping points at a real signal value
+    assert.deepEqual(tseed.map((t: any) => t.name), ['Type 1. Standard build', 'Type 2. Structured submission', 'Type 3. Invite', 'Type 4. Rescue or takeover', 'Type 5. Architecture or consulting',
+      'Type 6. Small fix or quick task', 'Type 7. Problem first', 'Type 8. Approach first with questions']);
+    assert.deepEqual(tseed.map((t: any) => wordRange(htmlToPlain(t.body_html))), [[170, 240], null, [100, 160], [170, 240], [180, 260], [70, 120], [230, 280], [230, 280]], 'each type carries its length (structured: as long as needed)');
+    assert.equal(typeFacts(htmlToPlain(tseed[2].body_html)).chosen_when, "the client invited the profile.");
+    assert.equal(tseed.filter((t: any) => t.is_default).map((t: any) => t.name).join(), 'Type 1. Standard build', 'one default type');
+    // every selection row points at a real signal value
     for (const t of tseed) for (const [code, value] of t.signals) assert.ok(sigSeed.signals.find((x: any) => 'S' + x.number === code)?.values.some((v: any) => v.name === value), `${t.name}: ${code} ${value}`);
-    // the starter weights give the plugin's order: structured submission, then invite, then the rest; nothing stated: standard build
+    // the team plugin's type-selection rules: required (groups are alternatives), excluded, then priority groups 2, 3, 4/5/6, 1/7/8
     let vid2 = 0; const vId = new Map<string, number>(); for (const x of sigSeed.signals) for (const v of x.values) vId.set(`S${x.number}|${v.name}`, ++vid2);
-    const T = tseed.map((t: any, i: number) => ({ id: i + 1, name: t.name, priority: t.priority, mappings: t.signals.map(([c, v, w]: any) => ({ signal_id: Number(c.slice(1)), value_id: vId.get(`${c}|${v}`)!, weight: w })) }));
+    const T = tseed.map((t: any, i: number) => ({ id: i + 1, name: t.name, priority: t.priority, is_default: !!t.is_default,
+      mappings: t.signals.map(([c, v, w, role, group]: any) => ({ signal_id: Number(c.slice(1)), value_id: vId.get(`${c}|${v}`)!, weight: w ?? 0, role, req_group: group })) }));
     const on = (...xs: [number, string][]) => xs.map(([n, v]) => ({ signal_id: n, value_id: vId.get(`S${n}|${v}`)!, is_fallback: false }));
-    assert.equal(rankTemplates(on([5, 'Yes'], [17, 'Invited'], [19, 'Small task']), T).chosen!.name, 'Type 2. Structured submission');
-    assert.equal(rankTemplates(on([17, 'Invited'], [18, 'Architect or consultant'], [2, 'Discovery-first']), T).chosen!.name, 'Type 3. Invite');
-    assert.equal(rankTemplates(on([3, 'Rescue / extend'], [11, 'Rescue / frustration']), T).chosen!.name, 'Type 4. Rescue or takeover');
-    assert.equal(rankTemplates(on([19, 'Small task']), T).chosen!.name, 'Type 6. Small fix or quick task');
-    assert.equal(rankTemplates([], T).chosen!.name, 'Type 1. Standard build');
+    const pick = (...xs: [number, string][]) => rankTemplates(on(...xs), T).chosen!.name;
+    assert.equal(pick([5, 'Yes'], [17, 'Invited'], [19, 'Small task']), 'Type 2. Structured submission', 'structured submission wins over everything');
+    assert.equal(pick([17, 'Invited'], [18, 'Architect or consultant'], [2, 'Discovery-first']), 'Type 3. Invite', 'invite comes before the rest');
+    assert.equal(pick([3, 'Rescue / takeover'], [11, 'Rescue / frustration'], [18, 'Builder']), 'Type 4. Rescue or takeover');
+    assert.equal(pick([3, 'Rebuild / migration'], [18, 'Builder']), 'Type 4. Rescue or takeover', 'a rebuild is a rescue too (alternatives in one group)');
+    assert.equal(pick([19, 'Small task'], [18, 'Builder']), 'Type 6. Small fix or quick task');
+    assert.equal(pick([3, 'Greenfield / MVP'], [18, 'Architect or consultant']), 'Type 5. Architecture or consulting', 'an architect role rules Type 1 out');
+    assert.equal(pick([21, 'Operations'], [3, 'Greenfield / MVP'], [18, 'Builder']), 'Type 7. Problem first', 'operations work is problem first');
+    assert.equal(pick([21, 'Product'], [3, 'Greenfield / MVP'], [14, 'Vague'], [18, 'Builder']), 'Type 8. Approach first with questions', 'a vague product build asks questions');
+    assert.equal(pick([21, 'Product'], [3, 'Extend existing product'], [14, 'Precise'], [18, 'Builder']), 'Type 1. Standard build', 'a precise build is the standard one');
+    const none = rankTemplates([], T); assert.equal(none.chosen!.name, 'Type 1. Standard build'); assert.equal(none.defaulted, true, 'nothing qualifies: the default type');
+    const r6 = rankTemplates(on([19, 'Small task'], [3, 'Greenfield / MVP']), T);
+    assert.ok(r6.ranking.find((x) => x.name.startsWith('Type 6'))!.excluded_by.length === 1, 'the ranking says what ruled a type out');
     // banned phrases from the guide, with a [placeholder]; dashes; the length of the cover letter only
     const banned = bannedPatterns(readFileSync(join(__dirname, '..', 'seed', 'writing', 'banned-phrases.md'), 'utf8'));
     assert.ok(banned.length >= 9 && banned.some((b) => b.phrase === "I'm excited to apply"));
@@ -314,6 +325,8 @@ const ctx = { rules, projects };
     const base2 = { selectedProjects: [], otherProjectNames: [], foreignNames: [], sender: { name: 'Jane Doe', gitlab_link: null } };
     const long = 'word '.repeat(260) + '\nBest regards,\nJane Doe';
     const ws = checkProposal({ ...base2, text: "I’m excited to apply — this " + long, banned, wordRange: [120, 200] });
+    assert.ok(!checkProposal({ ...base2, selectedProjects: [{ name: 'Kruzee', live_link: null, notes: null }], text: 'Kruzee – Driving lesson booking platform on Next.js\nBest regards,\nJane Doe' }).some((x) => x.includes('dash')),
+      'the dash in a "Project name – Project title" line is allowed');
     assert.ok(ws.some((x) => x.includes('banned phrase')) && ws.some((x) => x.includes('dash')) && ws.some((x) => x.includes('words; this proposal type asks for 120 to 200')));
     const ok2 = 'word '.repeat(150) + '\nBest regards,\nJane Doe\n\nScreening answers\n' + 'answer '.repeat(200);
     assert.ok(!checkProposal({ ...base2, text: ok2, banned, wordRange: [120, 200] }).some((x) => x.includes('words')), 'screening answers do not count toward the length');

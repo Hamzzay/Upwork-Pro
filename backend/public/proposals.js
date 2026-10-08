@@ -173,7 +173,9 @@ function proposalSection(s, initial, matching) {
       try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: Number(sel.value) }); await reload(); drawAll(); startPolling(); } catch (x) { toast(x.message, true); again.disabled = false; again.replaceChildren('Write again with this type'); }
     };
     const rankRow = (r) => h('tr', {}, h('td', { class: 'muted' }, r.rank), h('td', {}, r.name), h('td', {}, h('strong', {}, r.score)),
-      h('td', { class: 'small muted' }, r.matched.length ? r.matched.map((m) => `${m.label} (+${m.weight})`).join('; ') : 'None'));
+      h('td', { class: 'small muted' }, [r.qualified === false ? 'Does not qualify' : null,
+        r.matched.length ? r.matched.map((m) => `${m.label} (${m.role === 'required' ? 'required' : m.role === 'supporting' ? '+1' : '+' + m.weight})`).join('; ') : 'None',
+        r.excluded_by && r.excluded_by.length ? 'ruled out by ' + r.excluded_by.join(', ') : null].filter(Boolean).join(' · ')));
     const rankTable = rk ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Proposal type', 'Score', 'Matched signals'].map((x) => h('th', {}, x)))), h('tbody', {}, rk.items.map(rankRow)))) : null;
     const sigRow = (x) => h('tr', {},
       h('td', { class: 'muted' }, x.signal_number), h('td', {}, x.signal_name),
@@ -276,6 +278,7 @@ async function templateView(idStr) {
   const signals = sigData.signals;
   const f = { name: h('input', { type: 'text', id: 'tn', maxlength: 160, value: t ? t.name : '' }), desc: h('textarea', { id: 'td', maxlength: 1000, style: 'min-height:70px' }),
     priority: h('input', { type: 'number', id: 'tp', min: 0, step: 1, value: t ? t.priority : 100 }), active: h('input', { type: 'checkbox', id: 'ta', checked: t ? !!Number(t.active) : true }),
+    isDefault: h('input', { type: 'checkbox', id: 'tdf', checked: t ? !!Number(t.is_default) : false }),
     prompt: h('textarea', { id: 'tpr', style: 'min-height:140px', maxlength: 20000, placeholder: 'Extra instructions for the AI when it writes with this type. Optional.' }) };
   f.desc.value = t && t.description ? t.description : ''; f.prompt.value = t && t.prompt ? t.prompt : '';
   const fmt = richEditor(t ? t.body_html : '<p></p>', { label: 'Proposal type format' });
@@ -283,7 +286,7 @@ async function templateView(idStr) {
   const saveBtn = h('button', { class: 'btn primary', type: 'button' }, isNew ? 'Create type' : 'Save type');
   saveBtn.onclick = async () => {
     err.hidden = true; btnBusy(saveBtn, 'Saving');
-    const body = { name: f.name.value, description: f.desc.value.trim() || null, body_html: fmt.getHtml(), prompt: f.prompt.value.trim() || null, priority: Number(f.priority.value), active: f.active.checked };
+    const body = { name: f.name.value, description: f.desc.value.trim() || null, body_html: fmt.getHtml(), prompt: f.prompt.value.trim() || null, priority: Number(f.priority.value), active: f.active.checked, is_default: f.isDefault.checked };
     try { const r = await api(isNew ? 'POST' : 'PATCH', isNew ? '/templates' : '/templates/' + t.id, body); toast(isNew ? 'Proposal type created' : 'Proposal type saved'); if (isNew) location.hash = '#/t/' + r.id; else route(); }
     catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; saveBtn.disabled = false; saveBtn.replaceChildren(isNew ? 'Create type' : 'Save type'); }
   };
@@ -296,9 +299,10 @@ async function templateView(idStr) {
     pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', [del, saveBtn]),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'),
       h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Name'), f.name),
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Breaks ties between equal scores. The lowest number is also the default when no signal matches.'))),
+        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Tens set the priority group (10 first, then 20, 30, 40); within a group, more supporting signals win, then the lower number.'))),
       h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td' }, 'Description'), f.desc),
-      h('div', { class: 'field row', style: 'margin-top:12px' }, f.active, h('label', { for: 'ta', style: 'font-weight:600' }, 'Active (can be chosen for proposals)'))),
+      h('div', { class: 'field row', style: 'margin-top:12px' }, f.active, h('label', { for: 'ta', style: 'font-weight:600' }, 'Active (can be chosen for proposals)')),
+      h('div', { class: 'field row', style: 'margin-top:8px' }, f.isDefault, h('label', { for: 'tdf', style: 'font-weight:600' }, 'Default type (used when no type qualifies)'))),
     h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Format'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'The structure and rules the proposal must follow. The AI reads this as written.'), fmt.el),
     h('div', { style: 'height:16px' }),
@@ -310,7 +314,8 @@ async function templateView(idStr) {
 }
 
 function mappingCard(t, signals) {
-  const rows = t.mappings.map((m) => ({ signal_id: m.signal_id, value_id: m.value_id, weight: m.weight, source: m.source }));
+  const rows = t.mappings.map((m) => ({ signal_id: m.signal_id, value_id: m.value_id, weight: m.weight, role: m.role || 'weight', req_group: m.req_group ?? null, source: m.source }));
+  const ROLES = [['required', 'Required'], ['supporting', 'Supporting (+1)'], ['exclude', 'Rules it out'], ['weight', 'Weight']];
   const holder = h('div', {}); const err = h('div', { class: 'err', hidden: true });
   const valuesCache = new Map();
   async function valuesOf(sid) { if (!valuesCache.has(sid)) valuesCache.set(sid, (await api('GET', '/signals/' + sid)).signal.values); return valuesCache.get(sid); }
@@ -320,27 +325,31 @@ function mappingCard(t, signals) {
       const vals = await valuesOf(r.signal_id);
       const sSel = h('select', { 'aria-label': 'Signal', style: 'width:100%' }, signals.map((s) => h('option', { value: s.id, selected: s.id === r.signal_id }, `${s.number}. ${s.name}`)));
       const vSel = h('select', { 'aria-label': 'Value', style: 'width:100%' }, h('option', { value: '' }, 'Any stated value'), vals.map((v) => h('option', { value: v.id, selected: v.id === r.value_id }, v.name + (v.is_fallback ? ' (fallback)' : ''))));
-      const w = h('input', { type: 'number', min: 1, max: 10, step: 1, value: r.weight, class: 'scoreinp', 'aria-label': 'Weight' });
+      const roleSel = h('select', { 'aria-label': 'Role', style: 'width:100%' }, ROLES.map(([v, l]) => h('option', { value: v, selected: r.role === v }, l)));
+      roleSel.onchange = () => { r.role = roleSel.value; if (r.role === 'required' && !r.req_group) r.req_group = 1; if (r.role === 'weight' && !r.weight) r.weight = 1; r.source = 'manual'; draw(); };
+      const w = r.role === 'weight' ? h('input', { type: 'number', min: 1, max: 10, step: 1, value: r.weight, class: 'scoreinp', 'aria-label': 'Weight' })
+        : r.role === 'required' ? h('input', { type: 'number', min: 1, max: 20, step: 1, value: r.req_group || 1, class: 'scoreinp', 'aria-label': 'Group', title: 'Rows in the same group are alternatives: one of them is enough. Every group must be met.' })
+        : h('span', { class: 'faint small' }, '-');
       sSel.onchange = () => { r.signal_id = Number(sSel.value); r.value_id = null; r.source = 'manual'; draw(); };
       vSel.onchange = () => { r.value_id = vSel.value ? Number(vSel.value) : null; r.source = 'manual'; };
-      w.onchange = () => { r.weight = Number(w.value); r.source = 'manual'; };
-      trs.push(h('tr', {}, h('td', {}, sSel), h('td', {}, vSel), h('td', {}, w), h('td', {}, r.source === 'starter' ? h('span', { class: 'chip', title: 'Suggested from the template text. Review it.' }, 'Starter') : h('span', { class: 'faint small' }, 'Yours')),
+      w.onchange = () => { if (r.role === 'weight') r.weight = Number(w.value); else r.req_group = Number(w.value); r.source = 'manual'; };
+      trs.push(h('tr', {}, h('td', {}, sSel), h('td', {}, vSel), h('td', {}, roleSel), h('td', {}, w), h('td', {}, r.source === 'starter' ? h('span', { class: 'chip', title: 'Suggested from the template text. Review it.' }, 'Starter') : h('span', { class: 'faint small' }, 'Yours')),
         h('td', {}, h('button', { class: 'btn sm danger', type: 'button', onclick: () => { rows.splice(i, 1); draw(); } }, 'Remove'))));
     }
-    holder.replaceChildren(rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Signal', 'Value', 'Weight', '', ''].map((x) => h('th', {}, x)))), h('tbody', {}, trs))) : h('p', { class: 'faint small' }, 'No signals yet. Without any, this template can only be the default or be chosen by hand.'));
+    holder.replaceChildren(rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Signal', 'Value', 'Role', 'Weight or group', '', ''].map((x) => h('th', {}, x)))), h('tbody', {}, trs))) : h('p', { class: 'faint small' }, 'No signals yet. Without any, this template can only be the default or be chosen by hand.'));
   }
   const add = h('button', { class: 'btn', type: 'button' }, 'Add a signal');
-  add.onclick = () => { rows.push({ signal_id: signals[0].id, value_id: null, weight: 1, source: 'manual' }); draw(); };
+  add.onclick = () => { rows.push({ signal_id: signals[0].id, value_id: null, weight: 0, role: 'supporting', req_group: null, source: 'manual' }); draw(); };
   const save = h('button', { class: 'btn primary', type: 'button' }, 'Save signals');
   save.onclick = async () => {
     err.hidden = true; btnBusy(save, 'Saving');
-    try { await api('PUT', `/templates/${t.id}/signals`, { mappings: rows.map((r) => ({ signal_id: r.signal_id, value_id: r.value_id, weight: r.weight })) }); toast('Signals saved'); route(); }
+    try { await api('PUT', `/templates/${t.id}/signals`, { mappings: rows.map((r) => ({ signal_id: r.signal_id, value_id: r.value_id, weight: r.role === 'weight' ? r.weight : 0, role: r.role, req_group: r.role === 'required' ? r.req_group || 1 : null })) }); toast('Signals saved'); route(); }
     catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; save.disabled = false; save.replaceChildren('Save signals'); }
   };
   draw();
   const hasStarter = rows.some((r) => r.source === 'starter');
   return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, `Signals this type suits (${rows.length})`), h('div', { class: 'row' }, add, save)),
-    h('p', { class: 'hint', style: 'margin:8px 0 12px' }, 'When a job\'s signals match a row, the type earns that row\'s weight. A row with "Any stated value" matches whenever the post states a value for that signal. The highest total wins.'),
+    h('p', { class: 'hint', style: 'margin:8px 0 12px' }, 'Required: the type is only chosen when these match (rows with the same group number are alternatives). Rules it out: any match excludes the type. Supporting: each match adds one point. Qualifying types are compared by priority group (the priority number divided by 10), then points. When none qualifies, the default type is used. "Any stated value" matches whenever the post states a value.'),
     hasStarter ? h('div', { class: 'notice', style: 'margin:0 0 12px' }, icon('info'), 'Rows marked "starter" were suggested from what the type says. Review them: they are a starting point, not a rule.') : null, holder, err);
 }
 

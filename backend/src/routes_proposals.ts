@@ -143,10 +143,10 @@ proposals.get('/templates', editor, async (req, res) => {
   res.json({ templates: rows, total, page: pg, pages, page_size: PAGE_SIZE });
 });
 async function templateDetail(id: number) {
-  const t = (await query<any>('SELECT id, name, description, body_html, prompt, priority, active, created_at, updated_at FROM templates WHERE id=?', [id]))[0];
+  const t = (await query<any>('SELECT id, name, description, body_html, prompt, priority, active, is_default, created_at, updated_at FROM templates WHERE id=?', [id]))[0];
   if (!t) return null;
   const mappings = await query(
-    `SELECT ts.id, ts.signal_id, ts.value_id, ts.weight, ts.source, s.number AS signal_number, s.name AS signal_name, v.name AS value_name
+    `SELECT ts.id, ts.signal_id, ts.value_id, ts.weight, ts.role, ts.req_group, ts.source, s.number AS signal_number, s.name AS signal_name, v.name AS value_name
      FROM template_signals ts JOIN signals s ON s.id=ts.signal_id LEFT JOIN signal_values v ON v.id=ts.value_id WHERE ts.template_id=? ORDER BY s.number, ts.id`, [id]);
   return { ...t, mappings };
 }
@@ -157,7 +157,7 @@ proposals.get('/templates/:id', editor, async (req, res) => {
 });
 const templateBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(160), description: optText(1000), body_html: z.string().max(200_000), prompt: optText(20_000),
-  priority: z.number().int().min(0).max(100000).optional(), active: z.boolean().optional(),
+  priority: z.number().int().min(0).max(100000).optional(), active: z.boolean().optional(), is_default: z.boolean().optional(),
 });
 proposals.post('/templates', editor, async (req, res) => {
   const b = templateBody.safeParse(req.body);
@@ -178,6 +178,7 @@ proposals.patch('/templates/:id', editor, async (req, res) => {
   const sets: string[] = []; const p: any[] = [];
   for (const k of ['name', 'description', 'body_html', 'prompt', 'priority']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
   if (d.active !== undefined) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
+  if (d.is_default !== undefined) { sets.push('is_default=?'); p.push(d.is_default ? 1 : 0); if (d.is_default) await exec('UPDATE templates SET is_default=0 WHERE id<>?', [num(req.params.id)]); } // one default type
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   try {
     const r = await exec(`UPDATE templates SET ${sets.join(',')} WHERE id=?`, [...p, num(req.params.id)]);
@@ -195,7 +196,9 @@ proposals.delete('/templates/:id', editor, async (req, res) => {
 
 // the signals a template is suited for: replaced as a whole
 proposals.put('/templates/:id/signals', editor, async (req, res) => {
-  const b = z.object({ mappings: z.array(z.object({ signal_id: z.number().int().positive(), value_id: z.number().int().positive().nullable(), weight: z.number().int().min(1, 'Weight must be 1 to 10').max(10, 'Weight must be 1 to 10') })).max(200) }).safeParse(req.body);
+  const b = z.object({ mappings: z.array(z.object({ signal_id: z.number().int().positive(), value_id: z.number().int().positive().nullable(),
+    weight: z.number().int().min(0).max(10, 'Weight must be 0 to 10').default(0), role: z.enum(['weight', 'required', 'supporting', 'exclude']).default('weight'),
+    req_group: z.number().int().min(1).max(20).nullable().optional() })).max(200) }).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const tid = num(req.params.id);
   const conn = await pool.getConnection();
@@ -203,8 +206,8 @@ proposals.put('/templates/:id/signals', editor, async (req, res) => {
     await conn.beginTransaction();
     const [t]: any = await conn.query('SELECT id FROM templates WHERE id=?', [tid]);
     if (!t.length) { await conn.rollback(); return void res.status(404).json({ error: 'Not found' }); }
-    const [old]: any = await conn.query('SELECT signal_id, value_id, weight FROM template_signals WHERE template_id=? AND source=\'starter\'', [tid]);
-    const keep = (m: any) => old.some((o: any) => o.signal_id === m.signal_id && o.value_id === m.value_id && o.weight === m.weight); // an untouched starter row stays a starter row
+    const [old]: any = await conn.query('SELECT signal_id, value_id, weight, role, req_group FROM template_signals WHERE template_id=? AND source=\'starter\'', [tid]);
+    const keep = (m: any) => old.some((o: any) => o.signal_id === m.signal_id && o.value_id === m.value_id && o.weight === m.weight && o.role === m.role && (o.req_group ?? null) === (m.req_group ?? null)); // an untouched starter row stays a starter row
     const seen = new Set<string>();
     await conn.query('DELETE FROM template_signals WHERE template_id=?', [tid]);
     for (const m of b.data.mappings) {
@@ -213,7 +216,9 @@ proposals.put('/templates/:id/signals', editor, async (req, res) => {
         const [ok]: any = await conn.query('SELECT id FROM signal_values WHERE id=? AND signal_id=?', [m.value_id, m.signal_id]);
         if (!ok.length) { await conn.rollback(); return void res.status(400).json({ error: 'A value does not belong to its signal' }); }
       } else { const [ok]: any = await conn.query('SELECT id FROM signals WHERE id=?', [m.signal_id]); if (!ok.length) { await conn.rollback(); return void res.status(400).json({ error: 'Unknown signal' }); } }
-      await conn.query('INSERT INTO template_signals (template_id, signal_id, value_id, weight, source) VALUES (?,?,?,?,?)', [tid, m.signal_id, m.value_id, m.weight, keep(m) ? 'starter' : 'manual']);
+      if (m.role === 'weight' && m.weight < 1) { await conn.rollback(); return void res.status(400).json({ error: 'A weight row needs a weight of 1 to 10' }); }
+      await conn.query('INSERT INTO template_signals (template_id, signal_id, value_id, weight, role, req_group, source) VALUES (?,?,?,?,?,?,?)',
+        [tid, m.signal_id, m.value_id, m.role === 'weight' ? m.weight : 0, m.role, m.role === 'required' ? (m.req_group ?? 1) : null, keep(m) ? 'starter' : 'manual']);
     }
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }

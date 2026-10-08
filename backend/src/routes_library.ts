@@ -25,7 +25,7 @@ library.get('/rules', anyone, async (_req, res) => {
 library.get('/profiles', anyone, async (req, res) => {
   const all = req.query.all === '1' && req.user!.role === 'admin';
   res.json({ profiles: await query(`SELECT id, name, tagline, price, lowest_price, gitlab_account, github_url, profile_url, services, industries, voice, signature, stats_allowed, submitted_by, rules,
-    notes, active, added_via, created_at FROM upwork_profiles ${all ? '' : 'WHERE active=1'} ORDER BY name`) });
+    certifications, notes, active, added_via, created_at FROM upwork_profiles ${all ? '' : 'WHERE active=1'} ORDER BY name`) });
 });
 // A GitLab account is either a username (letters, digits, dot, dash, underscore) or the full https link to it (also self-hosted GitLab).
 const gitlabAccount = z.string().trim().max(255).refine((v) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v) || /^https:\/\/[^\s/]+\/[^\s]+$/.test(v), 'Enter a GitLab username or the full https link')
@@ -35,10 +35,10 @@ const price = z.number('Price must be a number').min(0, 'Price cannot be negativ
 export const profileBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120), tagline: optText(200), price, lowest_price: price, gitlab_account: gitlabAccount, github_url: optUrl,
   profile_url: optUrl, services: optText(2000), industries: optText(500), voice: optText(300), signature: optText(500), stats_allowed: optText(500),
-  submitted_by: optText(300), rules: optText(4000), notes: optText(500), active: z.boolean().optional(),
+  submitted_by: optText(300), rules: optText(4000), certifications: optText(2000), notes: optText(500), active: z.boolean().optional(),
 });
 /** The profile fields besides name and active, in one place for insert and update. */
-export const PROFILE_FIELDS = ['tagline', 'price', 'lowest_price', 'gitlab_account', 'github_url', 'profile_url', 'services', 'industries', 'voice', 'signature', 'stats_allowed', 'submitted_by', 'rules', 'notes'] as const;
+export const PROFILE_FIELDS = ['tagline', 'price', 'lowest_price', 'gitlab_account', 'github_url', 'profile_url', 'services', 'industries', 'voice', 'signature', 'stats_allowed', 'certifications', 'submitted_by', 'rules', 'notes'] as const;
 library.post('/profiles', admin, async (req, res) => {
   const b = profileBody.safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
