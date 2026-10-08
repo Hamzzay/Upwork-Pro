@@ -581,6 +581,13 @@ Pro, so the app's writer and every Claude use it.
   GLM read the 22 signals on three example jobs and the type was right each time (WordPress tweaks: Small fix; SaaS MVP: Standard build;
   a small automation: Small fix); the Writing guide page in the browser. The setup backup is re-exported.
 
+### R26. The project library from the team's new sheet (done)
+`seed/library.json` is now the team's sheet "Stackup Project Tag Library" (`19ZEAEguo0ZPyhM0diq2WAs6kf5sA9YfsiBmrknKpxss`), 42 projects:
+every case study rewritten as Project / Problem / ... (42 of 42), overviews and links corrected (Navience's link is its live system now),
+Doctoria added (MiDocRD renamed); MiDocRD and Verkehrbox are switched off, not deleted (old jobs point at them). "Showable publicly" is
+stored but still ignored (Hamza). Applied here with `npx ts-node scripts/sync-library.ts --apply` (dry run first without `--apply`);
+the setup backup is re-exported.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

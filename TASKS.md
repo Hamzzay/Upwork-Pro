@@ -38,7 +38,7 @@ The running task list for Upwork Pro, kept so any Claude (or person) can pick up
 | --- | --- | --- |
 | 1 | This handoff file | done |
 | 2 | Back up the setup data into the repo (`npm run setup:export`, restore with `npm run setup:import -- --apply`), R24. Re-export after setup changes. | done |
-| 3 | Team plugin content in Upwork Pro: eight types, writing guide, strict certification rule (R25). New project sheet `19ZEAEguo0ZPyhM0diq2WAs6kf5sA9YfsiBmrknKpxss` (42 projects) still to sync | partly done |
+| 3 | Team plugin content in Upwork Pro: eight types, writing guide, strict certification rule (R25); the new 42-project sheet synced (R26) | done |
 | 4 | Type selection with required / supporting / excluded signals and priority groups; signals 20 to 22 (R25) | done |
 | 5 | Matching: the "job needs" line, platform filter, core workflow check | to do |
 | 6 | Rules F6 generic mass invite and G18 any other risk (R25) | done |

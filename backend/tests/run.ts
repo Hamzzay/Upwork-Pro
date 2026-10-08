@@ -39,10 +39,10 @@ const ctx = { rules, projects };
   // seed file sanity
   assert.equal(lib.rules.length, 24);
   assert.equal(lib.tags.length, 105);
-  assert.equal(lib.projects.length, 43);
+  assert.equal(lib.projects.length, 42);
   assert.ok(lib.projects.every((p: any) => p.tags.length > 0), 'every library project is tagged');
   assert.ok(lib.projects.every((p: any) => p.tags.every((t: string) => lib.tags.some((x: any) => x.name === t))));
-  assert.equal(new Set(lib.projects.map((p: any) => p.name.toLowerCase())).size, 43);
+  assert.equal(new Set(lib.projects.map((p: any) => p.name.toLowerCase())).size, 42);
 
   // schema: no $schema key (the CLI rejects the 2020-12 default); rule codes become an enum
   const schema: any = buildReportJsonSchema(rules.map((r) => r.code));
