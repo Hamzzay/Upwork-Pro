@@ -6,6 +6,7 @@
 // - the writing guide (seed/writing/*.md): rules, banned phrases, modules, screening answers, checklist and type selection, saved as a
 //   new version when the text differs (the old text stays in the versions)
 // - rules F6 (generic mass invite) and G18 (any other risk), added when missing
+// - related industries (seed/industries-related.json), filled only where an industry has none
 import 'dotenv/config';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,7 +17,7 @@ import { sanitizeRich } from '../src/html';
 const seed = (f: string) => JSON.parse(readFileSync(join(appRoot, 'seed', f), 'utf8'));
 const KINDS: Record<string, [string, number]> = { 'writing-rules': ['rules', 10], 'banned-phrases': ['banned', 20], modules: ['modules', 30], 'screening-answers': ['screening', 40], 'verification-checklist': ['checklist', 50], 'type-selection': ['selection', 60] };
 (async () => {
-  const n = { values: 0, signals: 0, types: 0, mappings: 0, docs: 0, rules: 0 };
+  const n: Record<string, number> = { values: 0, signals: 0, types: 0, mappings: 0, docs: 0, rules: 0, related: 0 };
   // signals
   const s3 = (await query<any>('SELECT id FROM signals WHERE number=3'))[0];
   if (s3) n.values += (await exec("UPDATE signal_values SET name='Rescue / takeover' WHERE signal_id=? AND name='Rescue / extend'", [s3.id])).affectedRows;
@@ -66,6 +67,8 @@ const KINDS: Record<string, [string, number]> = { 'writing-rules': ['rules', 10]
   }
   // rules
   for (const r of seed('library.json').rules.filter((x: any) => ['F6', 'G18'].includes(x.code))) n.rules += (await exec('INSERT IGNORE INTO rules (code, type, rule, details) VALUES (?,?,?,?)', [r.code, r.type, r.rule, r.details ?? null])).affectedRows;
+  // related industries, only where none is set yet
+  for (const [name, rel] of Object.entries(seed('industries-related.json'))) if (!name.startsWith('_')) n.related += (await exec('UPDATE industries SET related=? WHERE name=? AND (related IS NULL OR related=\'\')', [rel, name])).affectedRows;
   console.log('upgraded:', n);
   await audit(null, 'guide_upgrade', JSON.stringify(n));
   await pool.end();

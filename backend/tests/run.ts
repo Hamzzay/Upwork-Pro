@@ -8,7 +8,7 @@ import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, gatePrompt, norma
 import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
-import { rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
+import { jobNeeds, jobPlatform, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
@@ -91,10 +91,10 @@ const ctx = { rules, projects };
   const wf1 = T(1, 'Lead generation', 'Workflow type', 3), ind = T(2, 'Dental', 'Industry', 2), tool = T(3, 'HubSpot', 'CRM and business tools', 1);
   const ai = T(4, 'AI powered', 'AI capability', 0), hipaa = T(5, 'HIPAA / PHI', 'Compliance / sensitive data', 2, true);
   const P = (id: number, name: string, ...tags: number[]): LibProject => ({ id, name, tagIds: new Set(tags) });
-  // scoring is the sum of shared weights; AI powered counts for nothing
+  // scoring is the sum of shared weights; AI powered counts for nothing, nor do industry tags
   let m = rankProjects([wf1, ind, tool, ai], [P(10, 'A', 1, 2), P(11, 'B', 1, 3, 4), P(12, 'C', 4), P(13, 'D')]);
-  assert.deepEqual(m.map((x) => [x.project_name, x.score]), [['A', 5], ['B', 4]], 'C scores 0 (only AI powered) and D shares nothing: both dropped');
-  assert.equal(m[0].max_score, 6); assert.deepEqual(m.map((x) => x.recommended), [true, true]);
+  assert.deepEqual(m.map((x) => [x.project_name, x.score]), [['B', 4], ['A', 3]], 'C scores 0 (only AI powered) and D shares nothing: both dropped');
+  assert.equal(m[0].max_score, 4); assert.deepEqual(m.map((x) => x.recommended), [true, true]);
   // ties: more shared tags first, then name
   m = rankProjects([wf1, ind, tool], [P(20, 'Zed', 1, 3), P(21, 'Alpha', 1, 3), P(22, 'Many', 2, 3)]);
   assert.deepEqual(m.map((x) => x.project_name), ['Alpha', 'Zed', 'Many'], 'Alpha and Zed tie on score and tags, name decides');
@@ -122,6 +122,32 @@ const ctx = { rules, projects };
   // shown, recommended and the minimum score come from settings
   const opt = rankProjects([wf1, ind, tool], [P(90, 'A', 1, 3), P(91, 'B', 1), P(92, 'C', 3)], { shown: 2, recommended: 1, minScore: 3 });
   assert.deepEqual(opt.map((x) => [x.project_name, x.recommended]), [['A', true], ['B', false]]);
+  // platform: a web job never gets a mobile-only project; projects with no known platform stay; desktop takes web too
+  const web = T(6, 'Web app', 'Product type', 2), mob = T(7, 'Mobile app', 'Product type', 2), desk = T(8, 'Desktop app', 'Product type', 2);
+  const PP = (id: number, name: string, platforms: string[], industries: string[], ...tags: number[]): LibProject => ({ id, name, tagIds: new Set(tags), industries, platforms: new Set(platforms as any) });
+  assert.equal(jobPlatform([web]), 'web'); assert.equal(jobPlatform([web, mob]), 'web and mobile'); assert.equal(jobPlatform([wf1]), 'not stated');
+  m = rankProjects([web, wf1], [PP(100, 'WebOne', ['web'], [], 1), PP(101, 'MobOnly', ['mobile'], [], 1), PP(102, 'Unknown', [], [], 1)]);
+  assert.deepEqual(m.map((x) => x.project_name).sort(), ['Unknown', 'WebOne'], 'the mobile-only project is left out of a web job');
+  assert.equal(rankProjects([mob, wf1], [PP(103, 'WebOnly', ['web'], [], 1)]).length, 0, 'a web project never proves a mobile build');
+  assert.equal(rankProjects([desk, wf1], [PP(104, 'WebOnly', ['web'], [], 1)]).length, 1, 'a desktop job takes a web project');
+  assert.equal(rankProjects([web, mob, wf1], [PP(105, 'MobOnly', ['mobile'], [], 1)]).length, 1, 'a web and mobile job is not filtered');
+  // industry pools: same, then related, then the rest, whatever the score; the related list comes from the industry
+  const rel = new Map([['dental', ['Healthcare']]]);
+  m = rankProjects([ind, wf1, tool], [PP(110, 'OtherBig', [], ['Logistics'], 1, 3), PP(111, 'Health', [], ['Healthcare'], 1), PP(112, 'DentalSmall', [], ['Dental'], 3)],
+    { shown: 5, recommended: 2, minScore: 1, related: rel });
+  assert.deepEqual(m.map((x) => [x.project_name, x.pool]), [['DentalSmall', 'same'], ['Health', 'related'], ['OtherBig', 'other']]);
+  assert.ok(m.every((x) => !x.alternative), 'nothing is an alternative when every match is already shown');
+  // an alternative: outside the shown list, from another industry, at least 1.5 times the best same-industry score; never recommended
+  m = rankProjects([ind, wf1, tool], [PP(120, 'D1', [], ['Dental'], 3), PP(121, 'D2', [], ['Dental'], 3), PP(122, 'Big', [], ['Logistics'], 1, 3)],
+    { shown: 2, recommended: 2, minScore: 1 });
+  assert.deepEqual(m.map((x) => [x.project_name, x.recommended, x.alternative]), [['D1', true, false], ['D2', true, false], ['Big', false, true]]);
+  m = rankProjects([ind, wf1, tool], [PP(130, 'D1', [], ['Dental'], 1), PP(131, 'D2', [], ['Dental'], 1), PP(132, 'Big', [], ['Logistics'], 1, 3)], { shown: 2, recommended: 2, minScore: 1 });
+  assert.ok(!m.some((x) => x.alternative), '4 is under 1.5 times 3: no alternative');
+  // no project from the job's industry: no alternative (they are all from other industries already)
+  assert.ok(!rankProjects([ind, wf1, tool], [PP(150, 'L1', [], ['Logistics'], 1), PP(151, 'L2', [], ['Logistics'], 1, 3)], { shown: 1, recommended: 1, minScore: 1 }).some((x) => x.alternative));
+  // no industry on the job: one pool, no alternative
+  assert.ok(rankProjects([wf1], [PP(140, 'X', [], ['Dental'], 1)]).every((x) => x.pool === 'none' && !x.alternative));
+  assert.equal(jobNeeds([web, wf1, ind, tool]), 'Web · Web app · Lead generation · Dental');
 
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));

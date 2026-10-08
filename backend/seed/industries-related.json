@@ -1,0 +1,22 @@
+{
+ "_note": "Related industries, from the team plugin's industry map. A project in a related industry is ranked after the same industry. Editable on the Industries page.",
+ "Dental": "Healthcare",
+ "Healthcare": "Dental, Insurance",
+ "Insurance": "Healthcare, Finance / accounting",
+ "Legal": "Insurance, Real estate",
+ "Real estate": "Construction, Home services, Legal",
+ "Construction": "Home services, Real estate",
+ "Home services": "Construction, Real estate",
+ "Logistics": "E-commerce / retail",
+ "E-commerce / retail": "Logistics, Marketing / agency",
+ "Education": "Recruitment / HR",
+ "Recruitment / HR": "Education",
+ "Finance / accounting": "Insurance",
+ "Hospitality": "Beauty / salon, E-commerce / retail",
+ "Automotive": "Home services",
+ "Marketing / agency": "E-commerce / retail",
+ "Beauty / salon": "Hospitality",
+ "Sports": "Event management, Hospitality",
+ "Event management": "Sports, Hospitality",
+ "Social": "Marketing / agency"
+}

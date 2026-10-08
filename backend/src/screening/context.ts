@@ -1,6 +1,6 @@
 import { query } from '../db';
 import type { ProjectLite, RuleRow } from './contract';
-import type { LibProject } from './matching';
+import { projectPlatforms, type LibProject } from './matching';
 import type { DictTag } from './tagging';
 
 export async function loadContext(): Promise<{ rules: RuleRow[]; projects: ProjectLite[] }> {
@@ -21,12 +21,22 @@ export async function loadDictionary(): Promise<DictTag[]> {
      WHERE t.active=1 ORDER BY c.sort_order, t.sort_order`)).map((r) => ({ ...r, compliance: !!r.compliance }));
 }
 
-/** Active projects with the ids of their active tags, for scoring. */
+/** Active projects with the ids of their active tags, their industries and what they run on, for matching. */
 export async function loadLibraryProjects(): Promise<LibProject[]> {
-  const rows = await query<{ id: number; name: string; tag_id: number | null }>(
-    `SELECT p.id, p.name, t.id AS tag_id FROM projects p LEFT JOIN project_tags pt ON pt.project_id=p.id LEFT JOIN tags t ON t.id=pt.tag_id AND t.active=1
+  const rows = await query<{ id: number; name: string; tag_id: number | null; tag: string | null }>(
+    `SELECT p.id, p.name, t.id AS tag_id, t.name AS tag FROM projects p LEFT JOIN project_tags pt ON pt.project_id=p.id LEFT JOIN tags t ON t.id=pt.tag_id AND t.active=1
      WHERE p.active=1`);
-  const map = new Map<number, LibProject>();
-  for (const r of rows) { if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, tagIds: new Set() }); if (r.tag_id) map.get(r.id)!.tagIds.add(r.tag_id); }
-  return [...map.values()];
+  const links = new Map((await query<any>('SELECT id, landing_link, system_link, mobile_link FROM projects WHERE active=1')).map((r) => [r.id, r]));
+  const inds = await query<{ project_id: number; name: string }>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id');
+  const map = new Map<number, LibProject & { tagNames: string[] }>();
+  for (const r of rows) {
+    if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, tagIds: new Set(), tagNames: [], industries: inds.filter((x) => x.project_id === r.id).map((x) => x.name) });
+    if (r.tag_id) { map.get(r.id)!.tagIds.add(r.tag_id); map.get(r.id)!.tagNames.push(r.tag!); }
+  }
+  return [...map.values()].map(({ tagNames, ...p }) => ({ ...p, platforms: projectPlatforms(links.get(p.id) ?? {}, tagNames) }));
+}
+
+/** Each industry's related industries ("Dental" -> ["Healthcare"]), from the Industries page. */
+export async function loadRelatedIndustries(): Promise<Map<string, string[]>> {
+  return new Map((await query<any>('SELECT name, related FROM industries WHERE active=1 AND related IS NOT NULL')).map((r) => [String(r.name).toLowerCase(), String(r.related).split(',').map((x) => x.trim()).filter(Boolean)]));
 }

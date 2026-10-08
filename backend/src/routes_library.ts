@@ -184,15 +184,15 @@ async function industryPayload(rows: any[]) {
   return rows.map((r) => ({ ...r, projects: links.filter((l) => l.industry_id === r.id).map((l) => ({ id: l.project_id, name: l.name })) }));
 }
 library.get('/industries', anyone, async (_req, res) => {
-  res.json({ industries: await industryPayload(await query('SELECT id, name, description, active, created_at FROM industries ORDER BY name')) });
+  res.json({ industries: await industryPayload(await query('SELECT id, name, description, related, active, created_at FROM industries ORDER BY name')) });
 });
 library.get('/industries/:id', anyone, async (req, res) => {
-  const rows = await industryPayload(await query('SELECT id, name, description, active, created_at FROM industries WHERE id=?', [id(req.params.id)]));
+  const rows = await industryPayload(await query('SELECT id, name, description, related, active, created_at FROM industries WHERE id=?', [id(req.params.id)]));
   if (!rows[0]) return void res.status(404).json({ error: 'Not found' });
   res.json({ industry: rows[0] });
 });
 const industryBody = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(120), description: optText(500), active: z.boolean().optional(),
+  name: z.string().trim().min(1, 'Name is required').max(120), description: optText(500), related: optText(500), active: z.boolean().optional(),
   project_ids: z.array(z.number().int().positive()).max(1000).optional(),
 });
 async function saveIndustry(req: any, res: any, industryId: number | null) {
@@ -204,11 +204,11 @@ async function saveIndustry(req: any, res: any, industryId: number | null) {
     await conn.beginTransaction();
     let iid = industryId;
     if (!iid) {
-      const [r]: any = await conn.query('INSERT INTO industries (name, description, active) VALUES (?,?,?)', [d.name, d.description, d.active === false ? 0 : 1]);
+      const [r]: any = await conn.query('INSERT INTO industries (name, description, related, active) VALUES (?,?,?,?)', [d.name, d.description, d.related ?? null, d.active === false ? 0 : 1]);
       iid = r.insertId;
     } else {
       const sets: string[] = []; const p: any[] = [];
-      for (const k of ['name', 'description']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+      for (const k of ['name', 'description', 'related']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
       if (d.active !== undefined) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
       if (sets.length) {
         const [r]: any = await conn.query(`UPDATE industries SET ${sets.join(',')} WHERE id=?`, [...p, iid]);

@@ -588,6 +588,23 @@ Doctoria added (MiDocRD renamed); MiDocRD and Verkehrbox are switched off, not d
 stored but still ignored (Hamza). Applied here with `npx ts-node scripts/sync-library.ts --apply` (dry run first without `--apply`);
 the setup backup is re-exported.
 
+### R27. Project matching like the team's matcher: platform, industry pools, an alternative, the job needs line (done)
+- **Platform first**: a project that does not run on what the job builds is left out (a web job never gets a mobile-only project, a
+  mobile job never a web-only one; a desktop job takes web). What a project runs on comes from its links and tags; a project with
+  nothing known is kept. Backend jobs and jobs that state no platform are not filtered.
+- **Industry pools**: projects from the job's industry come first, then related industries, then the rest, whatever their score.
+  Industry tags no longer count in the score. Each industry has a "Related industries" list (Industries page, Edit), filled from the
+  team's industry map (`seed/industries-related.json`, by `npm run upgrade:guide` only where empty).
+- **Alternative from another industry**: when a project outside the list shown scores at least 1.5 times the best same-industry
+  project, it is shown under the list with that label. Never recommended, but it can be chosen. Only when the list has same-industry projects.
+- **Job needs**: one line above the projects ("Web · SaaS platform · Appointment booking · Real estate"), saved with the matching.
+- Each project card says its pool and what it runs on ("Same industry · Runs on web").
+- Migration `023_matching_pools.sql` (`industries.related`; `job_matches.pool`, `alternative`, `platform`; `screenings.job_needs`).
+  Upgrading: `npm run migrate`, then `npm run upgrade:guide`. Old matches show as before until the job is matched again.
+- Checked: tests (platform filter, pools, the alternative and when it is not added, the job needs line; the older tests updated now
+  that industry is not scored); job #50 matched again on GLM (four Real estate projects, then Apex from a related industry); the job
+  page and the industry editor in the browser (five text styles, no console errors). The setup backup is re-exported.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

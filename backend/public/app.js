@@ -798,7 +798,8 @@ function matchingSection(s, initial) {
     if (owner) setActions(
       !isRec && recIds.length >= pmin && recIds.length <= pmax ? actBtn('Use recommended', () => { picked = new Set(recIds); draw(); }) : null,
       changed ? actBtn(confirmLabel, (e) => save([...picked], e.currentTarget, confirmLabel), true) : null);
-    const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended);
+    const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended && !r.alternative), alt = rows.filter((r) => r.alternative);
+    const POOL = { same: 'Same industry', related: 'Related industry', other: 'Other industry' };
     const card = (r) => {
       const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= pmax && !on);
       const cb = h('input', { type: 'checkbox', id: 'mp' + r.rank, checked: on, disabled: locked, 'aria-label': 'Select ' + r.project_name });
@@ -807,7 +808,8 @@ function matchingSection(s, initial) {
       return h('div', { class: 'mcard' + (on ? ' on' : '') + (r.recommended ? ' rec' : '') + (owner && !locked ? ' pickable' : ''), onclick: owner ? toggle : null },
         h('div', { class: 'mtop' }, owner ? cb : null, h('span', { class: 'rank' }, '#' + r.rank),
           h('div', { class: 'mname' }, r.project_id ? h('a', { href: '#/p/' + r.project_id }, r.project_name) : h('span', {}, r.project_name, h('span', { class: 'faint small' }, ' (removed from library)'))),
-          r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip' }, 'Match')),
+          r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip' }, r.alternative ? 'Alternative' : 'Match')),
+        POOL[r.pool] || r.platform ? h('div', { class: 'jp-label' }, [POOL[r.pool], r.platform && r.platform !== 'not known' ? 'Runs on ' + r.platform : null].filter(Boolean).join(' · ')) : null,
         h('div', { class: 'mscore' }, h('div', { class: 'bar', role: 'img', 'aria-label': `Score ${r.score} of ${r.max_score}` }, h('i', { style: `width:${Math.max(3, r.percent)}%` })),
           h('span', { class: 'sc' }, h('strong', {}, r.score), ` of ${r.max_score} · ${r.percent}%`)),
         r.compliance_gap ? h('div', { class: 'cgap' }, icon('warn'), `Missing ${r.compliance_gap} compliance tag${r.compliance_gap > 1 ? 's' : ''} this job needs`) : null,
@@ -816,12 +818,16 @@ function matchingSection(s, initial) {
     return h('div', { class: 'stack' },
       h('div', { class: 'card card-pad' },
         h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, owner && !m.confirmed_at ? `Choose ${range} project${pmax === 1 ? '' : 's'} for the proposal` : 'Projects for the proposal'), owner ? count : null),
+        m.job_needs ? h('p', { class: 'jp-body', style: 'margin:2px 0 4px' }, h('strong', {}, 'Job needs: '), m.job_needs) : null,
         h('div', { class: 'jp-label', style: 'margin:2px 0 12px' }, m.confirmed_at ? `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} ${dateTxt(m.confirmed_at)}.${owner ? ' Pick others to change it.' : ''}`
           : owner ? 'The recommended ones are ticked. Swap them if you like, then confirm at the top right.' : 'Only the person who submitted this job can choose the projects.'),
         err,
         h('div', { class: 'mgrid' }, rec.map(card)), rest.length ? h('div', { class: 'mgrid', style: 'margin-top:12px' }, rest.map(card)) : null,
+        alt.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'jp-sec' }, 'Alternative from another industry'),
+          h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'It shares much more with this job than the best project from the same industry. Use it when the work matters more than the industry.'),
+          h('div', { class: 'mgrid' }, alt.map(card))) : null,
         owner && picked.size >= pmax ? h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Untick one to choose a different project.') : null,
-        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Score: the weights of the tags a project shares with this job.')));
+        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Score: the weights of the tags a project shares with this job (industry not counted). Projects from the job\'s industry come first, then related industries. Projects that do not run on what the job builds are left out.')));
   }
 
 
@@ -1248,17 +1254,20 @@ async function jobPage(id, want) {
 function industryEditor(ind, projects, after) {
   const picked = new Set(ind ? ind.projects.map((p) => p.id) : []);
   const f = { name: h('input', { type: 'text', id: 'in', maxlength: 120, value: ind ? ind.name : '' }), desc: h('input', { type: 'text', id: 'id', maxlength: 500, value: ind && ind.description ? ind.description : '' }),
+    related: h('input', { type: 'text', id: 'ir', maxlength: 500, value: ind && ind.related ? ind.related : '', placeholder: 'For example: Healthcare, Insurance' }),
     active: h('input', { type: 'checkbox', id: 'ia', checked: ind ? !!Number(ind.active) : true }) };
   modal({ title: ind ? 'Edit industry' : 'Add an industry', confirm: ind ? 'Save industry' : 'Add industry', wide: true,
     body: h('div', {}, h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'in' }, 'Industry name'), f.name),
       h('div', { class: 'field row', style: 'align-self:end;padding-bottom:8px' }, f.active, h('label', { for: 'ia', style: 'font-weight:600' }, 'Active'))),
       h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'id' }, 'Description (optional)'), f.desc),
+      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'ir' }, 'Related industries (optional)'), f.related,
+        h('div', { class: 'hint' }, 'Industry names, separated by commas. For a job in this industry, projects from these come after projects from the same industry.')),
       h('div', { style: 'margin-top:16px' }, multiPick('Projects in this industry', projects, picked, 'Find a project'))),
     extra: ind ? () => h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + ind.name + '?', confirm: 'Delete industry', danger: true,
       body: h('p', { class: 'muted' }, 'This removes the industry and unlinks it from its projects. The projects stay. It cannot be undone.'),
       onConfirm: async () => { await api('DELETE', '/industries/' + ind.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Industry deleted'); after(null); } }) }, 'Delete') : null,
     onConfirm: async () => {
-      const r = await api(ind ? 'PATCH' : 'POST', ind ? '/industries/' + ind.id : '/industries', { name: f.name.value, description: f.desc.value.trim() || null, active: f.active.checked, project_ids: [...picked] });
+      const r = await api(ind ? 'PATCH' : 'POST', ind ? '/industries/' + ind.id : '/industries', { name: f.name.value, description: f.desc.value.trim() || null, related: f.related.value.trim() || null, active: f.active.checked, project_ids: [...picked] });
       toast(ind ? 'Industry saved' : 'Industry added'); after(r.id);
     } });
 }
@@ -1303,6 +1312,8 @@ async function industryDetailView(id) {
         canEdit ? h('button', { class: 'btn primary', onclick: () => industryEditor(i, projects, (nid) => (nid ? route() : (location.hash = lastList.industries))) }, 'Edit industry') : null]),
     i.description ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'About'), h('p', {}, i.description)) : null,
     i.description ? h('div', { style: 'height:16px' }) : null,
+    i.related ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Related industries'), h('p', {}, i.related)) : null,
+    i.related ? h('div', { style: 'height:16px' }) : null,
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Projects (${i.projects.length})`),
       i.projects.length ? h('div', { class: 'chips' }, i.projects.map((p) => h('a', { class: 'chip brand', href: '#/p/' + p.id }, p.name))) : emptyState('folder', 'No projects yet', canEdit ? 'Edit the industry to add projects.' : 'No projects are linked to this industry yet.')),
   ]);
@@ -1334,7 +1345,7 @@ async function dictionaryView() {
         body: h('p', { class: 'muted' }, t.project_count ? `${t.project_count} project${t.project_count === 1 ? ' uses' : 's use'} this tag, so it cannot be deleted. Remove it from them, or disable it instead.` : 'This removes the tag. Past job results keep its name. It cannot be undone.'),
         onConfirm: async () => { await api('DELETE', '/admin/tags/' + t.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Tag deleted'); route(); } }) }, 'Delete') : null,
       onConfirm: async () => {
-        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, active: f.active.checked };
+        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, related: f.related.value.trim() || null, active: f.active.checked };
         await api(t ? 'PATCH' : 'POST', t ? '/admin/tags/' + t.id : '/admin/tags', body); toast(t ? 'Tag saved' : 'Tag added'); route();
       } });
   }

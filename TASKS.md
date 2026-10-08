@@ -40,10 +40,10 @@ The running task list for Upwork Pro, kept so any Claude (or person) can pick up
 | 2 | Back up the setup data into the repo (`npm run setup:export`, restore with `npm run setup:import -- --apply`), R24. Re-export after setup changes. | done |
 | 3 | Team plugin content in Upwork Pro: eight types, writing guide, strict certification rule (R25); the new 42-project sheet synced (R26) | done |
 | 4 | Type selection with required / supporting / excluded signals and priority groups; signals 20 to 22 (R25) | done |
-| 5 | Matching: the "job needs" line, platform filter, core workflow check | to do |
+| 5 | Matching: platform filter, industry pools with related industries, the alternative, the job needs line (R27) | done |
 | 6 | Rules F6 generic mass invite and G18 any other risk (R25) | done |
 | 7 | Certifications per profile, used only when a client requires one (R25) | done |
-| 8 | Loom videos: a section with several videos per profile, tagged so the right one fits a job; proposal types that use them later, once Hamza picks the topics | to do |
+| 8 | Loom videos (in progress): a section with several videos per profile, tagged so the right one fits a job; proposal types that use them later, once Hamza picks the topics | to do |
 | 9 | Merged plugin v0.3.0: the team's content plus the Upwork Pro connection | to do |
 | 10 | Step-by-step guide for the team, with screenshots and arrows, every tab and screen | to do (after 3 to 8, so the screens are final) |
 

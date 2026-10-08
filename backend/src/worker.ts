@@ -6,8 +6,8 @@ import { withCallContext } from './llm/context';
 import { providerName } from './llm';
 import { lastUsed } from './llm/context';
 import { COLUMN_KEYS } from './screening/contract';
-import { loadContext, loadDictionary, loadLibraryProjects } from './screening/context';
-import { rankProjects, type JobTag } from './screening/matching';
+import { loadContext, loadDictionary, loadLibraryProjects, loadRelatedIndustries } from './screening/context';
+import { jobNeeds, rankProjects, type JobTag } from './screening/matching';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
@@ -91,7 +91,7 @@ async function processTagging(id: number) {
     const tagged = await tagJob(jobText, dict);
     const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance }));
     const cfg = await getSettings();
-    const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'] });
+    const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'], related: await loadRelatedIndustries() });
     await withRetry(async () => {
     const conn = await pool.getConnection();
     try {
@@ -104,11 +104,11 @@ async function processTagging(id: number) {
       }
       for (const m of matches) {
         await conn.query(
-          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared)]);
+          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, pool, alternative, platform) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared), m.pool, m.alternative ? 1 : 0, m.platform]);
       }
       await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=?, tagged_at=NOW(),
-        selection_confirmed_at=NULL, selection_confirmed_by=NULL WHERE id=?`, [lastUsed()?.model ?? config.llm.model, id]);
+        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=? WHERE id=?`, [lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });
