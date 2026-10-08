@@ -221,7 +221,8 @@ const NAV = [
     { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN }] },
   { label: 'Proposal setup', links: [
     { key: 'templates', icon: 'doc', label: 'Templates', roles: STAFF },
-    { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF }] },
+    { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
+    { key: 'writing', icon: 'doc', label: 'Writing guide' }] },
   { label: 'Admin', links: [
     { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
@@ -1887,6 +1888,39 @@ async function sheetSyncView() {
   ], true);
 }
 
+// ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
+const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist' };
+async function writingView() {
+  const { docs } = await api('GET', '/writing-docs');
+  const card = (d) => h('a', { class: 'card card-pad', href: '#/wg/' + d.id, style: 'display:grid;gap:6px;text-decoration:none;color:inherit' },
+    h('div', { class: 'row spread' }, h('strong', {}, d.title), Number(d.active) ? null : h('span', { class: 'pill wait' }, 'Off')),
+    h('div', { class: 'small muted' }, `${WG_KIND[d.kind]} · ${d.versions} version${Number(d.versions) === 1 ? '' : 's'} · edited ${ago(d.updated_at)}${d.updated_by_name ? ' by ' + d.updated_by_name : ''}`));
+  const section = (title, sub, list) => h('div', { style: 'margin-bottom:22px' }, h('h2', { style: 'font-size:17px;margin:0 0 4px' }, title), h('p', { class: 'muted small', style: 'margin:0 0 12px' }, sub),
+    h('div', { class: 'grid3' }, list.map(card)));
+  shell('writing', [pageHead('Writing guide', 'What every proposal from the Claude plugin follows. One copy, kept here: an edit reaches every Claude on its next proposal.'),
+    section('Proposal types', 'The plugin picks one per job from its signals and shows you the recommended and next best.', docs.filter((d) => d.kind === 'type')),
+    section('Rules for every proposal', 'Applied to every type.', docs.filter((d) => d.kind !== 'type'))], true);
+}
+async function writingDocView(id) {
+  const { doc, versions } = await api('GET', '/writing-docs/' + id);
+  const canEdit = me.role === 'admin' || me.role === 'manager';
+  const ta = h('textarea', { class: 'editor', style: 'min-height:420px', 'aria-label': doc.title, readonly: !canEdit || null }); ta.value = doc.content;
+  const note = h('input', { type: 'text', placeholder: 'What did you change and why? (optional)', maxlength: 250 });
+  const dirty = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
+  ta.oninput = () => { dirty.hidden = ta.value === doc.content; };
+  const save = h('button', { class: 'btn primary', type: 'button' }, 'Save');
+  save.onclick = async () => { btnBusy(save, 'Saving'); try { await api('PUT', '/writing-docs/' + id, { content: ta.value, note: note.value }); toast('Saved. Every Claude uses it from its next proposal.'); route(); } catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren('Save'); } };
+  const toggle = h('button', { class: 'btn', type: 'button' }, Number(doc.active) ? 'Turn off' : 'Turn on');
+  toggle.onclick = async () => { try { await api('PUT', '/writing-docs/' + id, { content: doc.content, active: !Number(doc.active) }); toast(Number(doc.active) ? 'Turned off: the plugin no longer sees it' : 'Turned on'); route(); } catch (x) { toast(x.message, true); } };
+  const vrow = (v) => h('div', { class: 'vitem' }, h('div', { class: 'top' }, h('strong', {}, full(v.created_at))), h('div', { class: 'small muted' }, (v.note || 'No note') + (v.created_by_name ? ' · ' + v.created_by_name : '')),
+    canEdit ? h('div', {}, h('button', { class: 'btn sm', onclick: async () => { const r = await api('GET', `/writing-docs/${id}/versions/${v.id}`); ta.value = r.version.content; dirty.hidden = ta.value === doc.content; toast('Loaded into the editor. Save to restore it.'); window.scrollTo(0, 0); } }, 'Load')) : null);
+  shell('writing', [h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/writing', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to the writing guide')),
+    pageHead(doc.title, `${WG_KIND[doc.kind]}${Number(doc.active) ? '' : ' · off'}. Written in Markdown.`, canEdit ? toggle : null),
+    h('div', { class: 'two' }, h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Text'), h('span', { class: 'sub' }, dirty)), ta,
+      canEdit ? h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line);display:grid;gap:12px' }, note, h('div', {}, save)) : null),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, `Versions (${versions.length})`)), h('div', { class: 'vlist' }, versions.map(vrow))))], true);
+}
+
 // ---------- settings (admin) ----------
 async function settingsView() {
   const { settings, meta } = await api('GET', '/settings');
@@ -2013,6 +2047,8 @@ async function route() {
     if (a === 'templates' && me.role !== 'employee') return await templatesView();
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'signals' && me.role !== 'employee') return await signalsView();
+    if (a === 'writing') return await writingView();
+    if (a === 'wg' && b) return await writingDocView(Number(b));
     if (a === 'sig' && b && me.role !== 'employee') return await signalView(Number(b));
     if (a === 'i' && b) return await industryDetailView(Number(b));
     if (a === 'industries') return await industriesView();

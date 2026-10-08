@@ -256,3 +256,41 @@ plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res
   res.status(created ? 201 : 200).json({ ok: true, id, created, name: d.name, filled, tags_added: added, unknown_tags: unknownTags,
     note: unknownTags.length ? 'These tags are not in the tag dictionary, so they were left out. An admin can add them under Tag dictionary.' : undefined });
 });
+
+// ---------- what the plugin reads instead of keeping its own copy ----------
+/** The project library and the tag dictionary, as the app has them: the plugin matches projects from this, not from a sheet. */
+plugin.get('/plugin/library', anyone, async (_req, res) => {
+  const cats = await query<any>('SELECT id, name, is_compliance FROM tag_categories ORDER BY sort_order, name');
+  const tags = await query<any>('SELECT id, category_id, name, weight, description FROM tags WHERE active=1 AND sheet_removed_at IS NULL ORDER BY sort_order, name');
+  const projects = await query<any>(`SELECT id, name, live_link, landing_link, system_link, mobile_link, staging_link, case_study_link, overview, case_study_summary
+    FROM projects WHERE active=1 AND sheet_removed_at IS NULL ORDER BY name`);
+  const links = await query<any>(`SELECT pt.project_id, t.name, c.name AS category FROM project_tags pt JOIN tags t ON t.id=pt.tag_id AND t.active=1 JOIN tag_categories c ON c.id=t.category_id`);
+  const inds = await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id');
+  const clean = (o: any) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && !v.length)));
+  res.json({
+    note: 'Industry is matched first (industries), then tags by their weight. Tags with weight 0 carry no matching weight.',
+    tag_dictionary: cats.map((c) => ({ category: c.name, compliance: !!c.is_compliance,
+      tags: tags.filter((t) => t.category_id === c.id).map((t) => clean({ name: t.name, weight: Number(t.weight), description: t.description })) })).filter((c) => c.tags.length),
+    projects: projects.map((p) => clean({ name: p.name, proposal_link: p.live_link, landing_link: p.landing_link, system_link: p.system_link, mobile_link: p.mobile_link,
+      staging_link: p.staging_link, case_study_link: p.case_study_link, overview: p.overview, case_study_summary: p.case_study_summary,
+      industries: inds.filter((x) => x.project_id === p.id).map((x) => x.name),
+      tags: links.filter((x) => x.project_id === p.id && x.category !== 'Industry').map((x) => x.name) })),
+  });
+});
+
+/** The writing guide: the proposal types (with when each is chosen and its length), the writing rules, banned phrases, modules,
+ *  screening answer rules and the checklist. `type` returns that type's full text; `all=1` returns every type's text. */
+plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
+  const docs = await query<any>('SELECT doc_key, kind, title, content, updated_at FROM writing_docs WHERE active=1 ORDER BY sort_order, doc_key');
+  const one = (k: string) => docs.find((d) => d.kind === k)?.content ?? null;
+  const field = (c: string, label: string) => (new RegExp(`\\*\\*${label}:\\*\\*\\s*(.+)`, 'i').exec(c)?.[1] ?? '').trim() || null;
+  const types = docs.filter((d) => d.kind === 'type');
+  const want = String(req.query.type ?? '').toLowerCase();
+  const all = req.query.all === '1';
+  res.json({
+    types: types.map((d) => ({ key: d.doc_key, title: d.title, chosen_when: field(d.content, 'Chosen when'), length: field(d.content, 'Length'),
+      content: all || (want && (d.doc_key.toLowerCase() === want || d.title.toLowerCase().includes(want))) ? d.content : undefined })),
+    writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
+    updated_at: docs.reduce((m, d) => (m && m > d.updated_at ? m : d.updated_at), null as any),
+  });
+});

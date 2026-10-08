@@ -32,6 +32,8 @@ plugin sends **as is**: it never screens the job again or rewrites the proposal,
 | `save_job` | The job the plugin screened: page text, link, title, verdict, each fail and flag (code, rule, value), job and client facts, the posting fields, and the person's decision. Refused if that Upwork job is already saved (unless `force_new`). |
 | `record_decision` | Continue (a FLAG or FAIL needs the person's reason) or skip. |
 | `save_proposal` | The proposal text exactly as written, the profile and project names used, the template. A second save adds a version. `finished` (default true) means ready to send. |
+| `get_library` | The project library and tag dictionary (projects with links, overview, case study, industries, tags; tags with weights). Read-only. |
+| `get_writing_guide` | The writing guide: proposal types (when chosen, length), writing rules, banned phrases, modules, screening answers, checklist. Read-only. |
 | `add_profile` | Adds an Upwork profile Upwork Pro is missing, or fills the empty fields of an existing one (never overwrites). Admins. |
 | `add_project` | Adds a project to the library (links, overview, case study, tags), or fills empty fields and adds missing tags (never removes). Managers and admins. |
 | `update_status` | What happened on Upwork, with its date and time (default now): Sent, Viewed, Chat opened, Interview, then an outcome (a lost outcome needs a loss reason). |

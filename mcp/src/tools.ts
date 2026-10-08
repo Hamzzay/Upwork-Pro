@@ -62,7 +62,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
 4. If the person continues past a FLAG or FAIL, send their reason (decision.reason, or continue_reason on save_proposal). Never invent a reason.
 5. save_proposal stores the proposal text exactly as written, with the profile and project names you used. finished=true means ready to send.
 6. If the profile or a project you use is not in plugin_options, add it straight away with add_profile or add_project (from your own
-   profile record or the project sheet: never invent a field), then save. Existing records are never overwritten; only empty fields are filled.
+   profile record or what the person gives: never invent a field), then save. Existing records are never overwritten; only empty fields are filled.
 7. update_status only after it happened on Upwork: Sent first, then Viewed, Chat opened, Interview, then an outcome. "When" is now unless the person says otherwise.
    A lost outcome needs one of the loss reasons, and the person's own words as the note if they gave any.`;
 
@@ -100,6 +100,13 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
       template: z.string().optional().describe('Proposal type or template used'), finished: z.boolean().optional(), continue_reason: z.string().optional().describe('Only for a FLAG or FAIL job with no decision yet') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => { const { id, ...body } = a; return api.call('POST', `/plugin/jobs/${id}/proposal`, body); });
 
+  T('get_library', 'The project library and tag dictionary from Upwork Pro: every active project with its links, overview, case study, industries and tags, and every tag with its category and match weight. Read it once per run for tagging and project matching; it is the only library (no sheet copy).',
+    {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/plugin/library'));
+
+  T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
+    { type: z.string().optional(), all: z.boolean().optional() }, { readOnlyHint: true, openWorldHint: false },
+    async (a) => api.call('GET', '/plugin/writing-guide?' + new URLSearchParams({ ...(a.type ? { type: a.type } : {}), ...(a.all ? { all: '1' } : {}) })));
+
   T('add_profile', 'Add an Upwork profile Upwork Pro does not have yet, or fill the empty fields of an existing one (never overwrites). Admins only. Send only what your profile record says; leave out anything marked TO FILL.',
     { name: z.string().describe('The profile name, e.g. "Hassan Ijaz"'), tagline: z.string().optional().describe('Upwork headline'), price: z.number().optional().describe('Default hourly rate'),
       lowest_price: z.number().optional().describe('Lowest rate when work is slow'), profile_url: z.string().optional(), github_url: z.string().optional(), gitlab_account: z.string().optional(),
@@ -108,7 +115,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
       notes: z.string().optional() },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/profiles', a));
 
-  T('add_project', 'Add a project Upwork Pro does not have yet to the project library, or fill the empty fields of an existing one and add the tags it is missing (never removes or overwrites). Managers and admins. Take every field from the project sheet row.',
+  T('add_project', 'Add a project Upwork Pro does not have yet to the project library, or fill the empty fields of an existing one and add the tags it is missing (never removes or overwrites). Managers and admins. Send only what the person gives; never invent a field.',
     { name: z.string(), landing_link: z.string().optional(), system_link: z.string().optional(), mobile_link: z.string().optional().describe('One or more store links, space separated'),
       staging_link: z.string().optional(), case_study_link: z.string().optional(), overview: z.string().optional().describe('Project overview'), case_study_summary: z.string().optional(),
       tags: z.array(z.string()).optional().describe('Tag names marked x for this project, Industry tags included') },

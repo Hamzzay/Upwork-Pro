@@ -9,7 +9,8 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 018: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync
+npm run migrate        # applies 008 to 019: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync, writing guide
+npm run seed:writing   # the writing guide (6 proposal types, rules, banned phrases, modules, screening answers, checklist), insert-if-missing
 npm run seed:library   # fills each rule's "How to apply" note and makes the instructions-only gate version active (see R15)
 npm run sync:library   # dry run: what the project sheet snapshot would change; then add -- --apply (see R17)
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
@@ -448,6 +449,25 @@ added to the other, never discarded; edits in Upwork Pro write back to the sheet
 - **Plugin v0.1.9** (`~/Downloads/stackup-proposals-0.1.9.plugin`): tag weights from the sheet's Tag Dictionary; profiles from Upwork Pro
   or the sheet's Profiles tab.
 - `npm run sync:library` (file based, R17) still works for setups without Google access.
+
+### R19. One library and one writing guide for every Claude (done)
+Several Claudes (one per Upwork profile) will run the plugin against the same Upwork Pro. Their data must match, and a local edit to one
+copy of the plugin must not change what it uses. So the plugin no longer carries its own data; it reads it from Upwork Pro.
+(Hamza: the Google key could not be created, so the R18 sheet sync stays off; it turns on by itself once a key is set.)
+- **Project library and tag dictionary**: new MCP tool `get_library` (`GET /plugin/library`): every active project with its proposal link,
+  landing, system, mobile, staging and case study links, overview, case study summary, industries and tags, plus every tag with its category,
+  match weight and description, and which categories are compliance. The plugin matches and tags from this instead of the Google Sheet.
+- **Writing guide**: new tables `writing_docs` and `writing_doc_versions` (migration `019_writing_guide.sql`), seeded from the plugin's files
+  (`seed/writing/*.md`, `npm run seed:writing`): the six proposal types, writing rules, banned phrases, modules, screening answers and the
+  verification checklist. New MCP tool `get_writing_guide` (`GET /plugin/writing-guide`): the types with when each is chosen and its length
+  (read from the text), all rules, and a type's full text on request.
+- **Writing guide page** (Proposal setup, everyone reads, managers and admins edit): one card per document; each opens an editor with every
+  version kept (load an old version and save to restore) and a switch to turn a document off.
+- **Plugin v0.2.0** (`~/Downloads/stackup-proposals-0.2.0.plugin`, not published): project-matcher and job-signals read `get_library`;
+  proposal-writer reads `get_writing_guide`; profiles come from `plugin_options`. The bundled files stay only as a fallback when Upwork Pro is
+  not reachable. "Project stage counts 0 for now" stays as a plugin note, since the library weights say 2.
+- The app's own writer does not use the writing guide yet (it still uses its templates); that is difference 2 in `PLUGIN-VS-SYSTEM.md`.
+- Still to do for several Claudes: host Upwork Pro where every Claude can reach it (it runs on localhost now), and a plugin version check.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
