@@ -44,10 +44,12 @@ The running task list for Upwork Pro, kept so any Claude (or person) can pick up
 | 6 | Rules F6 generic mass invite and G18 any other risk (R25) | done |
 | 7 | Certifications per profile, used only when a client requires one (R25) | done |
 | 8 | Loom videos per profile, tagged; the best one suggested on the Profile step and given to the plugin (R28). Next, once Hamza picks the topics: proposal types that link a video | done (types later) |
-| 9 | Merged plugin v0.3.0: the team's content plus the Upwork Pro connection | to do |
+| 9 | Merged plugin v0.3.0: the team's content plus the Upwork Pro connection, source in `plugin/` (R29). Hamza to install it and run `/proposal` on one job | done (end to end run pending) |
 | 10 | Step-by-step guide for the team, with screenshots and arrows, every tab and screen | to do (after 3 to 8, so the screens are final) |
 
 ## Later
+
+- Plugin and app matching differ on two points (minimum tag score 6, Project stage weight 0 in the plugin): decide one rule for both.
 
 - Loom: Hamza to choose 5 to 7 video topics per profile and which one to three proposal types link a video; then add a "uses Loom" switch on types and the writer line.
 

@@ -625,6 +625,24 @@ the setup backup is re-exported.
   #51's Profile step, delete it; delete calls on industries, projects and tags reach the server; a backup restore of a deleted video
   brings it back with its tags and a re-export after it is identical; the plugin library with and without case studies.
 
+### R29. The Claude plugin v0.3.0: the team's v0.2.7 work with the Upwork Pro connection (done)
+The plugin's source is now in this repo (`plugin/`); the installable file is `~/Downloads/stackup-proposals-0.3.0.plugin` (zip of
+`plugin/`: `cd plugin && zip -qr ../stackup-proposals-x.y.z.plugin .claude-plugin README.md skills`). Not published.
+- From the team (v0.2.7): eight proposal types and their files, type selection by required, supporting and excluding signals, three new
+  signals (Platform, Job focus, Decisions left open), the matcher's "Job needs" line, platform filter, core workflow check and link
+  choice by platform, the writing rules, banned phrases, modules and checklist, gate rule F6 Generic mass invite, certifications per profile.
+- Kept from ours: everything is read from Upwork Pro (`get_library`, `get_writing_guide` with `type_selection`, `plugin_options`) and saved
+  to it (`save_job`, `save_proposal`, `update_status`, the job-status skill); missing profiles and projects are added right away. The
+  bundled files are only a fallback. Connecting is by signing in (R20), no token to copy.
+- Settled differences: G17 keeps our meaning (work that breaks platform rules) and "any other risk" is G18, as on the Rules page.
+  Certifications are strict (only when the client requires one, only from the profile; otherwise "No matching certification on this
+  profile." under "Needs your eye"), not "pick the relevant ones" as in the team's copy. The team's daily proposals sheet tab is not
+  used: Upwork Pro keeps every proposal. Case studies are fetched only for the chosen projects (R28).
+- Still different from Upwork Pro's own matching: the team's matcher drops projects under a tag score of 6 and counts Project stage
+  tags as 0 until their tagging cleanup; Upwork Pro uses its Settings (minimum score) and the Tag dictionary weights.
+- Checked: `claude plugin validate` passes; every file a skill names exists; the reference files match Upwork Pro's writing guide.
+  Not yet run end to end in Claude with a real job: install it, sign in to the connector, and try `/proposal` on one job.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
