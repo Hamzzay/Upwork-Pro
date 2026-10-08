@@ -6,6 +6,7 @@ import { textToHtml } from './html';
 import { jobIdFromUrl } from './screening/jobsource';
 import { getSettings } from './settings';
 import { PROFILE_FIELDS, profileBody } from './routes_library';
+import { requestSync } from './sheets/sync';
 
 /**
  * The Claude plugin saves its own work here: the job it screened, the proposal it wrote, and (through the shared status
@@ -198,12 +199,12 @@ plugin.post('/plugin/profiles', requireRole('admin'), async (req, res) => {
   const cur = (await query<any>('SELECT * FROM upwork_profiles WHERE name=?', [d.name]))[0];
   if (!cur) {
     const r = await exec(`INSERT INTO upwork_profiles (name, ${PROFILE_FIELDS.join(', ')}, added_via) VALUES (?)`, [[d.name, ...PROFILE_FIELDS.map((k) => d[k] ?? null), SOURCE]]);
-    await audit(req.user!.id, 'profile_create', `id=${r.insertId} from the Claude plugin`);
+    await audit(req.user!.id, 'profile_create', `id=${r.insertId} from the Claude plugin`); requestSync(req.user!.id);
     return void res.status(201).json({ ok: true, id: r.insertId, created: true, name: d.name });
   }
   const fill = PROFILE_FIELDS.filter((k) => d[k] != null && (cur[k] == null || cur[k] === ''));
   if (fill.length) await exec(`UPDATE upwork_profiles SET ${fill.map((k) => k + '=?').join(', ')} WHERE id=?`, [...fill.map((k) => d[k]), cur.id]);
-  if (fill.length) await audit(req.user!.id, 'profile_update', `id=${cur.id} filled ${fill.join(',')} from the Claude plugin`);
+  if (fill.length) await audit(req.user!.id, 'profile_update', `id=${cur.id} filled ${fill.join(',')} from the Claude plugin`); requestSync(req.user!.id);
   res.json({ ok: true, id: cur.id, created: false, name: cur.name, filled: fill, active: !!cur.active,
     note: cur.active ? undefined : 'This profile is disabled in Upwork Pro. An admin can enable it under Upwork profiles.' });
 });
@@ -251,7 +252,7 @@ plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res
     }
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
-  await audit(req.user!.id, created ? 'project_create' : 'project_update', `id=${id} from the Claude plugin${filled.length ? ' filled ' + filled.join(',') : ''} tags_added=${added}`);
+  await audit(req.user!.id, created ? 'project_create' : 'project_update', `id=${id} from the Claude plugin${filled.length ? ' filled ' + filled.join(',') : ''} tags_added=${added}`); requestSync(req.user!.id);
   res.status(created ? 201 : 200).json({ ok: true, id, created, name: d.name, filled, tags_added: added, unknown_tags: unknownTags,
     note: unknownTags.length ? 'These tags are not in the tag dictionary, so they were left out. An admin can add them under Tag dictionary.' : undefined });
 });

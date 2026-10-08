@@ -15,6 +15,7 @@ import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runProposal } f
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
 import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
+import { connected as sheetConnected, runSync } from './sheets/sync';
 
 let stopping = false;
 let inFlight = 0;
@@ -251,6 +252,14 @@ async function shutdown() {
 process.on('SIGINT', shutdown); // PM2 stops with SIGINT by default
 process.on('SIGTERM', shutdown);
 
+async function sheetTimer() {
+  const every = (await getSettings())['sheet.sync_minutes'];
+  if (!every || !sheetConnected().ok) return;
+  const last = (await query<any>('SELECT MAX(started_at) AS t FROM sheet_sync_runs'))[0]?.t;
+  if (last && Date.now() - new Date(last).getTime() < every * 60_000) return;
+  await runSync('timer');
+}
+
 async function main() {
   sweepOldScratch();
   await exec(`UPDATE screenings SET status='queued' WHERE status='running'`); // a crashed worker left these
@@ -260,8 +269,14 @@ async function main() {
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);
   console.log(`worker started ai=${providerName === 'mock' ? 'mock' : 'chosen in Settings'} concurrency=${config.llm.concurrency}`);
+  let sheetCheck = 0;
   while (!stopping) {
     try { await tick(); } catch (e) { console.error('tick failed', (e as Error).message); }
+    // the two-way sync with the Google Sheet, every N minutes (Settings); a failed run is logged on the Sheet sync page
+    if (Date.now() - sheetCheck > 60_000) {
+      sheetCheck = Date.now();
+      sheetTimer().catch((e) => console.error('sheet sync failed:', (e as Error).message));
+    }
     await new Promise((r) => setTimeout(r, 1500));
   }
 }

@@ -30,6 +30,9 @@ export const SETTINGS = {
     schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G11', 'G12', 'G13'] },
   'writer.structured_signal': { label: 'Signal that means "structured submission"', help: 'When this signal has this value, the writer follows the post\'s own structure first.',
     schema: z.object({ signal: z.number().int().min(1).max(999), value: z.string().trim().min(1).max(120) }), def: { signal: 5, value: 'Yes' } },
+  'sheet.spreadsheet_id': { label: 'Google Sheet for projects, tags and profiles', help: 'The ID in the sheet\'s link (between /d/ and /edit). Synced both ways with the app.',
+    schema: z.string().trim().regex(/^[A-Za-z0-9_-]{20,100}$/, 'Paste the ID from the sheet link'), def: '1hWsMfG2mfphPd6wNayqgVa4QBsF8iKgqlhks3oe_DSw' },
+  'sheet.sync_minutes': { label: 'Sync with the sheet every (minutes)', help: '0 turns the timer off. Edits in the app sync a few seconds after saving anyway.', schema: z.number().int().min(0).max(1440), def: 10 },
 } as const;
 export type SettingKey = keyof typeof SETTINGS;
 export type Settings = { [K in SettingKey]: z.infer<(typeof SETTINGS)[K]['schema']> };

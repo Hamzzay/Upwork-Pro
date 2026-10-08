@@ -1,0 +1,4 @@
+
+# Google service account keys (Sheet sync) never go into git
+*service-account*.json
+google-key*.json

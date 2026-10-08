@@ -33,7 +33,7 @@ Ordered by how much they change the proposal. Each needs a decision before build
 | 9 | **Duplicate jobs** | Same Upwork job found by link: shown with profile and date, flagged D1, continue only from a different profile; projects used before are deprioritized. | The app screens the same job again without a warning (the plugin save does refuse duplicates). | Warn on Screen a job when the link was screened before, with who and which profile. |
 | 10 | **Which project link** | Order: landing or mobile, then live system, then case study (flagged to confirm), then staging (flagged). | One proposal link per project (now filled from the sheet in that order); the other links are stored but the writer does not choose. | Let the writer pick per job (web or mobile) and flag case study or staging links. |
 | 11 | **Override reason** | Quick picks (Invite, Strong client history, Strong project fit, Low workload, Other) plus a note. | Free text, 15 characters minimum. | Add the quick picks (a setting) above the text box. |
-| 12 | **Library source** | Reads the live Google Sheet on every run. | The database; changes in the sheet need `npm run sync:library` with a fresh export, or the plugin's `add_project`. | Either the team edits projects in Upwork Pro only, or a "Sync from the sheet" button (needs Google access on the server). |
+| 12 | **Library source** | Reads the live Google Sheet on every run. | **Done in R18**: the sheet and Upwork Pro sync both ways (projects, tags, profiles) every few minutes and after every edit. Goes live once the Google key is set. | - |
 
 Same in both: the gate (now one set of rules, and the plugin saves its verdict as is), the five decision points, version history of
 the proposal, status tracking after sending.

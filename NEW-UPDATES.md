@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 017: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields
+npm run migrate        # applies 008 to 018: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync
 npm run seed:library   # fills each rule's "How to apply" note and makes the instructions-only gate version active (see R15)
 npm run sync:library   # dry run: what the project sheet snapshot would change; then add -- --apply (see R17)
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
@@ -421,6 +421,33 @@ kept in step by hand. Now each thing lives in one place:
 - **Plugin v0.1.8** (`~/Downloads/stackup-proposals-0.1.8.plugin`, not in this repo): profiles are read from Upwork Pro; before saving a
   proposal it adds a missing profile or project to Upwork Pro and says so in one line.
 - Tests updated (43 projects, 105 tags, the code link message). The MCP server is rebuilt (`mcp/dist`).
+
+### R18. Two-way sync with the Google Sheet for projects, tags and profiles (built; needs the Google key to go live)
+Decision (Hamza): the sheet "Stackup Project Tag Library" and Upwork Pro are **both** sources of truth. Something added in either is
+added to the other, never discarded; edits in Upwork Pro write back to the sheet.
+- **How it decides** (`src/sheets/merge.ts`, pure and tested): a three-way merge against the last synced copy of every record
+  (`sheet_sync_base`). New on one side: created on the other. Changed on one side: copied over. Tags merge one by one (added on either
+  side: added to both; removed on one side: removed from both). First sync: an empty field takes the filled one. The same field changed
+  differently on both sides: the sheet's value is kept and the app's value goes to **Conflicts** with "Use app" (nothing lost).
+  Removed on one side: removed on the other, but in the app it is only **put aside** (`sheet_removed_at`; jobs may point at it), and a
+  **brake** holds back any run that would remove more than 20% (and more than 3) of one side's records.
+- **The sheet** (`src/sheets/model.ts`): columns found by header text. Project Tagging (fields, tag columns with "x"), Tag Dictionary
+  (category, weight, description; counts and notes untouched), and a new **Profiles** tab the first sync creates (Name, Active, rates,
+  links, services, industries, voice, signature, stats, who submits, rules, notes). A new tag gets a dictionary row and a column at the end
+  of its category group; only owned cells are written (formulas and other columns are left alone).
+- **Google access** (`src/sheets/google.ts`): a service account, signed with node:crypto (no new package). `.env`:
+  `GOOGLE_SERVICE_ACCOUNT_FILE=/path/outside/the/repo/key.json`; share the sheet with the key's client_email as an Editor. Key files are
+  git-ignored. Without a key the sync stays off and the app works as before.
+- **When it runs**: the worker every `sheet.sync_minutes` (Settings, default 10, 0 = off); a few seconds after any edit to projects,
+  tags, categories, industries or profiles in the app or through the plugin's add tools; and **Sync now**. One run at a time (MySQL lock).
+- **Sheet sync page** (Admin): connection (or setup steps), Sync now, conflicts with Keep sheet / Use app, the last 20 runs with what
+  changed. Migration `018_sheet_sync.sql` (base, runs, conflicts, `sheet_removed_at` on projects, profiles and tags).
+- **Checked**: unit tests for the merge and for reading/writing a sheet (fake sheet); a preview against the real sheet and database (the
+  first real sync will only create the Profiles tab with the 7 profiles: projects and tags already match); and a full scenario on a throwaway
+  copy of the database (edits both ways, new rows both ways, a conflict, a repeat run that changes nothing, removals both ways). The copy was dropped.
+- **Plugin v0.1.9** (`~/Downloads/stackup-proposals-0.1.9.plugin`): tag weights from the sheet's Tag Dictionary; profiles from Upwork Pro
+  or the sheet's Profiles tab.
+- `npm run sync:library` (file based, R17) still works for setups without Google access.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

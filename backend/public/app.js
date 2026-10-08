@@ -226,6 +226,7 @@ const NAV = [
     { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
+    { key: 'sheetsync', icon: 'link', label: 'Sheet sync', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
     { key: 'audit', icon: 'audit', label: 'Logs', roles: ADMIN }] },
 ];
@@ -1837,6 +1838,55 @@ async function rulesView() {
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'FLAG rules'), h('button', { class: 'btn sm primary', onclick: () => add('flag') }, 'Add FLAG rule')), table('flag'))], true);
 }
 
+// ---------- sheet sync (admin): projects, tags and profiles, both ways with the Google Sheet ----------
+async function sheetSyncView() {
+  const d = await api('GET', '/admin/sheet-sync');
+  const KIND = { project: 'Projects', profile: 'Profiles', tag: 'Tags' };
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${d.spreadsheet_id}/edit`;
+  const runBtn = h('button', { class: 'btn primary', type: 'button', disabled: !d.connection.ok }, icon('link'), 'Sync now');
+  runBtn.onclick = async () => {
+    btnBusy(runBtn, 'Syncing');
+    try { const r = await api('POST', '/admin/sheet-sync/run', {}); toast(r.summary.skipped || `Synced: ${r.summary.details.length} change${r.summary.details.length === 1 ? '' : 's'}${r.summary.conflicts ? ', ' + r.summary.conflicts + ' conflict(s)' : ''}`); }
+    catch (x) { toast(x.message, true); }
+    route();
+  };
+  const counts = (side) => Object.entries(KIND).map(([k, l]) => { const c = side && side[k]; return c && (c.created || c.updated || c.removed) ? `${l} ${[c.created ? '+' + c.created : '', c.updated ? c.updated + ' changed' : '', c.removed ? '-' + c.removed : ''].filter(Boolean).join(' ')}` : null; }).filter(Boolean).join(', ') || 'No changes';
+  const runRow = (r) => h('tr', {},
+    h('td', { class: 'muted', title: full(r.started_at) }, ago(r.started_at)), h('td', {}, { timer: 'Timer', manual: 'Sync now', app_edit: 'After an edit in the app' }[r.trigger_kind] || r.trigger_kind),
+    h('td', {}, r.ok === null ? h('span', { class: 'pill wait' }, 'Running') : Number(r.ok) ? h('span', { class: 'pill PASS' }, 'OK') : h('span', { class: 'pill bad', title: r.error || '' }, 'Failed')),
+    h('td', { style: 'white-space:normal' }, r.error ? h('span', { class: 'small bad' }, r.error) : r.summary ? h('div', {},
+      h('div', { class: 'small' }, h('strong', {}, 'To the sheet: '), counts(r.summary.sheet)), h('div', { class: 'small' }, h('strong', {}, 'To the app: '), counts(r.summary.app)),
+      r.summary.held_back && r.summary.held_back.length ? h('div', { class: 'small bad' }, r.summary.held_back.map((x) => `Held back: ${x.keys.length} ${KIND[x.kind].toLowerCase()} would be removed from the ${x.side}. Check the ${x.side === 'app' ? 'sheet' : 'app'} first.`).join(' ')) : null,
+      r.summary.details && r.summary.details.length ? h('details', { class: 'desc' }, h('summary', {}, `What changed (${r.summary.details.length})`), h('ul', { class: 'plain small' }, r.summary.details.map((x) => h('li', {}, x)))) : null) : null));
+  const resolve = async (c, use) => { try { await api('POST', '/admin/sheet-sync/conflicts/' + c.id, { use }); toast(use === 'app' ? 'The app\'s value will be written to the sheet' : 'Kept the sheet\'s value'); route(); } catch (x) { toast(x.message, true); } };
+  const conflictRow = (c) => h('tr', {},
+    h('td', {}, h('strong', {}, c.rkey), h('div', { class: 'small muted' }, `${KIND[c.kind].slice(0, -1)} · ${c.field.replace(/_/g, ' ')}`)),
+    h('td', { style: 'white-space:normal;max-width:320px' }, c.sheet_value || h('span', { class: 'faint' }, 'empty')), h('td', { style: 'white-space:normal;max-width:320px' }, c.app_value || h('span', { class: 'faint' }, 'empty')),
+    h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => resolve(c, 'sheet') }, 'Keep sheet'), h('button', { class: 'btn sm primary', onclick: () => resolve(c, 'app') }, 'Use app'))));
+  const setup = h('div', { class: 'card-pad' },
+    h('p', { style: 'margin-top:0' }, h('strong', {}, 'Not connected yet. '), d.connection.reason || ''),
+    h('ol', { style: 'margin:0;padding-left:20px;display:grid;gap:6px' },
+      h('li', {}, 'In Google Cloud Console, create a project (or use one), enable the Google Sheets API, and create a service account.'),
+      h('li', {}, 'On the service account, add a key (JSON) and save the file on the server, outside the code folder.'),
+      h('li', {}, 'In backend/.env set GOOGLE_SERVICE_ACCOUNT_FILE to that file\'s full path, then restart the server and the worker.'),
+      h('li', {}, 'Share the sheet with the service account\'s email (client_email in the file) as an Editor.')));
+  shell('sheetsync', [
+    pageHead('Sheet sync', 'Projects, tags and profiles are kept the same in the app and in the Google Sheet. An addition on either side is copied to the other; nothing is discarded.', runBtn),
+    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'Connection'), h('a', { class: 'sub', href: sheetUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Open the sheet')),
+      d.connection.ok ? h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' },
+        h('div', {}, h('dt', {}, 'Signed in as'), h('dd', { class: 'mono' }, d.connection.email)),
+        h('div', {}, h('dt', {}, 'Timer'), h('dd', {}, d.sync_minutes ? `Every ${d.sync_minutes} minutes, and a few seconds after any edit in the app` : 'Off (Settings)')),
+        h('div', {}, h('dt', {}, 'Tabs'), h('dd', {}, 'Project Tagging, Tag Dictionary, Profiles (made on the first sync)')),
+        h('div', {}, h('dt', {}, 'Records in the last synced copy'), h('dd', {}, String(d.base_records))))) : setup),
+    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, `Conflicts to check (${d.conflicts.length})`), h('span', { class: 'sub' }, 'The same field was changed differently in both. The sheet\'s value is in use; you can switch to the app\'s.')),
+      d.conflicts.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Record', 'In the sheet (in use)', 'In the app', ''].map((t) => h('th', {}, t)))), h('tbody', {}, d.conflicts.map(conflictRow))))
+        : h('div', { class: 'card-pad' }, h('p', { class: 'muted', style: 'margin:0' }, 'None.'))),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Last runs')),
+      d.runs.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Why', 'Result', 'Changes'].map((t) => h('th', {}, t)))), h('tbody', {}, d.runs.map(runRow))))
+        : h('div', { class: 'card-pad' }, h('p', { class: 'muted', style: 'margin:0' }, 'No runs yet.'))),
+  ], true);
+}
+
 // ---------- settings (admin) ----------
 async function settingsView() {
   const { settings, meta } = await api('GET', '/settings');
@@ -1904,7 +1954,9 @@ async function settingsView() {
     group('Project matching', [num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
-      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
+      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))]),
+    group('Google Sheet sync', [(() => { const el = h('input', { type: 'text', value: settings['sheet.spreadsheet_id'], style: 'min-width:340px' }); return row('sheet.spreadsheet_id', el, () => el.value.trim()); })(),
+      num('sheet.sync_minutes'), h('p', { class: 'hint', style: 'margin:0' }, 'Status, Sync now and conflicts are on the ', h('a', { href: '#/sheetsync' }, 'Sheet sync'), ' page.')])], true);
 }
 
 // ---------- connect Claude: personal tokens for the import MCP ----------
@@ -1972,6 +2024,7 @@ async function route() {
     if (a === 'skill' && me.role === 'admin') return await skillView();
     if (a === 'rules' && me.role === 'admin') return await rulesView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();
+    if (a === 'sheetsync' && me.role === 'admin') return await sheetSyncView();
     if (a === 'connect') return await connectView();
     if (a === 'audit' && me.role === 'admin') return await auditView();
     return newView();

@@ -13,6 +13,7 @@ import { validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { plugin } from './routes_plugin';
+import { sheets } from './routes_sheets';
 import { htmlToPlain } from './html';
 import { withCallContext } from './llm/context';
 import { testCall } from './llm';
@@ -24,6 +25,7 @@ api.use(library);
 api.use(proposals);
 api.use(imports);
 api.use(plugin);
+api.use(sheets);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);
 
