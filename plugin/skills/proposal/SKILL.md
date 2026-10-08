@@ -118,7 +118,7 @@ Call `save_proposal` for job #N with:
 * A chosen project is not in the library: call `add_project` with what the person gives you: name, any links (landing, system,
   mobile, staging, case study), the overview, the case study summary, and its tags from the tag dictionary (Industry tags included).
 * Both only add or fill empty fields; they never overwrite. Mention each addition in one line ("Added project Kruzee to Upwork Pro").
-  If Upwork Pro refuses (the token is not an admin or manager), say so in one line and save anyway: the answer lists
+  If Upwork Pro refuses (the signed in person is not an admin or manager), say so in one line and save anyway: the answer lists
   `projects_not_in_library` for the team to add.
 
 Finish with three lines: the final word count, "Saved to Upwork Pro, job #N, ready to send", and a reminder: after submitting on Upwork, say "mark job #N as sent" (the job-status skill records it, with Connects and boost in the note).

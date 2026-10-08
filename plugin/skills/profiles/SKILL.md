@@ -18,7 +18,7 @@ description: Holds the seven Stackup Upwork profiles (Hamza, Ahmad, Hassan, Anam
   or the person gives (leave out anything marked TO FILL). Then continue.
 * If the person gives a missing field during the run (a signature, a rate), save it with `add_profile` too: it only fills empty fields,
   it never overwrites what the team set in Upwork Pro.
-* Adding a profile needs an admin token. If Upwork Pro refuses, say so in one line and continue; the proposal save will name what is missing.
+* Adding a profile needs an admin account. If Upwork Pro refuses, say so in one line and continue; the proposal save will name what is missing.
 
 ## Suggesting a profile
 
