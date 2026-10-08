@@ -24,6 +24,8 @@
     "seed:settings:prod": "node dist/scripts/seed-settings.js",
     "seed:writing": "ts-node scripts/seed-writing.ts",
     "seed:writing:prod": "node dist/scripts/seed-writing.js",
+    "merge:writing": "ts-node scripts/merge-writing.ts",
+    "merge:writing:prod": "node dist/scripts/merge-writing.js",
     "backfill:postings": "ts-node scripts/backfill-postings.ts",
     "backfill:postings:prod": "node dist/scripts/backfill-postings.js",
     "seed:examples": "ts-node scripts/seed-examples.ts"

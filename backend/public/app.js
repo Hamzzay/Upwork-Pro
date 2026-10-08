@@ -220,7 +220,6 @@ const NAV = [
     { key: 'dictionary', icon: 'tag', label: 'Tag dictionary', roles: ADMIN },
     { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN }] },
   { label: 'Proposal setup', links: [
-    { key: 'templates', icon: 'doc', label: 'Templates', roles: STAFF },
     { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
     { key: 'writing', icon: 'doc', label: 'Writing guide' }] },
   { label: 'Admin', links: [
@@ -1018,7 +1017,7 @@ function profileSection(s, initial) {
         h('div', { class: 'chips' }, !usable ? h('span', { class: 'chip' }, 'Disabled') : null, saved && saved.id === p.id ? h('span', { class: 'chip brand' }, 'Chosen') : null));
     });
     box.replaceChildren(h('div', { class: 'card-head' }, h('h2', {}, 'Which profile will send the proposal?')), h('div', { class: 'card-pad' },
-      h('p', { class: 'hint', style: 'margin:0 0 12px' }, owner ? 'Choose one profile. As soon as you confirm, the signals are detected, the best template is picked and the proposal is written.' : 'Chosen by the person who submitted this job.'),
+      h('p', { class: 'hint', style: 'margin:0 0 12px' }, owner ? 'Choose one profile. As soon as you confirm, the signals are detected, the best proposal type is picked and the proposal is written.' : 'Chosen by the person who submitted this job.'),
       profs.length ? h('div', { class: 'pgrid' }, opts) : h('div', { class: 'notice' }, icon('info'), 'No Upwork profiles are set up yet. An admin can add them under Upwork profiles.'),
       err, saved ? h('div', { class: 'logged-line' }, icon('check'), `Proposal will be sent from ${saved.name}. Confirmed${saved.confirmed_by ? ' by ' + saved.confirmed_by : ''} on ${full(saved.confirmed_at)}`) : null,
       owner && profs.length ? h('div', { style: 'margin-top:14px' }, btn) : null));
@@ -1468,7 +1467,7 @@ async function profilesView() {
     ['voice', 'Voice', 'text', 300, 'How the proposal speaks.', 'For example: I, as named lead, with team backup where useful'],
     ['signature', 'Signature', 'text', 500, 'How the proposal signs off.', 'For example: the name, then the GitHub link on the next line'],
     ['stats_allowed', 'Upwork stats allowed in proposals', 'text', 500, 'The only figures the writer may use about this profile.', 'For example: Top Rated Plus, 100% Job Success Score'],
-    ['rules', 'Profile rules', 'area', 4000, 'Followed in every proposal from this profile, before the template.', 'For example: no pricing and no timeline unless the client asks'],
+    ['rules', 'Profile rules', 'area', 4000, 'Followed in every proposal from this profile, before the proposal type.', 'For example: no pricing and no timeline unless the client asks'],
     ['submitted_by', 'Who submits', 'text', 300, '', 'For example: Hassan'],
     ['notes', 'Notes', 'text', 500, '', 'For example: main freelancer profile'],
   ];
@@ -1841,15 +1840,23 @@ async function rulesView() {
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
 const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist' };
 async function writingView() {
-  const { docs } = await api('GET', '/writing-docs');
-  const card = (d) => h('a', { class: 'card card-pad', href: '#/wg/' + d.id, style: 'display:grid;gap:6px;text-decoration:none;color:inherit' },
+  const { types, docs } = await api('GET', '/writing-docs');
+  const staff = me.role === 'admin' || me.role === 'manager';
+  const docCard = (d) => h('a', { class: 'card card-pad', href: '#/wg/' + d.id, style: 'display:grid;gap:6px;text-decoration:none;color:inherit' },
     h('div', { class: 'row spread' }, h('strong', {}, d.title), Number(d.active) ? null : h('span', { class: 'pill wait' }, 'Off')),
     h('div', { class: 'small muted' }, `${WG_KIND[d.kind]} · ${d.versions} version${Number(d.versions) === 1 ? '' : 's'} · edited ${ago(d.updated_at)}${d.updated_by_name ? ' by ' + d.updated_by_name : ''}`));
-  const section = (title, sub, list) => h('div', { style: 'margin-bottom:22px' }, h('h2', { style: 'font-size:17px;margin:0 0 4px' }, title), h('p', { class: 'muted small', style: 'margin:0 0 12px' }, sub),
-    h('div', { class: 'grid3' }, list.map(card)));
-  shell('writing', [pageHead('Writing guide', 'What every proposal from the Claude plugin follows. One copy, kept here: an edit reaches every Claude on its next proposal.'),
-    section('Proposal types', 'The plugin picks one per job from its signals and shows you the recommended and next best.', docs.filter((d) => d.kind === 'type')),
-    section('Rules for every proposal', 'Applied to every type.', docs.filter((d) => d.kind !== 'type'))], true);
+  const typeCard = (t) => h(staff ? 'a' : 'div', { class: 'card card-pad', href: staff ? '#/t/' + t.id : null, style: 'display:grid;gap:6px;text-decoration:none;color:inherit' },
+    h('div', { class: 'row spread' }, h('strong', {}, t.name), Number(t.active) ? null : h('span', { class: 'pill wait' }, 'Retired')),
+    t.chosen_when ? h('div', { class: 'small' }, h('span', { class: 'muted' }, 'Chosen when: '), t.chosen_when) : t.description ? h('div', { class: 'small muted' }, t.description.slice(0, 140)) : null,
+    h('div', { class: 'small muted' }, [t.length, `${t.signal_count} signal${Number(t.signal_count) === 1 ? '' : 's'}`, `${t.sample_count} sample${Number(t.sample_count) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));
+  const section = (title, sub, list, card, extra) => h('div', { style: 'margin-bottom:22px' }, h('div', { class: 'row spread', style: 'margin-bottom:4px' }, h('h2', { style: 'font-size:17px;margin:0' }, title), extra || null),
+    h('p', { class: 'muted small', style: 'margin:0 0 12px' }, sub), h('div', { class: 'grid3' }, list.map(card)));
+  const active = types.filter((t) => Number(t.active)), retired = types.filter((t) => !Number(t.active));
+  shell('writing', [pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.'),
+    section('Proposal types', 'One is picked per job from its signals (the best score wins; nothing matching gives the lowest priority). Each has its format, length, signals and sample proposals.',
+      active, typeCard, staff ? h('a', { class: 'btn sm primary', href: '#/t/new' }, 'Add a type') : null),
+    section('Rules for every proposal', 'Applied with every type: by the app\'s writer, its checks and the plugin.', docs, docCard),
+    retired.length ? section('Retired', 'No longer chosen. Kept for reference and for the proposals already written with them.', retired, typeCard) : null], true);
 }
 async function writingDocView(id) {
   const { doc, versions } = await api('GET', '/writing-docs/' + id);
@@ -2011,7 +2018,7 @@ async function route() {
     if (a === 's' && b) return c === 'work' ? await detailView(Number(b)) : await jobView(Number(b));
     if (a === 'history') return await historyView();
     if (a === 'dashboard' || !a) return await dashboardView();
-    if (a === 'templates' && me.role !== 'employee') return await templatesView();
+    if (a === 'templates') { location.hash = '#/writing'; return; } // the proposal types live on the Writing guide now
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'signals' && me.role !== 'employee') return await signalsView();
     if (a === 'writing') return await writingView();

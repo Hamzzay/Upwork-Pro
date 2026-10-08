@@ -5,6 +5,7 @@ import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
 import { lastUsed } from '../llm/context';
 import { checkProposal } from './checks';
+import { bannedPatterns, loadGuide, wordRange } from './guide';
 import { rankTemplates } from './rank';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, writerOut, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
@@ -174,12 +175,16 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
 
   // 3. write
   await stage('writing');
-  const samples = (await query<any>('SELECT title, content FROM template_samples WHERE template_id=? AND active=1 ORDER BY id LIMIT 3', [chosen.id])).map((s) => ({ title: s.title, content: s.content }));
+  // the type's own samples; a type without any borrows the shared ones (tone only), so the writer always has an example
+  let sampleRows = await query<any>('SELECT title, content FROM template_samples WHERE template_id=? AND active=1 ORDER BY id LIMIT 3', [chosen.id]);
+  if (!sampleRows.length) sampleRows = await query<any>('SELECT s.title, s.content FROM template_samples s JOIN templates t ON t.id=s.template_id WHERE s.active=1 AND t.active=1 ORDER BY s.id LIMIT 3');
+  const samples = sampleRows.map((s) => ({ title: s.title, content: s.content }));
+  const guide = await loadGuide();
   const requirements = [...f.requirements];
   const ss = (await getSettings())['writer.structured_signal']; // which signal value means "answer in the post's own structure" (admin setting)
   const structured = detected.find((d) => d.signal_number === ss.signal && d.value_name.trim().toLowerCase() === ss.value.trim().toLowerCase());
   if (structured) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
-  const w = await run({ label: 'writing', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements }),
+  const w = await run({ label: 'writing', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide }),
     prompt: `<job_page>\n${f.jobText}\n</job_page>\n\nWrite the proposal now.`, schema: writerSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = writerOut.safeParse(w.data);
   if (!parsed.success) throw new Error('invalid_output');
@@ -189,7 +194,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const library = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
   const warnings = [...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
     ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
-      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link } }).map((t) => ({ source: 'check', text: t }))];
+      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link }, banned: bannedPatterns(guide.banned), wordRange: wordRange(htmlToPlain(template.body_html)) }).map((t) => ({ source: 'check', text: t }))];
   return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, warnings, model: lastUsed()?.model ?? config.llm.model };
 }
 
@@ -288,10 +293,11 @@ export async function runChat(messageId: number) {
   const f = await loadFacts(p.screening_id);
   const detected = await storedSignals(p.screening_id);
   const template = p.template_id ? await loadTemplate(p.template_id) : null;
+  const guide = await loadGuide();
   const history = await query<any>(`SELECT role, content FROM proposal_messages WHERE proposal_id=? AND status='done' AND id<? ORDER BY id DESC LIMIT 12`, [p.id, m.id]);
   const transcript = history.reverse().map((h) => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');
   const basedOn = Number(cur.version_no);
-  const r = await run({ label: 'chat', system: chatSystem({ template, detected, sender: f.sender, projects: f.projects, clientRequirements: f.requirements, currentProposal: htmlToPlain(cur.content_html) }),
+  const r = await run({ label: 'chat', system: chatSystem({ template, detected, sender: f.sender, projects: f.projects, clientRequirements: f.requirements, currentProposal: htmlToPlain(cur.content_html), guide }),
     prompt: `${transcript ? 'EARLIER MESSAGES\n' + transcript + '\n\n' : ''}USER REQUEST\n${m.content}\n\n<job_page>\n${f.jobText}\n</job_page>`, schema: chatSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = chatOut.safeParse(r.data);
   if (!parsed.success) throw new Error('invalid_output');
@@ -303,9 +309,14 @@ export async function runChat(messageId: number) {
     resultVersion = await addVersion(p.id, textToHtml(revised), 'chat', null, note, basedOn);
     const library = (await query<any>('SELECT name FROM projects')).map((x) => x.name as string);
     const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
-      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link } }).map((t) => ({ source: 'check', text: t }));
+      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
     await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(warnings), p.id]);
   }
   await exec(`INSERT INTO proposal_messages (proposal_id, role, content, status, based_on_version, result_version) VALUES (?, 'assistant', ?, 'done', ?, ?)`, [p.id, parsed.data.reply.slice(0, 4000), basedOn, resultVersion]);
   await exec(`UPDATE proposal_messages SET status='done', based_on_version=?, result_version=? WHERE id=?`, [basedOn, resultVersion, m.id]);
+}
+
+/** Writes a proposal for a job with its confirmed projects and profile and returns it, saving nothing (for checking a change to the Writing guide). */
+export async function draftPreview(screeningId: number) {
+  return compose(screeningId, await loadFacts(screeningId), { stillWanted: () => true });
 }

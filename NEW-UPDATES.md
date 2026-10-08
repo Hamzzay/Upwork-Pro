@@ -10,7 +10,9 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
 npm run migrate        # applies 008 to 021: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
-npm run seed:writing   # the writing guide (6 proposal types, rules, banned phrases, modules, screening answers, checklist), insert-if-missing
+npm run seed:writing   # the shared writing rules (rules, banned phrases, modules, screening answers, checklist), insert-if-missing
+npm run seed:proposals # the 3 new signals and the 6 proposal types (R21)
+npm run merge:writing  # once: retires the 3 SOP templates, moves their samples to Type 1, drops the duplicate type documents (R21)
 npm run seed:library   # fills each rule's "How to apply" note and makes the instructions-only gate version active (see R15)
 npm run sync:library   # dry run: what the project sheet snapshot would change; then add -- --apply (see R17)
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
@@ -486,6 +488,28 @@ copy of the plugin must not change what it uses. So the plugin no longer carries
 - **Settings** (`.env.example`): `PUBLIC_URL` and `MCP_URL` (backend), `UPWORK_PRO_PUBLIC_URL` and `MCP_URL` (MCP). See `mcp/README.md`.
 - Checked locally end to end with the MCP SDK's own OAuth client (every step above, plus Deny, a foreign return address and no PKCE
   refused); the test rows were removed. Not tried from claude.ai yet: that needs Upwork Pro online with https.
+
+### R21. Templates and the Writing guide are one: the six proposal types, used by the app and the plugin (done)
+Before: the app's writer used three long SOP templates, and the plugin used its own six proposal types and rules, so the same job
+could be written two different ways. Now there is one Writing guide.
+- **The six types are the templates** (`seed/templates.json`): Type 1 Standard build, 2 Structured submission, 3 Invite, 4 Rescue or
+  takeover, 5 Architecture or consulting, 6 Small fix. Each keeps its text (with "Chosen when" and "Length"), a starter signal mapping
+  and its samples; they are edited where templates were (format, prompt, signals, samples), reached from the Writing guide.
+- **Three new signals** (`seed/signals.json`, detected like the others): 17 Invite, 18 Role seniority, 19 Scope size, so the app can
+  pick Invite, Architecture and Small fix. Starter weights follow the plugin's order: structured submission (6) wins, then invite (5),
+  then the rest; nothing matching gives Type 1.
+- **The shared rules feed the app's writer too** (`src/proposal/guide.ts`): writing rules, banned phrases, modules, screening answers
+  (written after the cover letter under "Screening answers") and the checklist go into the writer's and the chat's prompt, below the
+  non-negotiable rules. **New checks**: banned phrases (with "[project]" placeholders), dashes, and the cover letter's length against
+  the type's range (screening answers not counted).
+- A type without samples borrows the shared ones (tone only). The 15 samples now sit on Type 1; assign others per type as you like.
+- **The three SOP templates are retired** (inactive, shown under Retired, kept for the proposals already written with them). Their
+  content was not merged automatically: review them and move anything worth keeping into a type or a rule.
+- **Writing guide page**: Proposal types (cards with when chosen, length, signals, samples; Add a type), Rules for every proposal,
+  Retired. The Templates menu item is gone (`#/templates` opens the Writing guide); the app says "proposal type" throughout.
+- The plugin's `get_writing_guide` now lists the types from the templates, so both read the same text.
+- Checked: tests (the six types and their lengths, every starter mapping resolves, the ranking order, banned phrases, dashes, length);
+  a real GLM draft for job #35 (Type 1, 193 words, no check warnings, nothing saved); the page in the browser.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

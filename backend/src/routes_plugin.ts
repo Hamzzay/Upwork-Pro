@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
-import { textToHtml } from './html';
+import { typeFacts } from './proposal/guide';
+import { htmlToPlain, textToHtml } from './html';
 import { jobIdFromUrl } from './screening/jobsource';
 import { getSettings } from './settings';
 import { PROFILE_FIELDS, profileBody } from './routes_library';
@@ -277,20 +278,23 @@ plugin.get('/plugin/library', anyone, async (_req, res) => {
   });
 });
 
-/** The writing guide: the proposal types (with when each is chosen and its length), the writing rules, banned phrases, modules,
- *  screening answer rules and the checklist. `type` returns that type's full text; `all=1` returns every type's text. */
+/** The writing guide: the proposal types (the templates the app's writer uses too, each with when it is chosen and its length), the
+ *  writing rules, banned phrases, modules, screening answer rules and the checklist. `type` returns that type's full text; `all=1` every type's. */
 plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
-  const docs = await query<any>('SELECT doc_key, kind, title, content, updated_at FROM writing_docs WHERE active=1 ORDER BY sort_order, doc_key');
-  const one = (k: string) => docs.find((d) => d.kind === k)?.content ?? null;
-  const field = (c: string, label: string) => (new RegExp(`\\*\\*${label}:\\*\\*\\s*(.+)`, 'i').exec(c)?.[1] ?? '').trim() || null;
-  const types = docs.filter((d) => d.kind === 'type');
-  const want = String(req.query.type ?? '').toLowerCase();
+  const docs = await query<any>("SELECT kind, content, updated_at FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
+  const types = await query<any>('SELECT id, name, body_html, prompt, priority, updated_at FROM templates WHERE active=1 ORDER BY priority, name');
+  const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content).join('\n\n') || null;
+  const want = String(req.query.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const all = req.query.all === '1';
+  const key = (name: string) => name.toLowerCase().replace(/^type\s+/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   res.json({
-    types: types.map((d) => ({ key: d.doc_key, title: d.title, chosen_when: field(d.content, 'Chosen when'), length: field(d.content, 'Length'),
-      content: all || (want && (d.doc_key.toLowerCase() === want || d.title.toLowerCase().includes(want))) ? d.content : undefined })),
+    types: types.map((t) => {
+      const text = htmlToPlain(t.body_html) + (t.prompt ? '\n\nInstructions: ' + t.prompt : '');
+      const match = all || (want && (t.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').includes(want) || key(t.name).replace(/-/g, ' ').includes(want)));
+      return { key: key(t.name), title: t.name, ...typeFacts(text), content: match ? text : undefined };
+    }),
     writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
-    updated_at: docs.reduce((m, d) => (m && m > d.updated_at ? m : d.updated_at), null as any),
+    updated_at: [...docs, ...types].reduce((m: any, d: any) => (m && m > d.updated_at ? m : d.updated_at), null),
   });
 });
 

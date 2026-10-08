@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, query } from './db';
 import { requireRole } from './auth';
+import { htmlToPlain } from './html';
+import { typeFacts } from './proposal/guide';
 
 /** The Writing guide page: everyone reads it, managers and admins edit it. Every save is a new version; old versions can be restored. */
 export const writing = Router();
@@ -9,8 +11,12 @@ const anyone = requireRole();
 const editor = requireRole('admin', 'manager');
 
 writing.get('/writing-docs', anyone, async (_req, res) => {
-  res.json({ docs: await query(`SELECT d.id, d.doc_key, d.kind, d.title, d.sort_order, d.active, d.updated_at, u.name AS updated_by_name, CHAR_LENGTH(d.content) AS chars,
-    (SELECT COUNT(*) FROM writing_doc_versions v WHERE v.doc_id=d.id) AS versions FROM writing_docs d LEFT JOIN users u ON u.id=d.updated_by ORDER BY d.sort_order, d.doc_key`) });
+  // the proposal types are the templates (used by the app's writer and the plugin); the docs are the rules shared by every type
+  const types = (await query<any>(`SELECT t.id, t.name, t.description, t.body_html, t.priority, t.active, t.updated_at,
+      (SELECT COUNT(*) FROM template_signals ts WHERE ts.template_id=t.id) AS signal_count, (SELECT COUNT(*) FROM template_samples sm WHERE sm.template_id=t.id) AS sample_count
+    FROM templates t ORDER BY t.active DESC, t.priority, t.name`)).map(({ body_html, ...t }) => ({ ...t, ...typeFacts(htmlToPlain(body_html)) }));
+  res.json({ types, docs: await query(`SELECT d.id, d.doc_key, d.kind, d.title, d.sort_order, d.active, d.updated_at, u.name AS updated_by_name, CHAR_LENGTH(d.content) AS chars,
+    (SELECT COUNT(*) FROM writing_doc_versions v WHERE v.doc_id=d.id) AS versions FROM writing_docs d LEFT JOIN users u ON u.id=d.updated_by WHERE d.kind<>'type' ORDER BY d.sort_order, d.doc_key`) });
 });
 writing.get('/writing-docs/:id', anyone, async (req, res) => {
   const d = (await query<any>('SELECT * FROM writing_docs WHERE id=?', [Number(req.params.id)]))[0];

@@ -534,6 +534,81 @@
     }
    ],
    "notes": null
+  },
+  {
+   "number": 17,
+   "layer": "structural",
+   "name": "Invite",
+   "decides": "whether the proposal answers an invitation (the Invite type).",
+   "multi_select": false,
+   "has_fallback": true,
+   "notes": null,
+   "values": [
+    {
+     "name": "Invited",
+     "detect": "\"Personal note from client\", \"invite only\", \"I invited you\", \"you were invited\", or the post addresses the freelancer by name.",
+     "move": "Use the Invite type: thank them briefly (by name if given), two lines on why you fit, one question.",
+     "is_fallback": false
+    },
+    {
+     "name": "Not an invite",
+     "detect": "nothing says the freelancer was invited.",
+     "move": "Write as a normal application.",
+     "is_fallback": true
+    }
+   ]
+  },
+  {
+   "number": 18,
+   "layer": "structural",
+   "name": "Role seniority",
+   "decides": "whether the client wants a builder or an architect, lead or consultant (the Architecture or consulting type).",
+   "multi_select": false,
+   "has_fallback": true,
+   "notes": null,
+   "values": [
+    {
+     "name": "Architect or consultant",
+     "detect": "title words \"architect\", \"principal\", \"lead\", \"consultant\", \"auditor\", \"advisor\"; asks for strategy, a roadmap, an assessment or a review.",
+     "move": "Write as the person who owned and decided: the trade-offs, the risks, and how you would assess first.",
+     "is_fallback": false
+    },
+    {
+     "name": "Builder",
+     "detect": "nothing beyond building is asked.",
+     "move": "Write as the builder: what you would build first and why.",
+     "is_fallback": true
+    }
+   ]
+  },
+  {
+   "number": 19,
+   "layer": "structural",
+   "name": "Scope size",
+   "decides": "how long the proposal is: a small bounded task gets the Small fix type.",
+   "multi_select": false,
+   "has_fallback": true,
+   "notes": null,
+   "values": [
+    {
+     "name": "Small task",
+     "detect": "one bug, one change or one small feature; a few hours; a small fixed budget.",
+     "move": "Keep it short (50 to 100 words): what you would do, how soon, one question.",
+     "is_fallback": false
+    },
+    {
+     "name": "Platform",
+     "detect": "many modules or roles, a long term build, a large budget.",
+     "move": "Show the structure: phases, and the team behind you.",
+     "is_fallback": false
+    },
+    {
+     "name": "Project",
+     "detect": "anything in between.",
+     "move": "A normal length proposal.",
+     "is_fallback": true
+    }
+   ]
   }
  ]
 }

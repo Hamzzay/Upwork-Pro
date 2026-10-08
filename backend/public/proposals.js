@@ -70,7 +70,7 @@ function richEditor(html, opts = {}) {
 }
 
 // ---------- step 4: the proposal ----------
-const STAGE_TEXT = { signals: 'Reading the job and detecting its signals', template: 'Choosing the best template', writing: 'Writing the proposal' };
+const STAGE_TEXT = { signals: 'Reading the job and detecting its signals', template: 'Choosing the best proposal type', writing: 'Writing the proposal' };
 const SOURCE_TEXT = { ai: 'Written by AI', manual: 'Edited by hand', chat: 'Revised by chat', restore: 'Restored' };
 
 function proposalSection(s, initial, matching) {
@@ -145,25 +145,25 @@ function proposalSection(s, initial, matching) {
 
   function explain() {
     const t = data.template, rk = data.ranking;
-    const sel = h('select', { id: 'pt-sel', 'aria-label': 'Template to write with' }, templates.map((x) => h('option', { value: x.id, selected: t && x.id === t.id }, x.name)));
-    const again = h('button', { class: 'btn', type: 'button' }, 'Write again with this template');
+    const sel = h('select', { id: 'pt-sel', 'aria-label': 'Proposal type to write with' }, templates.map((x) => h('option', { value: x.id, selected: t && x.id === t.id }, x.name)));
+    const again = h('button', { class: 'btn', type: 'button' }, 'Write again with this type');
     again.onclick = async () => {
       if (editor && editor.isDirty() && !confirm('You have unsaved changes. Writing again adds a new version and loads it. Continue?')) return;
       btnBusy(again, 'Starting');
-      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: Number(sel.value) }); await reload(); drawAll(); startPolling(); } catch (x) { toast(x.message, true); again.disabled = false; again.replaceChildren('Write again with this template'); }
+      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: Number(sel.value) }); await reload(); drawAll(); startPolling(); } catch (x) { toast(x.message, true); again.disabled = false; again.replaceChildren('Write again with this type'); }
     };
     const rankRow = (r) => h('tr', {}, h('td', { class: 'muted' }, r.rank), h('td', {}, r.name), h('td', {}, h('strong', {}, r.score)),
       h('td', { class: 'small muted' }, r.matched.length ? r.matched.map((m) => `${m.label} (+${m.weight})`).join('; ') : 'None'));
-    const rankTable = rk ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Template', 'Score', 'Matched signals'].map((x) => h('th', {}, x)))), h('tbody', {}, rk.items.map(rankRow)))) : null;
+    const rankTable = rk ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Proposal type', 'Score', 'Matched signals'].map((x) => h('th', {}, x)))), h('tbody', {}, rk.items.map(rankRow)))) : null;
     const sigRow = (x) => h('tr', {},
       h('td', { class: 'muted' }, x.signal_number), h('td', {}, x.signal_name),
       h('td', {}, h('strong', {}, x.value_name), ' ', x.is_fallback ? h('span', { class: 'chip' }, 'Default') : h('span', { class: 'chip brand' }, x.confidence), x.signal_number === 7 && x.is_primary ? h('span', { class: 'chip', style: 'margin-left:4px' }, 'Primary') : null),
       h('td', { class: 'small muted' }, x.evidence ? h('span', {}, h('em', {}, `"${x.evidence}"`), ' ' + (x.reason || '')) : (x.reason || '-')));
     const sigTable = h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Value', 'Why'].map((x) => h('th', {}, x)))), h('tbody', {}, data.signals.map(sigRow))));
     const how = t ? 'Chosen by you' : '';
-    return h('details', { class: 'explain' }, h('summary', {}, 'How this proposal was written: signals, template and samples'),
+    return h('details', { class: 'explain' }, h('summary', {}, 'How this proposal was written: signals, proposal type and samples'),
       h('div', { class: 'explain-body' },
-        t ? h('div', {}, h('h3', { class: 'section-title' }, 'Template'),
+        t ? h('div', {}, h('h3', { class: 'section-title' }, 'Proposal type'),
           h('p', {}, h('strong', {}, t.name), ' ', h('span', { class: 'chip' }, t.choice === 'manual' ? how : rk && rk.defaulted ? 'Default: no signal matched' : 'Best fit for the signals'), ' ', h('span', { class: 'faint' }, `Score ${t.score ?? 0}`)),
           rankTable, owner ? h('div', { class: 'row', style: 'margin-top:12px' }, sel, again) : null) : null,
         h('div', { style: 'margin-top:18px' }, h('h3', { class: 'section-title' }, `Signals detected (${new Set(data.signals.map((x) => x.signal_number)).size})`), sigTable)));
@@ -232,11 +232,11 @@ function proposalSection(s, initial, matching) {
   function drawAll() {
     let body;
     if (!data) {
-      body = emptyState('doc', 'Write the proposal', 'The AI detects the signals in the job, picks the template that suits them, and writes the proposal from that template, its samples and your 2 projects.',
+      body = emptyState('doc', 'Write the proposal', 'The AI detects the signals in the job, picks the proposal type that suits them, and writes the proposal from that type, its samples and your 2 projects.',
         owner ? startBtn('Write the proposal') : null);
     } else if (busy()) {
       body = h('div', { class: 'progress propprogress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', { style: 'font-size:17px' }, data.status === 'queued' ? 'Waiting for a free slot' : (STAGE_TEXT[data.stage] || 'Working')),
-        h('p', { class: 'muted', style: 'margin-top:4px' }, 'Detecting the signals, choosing a template and writing takes a few minutes with the real model (two AI calls). You can leave this page; the result is saved.'));
+        h('p', { class: 'muted', style: 'margin-top:4px' }, 'Detecting the signals, choosing a proposal type and writing takes a few minutes with the real model (two AI calls). You can leave this page; the result is saved.'));
     } else if (data.status === 'error' && !data.current) {
       body = emptyState('x', 'The proposal could not be written', data.error || 'Something went wrong.', owner ? startBtn('Try again') : null);
     } else if (data.current) {
@@ -255,49 +255,30 @@ function proposalSection(s, initial, matching) {
 // ---------- templates (admin and manager) ----------
 const canEditTemplates = () => me.role === 'admin' || me.role === 'manager';
 
-async function templatesView() {
-  const hp = hashParams(); let page = Math.max(1, Number(hp.page) || 1); let q = hp.q || '';
-  const bodyEl = h('div', {});
-  const searchIn = h('input', { type: 'search', placeholder: 'Search templates', 'aria-label': 'Search templates', value: q });
-  async function load() {
-    const d = await api('GET', `/templates?page=${page}${q ? '&q=' + encodeURIComponent(q) : ''}`); page = d.page; setHashParams({ page, q });
-    const row = (t) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/t/' + t.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/t/' + t.id; } },
-      h('td', {}, h('strong', {}, t.name), t.description ? h('div', { class: 'meta' }, t.description.slice(0, 120)) : null), h('td', { class: 'muted' }, t.priority), h('td', { class: 'muted' }, t.signal_count), h('td', { class: 'muted' }, t.sample_count),
-      h('td', {}, Number(t.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive')));
-    bodyEl.replaceChildren(d.templates.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Template', 'Priority', 'Signals', 'Samples', 'Status'].map((x) => h('th', {}, x)))), h('tbody', {}, d.templates.map(row))))
-      : emptyState('doc', q ? 'No matches' : 'No templates yet', q ? 'Try a different search.' : 'Add the proposal formats the AI can write with.'), pager(d.total, d.page, (n) => { page = n; load(); }));
-  }
-  searchIn.oninput = debounce(() => { q = searchIn.value.trim(); page = 1; load().catch((x) => toast(x.message, true)); }, 300);
-  shell('templates', [pageHead('Proposal templates', 'Each template has a format, a prompt, the signals it suits and sample proposals. The best fit for a job\'s signals is used to write its proposal.',
-    h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add template')),
-    h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn)), bodyEl)]);
-  await load();
-}
-
 async function templateView(idStr) {
   const isNew = idStr === 'new';
   const [{ template: t }, sigData] = await Promise.all([isNew ? Promise.resolve({ template: null }) : api('GET', '/templates/' + idStr), api('GET', '/signals')]);
   const signals = sigData.signals;
   const f = { name: h('input', { type: 'text', id: 'tn', maxlength: 160, value: t ? t.name : '' }), desc: h('textarea', { id: 'td', maxlength: 1000, style: 'min-height:70px' }),
     priority: h('input', { type: 'number', id: 'tp', min: 0, step: 1, value: t ? t.priority : 100 }), active: h('input', { type: 'checkbox', id: 'ta', checked: t ? !!Number(t.active) : true }),
-    prompt: h('textarea', { id: 'tpr', style: 'min-height:140px', maxlength: 20000, placeholder: 'Extra instructions for the AI when it writes with this template. Optional.' }) };
+    prompt: h('textarea', { id: 'tpr', style: 'min-height:140px', maxlength: 20000, placeholder: 'Extra instructions for the AI when it writes with this type. Optional.' }) };
   f.desc.value = t && t.description ? t.description : ''; f.prompt.value = t && t.prompt ? t.prompt : '';
-  const fmt = richEditor(t ? t.body_html : '<p></p>', { label: 'Template format' });
+  const fmt = richEditor(t ? t.body_html : '<p></p>', { label: 'Proposal type format' });
   const err = h('div', { class: 'err', hidden: true });
-  const saveBtn = h('button', { class: 'btn primary', type: 'button' }, isNew ? 'Create template' : 'Save template');
+  const saveBtn = h('button', { class: 'btn primary', type: 'button' }, isNew ? 'Create type' : 'Save type');
   saveBtn.onclick = async () => {
     err.hidden = true; btnBusy(saveBtn, 'Saving');
     const body = { name: f.name.value, description: f.desc.value.trim() || null, body_html: fmt.getHtml(), prompt: f.prompt.value.trim() || null, priority: Number(f.priority.value), active: f.active.checked };
-    try { const r = await api(isNew ? 'POST' : 'PATCH', isNew ? '/templates' : '/templates/' + t.id, body); toast(isNew ? 'Template created' : 'Template saved'); if (isNew) location.hash = '#/t/' + r.id; else route(); }
-    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; saveBtn.disabled = false; saveBtn.replaceChildren(isNew ? 'Create template' : 'Save template'); }
+    try { const r = await api(isNew ? 'POST' : 'PATCH', isNew ? '/templates' : '/templates/' + t.id, body); toast(isNew ? 'Proposal type created' : 'Proposal type saved'); if (isNew) location.hash = '#/t/' + r.id; else route(); }
+    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; saveBtn.disabled = false; saveBtn.replaceChildren(isNew ? 'Create type' : 'Save type'); }
   };
-  const del = !isNew ? h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + t.name + '?', confirm: 'Delete template', danger: true,
-    body: h('p', { class: 'muted' }, 'This removes the template, its signal mapping and its samples. Proposals already written keep the template name. It cannot be undone.'),
-    onConfirm: async () => { await api('DELETE', '/templates/' + t.id); toast('Template deleted'); location.hash = '#/templates'; } }) }, 'Delete') : null;
+  const del = !isNew ? h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + t.name + '?', confirm: 'Delete proposal type', danger: true,
+    body: h('p', { class: 'muted' }, 'This removes the proposal type, its signal mapping and its samples. Proposals already written keep its name. To stop using it but keep it, untick Active instead. It cannot be undone.'),
+    onConfirm: async () => { await api('DELETE', '/templates/' + t.id); toast('Proposal type deleted'); location.hash = '#/writing'; } }) }, 'Delete') : null;
 
   const parts = [
-    h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/templates', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to templates')),
-    pageHead(isNew ? 'New template' : t.name, isNew ? 'Describe the format, then add its signals and samples.' : null, [del, saveBtn]),
+    h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/writing', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to the writing guide')),
+    pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', [del, saveBtn]),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'),
       h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Name'), f.name),
         h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Breaks ties between equal scores. The lowest number is also the default when no signal matches.'))),
@@ -306,11 +287,11 @@ async function templateView(idStr) {
     h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Format'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'The structure and rules the proposal must follow. The AI reads this as written.'), fmt.el),
     h('div', { style: 'height:16px' }),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Prompt'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Extra instructions used with this template. Safety rules (no invented facts, links or numbers) always apply on top.'), f.prompt),
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Prompt'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Extra instructions used with this type. Safety rules (no invented facts, links or numbers) always apply on top.'), f.prompt),
     err,
   ];
   if (!isNew) { parts.push(h('div', { style: 'height:16px' }), mappingCard(t, signals), h('div', { style: 'height:16px' }), samplesCard(t)); }
-  shell('templates', parts, true);
+  shell('writing', parts, true);
 }
 
 function mappingCard(t, signals) {
@@ -343,9 +324,9 @@ function mappingCard(t, signals) {
   };
   draw();
   const hasStarter = rows.some((r) => r.source === 'starter');
-  return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, `Signals this template suits (${rows.length})`), h('div', { class: 'row' }, add, save)),
-    h('p', { class: 'hint', style: 'margin:8px 0 12px' }, 'When a job\'s signals match a row, the template earns that row\'s weight. A row with "Any stated value" matches whenever the post states a value for that signal. The highest total wins.'),
-    hasStarter ? h('div', { class: 'notice', style: 'margin:0 0 12px' }, icon('info'), 'Rows marked "starter" were suggested from what the template says. Review them: they are a starting point, not a rule.') : null, holder, err);
+  return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, `Signals this type suits (${rows.length})`), h('div', { class: 'row' }, add, save)),
+    h('p', { class: 'hint', style: 'margin:8px 0 12px' }, 'When a job\'s signals match a row, the type earns that row\'s weight. A row with "Any stated value" matches whenever the post states a value for that signal. The highest total wins.'),
+    hasStarter ? h('div', { class: 'notice', style: 'margin:0 0 12px' }, icon('info'), 'Rows marked "starter" were suggested from what the type says. Review them: they are a starting point, not a rule.') : null, holder, err);
 }
 
 function samplesCard(t) {
@@ -399,7 +380,7 @@ async function signalsView() {
     const shown = signals.filter((s) => (!q || (s.name + ' ' + (s.decides || '')).toLowerCase().includes(q)) && (!st.layer || String(s.layer_id) === st.layer));
     st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / PAGE_SIZE))); setHashParams({ page: st.page, q: st.q, layer: st.layer });
     const slice = shown.slice((st.page - 1) * PAGE_SIZE, st.page * PAGE_SIZE);
-    bodyEl.replaceChildren(shown.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Layer', 'Values', 'Templates', 'Status'].map((x) => h('th', {}, x)))),
+    bodyEl.replaceChildren(shown.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Layer', 'Values', 'Proposal types', 'Status'].map((x) => h('th', {}, x)))),
       h('tbody', {}, slice.map((s) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/sig/' + s.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/sig/' + s.id; } },
         h('td', { class: 'muted' }, s.number), h('td', {}, h('strong', {}, s.name), s.multi_select ? h('span', { class: 'chip', style: 'margin-left:8px' }, 'Multi-select') : null, s.decides ? h('div', { class: 'meta' }, s.decides.slice(0, 110)) : null),
         h('td', { class: 'muted' }, s.layer_name), h('td', { class: 'muted' }, s.value_count), h('td', { class: 'muted' }, s.template_count),
@@ -428,7 +409,7 @@ async function signalView(id) {
         h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'eso' }, 'Notes'), f.notes),
         h('div', { class: 'field row', style: 'margin-top:12px' }, f.multi, h('label', { for: 'esx', style: 'font-weight:600' }, 'Multi-select')), h('div', { class: 'field row' }, f.active, h('label', { for: 'esa', style: 'font-weight:600' }, 'Active (used when detecting signals)'))),
       extra: () => h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + s.name + '?', confirm: 'Delete signal', danger: true,
-        body: h('p', { class: 'muted' }, `This removes the signal, its ${s.values.length} values and its place in ${s.used_by.length} template mapping row(s). Proposals already written keep their copy. It cannot be undone.`),
+        body: h('p', { class: 'muted' }, `This removes the signal, its ${s.values.length} values and its place in ${s.used_by.length} proposal type mapping row(s). Proposals already written keep their copy. It cannot be undone.`),
         onConfirm: async () => { await api('DELETE', '/signals/' + s.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Signal deleted'); location.hash = '#/signals'; } }) }, 'Delete'),
       onConfirm: async () => { await api('PATCH', '/signals/' + s.id, { number: Number(f.number.value), name: f.name.value, layer_id: Number(f.layer.value), decides: f.decides.value.trim() || null, notes: f.notes.value.trim() || null, multi_select: f.multi.checked, active: f.active.checked }); toast('Signal saved'); route(); } });
   }

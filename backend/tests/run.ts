@@ -14,6 +14,7 @@ import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
 import { rankTemplates } from '../src/proposal/rank';
 import { checkProposal } from '../src/proposal/checks';
+import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
 import { settingsConflict } from '../src/settings';
 import { createServer } from 'node:http';
@@ -150,14 +151,14 @@ const ctx = { rules, projects };
 
   // ---- signals: seed file, detection schema, normalisation ----
   const sigSeed = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'signals.json'), 'utf8'));
-  assert.equal(sigSeed.signals.length, 16); assert.equal(sigSeed.layers.length, 3);
-  assert.deepEqual(sigSeed.signals.map((x: any) => x.values.filter((v: any) => !v.is_fallback).length), [3, 3, 2, 2, 2, 8, 5, 1, 2, 1, 2, 2, 2, 2, 2, 2]);
+  assert.equal(sigSeed.signals.length, 19); assert.equal(sigSeed.layers.length, 3);
+  assert.deepEqual(sigSeed.signals.map((x: any) => x.values.filter((v: any) => !v.is_fallback).length), [3, 3, 2, 2, 2, 8, 5, 1, 2, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2]);
   assert.equal(sigSeed.signals[4].values.some((v: any) => v.is_fallback), false, 'signal 5 has no fallback');
   let vid = 0;
   const defs: SignalDef[] = sigSeed.signals.map((x: any, i: number) => ({ id: i + 1, number: x.number, layer: x.layer, name: x.name, decides: x.decides, multi_select: x.multi_select,
     values: x.values.map((v: any) => ({ id: ++vid, name: v.name, detect: v.detect, move: v.move, is_fallback: v.is_fallback })) }));
-  const codes = codeMap(defs); assert.equal(codes.size, 56); assert.ok(codes.has('S7.1') && codes.has('S5.2') && !codes.has('S5.3'));
-  const dschema: any = buildDetectionSchema(defs); assert.equal('$schema' in dschema, false); assert.equal(dschema.properties.signals.items.properties.values.items.properties.code.enum.length, 56);
+  const codes = codeMap(defs); assert.equal(codes.size, 63); assert.ok(codes.has('S7.1') && codes.has('S5.2') && !codes.has('S5.3'));
+  const dschema: any = buildDetectionSchema(defs); assert.equal('$schema' in dschema, false); assert.equal(dschema.properties.signals.items.properties.values.items.properties.code.enum.length, 63);
   assert.ok(detectionPrompt(defs, []).includes('SIGNAL 7: Core capability (multi-select'));
   const sv = (code: string, primary = true, evidence = 'quote', reason = 'why') => ({ code, primary, confidence: 'high' as const, evidence, reason });
   // the model: S1 solo, S5 missing, S7 two values (primary second), a code from the wrong signal on S2, S3 fallback plus a stated value, everything else missing
@@ -169,12 +170,12 @@ const ctx = { rules, projects };
     { signal: 4, values: [sv('S4.1'), sv('S4.2', false)] },            // not multi-select: one value only
   ] }, defs);
   const pick = (n: number) => det.filter((d) => d.signal_number === n);
-  assert.equal(det.length >= 16, true); assert.equal(pick(1)[0].value_name, 'Solo / individual');
+  assert.equal(det.length >= 19, true); assert.equal(pick(1)[0].value_name, 'Solo / individual');
   assert.equal(pick(2)[0].is_fallback, true); assert.equal(pick(2)[0].defaulted, true);
   assert.equal(pick(3).length, 1); assert.equal(pick(3)[0].value_name, 'Greenfield / MVP');
   assert.deepEqual(pick(7).map((d) => [d.value_name, d.is_primary]), [['RAG', false], ['Automation', true]], 'multi-select keeps both, de-duplicated, one primary');
   assert.equal(pick(4).length, 1); assert.equal(pick(5)[0].value_name, 'No', 'signal 5 defaults to No'); assert.equal(pick(16)[0].is_fallback, true);
-  assert.equal(new Set(det.map((d) => d.signal_number)).size, 16, 'every signal ends up with a value');
+  assert.equal(new Set(det.map((d) => d.signal_number)).size, 19, 'every signal ends up with a value');
   assert.throws(() => normalizeDetection({ nope: 1 }, defs), /invalid_output/);
 
   // ---- template ranking ----
@@ -201,7 +202,7 @@ const ctx = { rules, projects };
   // ---- post-generation checks ----
   const base = { selectedProjects: [{ name: 'Alpha Bot', live_link: 'https://alpha.example.com', notes: null }, { name: 'Beta Flow', live_link: null, notes: 'cut calls by 40%' }],
     otherProjectNames: ['Gamma Hub', 'Ab'], foreignNames: ['Hassan Ijaz', 'Anum Ahmad'], sender: { name: 'Jane Doe', gitlab_link: 'https://gitlab.com/jane' } };
-  const good = 'Understood. I built Alpha Bot and Beta Flow.\n\nAlpha Bot – a bot\nhttps://alpha.example.com\n\nBeta Flow cut calls by 40%.\n\nBest regards,\nJane Doe\nhttps://gitlab.com/jane';
+  const good = 'Understood. I built Alpha Bot and Beta Flow.\n\nAlpha Bot, a bot\nhttps://alpha.example.com\n\nBeta Flow cut calls by 40%.\n\nBest regards,\nJane Doe\nhttps://gitlab.com/jane';
   assert.deepEqual(checkProposal({ ...base, text: good }).filter((x) => !x.includes('has no live link')), [], 'a clean proposal only warns about the missing project link');
   assert.ok(checkProposal({ ...base, text: good }).some((x) => x.includes('Beta Flow') && x.includes('no live link')));
   const bad = 'Perfect, I built Alpha Bot and Gamma Hub with a 60–80% gain. We did it. See https://glassdoctor.com/.\n\nBest regards,\nHassan Ijaz\nhttps://github.com/hassan-ijazz';
@@ -288,6 +289,39 @@ const ctx = { rules, projects };
   mode = 'notjson'; await assert.rejects(runOpenAI(oa), /no structured output/);
   mode = 'hang'; await assert.rejects(runOpenAI({ ...oa, timeoutMs: 400 }), /^Error: timeout after 400 ms/);
   fake.closeAllConnections?.(); fake.close();
+
+  // ---- one writing guide: the six types are the templates; the shared rules feed the writer and the checks ----
+  {
+    const tseed = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'templates.json'), 'utf8')).templates;
+    assert.deepEqual(tseed.map((t: any) => t.name), ['Type 1. Standard build', 'Type 2. Structured submission', 'Type 3. Invite', 'Type 4. Rescue or takeover', 'Type 5. Architecture or consulting', 'Type 6. Small fix or quick task']);
+    assert.deepEqual(tseed.map((t: any) => wordRange(htmlToPlain(t.body_html))), [[120, 200], null, [100, 160], [140, 200], [160, 240], [50, 100]], 'each type carries its length (structured: as long as needed)');
+    assert.equal(typeFacts(htmlToPlain(tseed[2].body_html)).chosen_when, 'the client invited the profile.');
+    // every starter mapping points at a real signal value
+    for (const t of tseed) for (const [code, value] of t.signals) assert.ok(sigSeed.signals.find((x: any) => 'S' + x.number === code)?.values.some((v: any) => v.name === value), `${t.name}: ${code} ${value}`);
+    // the starter weights give the plugin's order: structured submission, then invite, then the rest; nothing stated: standard build
+    let vid2 = 0; const vId = new Map<string, number>(); for (const x of sigSeed.signals) for (const v of x.values) vId.set(`S${x.number}|${v.name}`, ++vid2);
+    const T = tseed.map((t: any, i: number) => ({ id: i + 1, name: t.name, priority: t.priority, mappings: t.signals.map(([c, v, w]: any) => ({ signal_id: Number(c.slice(1)), value_id: vId.get(`${c}|${v}`)!, weight: w })) }));
+    const on = (...xs: [number, string][]) => xs.map(([n, v]) => ({ signal_id: n, value_id: vId.get(`S${n}|${v}`)!, is_fallback: false }));
+    assert.equal(rankTemplates(on([5, 'Yes'], [17, 'Invited'], [19, 'Small task']), T).chosen!.name, 'Type 2. Structured submission');
+    assert.equal(rankTemplates(on([17, 'Invited'], [18, 'Architect or consultant'], [2, 'Discovery-first']), T).chosen!.name, 'Type 3. Invite');
+    assert.equal(rankTemplates(on([3, 'Rescue / extend'], [11, 'Rescue / frustration']), T).chosen!.name, 'Type 4. Rescue or takeover');
+    assert.equal(rankTemplates(on([19, 'Small task']), T).chosen!.name, 'Type 6. Small fix or quick task');
+    assert.equal(rankTemplates([], T).chosen!.name, 'Type 1. Standard build');
+    // banned phrases from the guide, with a [placeholder]; dashes; the length of the cover letter only
+    const banned = bannedPatterns(readFileSync(join(__dirname, '..', 'seed', 'writing', 'banned-phrases.md'), 'utf8'));
+    assert.ok(banned.length >= 9 && banned.some((b) => b.phrase === "I'm excited to apply"));
+    assert.ok(banned.find((b) => b.phrase.startsWith('I worked on'))!.re.test('I worked on Glass Doctor around the same time'), 'a [project] placeholder matches a name');
+    const base2 = { selectedProjects: [], otherProjectNames: [], foreignNames: [], sender: { name: 'Jane Doe', gitlab_link: null } };
+    const long = 'word '.repeat(260) + '\nBest regards,\nJane Doe';
+    const ws = checkProposal({ ...base2, text: "I’m excited to apply — this " + long, banned, wordRange: [120, 200] });
+    assert.ok(ws.some((x) => x.includes('banned phrase')) && ws.some((x) => x.includes('dash')) && ws.some((x) => x.includes('words; this proposal type asks for 120 to 200')));
+    const ok2 = 'word '.repeat(150) + '\nBest regards,\nJane Doe\n\nScreening answers\n' + 'answer '.repeat(200);
+    assert.ok(!checkProposal({ ...base2, text: ok2, banned, wordRange: [120, 200] }).some((x) => x.includes('words')), 'screening answers do not count toward the length');
+    const gb = guideBlock({ rules: 'R', banned: 'B', modules: 'M', screening: 'S', checklist: 'C' });
+    assert.ok(gb.includes('NON-NEGOTIABLE RULES above win') && gb.includes('Screening answers') && gb.includes('BANNED PHRASES'));
+    assert.ok(writerSystem({ template: { name: 'Type 3. Invite', body_html: '<p>x</p>', prompt: null }, detected: [], samples: [], sender: { name: 'J', gitlab_link: null, tagline: null }, projects: [], clientRequirements: [], guide: { rules: 'RULES TEXT', banned: null, modules: null, screening: null, checklist: null } })
+      .includes('PROPOSAL TYPE: Type 3. Invite') , 'the writer gets the type');
+  }
 
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

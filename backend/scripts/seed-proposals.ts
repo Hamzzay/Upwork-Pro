@@ -1,4 +1,4 @@
-// Seeds the detection signals, the three proposal templates (with a STARTER signal mapping) and the sample proposals.
+// Seeds the detection signals, the six proposal types (templates, with a STARTER signal mapping) and the sample proposals.
 // Insert-if-missing only: re-running never overwrites edits made in the app.
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';

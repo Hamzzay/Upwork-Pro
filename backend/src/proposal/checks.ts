@@ -4,6 +4,8 @@ export interface CheckInput {
   otherProjectNames: string[];       // every other library project
   foreignNames: string[];            // names of sample authors and people named in templates
   sender: { name: string; gitlab_link: string | null };
+  banned?: { phrase: string; re: RegExp }[];   // from the Writing guide
+  wordRange?: [number, number] | null;          // the proposal type's length, for the cover letter
 }
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -29,5 +31,14 @@ export function checkProposal(i: CheckInput): string[] {
   const pct = [...new Set(t.match(/\d+(?:\.\d+)?\s*(?:[-–—]\s*\d+(?:\.\d+)?\s*)?%/g) ?? [])].filter((x) => !given.includes(x.replace(/\s+/g, '')) && !given.includes(x));
   if (pct.length) w.push(`The proposal contains a figure (${pct.join(', ')}) that is not in the project facts. Remove it unless it is true.`);
   if (/\b(we|our|ours)\b/i.test(t.replace(/https?:\/\/\S+/g, ''))) w.push('The proposal says "we" or "our". The templates ask for "I".');
+  // the Writing guide: banned phrases, dashes, and the type's length (the cover letter only, not the screening answers)
+  const letter = t.split(/\n\s*Screening answers\s*:?\s*\n/i)[0];
+  for (const b of i.banned ?? []) if (b.re.test(letter)) w.push(`The proposal uses a banned phrase: "${b.phrase}". Rewrite that line.`);
+  if (/[–—]/.test(t.replace(/https?:\/\/\S+/g, ''))) w.push('The proposal contains a dash (– or —). The writing guide allows none.');
+  if (i.wordRange) {
+    const words = letter.replace(/https?:\/\/\S+/g, '').split(/\s+/).filter(Boolean).length;
+    const [lo, hi] = i.wordRange;
+    if (words < lo * 0.85 || words > hi * 1.15) w.push(`The cover letter is ${words} words; this proposal type asks for ${lo} to ${hi}.`);
+  }
   return w;
 }
