@@ -75,7 +75,8 @@ const SOURCE_TEXT = { ai: 'Written by AI', manual: 'Edited by hand', chat: 'Revi
 
 function proposalSection(s, initial, matching) {
   const owner = s.user_id === me.id;
-  const box = h('div', { class: 'card propcard' });
+  const setActions = typeof actionsFor === 'function' ? actionsFor() : () => {};
+  const box = h('div', { class: 'card card-pad propcard' });
   let data = initial; let timer = null; let editor = null; let loaded = null; let newer = null; let dismissedFor = null;
   const busy = () => data && (data.status === 'queued' || data.status === 'running');
   const chatBusy = () => data && data.messages.some((m) => m.role === 'user' && (m.status === 'queued' || m.status === 'running'));
@@ -128,15 +129,34 @@ function proposalSection(s, initial, matching) {
       h('button', { class: 'btn sm', type: 'button', onclick: () => { dismissedFor = newer; newer = null; drawBanner(); } }, 'Keep my text'));
   }
 
-  const startBtn = (label, templateId) => {
-    const b = h('button', { class: 'btn primary', type: 'button' }, label);
+  const startBtn = (label, templateId, primary = true) => {
+    const b = h('button', { class: 'btn sm' + (primary ? ' primary' : ''), type: 'button' }, label);
     b.onclick = async () => {
+      if (editor && editor.isDirty() && !confirm('You have unsaved changes. Writing again adds a new version and loads it. Continue?')) return;
       btnBusy(b, 'Starting');
       try { await api('POST', `/screenings/${s.id}/proposal/start`, templateId ? { template_id: templateId } : {}); await reload(); drawAll(); startPolling(); }
       catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren(label); }
     };
     return b;
   };
+  // the tab row: Copy, Save version (only with unsaved edits), Write again (when the profile changed), Finish
+  function drawActions() {
+    if (!data || !data.current || busy()) { setActions(owner && !busy() ? startBtn(data && data.status === 'error' ? 'Try again' : 'Write the proposal') : null); return; }
+    const dirty = editor && editor.isDirty();
+    const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
+    const copy = actBtn('Copy', async () => { const ok = await copyText(htmlToPlainText(editor.getHtml())); toast(ok ? 'Copied. Paste it into Upwork.' : 'Could not copy. Select the text and copy it.', !ok); });
+    const save = owner && dirty ? actBtn('Save version', async (e) => {
+      btnBusy(e.currentTarget, 'Saving');
+      try { const r = await api('POST', `/proposals/${data.id}/versions`, { html: editor.getHtml(), based_on: loaded }); toast(r.unchanged ? 'Nothing changed' : `Saved as version ${r.version_no}`); await reload(); newer = null; drawAll(); }
+      catch (x) { toast(x.message, true); drawActions(); }
+    }) : null;
+    const finish = owner && !data.finalized_at ? actBtn('Finish proposal', async (e) => {
+      const b = e.currentTarget; btnBusy(b, 'Finishing');
+      try { if (await box.__finish()) { if (typeof stepCtx !== 'undefined' && stepCtx) await stepCtx.advanceTo(4); } else drawActions(); }
+      catch (x) { toast(x.message, true); drawActions(); }
+    }, true) : null;
+    setActions(stale && owner ? startBtn('Write it again', null, false) : null, copy, save, finish);
+  }
 
   function drawProgress() {
     const el = box.querySelector('.propprogress');
@@ -197,16 +217,9 @@ function proposalSection(s, initial, matching) {
     const cur = data.current; loaded = cur.version_no;
     const counter = h('div', { class: 'counter-line faint small' });
     const count = () => { const t = htmlToPlainText(editor.getHtml()); const words = t.trim() ? t.trim().split(/\s+/).length : 0; counter.textContent = `${words} words · ${t.length.toLocaleString()} characters` + (t.length > 5000 ? ' · over 5,000: Upwork may cut it off' : ''); counter.classList.toggle('over', t.length > 5000); };
-    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { saveBtn.disabled = !d; dirtyChip.hidden = !d; count(); } });
+    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); } dirtyChip.hidden = !d; count(); } });
+    let wasDirty = false;
     const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
-    const saveBtn = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Save as new version');
-    saveBtn.onclick = async () => {
-      btnBusy(saveBtn, 'Saving');
-      try { const r = await api('POST', `/proposals/${data.id}/versions`, { html: editor.getHtml(), based_on: loaded }); toast(r.unchanged ? 'Nothing changed' : `Saved as version ${r.version_no}`); await reload(); newer = null; drawAll(); }
-      catch (x) { toast(x.message, true); saveBtn.disabled = false; saveBtn.replaceChildren('Save as new version'); }
-    };
-    const copyBtn = h('button', { class: 'btn', type: 'button' }, 'Copy as plain text');
-    copyBtn.onclick = async () => { const ok = await copyText(htmlToPlainText(editor.getHtml())); toast(ok ? 'Copied. Paste it into Upwork.' : 'Could not copy. Select the text and copy it.', !ok); };
     const vsel = h('select', { id: 'ver-sel', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`)));
     const viewing = h('div', { class: 'small muted' });
     vsel.onchange = async () => {
@@ -214,18 +227,18 @@ function proposalSection(s, initial, matching) {
       if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; return; }
       if (editor.isDirty() && !confirm('You have unsaved changes. Show the other version anyway?')) { vsel.value = cur.version_no; return; }
       const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html);
-      viewing.replaceChildren(`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null);
+      viewing.replaceChildren(...[`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null].filter(Boolean));
     };
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
-    const staleBox = stale ? h('div', { class: 'newer', style: 'margin-top:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name} after this proposal was written, so the sign-off is out of date.`), owner ? startBtn('Write it again') : null) : null;
-    const warns = data.warnings.length ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'Check before you send'), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
+    const staleBox = stale ? h('div', { class: 'newer', style: 'margin-bottom:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name} after this proposal was written, so the sign-off is out of date. Write it again at the top right.`)) : null;
+    const warns = data.warnings.length ? h('details', { class: 'warnline' }, h('summary', {}, icon('warn'), `${data.warnings.length} thing${data.warnings.length === 1 ? '' : 's'} to check before sending`), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
     count();
     // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
     return h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' },
         staleBox,
         warns,
-        h('div', { class: 'row spread', style: 'margin:12px 0 8px' }, h('div', { class: 'row', style: 'gap:8px' }, vsel, dirtyChip), h('div', { class: 'row' }, owner ? saveBtn : null, copyBtn)),
+        h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px' }, vsel, dirtyChip),
         viewing, bannerEl, editor.el, counter,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
       h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), explain()));
@@ -234,22 +247,22 @@ function proposalSection(s, initial, matching) {
   function drawAll() {
     let body;
     if (!data) {
-      body = emptyState('doc', 'Write the proposal', 'The AI detects the signals in the job, picks the proposal type that suits them, and writes the proposal from that type, its samples and your 2 projects.',
-        owner ? startBtn('Write the proposal') : null);
+      body = h('div', {}, h('div', { class: 'jp-sec' }, 'Write the proposal'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, 'The AI reads the job\'s signals, picks the proposal type that suits them, and writes it with your projects and profile.'));
     } else if (busy()) {
       body = h('div', { class: 'progress propprogress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', { style: 'font-size:17px' }, data.status === 'queued' ? 'Waiting for a free slot' : (STAGE_TEXT[data.stage] || 'Working')),
         h('p', { class: 'muted', style: 'margin-top:4px' }, 'Detecting the signals, choosing a proposal type and writing takes a few minutes with the real model (two AI calls). You can leave this page; the result is saved.'));
     } else if (data.status === 'error' && !data.current) {
-      body = emptyState('x', 'The proposal could not be written', data.error || 'Something went wrong.', owner ? startBtn('Try again') : null);
+      body = h('div', {}, h('div', { class: 'jp-sec' }, 'The proposal could not be written'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, data.error || 'Something went wrong.'));
     } else if (data.current) {
       body = workspace();
     } else {
-      body = emptyState('doc', 'Write the proposal', 'Ready when you are.', owner ? startBtn('Write the proposal') : null);
+      body = h('div', {}, h('div', { class: 'jp-sec' }, 'Write the proposal'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, 'Ready when you are.'));
     }
-    box.replaceChildren(h('div', { class: 'card-head' }, h('h2', {}, 'The proposal'), data && data.status === 'error' && data.current ? h('span', { class: 'sub' }, 'The last attempt failed: ' + (data.error || '')) : null), h('div', { class: 'card-pad' }, body));
+    box.replaceChildren(...[data && data.status === 'error' && data.current ? h('div', { class: 'err', style: 'margin:0 0 10px' }, icon('x'), 'The last attempt failed: ' + (data.error || '')) : null, body].filter(Boolean)); // replaceChildren prints a null as the word
+    drawActions();
     if (data && data.current && !busy()) { drawChat(); drawBanner(); }
   }
-  box.replaceChildren(h('div', { class: 'card-head' }, h('h2', {}, 'The proposal')), h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' })));
+  box.replaceChildren(h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' }));
   reload().then(() => { drawAll(); if (busy() || chatBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
   return box;
 }

@@ -739,61 +739,11 @@ function progressCard(status) {
       'This usually takes under a minute. You can leave this page; the result is saved.'));
 }
 
-/** Skip the job: one press, with an optional note. It moves to Not pursued. */
-function skipButton(s) {
-  const btn = h('button', { class: 'btn', type: 'button' }, 'Skip this job');
-  btn.onclick = async () => {
-    const note = (document.getElementById('why')?.value || '').trim();
-    btnBusy(btn, 'Skipping');
-    try { await api('PATCH', `/screenings/${s.id}/tracking`, { proceeded: 'no', ...(note ? { notes: note } : {}) }); toast('Skipped. It is under Not pursued.'); route(); }
-    catch (x) { toast(x.message, true); btn.disabled = false; btn.replaceChildren('Skip this job'); }
-  };
-  return btn;
-}
-
-function overrideCard(s) {
-  const ta = h('textarea', { id: 'why', style: 'min-height:96px', placeholder: 'For example: client has a strong history with us, and the scope was clarified on a call.' });
-  const minLen = cfg('override.min_reason', 15);
-  const count = h('span', { class: 'counter' }, `0 / ${minLen} minimum`);
-  const err = h('div', { class: 'err', hidden: true });
-  const btn = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Continue with this job');
-  ta.oninput = () => {
-    const n = ta.value.trim().length; btn.disabled = n < minLen;
-    count.textContent = n < minLen ? `${n} / ${minLen} minimum` : `${n} characters`; count.className = 'counter' + (n >= minLen ? ' ok' : '');
-  };
-  // one press: the reason itself is the confirmation (it is saved and shown to managers and admins)
-  btn.onclick = async () => {
-    err.hidden = true; btnBusy(btn, 'Continuing');
-    try { await api('POST', `/screenings/${s.id}/override`, { reason: ta.value }); toast('Continued. Now pick the projects.'); afterAction(1); }
-    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Continue with this job'); }
-  };
-  return h('div', { class: 'card override ' + s.verdict },
-    h('div', { class: 'head' }, icon('warn'), h('div', {}, h('strong', {}, `This job is a ${s.verdict}. Do you still want to continue?`),
-      h('div', { class: 'small muted' }, 'A reason is required and stays on record, visible to managers and admins.'))),
-    h('div', { class: 'card-pad' }, h('div', { class: 'row spread', style: 'margin-bottom:6px' }, h('label', { class: 'lbl', for: 'why', style: 'margin:0' }, 'Why continue?'), count), ta, err,
-      h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, btn, skipButton(s))));
-}
-
-
-// ---------- step 2: continue, tags, matching projects ----------
-function continueCard(s) {
-  const owner = s.user_id === me.id;
-  const err = h('div', { class: 'err', hidden: true });
-  const btn = h('button', { class: 'btn primary lg', type: 'button' }, 'Continue');
-  btn.onclick = async () => {
-    err.hidden = true; btnBusy(btn, 'Starting');
-    try { await api('POST', `/screenings/${s.id}/continue`, {}); afterAction(1); }
-    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Continue'); }
-  };
-  return h('div', { class: 'card override PASS' },
-    h('div', { class: 'head' }, icon('check'), h('div', {}, h('strong', {}, 'This job passed the SOP gate.'),
-      h('div', { class: 'small muted' }, 'Continue to tag the job and match it with Stackup projects.'))),
-    h('div', { class: 'card-pad' }, owner ? [err, h('div', { class: 'row', style: 'gap:8px' }, btn, skipButton(s))] : h('p', { class: 'hint' }, 'Only the person who submitted this job can continue with it.')));
-}
 
 function matchingSection(s, initial) {
   const owner = s.user_id === me.id;
-  const box = h('div', { class: 'card matchcard' });
+  const setActions = actionsFor();
+  const box = h('div', {});
   let m = initial, timer = null, picked = null;
   const busy = () => m.status === 'queued' || m.status === 'running';
   const dateTxt = (d) => full(d);
@@ -812,8 +762,8 @@ function matchingSection(s, initial) {
 
   function tagsBlock() {
     const cats = [...new Set(m.tags.map((t) => t.category))];
-    return h('details', { class: 'tagsbox', open: true },
-      h('summary', {}, `Tags chosen for this job (${m.tags.length}) and why`),
+    return h('details', { class: 'card fold' },
+      h('summary', {}, `Why these projects: the job's ${m.tags.length} tags`),
       h('div', { class: 'tagsgrid' }, cats.map((c) => h('div', { class: 'tg' }, h('div', { class: 'tc-title' }, c),
         m.tags.filter((t) => t.category === c).map((t) => h('div', { class: 'trow' },
           h('div', { class: 'tname' }, h('strong', {}, t.name), h('span', { class: 'wt', title: 'Match weight' }, '×' + t.weight)), h('div', { class: 'treason' }, t.reason)))))));
@@ -832,9 +782,9 @@ function matchingSection(s, initial) {
     const count = h('span', { class: 'counter' + (okSize ? ' ok' : '') }, `${picked.size} of ${pmax} selected`);
     const err = h('div', { class: 'err', hidden: true });
     // one press: confirming (or keeping) the choice moves straight on to the profile
-    const confirmLabel = !m.confirmed_at ? `Confirm ${picked.size === 1 ? 'this project' : 'these ' + picked.size + ' projects'} and continue` : changed ? 'Save the new choice and continue' : 'Continue to the profile';
-    const confirmBtn = h('button', { class: 'btn primary', type: 'button', disabled: !okSize }, confirmLabel);
+    const confirmLabel = !m.confirmed_at ? 'Confirm and continue' : 'Save and continue';
     const save = async (ids, btn, label) => {
+      if (ids.length < pmin || ids.length > pmax) { err.replaceChildren(icon('x'), `Choose ${range} project${pmax === 1 ? '' : 's'} first.`); err.hidden = false; return; }
       err.hidden = true; btnBusy(btn, 'Saving');
       try {
         await api('PUT', `/screenings/${s.id}/selection`, { project_ids: ids });
@@ -842,11 +792,12 @@ function matchingSection(s, initial) {
       }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren(label); }
     };
-    confirmBtn.onclick = () => (changed ? save([...picked], confirmBtn, confirmLabel) : stepCtx ? stepCtx.go(2) : null);
     const recIds = rows.filter((r) => r.recommended).map((r) => r.project_id);
-    const recLabel = recIds.length === 1 ? 'Use the recommended one and continue' : `Use the ${recIds.length} recommended and continue`;
-    const recBtn = h('button', { class: 'btn', type: 'button', disabled: recIds.length < pmin || recIds.length > pmax }, recLabel);
-    recBtn.onclick = () => { picked = new Set(recIds); save(recIds, recBtn, recLabel); };
+    const isRec = picked.size === recIds.length && recIds.every((i) => picked.has(i));
+    // the tab row: confirm (or save a changed choice); "use recommended" only when the choice differs from it
+    if (owner) setActions(
+      !isRec && recIds.length >= pmin && recIds.length <= pmax ? actBtn('Use recommended', () => { picked = new Set(recIds); draw(); }) : null,
+      changed ? actBtn(confirmLabel, (e) => save([...picked], e.currentTarget, confirmLabel), true) : null);
     const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended);
     const card = (r) => {
       const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= pmax && !on);
@@ -862,14 +813,15 @@ function matchingSection(s, initial) {
         r.compliance_gap ? h('div', { class: 'cgap' }, icon('warn'), `Missing ${r.compliance_gap} compliance tag${r.compliance_gap > 1 ? 's' : ''} this job needs`) : null,
         h('div', { class: 'chips' }, r.shared.map((t) => h('span', { class: 'chip', title: `${t.category}, weight ${t.weight}` }, t.name, h('span', { class: 'faint' }, ' ×' + t.weight)))));
     };
-    return h('div', {},
-      h('div', { class: 'row spread', style: 'margin:4px 0 12px' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Matching projects'), owner ? count : null),
-      h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Score is the sum of the weights of the tags a project shares with this job. ' + (owner ? `Keep the recommended ones or swap them for others below. Choose ${range}.` : '')),
-      h('div', { class: 'mgrid' }, rec.map(card)), rest.length ? h('div', { class: 'mgrid', style: 'margin-top:12px' }, rest.map(card)) : null,
-      owner && picked.size >= pmax ? h('p', { class: 'hint' }, 'Untick one project to choose a different one.') : null,
-      err,
-      m.confirmed_at ? h('div', { class: 'logged-line' }, icon('check'), `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} on ${dateTxt(m.confirmed_at)}`) : null,
-      owner ? h('div', { class: 'row', style: 'margin-top:14px' }, confirmBtn, recBtn) : h('p', { class: 'hint' }, m.confirmed_at ? '' : 'Only the person who submitted this job can choose the projects.'));
+    return h('div', { class: 'stack' },
+      h('div', { class: 'card card-pad' },
+        h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, owner && !m.confirmed_at ? `Choose ${range} project${pmax === 1 ? '' : 's'} for the proposal` : 'Projects for the proposal'), owner ? count : null),
+        h('div', { class: 'jp-label', style: 'margin:2px 0 12px' }, m.confirmed_at ? `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} ${dateTxt(m.confirmed_at)}.${owner ? ' Pick others to change it.' : ''}`
+          : owner ? 'The recommended ones are ticked. Swap them if you like, then confirm at the top right.' : 'Only the person who submitted this job can choose the projects.'),
+        err,
+        h('div', { class: 'mgrid' }, rec.map(card)), rest.length ? h('div', { class: 'mgrid', style: 'margin-top:12px' }, rest.map(card)) : null,
+        owner && picked.size >= pmax ? h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Untick one to choose a different project.') : null,
+        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Score: the weights of the tags a project shares with this job.')));
   }
 
 
@@ -880,15 +832,16 @@ function matchingSection(s, initial) {
         h('strong', { style: 'font-size:17px' }, m.status === 'running' ? 'Reading the job and choosing tags' : 'Waiting for a free slot'),
         h('p', { class: 'muted', style: 'margin-top:4px' }, 'Then the tags are matched with the project library. This usually takes a minute or two. You can leave this page.'));
     } else if (m.status === 'error') {
-      const retry = h('button', { class: 'btn primary', type: 'button' }, 'Try again'); retry.onclick = () => start(retry);
-      body = emptyState('x', 'Project matching did not finish', m.error || 'Something went wrong.', owner ? retry : null);
+      if (owner) setActions(actBtn('Try again', (e) => start(e.currentTarget), true));
+      body = h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Project matching did not finish'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, m.error || 'Something went wrong.'));
     } else if (m.status === 'done') {
-      body = h('div', {}, tagsBlock(), h('div', { style: 'height:18px' }), matchesBlock());
+      body = h('div', { class: 'stack' }, matchesBlock(), m.tags && m.tags.length ? tagsBlock() : null);
     } else { // continued before this step existed
-      const go = h('button', { class: 'btn primary', type: 'button' }, 'Find matching projects'); go.onclick = () => start(go);
-      body = emptyState('folder', 'Next: match this job with projects', 'The job will be tagged and compared with the project library.', owner ? go : null);
+      if (owner) setActions(actBtn('Find matching projects', (e) => start(e.currentTarget), true));
+      body = h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Match this job with projects'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, 'The job is tagged and compared with the project library.'));
     }
-    box.replaceChildren(h('div', { class: 'card-head' }, h('h2', {}, 'Project matching'), m.tagged_at ? h('span', { class: 'sub' }, '') : null), h('div', { class: 'card-pad' }, body));
+    if (busy()) setActions();
+    box.replaceChildren(busy() ? h('div', { class: 'card' }, body) : body);
   }
   draw(); if (busy()) timer = setTimeout(poll, 2500);
   return box;
@@ -899,67 +852,8 @@ const outcomeList = () => cfg('tracking.outcomes', ['Pending', 'Hired', 'Not hir
 const yesNo = (id, value) => h('select', { id, style: 'width:100%' }, [['', 'Not known'], ['yes', 'Yes'], ['no', 'No']].map(([v, l]) => h('option', { value: v, selected: (value || '') === v }, l)));
 const numIn = (id, value, placeholder) => h('input', { type: 'number', id, min: 0, max: 1000, step: 1, value: value ?? '', placeholder });
 /** After the proposal: what happened on Upwork. `onSaved` is called with the saved values. */
-function trackingCard(s, onSaved) {
-  const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
-  const proceeded = h('select', { id: 'tp', style: 'width:100%' }, [['', 'Not decided'], ['yes', 'Yes, proceeding'], ['no', 'No, skipped']].map(([v, l]) => h('option', { value: v, selected: (s.proceeded || '') === v }, l)));
-  const date = h('input', { type: 'date', id: 'td', value: s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : '' });
-  const connects = numIn('tc', s.connects_spent, 'e.g. 16'), boost = numIn('tb', s.boost_connects, '0 if not boosted');
-  const viewed = yesNo('tv', s.client_viewed), replied = yesNo('tr', s.client_replied), interview = yesNo('ti', s.interviewed);
-  const OUTCOMES = outcomeList();
-  const outs = OUTCOMES.includes(s.outcome) || !s.outcome ? OUTCOMES : [...OUTCOMES, s.outcome]; // keeps an older value selectable
-  const outcome = h('select', { id: 'to', style: 'width:100%' }, h('option', { value: '' }, 'Not known yet'), outs.map((o) => h('option', { value: o, selected: s.outcome === o }, o)));
-  const notes = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000, placeholder: 'Anything worth remembering about this job or the proposal.' }); notes.value = s.notes || '';
-  const lossOutcomes = cfg('tracking.loss_outcomes', []), lossReasons = cfg('tracking.loss_reasons', []);
-  const reasons = lossReasons.includes(s.outcome_reason) || !s.outcome_reason ? lossReasons : [...lossReasons, s.outcome_reason];
-  const reason = h('select', { id: 'tlr', style: 'width:100%' }, h('option', { value: '' }, 'Choose a reason'), reasons.map((r) => h('option', { value: r, selected: s.outcome_reason === r }, r)));
-  const reasonNote = h('textarea', { id: 'tln', style: 'min-height:64px', maxlength: 2000, placeholder: 'What the client said, or what we could do differently (optional)' }); reasonNote.value = s.outcome_note || '';
-  const lossBox = h('div', { class: 'grid2', style: 'margin-top:12px' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tlr' }, 'Why didn\u2019t the client go ahead? (required)'), reason),
-    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tln' }, 'Note on the reason'), reasonNote));
-  const syncLoss = () => { lossBox.hidden = !lossOutcomes.includes(outcome.value); };
-  const err = h('div', { class: 'err', hidden: true });
-  const btn = h('button', { class: 'btn primary', type: 'button' }, 'Save tracking');
-  const fields = [proceeded, date, connects, boost, viewed, replied, interview, outcome, notes, reason, reasonNote];
-  outcome.addEventListener('change', syncLoss); syncLoss();
-  fields.forEach((el) => { el.disabled = !canEdit; });
-  const num = (el) => (el.value === '' ? null : Number(el.value));
-  btn.onclick = async () => {
-    err.hidden = true; btnBusy(btn, 'Saving');
-    const body = { proceeded: proceeded.value || null, proposal_sent_date: date.value || null, connects_spent: num(connects), boost_connects: num(boost),
-      client_viewed: viewed.value || null, client_replied: replied.value || null, interviewed: interview.value || null, outcome: outcome.value || null, notes: notes.value.trim() || null,
-      outcome_reason: lossOutcomes.includes(outcome.value) ? reason.value || null : null, outcome_note: lossOutcomes.includes(outcome.value) ? reasonNote.value.trim() || null : null };
-    try { await api('PATCH', `/screenings/${s.id}/tracking`, body); toast('Tracking saved'); if (onSaved) return onSaved(body); }
-    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; }
-    btn.disabled = false; btn.replaceChildren('Save tracking');
-  };
-  const f = (id, label, el, hint) => h('div', { class: 'field' }, h('label', { class: 'lbl', for: id }, label), el, hint ? h('div', { class: 'hint' }, hint) : null);
-  return h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Tracking'),
-    h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Fill this in after sending the proposal on Upwork, and update it as the client responds.'),
-    h('div', { class: 'grid4' }, f('tp', 'Proceeded', proceeded), f('td', 'Proposal sent', date), f('tc', 'Connects spent', connects), f('tb', 'Boost (Connects)', boost)),
-    h('div', { class: 'grid4', style: 'margin-top:12px' }, f('tv', 'Client viewed', viewed), f('tr', 'Chat opened', replied), f('ti', 'Interview', interview), f('to', 'Outcome', outcome)), lossBox,
-    h('div', { class: 'field', style: 'margin-top:12px' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), notes), err,
-    canEdit ? h('div', { style: 'margin-top:14px' }, btn) : h('p', { class: 'hint' }, 'Only the submitter, managers and admins can edit this.'));
-}
 
 /** The end of the journey: what was sent and what happened, with the next things to do. */
-function completePanel(s, matching, proposal, onEdit) {
-  const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : 'Not known');
-  const connects = s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ` + ${s.boost_connects} boost` : ''}` : 'Not recorded';
-  const rows = [
-    ['Verdict', `${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}`],
-    ['Projects', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join(', ') : 'Not chosen'],
-    ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : 'Not chosen'],
-    ['Template', proposal && proposal.template ? proposal.template.name : 'none'],
-    ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : 'Not recorded'], ['Connects', connects],
-    ['Client viewed', yn(s.client_viewed)], ['Chat opened', yn(s.client_replied)], ['Interview', yn(s.interviewed)], ['Outcome', s.outcome || 'Not known yet'], ...(s.outcome_reason ? [['Why lost', s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '')]] : []),
-  ];
-  return h('div', { class: 'card complete' },
-    h('div', { class: 'complete-head' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('h2', {}, 'Job complete'),
-      h('p', { class: 'muted' }, 'Tracking saved' + (s.tracking_updated_at ? ' ' + agoIn(s.tracking_updated_at) : '') + '. Update it again when the client responds.'))),
-    h('div', { class: 'card-pad' }, h('dl', { class: 'kv cols2' }, rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: /^(not |none)/i.test(v) ? 'ns' : '' }, v)))),
-      s.notes ? h('blockquote', {}, s.notes) : null,
-      h('div', { class: 'row', style: 'margin-top:16px' }, h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen another job'),
-        h('a', { class: 'btn', href: lastList.history }, 'Back to jobs'), onEdit ? h('button', { class: 'btn', type: 'button', onclick: onEdit }, 'Edit tracking') : null)));
-}
 
 /** "name @ price / GitLab" pieces for a profile, as one readable line (or null). */
 const profileGitlab = (v) => { const g = gitlabLink(v); return g ? h('a', { href: g.href, target: '_blank', rel: 'noopener noreferrer' }, g.label) : null; };
@@ -991,7 +885,6 @@ function recordDetails(s, override, matching, proposal) {
 
 // ---------- the record page as a stepper ----------
 let stepCtx = null; // the stepper that is on screen, so a section can refresh it or move it on
-const afterAction = (stepNo) => { if (stepCtx) stepCtx.advanceTo(stepNo); else route(); };
 const STEPS = [['screening', 'Screening'], ['projects', 'Projects'], ['profile', 'Profile'], ['proposal', 'Proposal'], ['tracking', 'Tracking']];
 
 /** What is finished and what is open, from the server's state. */
@@ -1003,50 +896,49 @@ function stepState(matching, proposal) {
   return { done, unlocked, current };
 }
 
-/** Choose the one Upwork profile the proposal is sent from. Saving it starts the proposal. */
+/** Choose the one Upwork profile the proposal is sent from, as cards in a grid. Confirming it writes the proposal and opens it. */
 function profileSection(s, initial) {
   const owner = s.user_id === me.id;
-  const box = h('div', { class: 'card matchcard' });
+  const setActions = actionsFor();
+  const box = h('div', { class: 'stack' });
   let m = initial, chosen;
   async function reload() { m = (await api('GET', `/screenings/${s.id}/matching`)).matching; }
   function draw() {
-    const profs = m.profiles || [], saved = m.proposal_profile;
+    const profs = (m.profiles || []).filter((p) => Number(p.active) === 1 || (m.proposal_profile && m.proposal_profile.id === p.id)), saved = m.proposal_profile;
     const current = chosen !== undefined ? chosen : (saved ? saved.id : null);
     const err = h('div', { class: 'err', hidden: true });
-    const label = saved ? 'Change profile' : 'Confirm profile';
-    const btn = h('button', { class: 'btn primary', type: 'button', disabled: !current || (saved && saved.id === current) }, saved ? 'Use this profile instead' : 'Confirm profile and write the proposal');
-    btn.onclick = async () => {
-      err.hidden = true; btnBusy(btn, 'Saving');
+    const confirmIt = async (e) => {
+      if (!current) { err.replaceChildren(icon('x'), 'Pick a profile first.'); err.hidden = false; return; }
+      const b = e.currentTarget; btnBusy(b, 'Saving');
       try {
         const r = await api('PUT', `/screenings/${s.id}/proposal-profile`, { profile_id: current });
-        toast(r.started ? 'Profile saved. Writing the proposal...' : 'Proposal profile saved'); chosen = undefined;
-        if (stepCtx) { await stepCtx.refresh(); stepCtx.go(3); } else route();
-      } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren(saved ? 'Use this profile instead' : 'Confirm profile and write the proposal'); }
+        toast(r.started ? 'Writing the proposal…' : 'Profile saved'); chosen = undefined;
+        if (stepCtx) await stepCtx.advanceTo(3); else route();
+      } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; b.disabled = false; b.replaceChildren(saved ? 'Use this profile instead' : 'Confirm and write proposal'); }
     };
-    const opts = profs.map((p) => {
-      const usable = Number(p.active) === 1;
-      const radio = h('input', { type: 'radio', name: 'pp', id: 'pp' + p.id, checked: current === p.id, disabled: !owner || !usable });
-      radio.onchange = () => { chosen = p.id; draw(); };
-      return h('label', { class: 'pcard' + (current === p.id ? ' on' : '') + (usable ? '' : ' off'), for: 'pp' + p.id },
-        radio, h('div', { class: 'pbody' }, h('strong', {}, p.name), p.tagline ? h('div', { class: 'small muted' }, p.tagline) : null,
-          h('div', { class: 'small muted' }, [p.price !== null && p.price !== undefined ? money(p.price) + ' / hr' : null, p.gitlab_account ? 'GitLab: ' + (gitlabLink(p.gitlab_account) || {}).label : null].filter(Boolean).join('  ·  ')),
-          p.notes ? h('div', { class: 'small muted' }, p.notes) : null,
-          p.profile_url && /^https?:\/\//i.test(p.profile_url) ? h('div', { class: 'small' }, h('a', { href: p.profile_url, target: '_blank', rel: 'noopener noreferrer', onclick: (e) => e.stopPropagation() }, 'Open on Upwork')) : null),
-        h('div', { class: 'chips' }, !usable ? h('span', { class: 'chip' }, 'Disabled') : null, saved && saved.id === p.id ? h('span', { class: 'chip brand' }, 'Chosen') : null));
-    });
-    box.replaceChildren(h('div', { class: 'card-head' }, h('h2', {}, 'Which profile will send the proposal?')), h('div', { class: 'card-pad' },
-      h('p', { class: 'hint', style: 'margin:0 0 12px' }, owner ? 'Choose one profile. As soon as you confirm, the signals are detected, the best proposal type is picked and the proposal is written.' : 'Chosen by the person who submitted this job.'),
-      profs.length ? h('div', { class: 'pgrid' }, opts) : h('div', { class: 'notice' }, icon('info'), 'No Upwork profiles are set up yet. An admin can add them under Upwork profiles.'),
-      err, saved ? h('div', { class: 'logged-line' }, icon('check'), `Proposal will be sent from ${saved.name}. Confirmed${saved.confirmed_by ? ' by ' + saved.confirmed_by : ''} on ${full(saved.confirmed_at)}`) : null,
-      owner && profs.length ? h('div', { style: 'margin-top:14px' }, btn) : null));
+    if (owner) setActions(!saved ? actBtn('Confirm and write proposal', confirmIt, true) : current && current !== saved.id ? actBtn('Use this profile instead', confirmIt, true) : null);
+    const card = (p) => {
+      const on = current === p.id;
+      const pick = () => { if (!owner) return; chosen = p.id; err.hidden = true; draw(); };
+      return h('button', { type: 'button', class: 'pcard2' + (on ? ' on' : ''), role: 'radio', 'aria-checked': on, disabled: !owner || null, onclick: pick },
+        h('div', { class: 'row spread' }, h('span', { class: 'jp-sec' }, p.name), saved && saved.id === p.id ? h('span', { class: 'tagpill' }, 'Chosen') : on ? icon('check') : null),
+        h('div', { class: 'jp-label' }, [p.price !== null && p.price !== undefined ? money(p.price) + ' / hr' : null, p.tagline].filter(Boolean).join(' · ') || 'No rate or headline yet'),
+        p.services ? h('div', { class: 'jp-label clamp2' }, p.services) : null);
+    };
+    box.replaceChildren(h('div', { class: 'card card-pad' },
+      h('div', { class: 'jp-sec' }, saved ? `Sent from ${saved.name}` : 'Which profile sends this proposal?'),
+      h('div', { class: 'jp-label', style: 'margin:2px 0 14px' }, saved ? `Confirmed${saved.confirmed_by ? ' by ' + saved.confirmed_by : ''} ${full(saved.confirmed_at)}.${owner ? ' Pick another to change it.' : ''}`
+        : owner ? 'Pick one, then confirm at the top right: the proposal is written straight after.' : 'Chosen by the person who submitted this job.'),
+      err,
+      profs.length ? h('div', { class: 'pgrid2', role: 'radiogroup', 'aria-label': 'Upwork profile' }, profs.map(card)) : h('p', { class: 'jp-body' }, 'No Upwork profiles are set up yet. An admin can add them under Upwork profiles.')));
   }
-  box.replaceChildren(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:50%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:70%' })));
-  reload().then(draw).catch((e) => box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the profiles', e.message, null))));
+  box.replaceChildren(h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:50%' })));
+  reload().then(draw).catch((e) => box.replaceChildren(h('div', { class: 'card card-pad' }, h('p', { class: 'err' }, e.message))));
   return box;
 }
 
 /** The job post as copied from Upwork, in fields: terms, description, skills, questions, activity, the client and their history. */
-function postingCard(s, open = true) {
+function postingCard(s, open = true, setButtons = null) {
   const p = s.posting;
   const body = h('div', { class: 'card-pad posting' });
   const box = h('details', { class: 'card', open: open || null, style: 'margin-top:16px' },
@@ -1057,15 +949,16 @@ function postingCard(s, open = true) {
     const busy = s.posting_status === 'queued' || s.posting_status === 'running';
     const go = h('button', { class: 'btn primary', type: 'button' }, s.posting_status === 'error' ? 'Try again' : 'Extract the posting');
     // refresh only this card, never the page: the workflow may hold unsaved text
-    const refresh = async () => { if (!box.isConnected) return; try { const d = await api('GET', '/screenings/' + s.id); box.replaceWith(postingCard(d.screening, box.open)); } catch { /* try again on the next visit */ } };
+    const refresh = async () => { if (!box.isConnected) return; try { const d = await api('GET', '/screenings/' + s.id); box.replaceWith(postingCard(d.screening, box.open, setButtons)); } catch { /* try again on the next visit */ } };
     go.onclick = async () => { btnBusy(go, 'Starting'); try { await api('POST', `/screenings/${s.id}/posting`, {}); toast('Reading the job post...'); setTimeout(refresh, 2500); } catch (x) { toast(x.message, true); go.disabled = false; } };
     if (busy) setTimeout(refresh, 4000);
     body.replaceChildren(busy ? h('div', { class: 'row muted' }, h('span', { class: 'spin' }), 'Reading the job post into fields...')
-      : h('div', {}, h('p', { class: 'muted', style: 'margin-top:0' }, s.posting_status === 'error' ? (s.posting_error || 'The job post could not be read into fields.') : 'This job was pasted before the posting was read into fields.'), canTrack(s.user_id) ? go : null), raw);
+      : h('div', {}, h('p', { class: 'muted', style: 'margin-top:0' }, s.posting_status === 'error' ? (s.posting_error || 'The job post could not be read into fields.') : 'This job was pasted before the posting was read into fields.'), canTrack(s.user_id) && !setButtons ? go : null), raw);
+    if (setButtons) setButtons(!busy && canTrack(s.user_id) ? actBtn(go.textContent, () => go.click(), true) : null); // on the job page the button sits in the tab row
     return box;
   }
   body.replaceChildren(...[ // replaceChildren does not unpack nested lists, so flatten them first
-    h('div', { style: 'margin-bottom:6px' }, h('strong', { style: 'font-size:17px' }, p.title || s.title || ''), h('div', { class: 'small muted' }, [p.posted, p.location].filter(Boolean).join(' · '))),
+    h('div', { style: 'margin-bottom:6px' }, h('strong', {}, p.title || s.title || ''), h('div', { class: 'small muted' }, [p.posted, p.location].filter(Boolean).join(' · '))),
     grid(p.terms),
     p.skills.length ? [h('h3', {}, 'Skills'), h('div', { class: 'chips' }, p.skills.map((x) => h('span', { class: 'chip' }, x)))] : null,
     [h('h3', {}, 'Description'), h('div', { class: 'desc-text' }, p.description || 'Not shown')],
@@ -1112,19 +1005,18 @@ function stageOf(s, matching, proposal) {
   return 'ready';
 }
 
-/** The same header on every page of a job (the read-only page and the workflow): back to the list, the title, the actions, and one row of facts. */
-function jobHeader(s, actions) {
+/** The job page's header: the title with its verdict and where it stands, then one quiet line of details. No buttons (they live in the tab row). */
+function jobHeader(s, stage) {
   const title = s.title || (s.input_type === 'link' ? 'Upwork link' : 'Pasted job text');
+  const [n, label] = STAGE_INFO[stage] || [0, ''];
+  const sep = () => h('span', { class: 'dot' }, '·');
+  const bits = [s.source === 'claude_plugin' ? 'From the Claude plugin' : null, s.user_name, h('span', { title: full(s.created_at) }, ago(s.created_at)),
+    s.profile_name, gateChip(s), s.source_url ? h('a', { href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, 'Upwork post') : null].filter(Boolean);
   return [
-    h('div', { class: 'jobback' }, h('a', { href: lastList.history, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to jobs')),
-    pageHead(title, null, actions),
-    h('div', { class: 'row jobchips' },
-      s.source === 'claude_plugin' ? h('span', { class: 'chip brand', title: 'Screened and written in the Claude plugin, saved as it was sent' }, 'From the Claude plugin') : null,
-      h('span', { class: 'chip' }, s.user_name), h('span', { class: 'chip', title: full(s.created_at) }, ago(s.created_at)),
-      s.profile_name ? h('span', { class: 'chip' }, icon('badge'), s.profile_name) : null,
-      gateChip(s),
-      s.source_url ? h('a', { class: 'chip', href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, icon('link'), 'Upwork post') : null,
-      s.provider === 'mock' ? h('span', { class: 'chip' }, 'Mock model') : null),
+    h('a', { href: lastList.history, class: 'jp-back' }, icon('back'), 'Jobs'),
+    h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? h('span', { class: 'vbadge ' + s.verdict }, s.verdict) : null,
+      label ? h('span', { class: 'jp-stage' }, n ? `Step ${n} of 5 · ${label}` : label) : null),
+    h('div', { class: 'jp-meta' }, bits.flatMap((b, i) => (i ? [sep(), b] : [b]))),
   ];
 }
 
@@ -1132,174 +1024,224 @@ function jobHeader(s, actions) {
 function gateChip(s) {
   if (!s.skill_version) return null;
   const rules = s.gate_rules;
-  if (!rules) return h('span', { class: 'chip', title: 'Screened before the rules were kept with each job' }, 'Gate v' + s.skill_version);
+  if (!rules) return h('span', { title: 'Screened before the rules were kept with each job' }, 'Gate v' + s.skill_version);
   const show = () => modal({ title: `Rules this job was screened against`, noConfirm: true, wide: true, body: h('div', {},
     h('p', { class: 'muted', style: 'margin-top:0' }, `Gate instructions version ${s.skill_version}, with these ${rules.length} rules as they were worded at the time.`),
     ['fail', 'flag'].map((t) => h('div', {}, h('h3', {}, t === 'fail' ? 'FAIL rules' : 'FLAG rules'), h('ul', { class: 'plain' }, rules.filter((r) => r.type === t).map((r) =>
       h('li', { style: 'margin-bottom:6px' }, h('strong', { class: 'mono' }, r.code), ' ', r.rule, r.details ? h('div', { class: 'small muted' }, 'How to apply: ' + r.details) : null))))))
   });
-  return h('button', { type: 'button', class: 'chip', style: 'cursor:pointer;font:inherit;font-size:12.5px', title: 'See the rules this job was screened against', onclick: show }, `Instructions v${s.skill_version} · ${rules.length} rules`);
+  return h('button', { type: 'button', class: 'linkbtn', title: 'See the rules this job was screened against', onclick: show }, `Gate v${s.skill_version} · ${rules.length} rules`);
 }
 
 // ---------- one page per job, in tabs: Overview, Job post, the five steps, History ----------
+// Design rules (keep them when you change this page):
+// 1. Every page-level button sits in one place: the right end of the tab row, which stays on screen. Sections hand their
+//    buttons to setActions(); nothing else puts buttons in the header, in a bottom bar or in a card. Controls that belong to
+//    a widget (the chat's Send, the version picker, a collapsible panel's own control) stay in that widget.
+// 2. A button appears only when pressing it does something; nothing is shown greyed out. A missing input is explained inline.
+// 3. Each tab opens with what the decision needs; supporting detail comes after, collapsed when long.
 const JOBPAGE_TABS = [['overview', 'Overview'], ['post', 'Job post'], ['screening', 'Screening', 0], ['projects', 'Projects', 1], ['profile', 'Profile', 2],
   ['proposal', 'Proposal', 3], ['tracking', 'Tracking', 4], ['history', 'History']];
 const STEP_TAB = ['screening', 'projects', 'profile', 'proposal', 'tracking'];
 /** The tab a job opens on when it is waiting on you. */
 const TAB_OF_STAGE = { screening: 'screening', failed: 'screening', decide: 'screening', projects: 'projects', profile: 'profile', writing: 'proposal', review: 'proposal' };
+/** The tab row's button slot, set while a job page is on screen. */
+let tabActions = null, tabGen = 0;
+const setActions = (...btns) => { if (tabActions) tabActions(btns.flat().filter(Boolean)); };
+/** A section's own setter: it only works while the tab that built the section is still on screen, so a section that finishes
+ *  loading after you switched tabs can never put its buttons on another tab. */
+const actionsFor = () => { const g = tabGen; return (...btns) => { if (g === tabGen) setActions(...btns); }; };
+const actBtn = (label, onclick, primary = false) => h('button', { class: 'btn sm' + (primary ? ' primary' : ''), type: 'button', onclick }, label);
 
 async function jobPage(id, want) {
   let { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
+  if (!new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) return; // you moved on while this job loaded: never draw it over the next page
   const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin' || me.role === 'manager';
   let st = stepState(matching, proposal), stage = stageOf(s, matching, proposal);
   const stepOf = (k) => STEP_TAB.indexOf(k);
   const defaultTab = () => (s.status !== 'done' ? 'screening' : (owner && TAB_OF_STAGE[stage]) || 'overview');
   let tab = JOBPAGE_TABS.some(([k]) => k === want) ? want : defaultTab();
   if (stepOf(tab) > 0 && !st.unlocked[stepOf(tab)]) tab = defaultTab();
-  const bar = h('div', { class: 'jobtabs', role: 'tablist', 'aria-label': 'Job sections' });
+  const tabsEl = h('div', { class: 'jobtabs', role: 'tablist', 'aria-label': 'Job sections' });
+  const actionsEl = h('div', { class: 'jobacts' });
+  const bar = h('div', { class: 'jobbar' }, tabsEl, actionsEl);
   const content = h('div', { class: 'jobtab' });
-  const foot = h('div', { class: 'stepnav' });
   let active = null;
+  tabActions = (btns) => actionsEl.replaceChildren(...btns);
 
   const leaveOk = () => !(active && active.__dirty && active.__dirty()) || confirm('You have unsaved changes in the proposal. Leave this tab anyway?');
   function setTab(k) {
     if (k !== tab && !leaveOk()) return;
     tab = k; history.replaceState(null, '', `#/s/${id}/${k}`);
-    drawBar(); drawContent(); drawFoot(); window.scrollTo({ top: 0 });
+    drawTabs(); drawContent(); window.scrollTo({ top: 0 });
   }
   async function refresh() {
     const d = await api('GET', '/screenings/' + id);
     s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal;
-    st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawBar(); drawFoot();
+    st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawTabs();
   }
   stepCtx = { go: (n) => setTab(STEP_TAB[n]), refresh, advanceTo: async (n) => { await refresh(); active = null; setTab(STEP_TAB[n]); } };
+  const statusUpdate = () => statusDialog(id, async () => { await refresh(); drawContent(); });
 
-  function drawBar() {
-    bar.replaceChildren(...JOBPAGE_TABS.map(([k, label, n]) => {
+  function drawTabs() {
+    tabsEl.replaceChildren(...JOBPAGE_TABS.map(([k, label, n]) => {
       const step = n !== undefined, locked = step && !st.unlocked[n], done = step && st.done[n];
-      return h('button', { type: 'button', role: 'tab', class: 'jt' + (k === tab ? ' on' : '') + (locked ? ' locked' : '') + (done ? ' done' : ''), 'aria-selected': k === tab, disabled: locked,
-        title: locked ? 'Finish the earlier steps first' : label, onclick: () => setTab(k) },
-        step ? h('span', { class: 'jn' }, done ? icon('check') : String(n + 1)) : null, h('span', {}, label));
+      return h('button', { type: 'button', role: 'tab', class: 'jt' + (k === tab ? ' on' : '') + (done ? ' done' : ''), 'aria-selected': k === tab, 'aria-disabled': locked || null,
+        title: locked ? 'Finish the earlier steps first' : null, onclick: () => { if (locked) toast('Finish the earlier steps first'); else setTab(k); } },
+        step ? (done ? icon('check') : h('span', { class: 'jn' }, String(n + 1) + '.')) : null, label);
     }));
   }
 
-  // ---- the tabs
+  // ---- Overview: where it stands, what is next (its button is in the tab row), and the facts that have a value
   function overviewTab() {
-    const go = (k, label, primary = true) => h('button', { class: 'btn' + (primary ? ' primary' : ''), type: 'button', onclick: () => setTab(k) }, label);
-    const statusBtn = (label) => h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, label);
-    const who = owner ? null : `Waiting for ${s.user_name}.`;
+    const who = owner ? '' : ` Waiting for ${s.user_name}.`;
     const next = {
-      screening: ['Screening this job', 'This takes about a minute.', null],
-      failed: ['The screening did not finish', s.error_message || '', go('screening', 'Open Screening')],
-      decide: ['Decide: continue or skip', who || `The gate says ${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}.`, owner ? go('screening', 'Decide') : null],
-      projects: ['Pick the projects', who || 'Choose the projects the proposal will show.', owner ? go('projects', 'Pick projects') : null],
-      profile: ['Pick the profile', who || 'Choose the Upwork profile that sends it. The proposal is written straight after.', owner ? go('profile', 'Pick profile') : null],
-      writing: ['The proposal is being written', 'A few minutes. You can leave this page.', go('proposal', 'Open the proposal', false)],
-      review: ['Review and finish the proposal', who || 'Read it, edit or chat, then finish it.', owner ? go('proposal', 'Review proposal') : null],
-      ready: ['Ready to send', 'Send it on Upwork, then mark it as sent.', canEdit ? statusBtn('Mark as sent') : null],
-      submitted: ['Waiting on the client', 'Record what happens: viewed, chat, interview, outcome.', canEdit ? statusBtn('Update status') : null],
-      closed: [`Closed: ${s.outcome || 'done'}`, s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : '', canEdit ? statusBtn('Update status') : null],
-      skipped: ['Skipped', s.notes || 'Not pursued.', owner ? go('screening', 'Continue anyway', false) : null],
-    }[stage] || ['', '', null];
+      screening: ['Screening this job', 'This takes about a minute.'],
+      failed: ['The screening did not finish', s.error_message || ''],
+      decide: ['Decide: continue or skip', `The gate says ${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}.${who}`],
+      projects: ['Pick the projects', 'Choose the projects the proposal will show.' + who],
+      profile: ['Pick the profile', 'Choose the Upwork profile that sends it; the proposal is written straight after.' + who],
+      writing: ['The proposal is being written', 'A few minutes. You can leave this page.'],
+      review: ['Review and finish the proposal', 'Read it, edit it or ask the AI, then finish it.' + who],
+      ready: ['Ready to send', 'Send it on Upwork, then mark it as sent.'],
+      submitted: ['Waiting on the client', 'Record what happens: viewed, chat, interview, outcome.'],
+      closed: [`Closed: ${s.outcome || 'done'}`, s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : ''],
+      skipped: ['Skipped', s.notes || 'Not pursued.'],
+    }[stage] || ['', ''];
+    const go = (k, label) => actBtn(label, () => setTab(k), true);
+    setActions({
+      failed: owner && go('screening', 'Open screening'), decide: owner && go('screening', 'Decide'), projects: owner && go('projects', 'Pick projects'),
+      profile: owner && go('profile', 'Pick profile'), writing: go('proposal', 'Open the proposal'), review: owner && go('proposal', 'Review proposal'),
+      ready: canEdit && actBtn('Mark as sent', statusUpdate, true), submitted: canEdit && actBtn('Update status', statusUpdate, true), closed: canEdit && actBtn('Update status', statusUpdate),
+    }[stage] || null);
     const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
     const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
-    const yn2 = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : null);
+    const status = s.outcome && s.outcome !== 'Pending' ? s.outcome : s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : s.proposal_sent_at || s.proposal_sent_date ? 'Sent' : null;
     const facts = [
-      ['Result', h('span', {}, verdictPill(s.verdict, s.status), s.rule_codes ? h('span', { class: 'mono small muted' }, '  ' + s.rule_codes) : null)],
-      ['Where it stands', progressDots(stage)],
-      ['Decision', override ? `Continued past the ${override.verdict_at_time} by ${override.user_name}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
+      ['Verdict', s.verdict ? `${s.verdict}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : null],
+      ['Decision', override ? `Continued past the ${override.verdict_at_time}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
       ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
       ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
       ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
-      ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : proposal.status) : null],
+      ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : null) : null],
+      ['Status', status], ['Sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
+      ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
       ['Paste to proposal', toProposal != null ? mins(toProposal) : null],
       ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
-      ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
-      ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
-      ['Viewed / chat / interview', [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].some(Boolean) ? [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].map((v) => v || '-').join(' / ') : null],
-      ['Outcome', s.outcome],
-    ];
-    const text = proposal && proposal.current ? htmlToPlainText(proposal.current.html) : null;
-    const copyBtn = text ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await navigator.clipboard.writeText(text); toast('Proposal copied'); } catch { toast('Could not copy', true); } } }, 'Copy') : null;
-    return h('div', { style: 'display:grid;gap:16px' },
-      next[0] ? h('div', { class: 'card nextcard' }, h('div', {}, h('strong', {}, next[0]), next[1] ? h('div', { class: 'small muted' }, next[1]) : null), next[2]) : null,
-      h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
-      override ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Why it was continued'), h('blockquote', { style: 'margin:0' }, override.reason),
-        h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`)) : null,
-      text ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Proposal'), h('div', { class: 'row', style: 'gap:8px;margin-left:auto' },
-        proposal.current ? h('span', { class: 'sub' }, `Version ${proposal.current.version_no}`) : null, copyBtn)),
-        h('div', { class: 'card-pad' }, h('details', { class: 'desc', open: true }, h('summary', {}, 'The text'), h('pre', { class: 'proposal-text' }, text)))) : null);
+    ].filter(([, v]) => v);
+    return h('div', { class: 'stack' },
+      next[0] ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
+      facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null);
   }
 
+  // ---- Screening: the verdict, the flags and the decision first; the job, client and competition facts after, collapsed
   function screeningTab() {
-    if (s.status === 'queued' || s.status === 'running') return h('div', {}, progressCard(s.status), h('p', { class: 'hint' }, 'The job post is in the Job post tab.'));
+    if (s.status === 'queued' || s.status === 'running') return h('div', { class: 'stack' }, progressCard(s.status));
     if (s.status === 'error') {
-      const retry = h('button', { class: 'btn primary', onclick: async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } } }, 'Try again');
-      return h('div', { class: 'card' }, emptyState('x', 'Screening did not finish', s.error_message || 'Something went wrong.',
-        owner ? h('div', { class: 'row', style: 'justify-content:center' }, retry, h('a', { class: 'btn', href: '#/new' }, 'Paste the text instead')) : null));
+      if (owner) setActions(actBtn('Paste the text instead', () => { location.hash = '#/new'; }), actBtn('Try again', async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } }, true));
+      return h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'The screening did not finish'), h('p', { class: 'jp-body' }, s.error_message || 'Something went wrong.'));
     }
-    if (!s.report) return h('div', { class: 'notice' }, icon('info'), 'This job has no screening report.');
-    // the decision first, then the report
-    let decision;
-    if (override) decision = h('div', { class: 'card logged' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('strong', {}, 'Continued despite the ' + override.verdict_at_time), h('blockquote', {}, override.reason), h('div', { class: 'small muted' }, `${override.user_name} · ${full(override.created_at)}`)));
-    else if (matching && matching.continued) decision = h('div', { class: 'card logged' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('strong', {}, 'Continued'), h('div', { class: 'small muted' }, 'This job passed the gate and was taken forward.')));
-    else if (!owner) decision = h('div', { class: 'notice' }, icon('info'), s.proceeded === 'no' ? 'Skipped.' : 'No decision yet. Only the person who submitted this job can continue with it.');
-    else decision = h('div', {}, s.proceeded === 'no' ? h('div', { class: 'notice', style: 'margin-bottom:12px' }, icon('info'), 'You skipped this job. You can still continue with it below.') : null,
-      s.verdict === 'PASS' ? continueCard(s) : overrideCard(s));
-    const blocks = s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1));
-    return h('div', { style: 'display:grid;gap:16px' }, decision, ...blocks);
+    if (!s.report) return h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body' }, 'This job has no screening report.'));
+    const j = s.report.jobs[0];
+    const [title, sub] = VERDICT_TEXT[j.verdict];
+    const decided = !!override || !!(matching && matching.continued);
+    const parts = [];
+    // the verdict, in one line
+    parts.push(h('div', { class: 'card card-pad verdictline ' + j.verdict }, h('span', { class: 'vbadge ' + j.verdict }, j.verdict), h('div', {}, h('div', { class: 'jp-sec' }, title), h('div', { class: 'jp-label' }, sub))));
+    // the decision
+    if (decided) {
+      parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, override ? `Continued despite the ${override.verdict_at_time}` : 'Continued'),
+        override ? h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, override.reason) : null,
+        h('div', { class: 'jp-label' }, override ? `${override.user_name} · ${full(override.created_at)}` : 'Taken forward to the projects.')));
+    } else if (!owner) {
+      parts.push(h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body', style: 'margin:0' }, s.proceeded === 'no' ? 'Skipped.' : `No decision yet. Only ${s.user_name} can continue with this job.`)));
+    } else {
+      const needReason = j.verdict !== 'PASS', minLen = cfg('override.min_reason', 15);
+      const ta = needReason ? h('textarea', { id: 'why', style: 'min-height:84px', placeholder: 'For example: the client has a strong history with us, and the scope was clarified on a call.' }) : null;
+      const err = h('div', { class: 'err', hidden: true });
+      const fail = (msg) => { err.replaceChildren(icon('x'), msg); err.hidden = false; if (ta) ta.focus(); };
+      if (ta) ta.oninput = () => { err.hidden = true; };
+      const cont = actBtn('Continue', async (e) => {
+        const reason = ta ? ta.value.trim() : '';
+        if (needReason && reason.length < minLen) return fail(`Write why you continue (at least ${minLen} characters). It stays on record.`);
+        const b = e.currentTarget; btnBusy(b, 'Continuing');
+        try { await api('POST', `/screenings/${s.id}/${needReason ? 'override' : 'continue'}`, needReason ? { reason } : {}); await stepCtx.advanceTo(1); }
+        catch (x) { fail(x.message); b.disabled = false; b.replaceChildren('Continue'); }
+      }, true);
+      const skip = actBtn('Skip', async (e) => {
+        const b = e.currentTarget; btnBusy(b, 'Skipping');
+        try { await api('PATCH', `/screenings/${s.id}/tracking`, { proceeded: 'no', ...(ta && ta.value.trim() ? { notes: ta.value.trim() } : {}) }); toast('Skipped. It is under Not pursued.'); await refresh(); drawContent(); }
+        catch (x) { fail(x.message); b.disabled = false; b.replaceChildren('Skip'); }
+      });
+      setActions(s.proceeded === 'no' ? null : skip, cont);
+      parts.push(h('div', { class: 'card card-pad' },
+        h('div', { class: 'jp-sec' }, s.proceeded === 'no' ? 'You skipped this job. Continue anyway?' : needReason ? `Continue despite the ${j.verdict}?` : 'Continue with this job?'),
+        h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, needReason ? 'Write why. The reason stays on record, visible to managers and admins. Continue and Skip are at the top right.' : 'Continue to match it with projects, or skip it. The buttons are at the top right.'),
+        ta, err));
+    }
+    if (j.fails.length) parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `Failed rules (${j.fails.length})`), issues(j.fails, 'fail'),
+      j.override_note ? h('p', { class: 'jp-label', style: 'margin-top:10px' }, j.override_note) : null));
+    if (j.flags.length) parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `Flags (${j.flags.length})`), issues(j.flags, 'flag')));
+    parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Fit with Stackup'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, j.fit),
+      j.proposal_notes.length ? [h('div', { class: 'jp-sec', style: 'margin-top:14px' }, 'Notes for the proposal'), h('ul', { class: 'jp-list' }, j.proposal_notes.map((n) => h('li', {}, n)))] : null));
+    const facts = (t, rows) => h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, t),
+      h('dl', { class: 'facts one' }, rows.map((r) => h('div', {}, h('dt', {}, r.label), h('dd', { class: /^not shown$/i.test(r.value.trim()) ? 'ns' : '' }, cap(r.value))))));
+    parts.push(h('details', { class: 'card fold' }, h('summary', {}, 'Job, client and competition'),
+      h('div', { class: 'card-pad threecol' }, facts('Job', j.job), facts('Client', j.client), facts('Competition', j.competition))));
+    return h('div', { class: 'stack' }, parts);
   }
 
+  // ---- Tracking: the status history; Update status and Edit details in the tab row
   function trackingTab() {
-    const holder = h('div', {});
-    const draw = (editing) => holder.replaceChildren(
-      editing ? trackingCard(s, (saved) => { Object.assign(s, saved, { tracking_updated_at: new Date().toISOString() }); draw(false); window.scrollTo({ top: 0 }); })
-        : completePanel(s, matching, proposal, canEdit ? () => draw(true) : null));
-    draw(!s.tracking_updated_at);
-    return holder;
+    const setActions = actionsFor();
+    const box = h('div', { class: 'stack' }, h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:50%' })));
+    const details = () => {
+      const c = h('input', { type: 'number', id: 'tc', min: 0, max: 1000, value: s.connects_spent ?? '' });
+      const bo = h('input', { type: 'number', id: 'tb', min: 0, max: 1000, value: s.boost_connects ?? '' });
+      const no = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000 }); no.value = s.notes || '';
+      modal({ title: 'Edit details', confirm: 'Save', body: h('div', { class: 'stack' },
+        h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tc' }, 'Connects spent'), c), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tb' }, 'Boost (Connects)'), bo)),
+        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), no)),
+        onConfirm: async () => {
+          const num = (el) => (el.value === '' ? null : Number(el.value));
+          await api('PATCH', `/screenings/${id}/tracking`, { connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null });
+          toast('Saved'); await refresh(); drawContent();
+        } });
+    };
+    api('GET', `/screenings/${id}/status`).then((d) => {
+      if (!box.isConnected) return;
+      if (canEdit) setActions(actBtn('Edit details', details), actBtn(d.current ? 'Update status' : 'Mark as sent', statusUpdate, true));
+      const ev = d.events;
+      box.replaceChildren(
+        h('div', { class: 'card card-pad' }, h('div', { class: 'jp-label' }, 'Status now'), h('div', { class: 'jp-sec' }, d.current || 'Not sent yet'),
+          !d.current ? h('div', { class: 'jp-label' }, 'Mark it as sent once it is submitted on Upwork.') : null),
+        h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'History'),
+          ev.length ? h('ol', { class: 'statuslist' }, ev.map((e) => h('li', {}, h('span', { class: 'jp-sec' }, e.status),
+            h('span', { class: 'jp-label' }, ` ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}`), e.reason ? h('div', { class: 'jp-label' }, e.reason) : null))) : h('p', { class: 'jp-label' }, 'Nothing recorded yet.')),
+        h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, [['Connects spent', s.connects_spent], ['Boost', s.boost_connects], ['Notes', s.notes]].map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v == null || v === '' ? 'ns' : '' }, v == null || v === '' ? 'Not recorded' : String(v)))))));
+    }).catch((x) => box.replaceChildren(h('div', { class: 'card card-pad' }, h('p', { class: 'err' }, x.message))));
+    return box;
   }
 
   function historyTab() {
     const tl = timelineCard(id); setTimeout(() => { tl.open = true; tl.dispatchEvent(new Event('toggle')); });
-    return h('div', { style: 'display:grid;gap:16px' }, tl, recordDetails(s, override, matching, proposal));
+    return h('div', { class: 'stack' }, tl, h('details', { class: 'card fold' }, h('summary', {}, 'Record details'), recordDetails(s, override, matching, proposal)));
   }
 
   function drawContent() {
-    active = null;
+    active = null; tabGen++; setActions();
     const build = {
-      overview: overviewTab, post: () => postingCard(s, true), screening: screeningTab,
-      projects: () => (matching && matching.continued ? matchingSection(s, matching) : h('div', { class: 'notice' }, icon('info'), 'Decide on the Screening tab first.')),
+      overview: overviewTab, post: () => postingCard(s, true, actionsFor()), screening: screeningTab,
+      projects: () => (matching && matching.continued ? matchingSection(s, matching) : h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body', style: 'margin:0' }, 'Decide on the Screening tab first.'))),
       profile: () => profileSection(s, matching), proposal: () => proposalSection(s, proposal, matching), tracking: trackingTab, history: historyTab,
     }[tab];
     const el = build(); content.replaceChildren(el); active = el;
   }
 
-  // ---- the bar under a step: back and forward between steps, and finishing the proposal
-  function drawFoot() {
-    const n = stepOf(tab);
-    if (n < 0) { foot.hidden = true; return; }
-    foot.hidden = false;
-    const prev = n > 0 ? h('button', { class: 'btn', type: 'button', onclick: () => setTab(STEP_TAB[n - 1]) }, icon('back'), JOBPAGE_TABS.find(([k]) => k === STEP_TAB[n - 1])[1]) : h('span', {});
-    let next = null;
-    if (n === 3 && owner && !(proposal && proposal.finalized_at)) {
-      next = h('button', { class: 'btn primary', type: 'button', disabled: !(proposal && proposal.status === 'done') }, 'Finish the proposal');
-      next.onclick = async () => {
-        if (!active || !active.__finish) return;
-        btnBusy(next, 'Finishing');
-        try { if (await active.__finish()) await stepCtx.advanceTo(4); else { next.disabled = false; next.replaceChildren('Finish the proposal'); } }
-        catch (x) { toast(x.message, true); next.disabled = false; next.replaceChildren('Finish the proposal'); }
-      };
-    } else if (n < STEP_TAB.length - 1 && st.unlocked[n + 1]) next = h('button', { class: 'btn', type: 'button', onclick: () => setTab(STEP_TAB[n + 1]) }, JOBPAGE_TABS.find(([k]) => k === STEP_TAB[n + 1])[1], icon('arrow'));
-    foot.replaceChildren(prev, h('span', { class: 'grow faint small' }, `Step ${n + 1} of ${STEP_TAB.length}`), next || h('span', {}));
-  }
-
-  const canStatus = canEdit && ['submitted', 'closed'].includes(stage);
-  const actions = [canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
-    canEdit && stage === 'ready' ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Mark as sent') : null];
   if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) route(); }, 2500);
   history.replaceState(null, '', `#/s/${id}/${tab}`);
-  drawBar(); drawContent(); drawFoot();
-  shell('history', [...jobHeader(s, actions), bar, content, foot]);
+  drawTabs(); drawContent();
+  shell('history', h('div', { class: 'jobpage' }, ...jobHeader(s, stage), bar, content));
 }
 
 // ---------- industries ----------

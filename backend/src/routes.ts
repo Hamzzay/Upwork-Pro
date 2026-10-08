@@ -292,7 +292,7 @@ async function matchingFor(id: number) {
     recommended: !!r.recommended, selected: !!r.selected, shared: JSON.parse(r.shared_tags),
   }));
   if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
-    base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, profile_url, notes, active FROM upwork_profiles ORDER BY active DESC, name');
+    base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, github_url, profile_url, services, notes, active FROM upwork_profiles ORDER BY active DESC, name');
   }
   return base;
 }

@@ -522,6 +522,32 @@ could be written two different ways. Now there is one Writing guide.
 - Proposal: the editor left, chat and "how it was written" beside it on wide screens.
 - Checked in the browser on jobs #50 and #35: every tab 1.2 to 2.6 screens, no console errors.
 
+### R23. The job page, cleaned up after a full review (done; phone width not checked yet)
+Hamza's review: buttons all over the place, Tracking doing the same job twice, decisions below supporting detail, mixed text sizes,
+clumsy active tabs, profiles one per row. Measured first (12 jobs, every tab), then rebuilt to these rules (comments in `jobPage`):
+- **One place for buttons**: the right end of the tab row, which stays on screen. Sections hand their buttons to it (`actionsFor()`, tied
+  to the tab that made them, so a section that loads late never puts buttons on another tab). No header buttons, no bottom bar.
+- **No greyed-out buttons**: a button appears only when it does something; a missing input is explained inline (Continue without a
+  reason, Confirm with no project, no profile picked).
+- **Decision first** on every tab: Screening opens with the verdict and the Continue/Skip decision (reason box right there), then flags,
+  fit and notes; job, client and competition facts are folded. Projects shows the cards first; "why these projects" is folded.
+- **Tracking** is one thing now: status now, the status history with dates and reasons, Connects, boost and notes. **Update status** and
+  **Edit details** in the tab row. The old Tracking form (a second, looser way to set the same statuses) is gone.
+- **Profile**: cards in a grid (name, rate, headline, services), the chosen one marked; Confirm and write proposal, or Use this profile
+  instead when you pick another.
+- **Proposal**: Copy, Save version (only after an edit), Finish proposal in the tab row; the warnings are one line that opens.
+- **Overview**: one line on what is next, and only the facts that have a value. **Header**: title, verdict badge and step on one line,
+  then one quiet line (who, when, profile, gate rules, Upwork post).
+- **Typography**: five text styles on the whole job page (title 22, heading 16 semibold, body 15, label 13, small 12), no uppercase.
+  **Tabs**: plain text, a thin underline on the active one, a small check on finished steps.
+- **Fixes found by the audit**: "null" printed at the top of the proposal card, and in the version note for non-owners; a job that
+  loads after you moved to another one no longer draws over it; buttons of a late-loading tab no longer land on another tab.
+- Removed: the old decision cards, the tracking form and its summary panel, the stepper and bottom bar styles.
+- **Checked** in the browser, every tab of 13 jobs at every stage (decide, projects, review, proposal failed, ready, plugin, submitted,
+  closed, skipped, screening failed): every button in the tab row, nothing greyed out, at most 5 text styles, no "null"/"undefined"/"NaN",
+  no console errors, each tab 1 to 1.8 screens. Interaction checks without changing data: Continue with no reason, picking another
+  profile, leaving a tab. Not checked: phone width (Chrome would not shrink below 1200 pixels).
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
