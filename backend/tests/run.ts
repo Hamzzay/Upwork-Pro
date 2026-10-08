@@ -37,11 +37,11 @@ const ctx = { rules, projects };
 
   // seed file sanity
   assert.equal(lib.rules.length, 22);
-  assert.equal(lib.tags.length, 102);
-  assert.equal(lib.projects.length, 31);
+  assert.equal(lib.tags.length, 105);
+  assert.equal(lib.projects.length, 43);
   assert.ok(lib.projects.every((p: any) => p.tags.length > 0), 'every library project is tagged');
   assert.ok(lib.projects.every((p: any) => p.tags.every((t: string) => lib.tags.some((x: any) => x.name === t))));
-  assert.equal(new Set(lib.projects.map((p: any) => p.name.toLowerCase())).size, 31);
+  assert.equal(new Set(lib.projects.map((p: any) => p.name.toLowerCase())).size, 43);
 
   // schema: no $schema key (the CLI rejects the 2020-12 default); rule codes become an enum
   const schema: any = buildReportJsonSchema(rules.map((r) => r.code));
@@ -125,7 +125,7 @@ const ctx = { rules, projects };
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));
   const tschema: any = buildTagSchema(dict.map((t: any) => t.name));
-  assert.equal('$schema' in tschema, false); assert.equal(tschema.properties.tags.items.properties.tag.enum.length, 102);
+  assert.equal('$schema' in tschema, false); assert.equal(tschema.properties.tags.items.properties.tag.enum.length, 105);
   const sys = tagSystemPrompt(dict);
   assert.ok(!sys.includes('COMPLIANCE') || true);
   const flagged = tagSystemPrompt([{ id: 1, name: 'HIPAA', category: 'Legal bits', weight: 2, description: null, compliance: true }, { id: 2, name: 'MVP', category: 'Stage', weight: 2, description: null }]);

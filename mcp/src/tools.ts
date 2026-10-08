@@ -61,10 +61,12 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
    the job and client facts, and the posting fields if you read them. Send the job page text exactly as pasted.
 4. If the person continues past a FLAG or FAIL, send their reason (decision.reason, or continue_reason on save_proposal). Never invent a reason.
 5. save_proposal stores the proposal text exactly as written, with the profile and project names you used. finished=true means ready to send.
-6. update_status only after it happened on Upwork: Sent first, then Viewed, Chat opened, Interview, then an outcome. "When" is now unless the person says otherwise.
+6. If the profile or a project you use is not in plugin_options, add it straight away with add_profile or add_project (from your own
+   profile record or the project sheet: never invent a field), then save. Existing records are never overwritten; only empty fields are filled.
+7. update_status only after it happened on Upwork: Sent first, then Viewed, Chat opened, Interview, then an outcome. "When" is now unless the person says otherwise.
    A lost outcome needs one of the loss reasons, and the person's own words as the note if they gave any.`;
 
-  T('plugin_options', `The values Upwork Pro accepts from the Claude plugin: active Upwork profiles, project names, rule codes, statuses, outcomes and loss reasons. Call this first.\n\n${PLUGIN_RULES}`, {}, { readOnlyHint: true, openWorldHint: false },
+  T('plugin_options', `The values Upwork Pro accepts from the Claude plugin: active Upwork profiles (with their details), project names, rule codes, statuses, outcomes and loss reasons. Call this first.\n\n${PLUGIN_RULES}`, {}, { readOnlyHint: true, openWorldHint: false },
     async () => api.call('GET', '/plugin/options'));
 
   T('find_jobs', 'Look up jobs already in Upwork Pro: by Upwork link (url) or job id, by text (q), or by phase. Use it before save_job so the same job is not saved twice.',
@@ -97,6 +99,20 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
     { id: z.number().int(), text: z.string().describe('The proposal exactly as written'), profile: z.string().describe('Upwork profile name, see plugin_options'), projects: z.array(z.string()).optional(),
       template: z.string().optional().describe('Proposal type or template used'), finished: z.boolean().optional(), continue_reason: z.string().optional().describe('Only for a FLAG or FAIL job with no decision yet') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => { const { id, ...body } = a; return api.call('POST', `/plugin/jobs/${id}/proposal`, body); });
+
+  T('add_profile', 'Add an Upwork profile Upwork Pro does not have yet, or fill the empty fields of an existing one (never overwrites). Admins only. Send only what your profile record says; leave out anything marked TO FILL.',
+    { name: z.string().describe('The profile name, e.g. "Hassan Ijaz"'), tagline: z.string().optional().describe('Upwork headline'), price: z.number().optional().describe('Default hourly rate'),
+      lowest_price: z.number().optional().describe('Lowest rate when work is slow'), profile_url: z.string().optional(), github_url: z.string().optional(), gitlab_account: z.string().optional(),
+      services: z.string().optional(), industries: z.string().optional().describe('Industries to lead with'), voice: z.string().optional(), signature: z.string().optional(),
+      stats_allowed: z.string().optional().describe('Upwork stats allowed in proposals'), submitted_by: z.string().optional().describe('Who submits from this profile'), rules: z.string().optional().describe('Profile rules for proposals'),
+      notes: z.string().optional() },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/profiles', a));
+
+  T('add_project', 'Add a project Upwork Pro does not have yet to the project library, or fill the empty fields of an existing one and add the tags it is missing (never removes or overwrites). Managers and admins. Take every field from the project sheet row.',
+    { name: z.string(), landing_link: z.string().optional(), system_link: z.string().optional(), mobile_link: z.string().optional().describe('One or more store links, space separated'),
+      staging_link: z.string().optional(), case_study_link: z.string().optional(), overview: z.string().optional().describe('Project overview'), case_study_summary: z.string().optional(),
+      tags: z.array(z.string()).optional().describe('Tag names marked x for this project, Industry tags included') },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/projects', a));
 
   T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now.',
     { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),

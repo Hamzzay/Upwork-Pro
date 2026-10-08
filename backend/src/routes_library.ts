@@ -24,23 +24,27 @@ library.get('/rules', anyone, async (_req, res) => {
 // ---------- Upwork profiles ----------
 library.get('/profiles', anyone, async (req, res) => {
   const all = req.query.all === '1' && req.user!.role === 'admin';
-  res.json({ profiles: await query(`SELECT id, name, tagline, price, gitlab_account, profile_url, notes, active, created_at FROM upwork_profiles ${all ? '' : 'WHERE active=1'} ORDER BY name`) });
+  res.json({ profiles: await query(`SELECT id, name, tagline, price, lowest_price, gitlab_account, github_url, profile_url, services, industries, voice, signature, stats_allowed, submitted_by, rules,
+    notes, active, added_via, created_at FROM upwork_profiles ${all ? '' : 'WHERE active=1'} ORDER BY name`) });
 });
 // A GitLab account is either a username (letters, digits, dot, dash, underscore) or the full https link to it (also self-hosted GitLab).
 const gitlabAccount = z.string().trim().max(255).refine((v) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v) || /^https:\/\/[^\s/]+\/[^\s]+$/.test(v), 'Enter a GitLab username or the full https link')
   .or(z.literal('')).nullish().transform((v) => v || null);
 const price = z.number('Price must be a number').min(0, 'Price cannot be negative').max(100000, 'Price is too large')
   .refine((v) => Math.round(v * 100) / 100 === v, 'Price can have at most 2 decimals').nullish().transform((v) => v ?? null);
-const profileBody = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(120), tagline: optText(200), price, gitlab_account: gitlabAccount,
-  profile_url: optUrl, notes: optText(500), active: z.boolean().optional(),
+export const profileBody = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(120), tagline: optText(200), price, lowest_price: price, gitlab_account: gitlabAccount, github_url: optUrl,
+  profile_url: optUrl, services: optText(2000), industries: optText(500), voice: optText(300), signature: optText(500), stats_allowed: optText(500),
+  submitted_by: optText(300), rules: optText(4000), notes: optText(500), active: z.boolean().optional(),
 });
+/** The profile fields besides name and active, in one place for insert and update. */
+export const PROFILE_FIELDS = ['tagline', 'price', 'lowest_price', 'gitlab_account', 'github_url', 'profile_url', 'services', 'industries', 'voice', 'signature', 'stats_allowed', 'submitted_by', 'rules', 'notes'] as const;
 library.post('/profiles', admin, async (req, res) => {
   const b = profileBody.safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   try {
-    const r = await exec('INSERT INTO upwork_profiles (name, tagline, price, gitlab_account, profile_url, notes, active) VALUES (?,?,?,?,?,?,?)',
-      [b.data.name, b.data.tagline, b.data.price, b.data.gitlab_account, b.data.profile_url, b.data.notes, b.data.active === false ? 0 : 1]);
+    const r = await exec(`INSERT INTO upwork_profiles (name, ${PROFILE_FIELDS.join(', ')}, active) VALUES (?)`,
+      [[b.data.name, ...PROFILE_FIELDS.map((k) => (b.data as any)[k] ?? null), b.data.active === false ? 0 : 1]]);
     await audit(req.user!.id, 'profile_create', `id=${r.insertId}`);
     res.status(201).json({ id: r.insertId });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A profile with that name already exists' }); throw e; }
@@ -49,7 +53,7 @@ library.patch('/profiles/:id', admin, async (req, res) => {
   const b = profileBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const sets: string[] = []; const p: any[] = [];
-  for (const k of ['name', 'tagline', 'price', 'gitlab_account', 'profile_url', 'notes'] as const) if (k in b.data) { sets.push(`${k}=?`); p.push((b.data as any)[k]); }
+  for (const k of ['name', ...PROFILE_FIELDS]) if (k in b.data) { sets.push(`${k}=?`); p.push((b.data as any)[k]); }
   if (b.data.active !== undefined) { sets.push('active=?'); p.push(b.data.active ? 1 : 0); }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   try {
@@ -240,7 +244,8 @@ library.delete('/industries/:id', editor, async (req, res) => {
 });
 
 // ---------- projects ----------
-const projectSelect = `SELECT p.id, p.name, p.live_link, p.showable_publicly, p.notes, p.active, p.created_at, p.updated_at FROM projects p`;
+const projectSelect = `SELECT p.id, p.name, p.live_link, p.landing_link, p.system_link, p.mobile_link, p.staging_link, p.case_study_link, p.showable_publicly, p.notes,
+  p.overview, p.case_study_summary, p.added_via, p.active, p.created_at, p.updated_at FROM projects p`;
 async function withTags(rows: any[]) {
   if (!rows.length) return rows;
   const ids = rows.map((r) => r.id);
@@ -262,9 +267,12 @@ library.get('/projects/:id', anyone, async (req, res) => {
 });
 const projectBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(190), live_link: optUrl, showable_publicly: optText(60), notes: optText(4000),
+  landing_link: optUrl, system_link: optUrl, mobile_link: optText(500), staging_link: optUrl, case_study_link: optUrl, overview: optText(8000), case_study_summary: optText(8000),
   active: z.boolean().optional(), tag_ids: z.array(z.number().int().positive()).max(200).optional(),
   industry_ids: z.array(z.number().int().positive()).max(200).optional(),
 });
+/** The project fields besides name and active. The proposal link is `live_link`; the others are kept for the person to choose from. */
+const PROJECT_FIELDS = ['live_link', 'landing_link', 'system_link', 'mobile_link', 'staging_link', 'case_study_link', 'showable_publicly', 'notes', 'overview', 'case_study_summary'];
 async function setTags(conn: any, projectId: number, tagIds: number[]) {
   const ids = [...new Set(tagIds)];
   await conn.query('DELETE FROM project_tags WHERE project_id=?', [projectId]);
@@ -292,12 +300,12 @@ async function saveProject(req: any, res: any, projectId: number | null) {
     await conn.beginTransaction();
     let pid = projectId;
     if (!pid) {
-      const [r]: any = await conn.query('INSERT INTO projects (name, live_link, showable_publicly, notes, active) VALUES (?,?,?,?,?)',
-        [d.name, d.live_link, d.showable_publicly, d.notes, d.active === false ? 0 : 1]);
+      const [r]: any = await conn.query(`INSERT INTO projects (name, ${PROJECT_FIELDS.join(', ')}, active) VALUES (?)`,
+        [[d.name, ...PROJECT_FIELDS.map((k) => d[k] ?? null), d.active === false ? 0 : 1]]);
       pid = r.insertId;
     } else {
       const sets: string[] = []; const p: any[] = [];
-      for (const k of ['name', 'live_link', 'showable_publicly', 'notes']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+      for (const k of ['name', ...PROJECT_FIELDS]) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
       if (d.active !== undefined) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
       if (sets.length) {
         const [r]: any = await conn.query(`UPDATE projects SET ${sets.join(',')} WHERE id=?`, [...p, pid]);

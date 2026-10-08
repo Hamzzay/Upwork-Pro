@@ -32,16 +32,17 @@ const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',')
 async function loadFacts(screeningId: number, basis?: Basis) {
   const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id FROM screenings s WHERE s.id=?', [screeningId]))[0];
   const profileId: number | null = basis ? basis.profileId : s.proposal_profile_id;
-  const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
+  const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
   const matches = await query<any>(
-    `SELECT jm.project_id, jm.project_name, p.live_link, p.notes FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id
+    `SELECT jm.project_id, jm.project_name, p.live_link, p.notes, p.overview, p.case_study_summary FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id
      WHERE jm.screening_id=? AND ${basis ? 'jm.project_id IN (?)' : 'jm.selected=1'} ORDER BY jm.rank_no`, basis ? [screeningId, basis.projectIds] : [screeningId]);
   const ids = matches.map((m) => m.project_id).filter(Boolean);
   const tags = ids.length ? await query<any>('SELECT pt.project_id, t.name FROM project_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.project_id IN (?) ORDER BY t.sort_order', [ids]) : [];
   const inds = ids.length ? await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id WHERE pi.project_id IN (?) ORDER BY i.name', [ids]) : [];
-  const projects: ProjectFact[] = matches.map((m) => ({ name: m.project_name, live_link: m.live_link || null, notes: m.notes || null,
+  const projects: ProjectFact[] = matches.map((m) => ({ name: m.project_name, live_link: m.live_link || null, notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
     tags: tags.filter((t) => t.project_id === m.project_id).map((t) => t.name), industries: inds.filter((t) => t.project_id === m.project_id).map((t) => t.name) }));
-  const sender: SenderFact = { name: pr.name, gitlab_link: gitlabLink(pr.gitlab_account), tagline: pr.tagline || null };
+  const sender: SenderFact = { name: pr.name, gitlab_link: gitlabLink(pr.gitlab_account) || pr.github_url || null, tagline: pr.tagline || null,
+    voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null };
   let report: any = null; try { report = JSON.parse(s.report_json); } catch { /* old or missing */ }
   const job = report?.job ?? report?.jobs?.[0] ?? null;
   const requirements: string[] = [];
@@ -187,7 +188,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   // 4. check what the writer cannot be trusted to check
   const library = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
   const warnings = [...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
-    ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: x.notes })), otherProjectNames: library, foreignNames: await foreignNames(),
+    ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
       sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link } }).map((t) => ({ source: 'check', text: t }))];
   return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, warnings, model: lastUsed()?.model ?? config.llm.model };
 }
@@ -301,7 +302,7 @@ export async function runChat(messageId: number) {
     const note = Number(latest) > basedOn ? `AI revision of v${basedOn}; v${latest} was saved meanwhile` : `AI revision of v${basedOn}`;
     resultVersion = await addVersion(p.id, textToHtml(revised), 'chat', null, note, basedOn);
     const library = (await query<any>('SELECT name FROM projects')).map((x) => x.name as string);
-    const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: x.notes })), otherProjectNames: library, foreignNames: await foreignNames(),
+    const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
       sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link } }).map((t) => ({ source: 'check', text: t }));
     await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(warnings), p.id]);
   }

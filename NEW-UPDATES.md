@@ -9,8 +9,9 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 016: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split
+npm run migrate        # applies 008 to 017: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields
 npm run seed:library   # fills each rule's "How to apply" note and makes the instructions-only gate version active (see R15)
+npm run sync:library   # dry run: what the project sheet snapshot would change; then add -- --apply (see R17)
 npm run seed:settings  # admin settings, defaults from src/settings.ts (the migrations add them too; this keeps code and database in step)
 # optional, spends AI quota: npm run backfill:postings   (reads older jobs' posts into fields; add -- --dry-run to count)
 # dev/demo only: npm run seed:examples   (12 example jobs across every Jobs tab; -- --remove takes them out)
@@ -394,6 +395,33 @@ kept in step by hand. Now each thing lives in one place:
 - **Previous / Next stay in view** (sticky at the bottom). On phones the two buttons share the width and "Step 2 of 5" is hidden (the bar
   shows it). Long titles wrap instead of pushing the buttons off.
 
+### R17. Profiles and projects from the Claude plugin, added on demand, and a plugin comparison (done)
+- **Comparison**: `PLUGIN-VS-SYSTEM.md` lists what this round closed and the 12 places the plugin is still more dynamic (industry-first
+  matching, six proposal types, modules, screening answers, verification, signals, profile choice, rate, duplicates, link choice, quick
+  picks, live sheet). Each needs a decision before building.
+- **Profiles** (migration `017_library_from_plugin.sql`): `upwork_profiles` gets `lowest_price`, `github_url`, `services`, `industries`,
+  `voice`, `signature`, `stats_allowed`, `submitted_by`, `rules`, `added_via`. The plugin's seven profiles are in `seed/library.json`
+  (`profiles` are now records; a plain name still works) and in the local database. The Upwork profiles page edits every field.
+- **Projects**: `projects` gets `landing_link`, `system_link`, `mobile_link`, `staging_link`, `case_study_link`, `overview`,
+  `case_study_summary`, `added_via`. `seed/library.json` is now the live sheet "Stackup Project Tag Library" as of 2026-10-08: 43 projects
+  (12 new), 105 tags (Industry: Sports, Event management, Social), every link, overview and case study. The proposal link (`live_link`)
+  is the landing page, else the first store link, else the live system. The project editor and page show all of it.
+- **`npm run sync:library`** (dry run, then `-- --apply`) now also sets each project's links, overview and case study from the file, makes
+  its industries follow its Industry tags (creating missing industries), creates missing profiles and fills empty profile fields. Applied
+  here: 12 projects created, 13 projects' tags updated, 3 industries and 6 profiles added.
+- **The writer uses them** (`proposal/writer.ts`, `pipeline.ts`): SENDER now carries voice, signature, allowed Upwork stats and the profile
+  rules (before the template); the code link is the GitLab account, else GitHub. PROJECTS carry the overview and case study summary.
+  Figures from those, and from the allowed stats, no longer raise the "figure not in the facts" warning.
+- **Added right away when missing**: new MCP tools `add_profile` (admins) and `add_project` (managers and admins), over
+  `POST /plugin/profiles` and `POST /plugin/projects`. A new record is marked `added_via = 'claude_plugin'` (shown on its page); an existing
+  one only gets its empty fields filled and missing tags added, never overwritten or removed. Unknown tags are left out and named.
+  `plugin_options` now returns each profile's fields; `save_proposal` points to these tools when a profile or project is missing.
+  Checked with a local harness against the database (create, fill, manager refused for profiles, bad link refused, unknown tag reported,
+  industry linked); the test rows were removed.
+- **Plugin v0.1.8** (`~/Downloads/stackup-proposals-0.1.8.plugin`, not in this repo): profiles are read from Upwork Pro; before saving a
+  proposal it adds a missing profile or project to Upwork Pro and says so in one line.
+- Tests updated (43 projects, 105 tags, the code link message). The MCP server is rebuilt (`mcp/dist`).
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
@@ -404,4 +432,4 @@ screen.
    migrations.
 3. Rules: done in R15 (the rules now come only from the Rules page; gate version 2 is superseded by version 3).
 4. UI polish still open: the Proposal step itself, and phone widths for the new tables and dashboard.
-5. Profiles: only Wasif is set up; the early draft guesses the profile, so it works best once all seven exist.
+5. Profiles: all seven exist now (R17), but most fields are empty. Fill them under Upwork profiles.

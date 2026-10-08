@@ -4,6 +4,9 @@
 // - projects in the file: created if missing; their tags are set to exactly the file's tags
 // - projects NOT in the file: deactivated, never deleted (they stop being used for matching; an admin can delete them in the app)
 // - categories and tags missing from the database are added; existing tags keep their weight and wording (the app owns those)
+// - each project's links, overview and case study are set from the file, and its industries match its Industry tags
+//   (industries missing from the Industries page are created)
+// - profiles in the file are created if missing; an existing profile only gets the fields that are still empty (the app owns edits)
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +22,17 @@ import { pool } from '../src/db';
   const cats = new Map<string, number>((await q('SELECT id, name FROM tag_categories')).map((r) => [r.name, r.id]));
   const tags = new Map<string, number>((await q('SELECT id, name FROM tags')).map((r) => [r.name.toLowerCase(), r.id]));
   const dbProjects = await q('SELECT id, name, active FROM projects');
+  const industries = new Map<string, number>((await q('SELECT id, name FROM industries')).map((r) => [r.name.toLowerCase(), r.id]));
+  const industryTags = new Set<string>(lib.tags.filter((t: any) => t.category === 'Industry').map((t: any) => t.name.toLowerCase()));
+  const profiles = new Map<string, any>((await q('SELECT * FROM upwork_profiles')).map((r) => [r.name.toLowerCase(), r]));
+  const fileProfiles: any[] = (lib.profiles ?? []).map((x: any) => (typeof x === 'string' ? { name: x } : x));
+  const PROFILE_FIELDS = ['profile_url', 'tagline', 'price', 'lowest_price', 'github_url', 'services', 'industries', 'voice', 'signature', 'stats_allowed', 'submitted_by', 'rules', 'notes'];
+  const profileFill = fileProfiles.filter((f) => profiles.has(f.name.toLowerCase())).map((f) => {
+    const cur = profiles.get(f.name.toLowerCase());
+    return { id: cur.id, name: f.name, set: PROFILE_FIELDS.filter((k) => f[k] != null && f[k] !== '' && (cur[k] == null || cur[k] === '')).map((k) => [k, f[k]]) };
+  }).filter((x) => x.set.length);
+  const profileCreate = fileProfiles.filter((f) => !profiles.has(f.name.toLowerCase()));
+  const missingIndustries = lib.tags.filter((t: any) => t.category === 'Industry' && !industries.has(t.name.toLowerCase())).map((t: any) => t.name);
   const byName = new Map<string, any>(dbProjects.map((p) => [p.name.toLowerCase(), p]));
   const links = await q('SELECT pt.project_id, t.name FROM project_tags pt JOIN tags t ON t.id=pt.tag_id');
   const have = new Map<number, Set<string>>();
@@ -43,6 +57,9 @@ import { pool } from '../src/db';
   console.log('projects to reactivate:', toReactivate.map((p: any) => p.name));
   console.log('projects to DEACTIVATE (not in the file):', toDeactivate.map((p) => p.name));
   console.log(`projects whose tags change: ${tagPlan.length}`); for (const t of tagPlan) console.log(`  ${t.name}: +${t.add} -${t.remove}`);
+  console.log('industries to add:', missingIndustries);
+  console.log('profiles to create:', profileCreate.map((p) => p.name));
+  console.log('profiles to fill:', profileFill.map((p) => `${p.name} (${p.set.map(([k]) => k).join(', ')})`));
   if (!apply) { console.log('\nDry run only. Add --apply to make these changes.'); await pool.end(); return; }
 
   const conn = await pool.getConnection();
@@ -54,12 +71,24 @@ import { pool } from '../src/db';
       let row = byName.get(p.name.toLowerCase()); let id: number;
       if (!row) { const [r]: any = await conn.query('INSERT INTO projects (name, live_link, showable_publicly) VALUES (?,?,?)', [p.name, p.live_link, p.showable]); id = r.insertId; }
       else { id = row.id; await conn.query('UPDATE projects SET active=1 WHERE id=?', [id]); }
+      await conn.query(`UPDATE projects SET live_link=?, landing_link=?, system_link=?, mobile_link=?, staging_link=?, case_study_link=?, overview=?, case_study_summary=? WHERE id=?`,
+        [p.live_link ?? null, p.landing_link ?? null, p.system_link ?? null, p.mobile_link ?? null, p.staging_link ?? null, p.case_study_link ?? null, p.overview ?? null, p.case_study_summary ?? null, id]);
+      // industries follow the project's Industry tags
+      const inds = p.tags.filter((t: string) => industryTags.has(t.toLowerCase()));
+      for (const t of inds) if (!industries.has(t.toLowerCase())) { const [r]: any = await conn.query('INSERT INTO industries (name) VALUES (?)', [t]); industries.set(t.toLowerCase(), r.insertId); }
+      await conn.query('DELETE FROM project_industries WHERE project_id=?', [id]);
+      if (inds.length) await conn.query('INSERT INTO project_industries (project_id, industry_id) VALUES ?', [inds.map((t: string) => [id, industries.get(t.toLowerCase())])]);
       const ids = p.tags.map((t: string) => { const tid = tags.get(t.toLowerCase()); if (!tid) throw new Error(`unknown tag ${t} on ${p.name}`); return tid; });
       await conn.query('DELETE FROM project_tags WHERE project_id=?', [id]);
       if (ids.length) await conn.query('INSERT INTO project_tags (project_id, tag_id) VALUES ?', [ids.map((t: number) => [id, t])]);
     }
     for (const p of toDeactivate) await conn.query('UPDATE projects SET active=0 WHERE id=?', [p.id]);
-    await conn.query('INSERT INTO audit_log (user_id, action, detail) VALUES (NULL, ?, ?)', ['library_sync', `projects=${lib.projects.length} deactivated=${toDeactivate.length}`]);
+    for (const f of profileCreate) {
+      const keys = ['name', ...PROFILE_FIELDS.filter((k) => f[k] != null && f[k] !== '')];
+      await conn.query(`INSERT INTO upwork_profiles (${keys.join(', ')}) VALUES (?)`, [keys.map((k) => f[k])]);
+    }
+    for (const f of profileFill) await conn.query(`UPDATE upwork_profiles SET ${f.set.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...f.set.map(([, v]) => v), f.id]);
+    await conn.query('INSERT INTO audit_log (user_id, action, detail) VALUES (NULL, ?, ?)', ['library_sync', `projects=${lib.projects.length} deactivated=${toDeactivate.length} profiles_created=${profileCreate.length} profiles_filled=${profileFill.length}`]);
     await conn.commit();
     console.log('\nApplied.');
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); await pool.end(); }

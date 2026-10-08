@@ -1454,23 +1454,44 @@ function gitlabLink(v) {
 
 async function profilesView() {
   const { profiles } = await api('GET', '/profiles?all=1');
+  // every field the writer and the Claude plugin use; long ones are text areas
+  const FIELDS = [
+    ['tagline', 'Headline', 'text', 200, 'The headline shown on the Upwork profile.', 'For example: AI automation and voice agents for service businesses'],
+    ['price', 'Default hourly rate', 'number', 0, 'The rate this profile quotes.', 'For example: 35'],
+    ['lowest_price', 'Lowest rate', 'number', 0, 'The lowest rate when work is slow.', 'For example: 25'],
+    ['profile_url', 'Upwork profile link', 'text', 300, '', 'https://www.upwork.com/freelancers/...'],
+    ['github_url', 'GitHub link', 'text', 255, 'Used in the sign-off when there is no GitLab account.', 'https://github.com/username'],
+    ['gitlab_account', 'GitLab account', 'text', 255, 'A username or the full link. Used in the sign-off first.', 'username or https://gitlab.com/username'],
+    ['services', 'Services', 'area', 2000, 'What this profile sells. Used to suggest a profile for a job.', 'For example: AI agents, RAG, AI voice agents, SaaS platforms'],
+    ['industries', 'Industries to lead with', 'text', 500, '', 'For example: Healthcare, Real estate'],
+    ['voice', 'Voice', 'text', 300, 'How the proposal speaks.', 'For example: I, as named lead, with team backup where useful'],
+    ['signature', 'Signature', 'text', 500, 'How the proposal signs off.', 'For example: the name, then the GitHub link on the next line'],
+    ['stats_allowed', 'Upwork stats allowed in proposals', 'text', 500, 'The only figures the writer may use about this profile.', 'For example: Top Rated Plus, 100% Job Success Score'],
+    ['rules', 'Profile rules', 'area', 4000, 'Followed in every proposal from this profile, before the template.', 'For example: no pricing and no timeline unless the client asks'],
+    ['submitted_by', 'Who submits', 'text', 300, '', 'For example: Hassan'],
+    ['notes', 'Notes', 'text', 500, '', 'For example: main freelancer profile'],
+  ];
   function form(p) {
-    const f = { name: h('input', { type: 'text', id: 'pn', value: p ? p.name : '', maxlength: 120 }),
-      tagline: h('input', { type: 'text', id: 'ptl', value: p && p.tagline ? p.tagline : '', maxlength: 200, placeholder: 'For example: AI automation and voice agents for service businesses' }),
-      price: h('input', { type: 'number', id: 'ppr', min: 0, max: 100000, step: '0.01', value: p && p.price !== null && p.price !== undefined ? Number(p.price) : '', placeholder: 'For example: 45' }),
-      gitlab: h('input', { type: 'text', id: 'pgl', value: p && p.gitlab_account ? p.gitlab_account : '', maxlength: 255, placeholder: 'username or https://gitlab.com/username' }),
-      url: h('input', { type: 'text', id: 'pu', value: p && p.profile_url ? p.profile_url : '', placeholder: 'https://www.upwork.com/freelancers/...' }),
-      notes: h('input', { type: 'text', id: 'pt', value: p && p.notes ? p.notes : '', maxlength: 500, placeholder: 'For example: main freelancer profile' }) };
-    return { f, body: h('div', {},
+    const f = { name: h('input', { type: 'text', id: 'pn', value: p ? p.name : '', maxlength: 120 }) };
+    for (const [k, , type, max, , ph] of FIELDS) {
+      const v = p && p[k] !== null && p[k] !== undefined ? p[k] : '';
+      f[k] = type === 'area' ? h('textarea', { id: 'pf_' + k, maxlength: max, placeholder: ph, style: 'min-height:72px' }) : h('input', { type, id: 'pf_' + k, maxlength: type === 'number' ? null : max, min: type === 'number' ? 0 : null, step: type === 'number' ? '0.01' : null, placeholder: ph, value: type === 'number' && v !== '' ? Number(v) : v });
+      if (type === 'area') f[k].value = v;
+    }
+    const fld = ([k, label, , , hint]) => h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pf_' + k }, label), f[k], hint ? h('div', { class: 'hint' }, hint) : null);
+    const by = (k) => FIELDS.find((x) => x[0] === k);
+    return { f, body: h('div', { style: 'display:grid;gap:16px' },
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pn' }, 'Profile name'), f.name),
-      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'ptl' }, 'Tagline (optional)'), f.tagline, h('div', { class: 'hint' }, 'The headline shown on the Upwork profile.')),
-      h('div', { class: 'grid2', style: 'margin-top:16px' },
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ppr' }, 'Price (optional)'), f.price, h('div', { class: 'hint' }, 'The hourly rate this profile quotes.')),
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pgl' }, 'GitLab account (optional)'), f.gitlab, h('div', { class: 'hint' }, 'A username or the full link.'))),
-      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'pu' }, 'Upwork profile link (optional)'), f.url),
-      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'pt' }, 'Notes (optional)'), f.notes)) };
+      fld(by('tagline')),
+      h('div', { class: 'grid2' }, fld(by('price')), fld(by('lowest_price'))),
+      fld(by('profile_url')),
+      h('div', { class: 'grid2' }, fld(by('github_url')), fld(by('gitlab_account'))),
+      fld(by('services')), fld(by('industries')),
+      h('div', { class: 'grid2' }, fld(by('voice')), fld(by('signature'))),
+      fld(by('stats_allowed')), fld(by('rules')),
+      h('div', { class: 'grid2' }, fld(by('submitted_by')), fld(by('notes')))) };
   }
-  const values = (f) => ({ name: f.name.value, tagline: f.tagline.value.trim() || null, price: f.price.value === '' ? null : Number(f.price.value), gitlab_account: f.gitlab.value.trim() || null, profile_url: f.url.value.trim() || null, notes: f.notes.value.trim() || null });
+  const values = (f) => Object.fromEntries([['name', f.name.value], ...FIELDS.map(([k, , type]) => [k, type === 'number' ? (f[k].value === '' ? null : Number(f[k].value)) : (f[k].value.trim() || null)])]);
   function add() { const { f, body } = form(null); modal({ title: 'Add an Upwork profile', confirm: 'Add profile', body, wide: true, onConfirm: async () => { await api('POST', '/profiles', values(f)); toast('Profile added'); route(); } }); }
   function edit(p) { const { f, body } = form(p); modal({ title: 'Edit ' + p.name, confirm: 'Save changes', body, wide: true, onConfirm: async () => { await api('PATCH', '/profiles/' + p.id, values(f)); toast('Profile updated'); route(); } }); }
   const toggle = async (p) => { try { await api('PATCH', '/profiles/' + p.id, { active: !Number(p.active) }); toast(Number(p.active) ? 'Profile disabled' : 'Profile enabled'); } catch (x) { toast(x.message, true); } route(); };
@@ -1478,17 +1499,19 @@ async function profilesView() {
     body: h('p', { class: 'muted' }, 'A profile that already has screenings cannot be deleted. Disable it instead and it disappears from the screening form.'),
     onConfirm: async () => { await api('DELETE', '/profiles/' + p.id); toast('Profile deleted'); route(); } });
   const row = (p) => h('tr', {},
-    h('td', {}, h('strong', {}, p.name), p.notes ? h('div', { class: 'meta' }, p.notes.slice(0, 80)) : null, p.profile_url ? h('div', { class: 'small' }, h('a', { href: p.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on Upwork')) : null),
+    h('td', {}, h('strong', {}, p.name), p.added_via === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Added by the Claude plugin') : null,
+      p.services ? h('div', { class: 'meta' }, p.services.slice(0, 90)) : p.notes ? h('div', { class: 'meta' }, p.notes.slice(0, 80)) : null,
+      p.profile_url ? h('div', { class: 'small' }, h('a', { href: p.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on Upwork')) : null),
     h('td', {}, p.tagline ? h('span', {}, p.tagline) : h('span', { class: 'faint' }, '-')),
     h('td', {}, p.price !== null && p.price !== undefined ? h('strong', {}, money(p.price)) : h('span', { class: 'faint' }, '-')),
-    h('td', {}, (() => { const g = gitlabLink(p.gitlab_account); return g ? h('a', { href: g.href, target: '_blank', rel: 'noopener noreferrer' }, g.label) : h('span', { class: 'faint' }, '-'); })()),
+    h('td', {}, (() => { const g = gitlabLink(p.gitlab_account) || (p.github_url ? { href: p.github_url, label: p.github_url.replace(/^https?:\/\//, '') } : null); return g ? h('a', { href: g.href, target: '_blank', rel: 'noopener noreferrer' }, g.label) : h('span', { class: 'faint' }, '-'); })()),
     h('td', {}, Number(p.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Disabled')),
     h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' },
       h('button', { class: 'btn sm', onclick: () => edit(p) }, 'Edit'),
       h('button', { class: 'btn sm', onclick: () => toggle(p) }, Number(p.active) ? 'Disable' : 'Enable'),
       h('button', { class: 'btn sm danger', onclick: () => remove(p) }, 'Delete'))));
   const table = clientPaged(profiles, (slice) => h('div', { class: 'tablewrap' }, h('table', {},
-    h('thead', {}, h('tr', {}, ['Profile', 'Tagline', 'Price', 'GitLab', 'Status', ''].map((t) => h('th', {}, t)))),
+    h('thead', {}, h('tr', {}, ['Profile', 'Headline', 'Rate', 'Code link', 'Status', ''].map((t) => h('th', {}, t)))),
     h('tbody', {}, slice.map(row)))));
   shell('profiles', [
     pageHead('Upwork profiles', 'The profiles your team applies from. Every screening is recorded against one.', h('button', { class: 'btn primary', onclick: add }, icon('screen'), 'Add profile')),
@@ -1545,9 +1568,20 @@ function projectEditor(p, categories, after, industries = []) {
     show: h('input', { type: 'text', id: 'js', list: 'showlist', maxlength: 60, value: p && p.showable_publicly ? p.showable_publicly : '' }),
     notes: h('textarea', { id: 'jt', style: 'min-height:70px', maxlength: 4000 }), active: h('input', { type: 'checkbox', id: 'ja', checked: p ? !!Number(p.active) : true }) };
   f.notes.value = p && p.notes ? p.notes : '';
+  // the links the team keeps, the overview and the case study (as in the project sheet); the writer uses the overview and the case study
+  const LINKS = [['landing_link', 'Landing page link'], ['system_link', 'System link'], ['mobile_link', 'Mobile link (store links, space separated)'], ['staging_link', 'Staging link'], ['case_study_link', 'Case study link']];
+  for (const [k] of LINKS) f[k] = h('input', { type: 'text', id: 'jx_' + k, maxlength: 500, value: p && p[k] ? p[k] : '', placeholder: 'https://...' });
+  f.overview = h('textarea', { id: 'jx_overview', style: 'min-height:90px', maxlength: 8000 }); f.overview.value = p && p.overview ? p.overview : '';
+  f.case_study_summary = h('textarea', { id: 'jx_cs', style: 'min-height:90px', maxlength: 8000 }); f.case_study_summary.value = p && p.case_study_summary ? p.case_study_summary : '';
+  const lf = ([k, label]) => h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'jx_' + k }, label), f[k]);
   modal({ title: p ? 'Edit project' : 'Add a project', confirm: p ? 'Save project' : 'Add project', wide: true,
     body: h('div', {}, h('datalist', { id: 'showlist' }, SHOWABLE.map((o) => h('option', { value: o }))),
-      h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'jn' }, 'Project name'), f.name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'jl' }, 'Live link (optional)'), f.link)),
+      h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'jn' }, 'Project name'), f.name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'jl' }, 'Proposal link (optional)'), f.link, h('div', { class: 'hint' }, 'The link a proposal uses. Usually the landing page, or the store or live system link.'))),
+      h('div', { class: 'grid2', style: 'margin-top:16px' }, lf(LINKS[0]), lf(LINKS[1])),
+      h('div', { class: 'grid2', style: 'margin-top:16px' }, lf(LINKS[2]), lf(LINKS[3])),
+      h('div', { class: 'grid2', style: 'margin-top:16px' }, lf(LINKS[4]), h('div', {})),
+      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'jx_overview' }, 'Project overview'), f.overview, h('div', { class: 'hint' }, 'What was built. The proposal writer describes the project from this.')),
+      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'jx_cs' }, 'Case study summary'), f.case_study_summary, h('div', { class: 'hint' }, 'Results and facts the writer may use. Figures here are allowed in proposals.')),
       h('div', { class: 'grid2', style: 'margin-top:16px' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'js' }, 'Showable publicly'), f.show),
         h('div', { class: 'field row', style: 'align-self:end;padding-bottom:8px' }, f.active, h('label', { for: 'ja', style: 'font-weight:600' }, 'Active (used for matching)'))),
       h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'jt' }, 'Notes (optional)'), f.notes),
@@ -1557,7 +1591,8 @@ function projectEditor(p, categories, after, industries = []) {
       body: h('p', { class: 'muted' }, 'This removes the project and its tags. It cannot be undone. To keep it but stop using it, untick Active instead.'),
       onConfirm: async () => { await api('DELETE', '/projects/' + p.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Project deleted'); after(null); } }) }, 'Delete') : null,
     onConfirm: async () => {
-      const body = { name: f.name.value, live_link: f.link.value.trim() || null, showable_publicly: f.show.value.trim() || null, notes: f.notes.value.trim() || null, active: f.active.checked, tag_ids: [...selected], industry_ids: [...pickedInd] };
+      const body = { name: f.name.value, live_link: f.link.value.trim() || null, showable_publicly: f.show.value.trim() || null, notes: f.notes.value.trim() || null, active: f.active.checked, tag_ids: [...selected], industry_ids: [...pickedInd],
+        ...Object.fromEntries([...LINKS.map(([k]) => k), 'overview', 'case_study_summary'].map((k) => [k, f[k].value.trim() || null])) };
       const r = await api(p ? 'PATCH' : 'POST', p ? '/projects/' + p.id : '/projects', body); toast(p ? 'Project saved' : 'Project added'); after(r.id);
     } });
 }
@@ -1609,17 +1644,25 @@ async function projectDetailView(id) {
   const canEdit = canEditProjects();
   const own = new Set(p.tags.map((t) => t.id));
   const groups = categories.map((c) => ({ name: c.name, tags: c.tags.filter((t) => own.has(t.id)) })).filter((g) => g.tags.length);
-  const link = /^https?:\/\//i.test(p.live_link || '') ? h('a', { href: p.live_link, target: '_blank', rel: 'noopener noreferrer' }, p.live_link) : null;
+  const ext = (u) => (/^https?:\/\//i.test(u || '') ? h('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, u) : null);
+  const link = ext(p.live_link);
+  const urlList = (v) => (v ? h('div', { style: 'display:grid;gap:2px' }, v.split(/\s+/).filter(Boolean).map((u) => ext(u) || u)) : null);
+  const kv = (label, v) => h('div', {}, h('dt', {}, label), h('dd', { class: v ? '' : 'ns' }, v || 'Not recorded'));
   shell('projects', [
     h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.projects, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to projects')),
     pageHead(p.name, `${p.tags.length} tag${p.tags.length === 1 ? '' : 's'} across ${groups.length} categor${groups.length === 1 ? 'y' : 'ies'}`,
       [Number(p.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive'),
         canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(p, categories, (nid) => (nid ? route() : (location.hash = lastList.projects)), industries) }, 'Edit project') : null]),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'), h('dl', { class: 'kv cols2' },
-      h('div', {}, h('dt', {}, 'Live link'), h('dd', { class: link ? '' : 'ns' }, link || 'Not recorded')),
+      kv('Proposal link', link), kv('Landing page', ext(p.landing_link)), kv('System', ext(p.system_link)), kv('Mobile', urlList(p.mobile_link)),
+      kv('Staging', ext(p.staging_link)), kv('Case study', ext(p.case_study_link)),
       h('div', {}, h('dt', {}, 'Showable publicly'), h('dd', { class: p.showable_publicly ? '' : 'ns' }, p.showable_publicly || 'Not recorded')),
       h('div', {}, h('dt', {}, 'Added'), h('dd', {}, full(p.created_at))), h('div', {}, h('dt', {}, 'Last updated'), h('dd', {}, full(p.updated_at))),
+      p.added_via === 'claude_plugin' ? h('div', {}, h('dt', {}, 'Added by'), h('dd', {}, 'The Claude plugin')) : null,
       p.notes ? h('div', { style: 'grid-column:1/-1' }, h('dt', {}, 'Notes'), h('dd', {}, p.notes)) : null)),
+    h('div', { style: 'height:16px' }),
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Overview'), p.overview ? h('p', { style: 'margin:0;white-space:pre-wrap' }, p.overview) : h('p', { class: 'faint small' }, 'No overview yet. The proposal writer describes the project from it.'),
+      p.case_study_summary ? [h('h3', { class: 'section-title', style: 'margin-top:18px' }, 'Case study summary'), h('p', { style: 'margin:0;white-space:pre-wrap' }, p.case_study_summary)] : null),
     h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Industries (${p.industries.length})`),
       p.industries.length ? h('div', { class: 'chips' }, p.industries.map((i) => h('a', { class: 'chip brand', href: '#/i/' + i.id }, i.name))) : h('p', { class: 'faint small' }, 'No industries yet.')),

@@ -20,7 +20,8 @@ import { exec, pool, query } from '../src/db';
   const tagId = new Map((await query<any>('SELECT t.id, t.name FROM tags t')).map((r) => [r.name.toLowerCase(), r.id]));
 
   for (const p of lib.projects) {
-    const r = await exec('INSERT IGNORE INTO projects (name, live_link, showable_publicly) VALUES (?,?,?)', [p.name, p.live_link, p.showable]);
+    const r = await exec(`INSERT IGNORE INTO projects (name, live_link, showable_publicly, landing_link, system_link, mobile_link, staging_link, case_study_link, overview, case_study_summary)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`, [p.name, p.live_link, p.showable, p.landing_link ?? null, p.system_link ?? null, p.mobile_link ?? null, p.staging_link ?? null, p.case_study_link ?? null, p.overview ?? null, p.case_study_summary ?? null]);
     if (!r.affectedRows) continue; // already there: leave its tags alone
     n.proj++;
     for (const t of p.tags) {
@@ -33,7 +34,12 @@ import { exec, pool, query } from '../src/db';
     n.rule += (await exec('INSERT IGNORE INTO rules (code, type, rule, details) VALUES (?,?,?,?)', [r.code, r.type, r.rule, r.details ?? null])).affectedRows;
     if (r.details) n.details += (await exec("UPDATE rules SET details=? WHERE code=? AND (details IS NULL OR details='')", [r.details, r.code])).affectedRows;
   }
-  for (const name of lib.profiles) n.prof += (await exec('INSERT IGNORE INTO upwork_profiles (name) VALUES (?)', [name])).affectedRows;
+  // a profile is a name, or a record with the plugin's fields; only a missing profile is inserted
+  for (const x of lib.profiles) {
+    const f = typeof x === 'string' ? { name: x } : x;
+    const keys = Object.keys(f).filter((k) => f[k] != null && f[k] !== '');
+    n.prof += (await exec(`INSERT IGNORE INTO upwork_profiles (${keys.join(', ')}) VALUES (?)`, [keys.map((k) => f[k])])).affectedRows;
+  }
 
   // Industries: created ONCE from the "Industry" tag category and each project's industry tags, then owned by the app
   // (so an industry deleted later does not come back when this script is run again).

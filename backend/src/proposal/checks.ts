@@ -24,7 +24,7 @@ export function checkProposal(i: CheckInput): string[] {
   const allowed = new Set([...i.selectedProjects.map((p) => p.live_link).filter(Boolean), i.sender.gitlab_link].filter(Boolean).map((u) => norm(String(u))));
   for (const u of new Set(urls(t))) if (!allowed.has(norm(u))) w.push(`The link ${u} is not one of the provided project or profile links. Check it.`);
   if (!has(t, i.sender.name)) w.push(`The sign-off does not contain the sender name "${i.sender.name}".`);
-  if (i.sender.gitlab_link && !t.toLowerCase().includes(norm(i.sender.gitlab_link))) w.push('The sign-off does not contain the sender\'s GitLab link.');
+  if (i.sender.gitlab_link && !t.toLowerCase().includes(norm(i.sender.gitlab_link))) w.push('The sign-off does not contain the sender\'s code link (GitLab link or GitHub link).');
   const given = i.selectedProjects.map((p) => p.notes ?? '').join(' ');
   const pct = [...new Set(t.match(/\d+(?:\.\d+)?\s*(?:[-–—]\s*\d+(?:\.\d+)?\s*)?%/g) ?? [])].filter((x) => !given.includes(x.replace(/\s+/g, '')) && !given.includes(x));
   if (pct.length) w.push(`The proposal contains a figure (${pct.join(', ')}) that is not in the project facts. Remove it unless it is true.`);

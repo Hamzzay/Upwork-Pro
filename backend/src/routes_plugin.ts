@@ -5,6 +5,7 @@ import { requireRole } from './auth';
 import { textToHtml } from './html';
 import { jobIdFromUrl } from './screening/jobsource';
 import { getSettings } from './settings';
+import { PROFILE_FIELDS, profileBody } from './routes_library';
 
 /**
  * The Claude plugin saves its own work here: the job it screened, the proposal it wrote, and (through the shared status
@@ -127,7 +128,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
   }
   const profs = await query<any>('SELECT id, name FROM upwork_profiles WHERE active=1');
   const prof = typeof d.profile === 'number' ? profs.find((p) => p.id === d.profile) : profs.find((p) => p.name.toLowerCase() === String(d.profile).toLowerCase());
-  if (!prof) return void res.status(400).json({ error: `No active Upwork profile called "${d.profile}". Active profiles: ${profs.map((p) => p.name).join(', ') || 'none'}`, field: 'profile' });
+  if (!prof) return void res.status(400).json({ error: `No active Upwork profile called "${d.profile}". Active profiles: ${profs.map((p) => p.name).join(', ') || 'none'}. Add it with add_profile, then save again.`, field: 'profile' });
   const lib = await query<any>('SELECT id, name FROM projects');
   const picked = d.projects.map((n) => ({ name: n, p: lib.find((x) => x.name.toLowerCase() === n.toLowerCase()) ?? null }));
   const unknown = picked.filter((x) => !x.p).map((x) => x.name);
@@ -167,6 +168,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(userId, 'plugin_proposal_save', `screening=${s.id} version=${version} profile=${prof.id}${d.finished ? ' finished' : ''}`);
   res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, projects_not_in_library: unknown,
+    add_missing: unknown.length ? 'Add each of these with add_project (name, links, overview, tags from the project sheet), then save again so they link to the library.' : undefined,
     next: d.finished ? 'Ready to send: once it is submitted on Upwork, set the status to Sent.' : 'Saved as a draft. Save again with finished=true when it is final.' });
 });
 
@@ -174,10 +176,82 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
 plugin.get('/plugin/options', anyone, async (_req, res) => {
   const cfg = await getSettings();
   res.json({
-    profiles: (await query<any>('SELECT id, name FROM upwork_profiles WHERE active=1 ORDER BY name')),
+    profiles: (await query<any>(`SELECT id, name, ${PROFILE_FIELDS.join(', ')} FROM upwork_profiles WHERE active=1 ORDER BY name`))
+      .map((p) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null && v !== ''))),
     projects: (await query<any>('SELECT name FROM projects WHERE active=1 ORDER BY name')).map((p) => p.name),
     rules: await query("SELECT code, type, rule, details FROM rules WHERE active=1 ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
     statuses: ['Sent', 'Viewed', 'Chat opened', 'Interview'], outcomes: cfg['tracking.outcomes'], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'],
     min_continue_reason: cfg['override.min_reason'],
   });
+});
+
+// ---------- adding what the library is missing ----------
+// When the plugin needs a profile or a project the app does not have yet, it adds it here straight away, with the same
+// permissions as the app (profiles: admins; projects: managers and admins). Nothing is overwritten: an existing record only
+// gets the fields that are still empty, so edits made in the app win.
+
+/** Add an Upwork profile, or fill the empty fields of an existing one with the same name. */
+plugin.post('/plugin/profiles', requireRole('admin'), async (req, res) => {
+  const b = profileBody.omit({ active: true }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
+  const d: any = b.data;
+  const cur = (await query<any>('SELECT * FROM upwork_profiles WHERE name=?', [d.name]))[0];
+  if (!cur) {
+    const r = await exec(`INSERT INTO upwork_profiles (name, ${PROFILE_FIELDS.join(', ')}, added_via) VALUES (?)`, [[d.name, ...PROFILE_FIELDS.map((k) => d[k] ?? null), SOURCE]]);
+    await audit(req.user!.id, 'profile_create', `id=${r.insertId} from the Claude plugin`);
+    return void res.status(201).json({ ok: true, id: r.insertId, created: true, name: d.name });
+  }
+  const fill = PROFILE_FIELDS.filter((k) => d[k] != null && (cur[k] == null || cur[k] === ''));
+  if (fill.length) await exec(`UPDATE upwork_profiles SET ${fill.map((k) => k + '=?').join(', ')} WHERE id=?`, [...fill.map((k) => d[k]), cur.id]);
+  if (fill.length) await audit(req.user!.id, 'profile_update', `id=${cur.id} filled ${fill.join(',')} from the Claude plugin`);
+  res.json({ ok: true, id: cur.id, created: false, name: cur.name, filled: fill, active: !!cur.active,
+    note: cur.active ? undefined : 'This profile is disabled in Upwork Pro. An admin can enable it under Upwork profiles.' });
+});
+
+const link = z.string().trim().max(500).regex(/^https?:\/\/\S+$/i, 'Links start with http:// or https://');
+const projectBody = z.object({
+  name: z.string().trim().min(1).max(190),
+  landing_link: link.optional(), system_link: link.optional(), mobile_link: z.string().trim().max(500).optional(), staging_link: link.optional(), case_study_link: link.optional(),
+  overview: z.string().trim().max(8000).optional(), case_study_summary: z.string().trim().max(8000).optional(),
+  tags: z.array(z.string().trim().min(1).max(120)).max(200).default([]).describe('Tag names from the tag dictionary, Industry tags included'),
+});
+const PROJECT_FIELDS = ['landing_link', 'system_link', 'mobile_link', 'staging_link', 'case_study_link', 'overview', 'case_study_summary'] as const;
+
+/** Add a project to the library, or fill the empty fields of an existing one and add the tags it is missing (never removes). */
+plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res) => {
+  const b = projectBody.safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
+  const d: any = b.data;
+  const known = new Map((await query<any>('SELECT t.id, t.name, c.name AS category FROM tags t JOIN tag_categories c ON c.id=t.category_id WHERE t.active=1'))
+    .map((t) => [t.name.toLowerCase(), t]));
+  const tags = d.tags.map((n: string) => known.get(n.toLowerCase())).filter(Boolean);
+  const unknownTags = d.tags.filter((n: string) => !known.has(n.toLowerCase()));
+  // the proposal link: a public page first (landing, then the first mobile store link), then the live system
+  const liveLink = d.landing_link || (d.mobile_link ? d.mobile_link.split(/\s+/)[0] : null) || d.system_link || null;
+  const conn = await pool.getConnection();
+  let id: number, created = false, filled: string[] = [], added = 0;
+  try {
+    await conn.beginTransaction();
+    const [[cur]]: any = await conn.query('SELECT * FROM projects WHERE name=?', [d.name]);
+    if (!cur) {
+      const [r]: any = await conn.query(`INSERT INTO projects (name, live_link, ${PROJECT_FIELDS.join(', ')}, added_via) VALUES (?)`, [[d.name, liveLink, ...PROJECT_FIELDS.map((k) => d[k] ?? null), SOURCE]]);
+      id = Number(r.insertId); created = true;
+    } else {
+      id = cur.id;
+      filled = PROJECT_FIELDS.filter((k) => d[k] && !cur[k]);
+      if (!cur.live_link && liveLink) filled.push('live_link');
+      if (filled.length) await conn.query(`UPDATE projects SET ${filled.map((k) => k + '=?').join(', ')} WHERE id=?`, [...filled.map((k) => (k === 'live_link' ? liveLink : d[k])), id]);
+    }
+    if (tags.length) added = ((await conn.query('INSERT IGNORE INTO project_tags (project_id, tag_id) VALUES ?', [tags.map((t: any) => [id, t.id])])) as any)[0].affectedRows;
+    // an Industry tag also places the project on the Industries page
+    for (const t of tags.filter((x: any) => x.category === 'Industry')) {
+      let [[ind]]: any = await conn.query('SELECT id FROM industries WHERE name=?', [t.name]);
+      if (!ind) { const [r]: any = await conn.query('INSERT INTO industries (name) VALUES (?)', [t.name]); ind = { id: r.insertId }; }
+      await conn.query('INSERT IGNORE INTO project_industries (project_id, industry_id) VALUES (?,?)', [id, ind.id]);
+    }
+    await conn.commit();
+  } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+  await audit(req.user!.id, created ? 'project_create' : 'project_update', `id=${id} from the Claude plugin${filled.length ? ' filled ' + filled.join(',') : ''} tags_added=${added}`);
+  res.status(created ? 201 : 200).json({ ok: true, id, created, name: d.name, filled, tags_added: added, unknown_tags: unknownTags,
+    note: unknownTags.length ? 'These tags are not in the tag dictionary, so they were left out. An admin can add them under Tag dictionary.' : undefined });
 });
