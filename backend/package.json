@@ -26,6 +26,9 @@
     "seed:writing:prod": "node dist/scripts/seed-writing.js",
     "merge:writing": "ts-node scripts/merge-writing.ts",
     "merge:writing:prod": "node dist/scripts/merge-writing.js",
+    "setup:export": "ts-node scripts/setup-data.ts export",
+    "setup:import": "ts-node scripts/setup-data.ts import",
+    "setup:import:prod": "node dist/scripts/setup-data.js import",
     "backfill:postings": "ts-node scripts/backfill-postings.ts",
     "backfill:postings:prod": "node dist/scripts/backfill-postings.js",
     "seed:examples": "ts-node scripts/seed-examples.ts"

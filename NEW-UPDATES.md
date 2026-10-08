@@ -548,6 +548,16 @@ clumsy active tabs, profiles one per row. Measured first (12 jobs, every tab), t
   no console errors, each tab 1 to 1.8 screens. Interaction checks without changing data: Continue with no reason, picking another
   profile, leaving a tab. Not checked: phone width (Chrome would not shrink below 1200 pixels).
 
+### R24. A backup of the setup data, to go live with (done)
+Everything Upwork Pro needs, without any job, user or token, is in `backend/seed/setup/setup.json`: the gate instructions (all versions),
+rules, signals and their values, the proposal types with their signal mapping and samples, the writing guide, tag categories and tags,
+industries, projects (with their tags and industries), Upwork profiles and settings. Rows are matched by name or code, never by id.
+- `npm run setup:export` writes it (run it after changing setup in the app, then commit the file).
+- `npm run setup:import` shows what a restore would add or change; `npm run setup:import -- --apply` restores (adds what is missing,
+  makes what exists match the backup, deletes nothing). Going live: migrate, `npm run seed` for the admin, then the restore.
+- New setup tables (Loom videos, certifications) go into `SPEC` in `scripts/setup-data.ts` so they are backed up too.
+- Checked: restored into a new empty database, exported it again, and the two files are identical; the test database was dropped.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
