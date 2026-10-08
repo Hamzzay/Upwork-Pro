@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { ZodError } from 'zod';
 import { appRoot, config } from './config';
 import { api } from './routes';
+import { oauth } from './oauth';
 
 const app = express();
 app.disable('x-powered-by');
@@ -18,6 +19,7 @@ app.use((_req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'");
   next();
 });
+app.use(oauth); // sign in from Claude (OAuth for the MCP connector): /.well-known/*, /oauth/register, /oauth/authorize, /oauth/token
 // state-changing calls must be JSON: a plain cross-site form post cannot send that
 app.use('/api', (req, res, next) => {
   if (req.method !== 'GET' && !req.is('application/json')) return void res.status(415).json({ error: 'JSON only' });

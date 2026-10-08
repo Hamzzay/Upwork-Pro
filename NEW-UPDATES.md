@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 019: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync, writing guide
+npm run migrate        # applies 008 to 021: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
 npm run seed:writing   # the writing guide (6 proposal types, rules, banned phrases, modules, screening answers, checklist), insert-if-missing
 npm run seed:library   # fills each rule's "How to apply" note and makes the instructions-only gate version active (see R15)
 npm run sync:library   # dry run: what the project sheet snapshot would change; then add -- --apply (see R17)
@@ -468,6 +468,24 @@ copy of the plugin must not change what it uses. So the plugin no longer carries
   not reachable. "Project stage counts 0 for now" stays as a plugin note, since the library weights say 2.
 - The app's own writer does not use the writing guide yet (it still uses its templates); that is difference 2 in `PLUGIN-VS-SYSTEM.md`.
 - Still to do for several Claudes: host Upwork Pro where every Claude can reach it (it runs on localhost now), and a plugin version check.
+
+### R20. Sheet sync removed; Claude connects by signing in (OAuth) (done)
+- **Sheet sync is gone** (Hamza: the Google key could not be made, and Upwork Pro is the one library every Claude reads since R19):
+  the Sheet sync page and its Settings, the worker timer, the sync after edits, `src/sheets`, `routes_sheets.ts` and their tests.
+  Migration `020_drop_sheet_sync.sql` drops its tables and the `sheet_removed_at` columns (never used). `sync:library` (file based) stays.
+- **Sign in from Claude instead of copying a token**: each person adds the connector link in their own Claude, signs in with their own
+  Upwork Pro email and password, and allows it; everything that Claude saves is recorded as them. Built to the MCP authorization spec
+  (OAuth 2.1): discovery documents, dynamic client registration, authorization code with PKCE (S256), access tokens of 1 hour that are
+  ordinary `api_tokens` of that person (same limited reach as a personal token), refresh tokens of 60 days used once and replaced
+  (a reused one disconnects the whole connection). `src/oauth.ts`, the sign-in page `public/oauth.html` + `oauth.js` (sign in, see
+  which app asks and as whom, Allow or Deny), migration `021_oauth.sql`.
+- **The HTTP MCP** (`mcp --http`) now answers an unsigned or expired request with 401 and the sign-in pointer, serves its protected
+  resource metadata, and checks each token with the new `GET /api/plugin/whoami`.
+- **Connect Claude**: a "Connect with sign-in" card with the connector link and steps, and the person's connections with Disconnect.
+  Personal tokens stay below it for a local setup; the hourly sign-in tokens are not listed there.
+- **Settings** (`.env.example`): `PUBLIC_URL` and `MCP_URL` (backend), `UPWORK_PRO_PUBLIC_URL` and `MCP_URL` (MCP). See `mcp/README.md`.
+- Checked locally end to end with the MCP SDK's own OAuth client (every step above, plus Deny, a foreign return address and no PKCE
+  refused); the test rows were removed. Not tried from claude.ai yet: that needs Upwork Pro online with https.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

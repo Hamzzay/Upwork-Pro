@@ -20,9 +20,6 @@ import { createServer } from 'node:http';
 import { runOpenAI, strictSchema } from '../src/llm/openai';
 import { postingSchema } from '../src/screening/posting';
 import { writerSchema, chatSchema } from '../src/proposal/writer';
-import { merge, type Rec } from '../src/sheets/merge';
-import { applyToSheet, readProfiles, readProjects, readTags, TABS } from '../src/sheets/model';
-import { FakeSheet } from './fakesheet';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
 const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string; details?: string }[];
@@ -291,74 +288,6 @@ const ctx = { rules, projects };
   mode = 'notjson'; await assert.rejects(runOpenAI(oa), /no structured output/);
   mode = 'hang'; await assert.rejects(runOpenAI({ ...oa, timeoutMs: 400 }), /^Error: timeout after 400 ms/);
   fake.closeAllConnections?.(); fake.close();
-
-  // ---- two-way sheet sync: the merge ----
-  {
-    const M = (o: Record<string, Rec>) => new Map(Object.entries(o));
-    const P = (x: Rec) => ({ name: 'A', overview: null, tags: [], ...x });
-    // first sync (no base): each side's new records go to the other, an empty field takes the filled one, two filled values conflict
-    let r = merge(M({}), M({ a: P({ overview: 'sheet text', tags: ['Web app'] }), s: P({ name: 'S' }) }), M({ a: P({ overview: null, tags: ['Chatbot'] }), p: P({ name: 'P' }) }));
-    assert.deepEqual(r.toApp.create.map((x) => x.key), ['s']); assert.deepEqual(r.toSheet.create.map((x) => x.key), ['p']);
-    assert.deepEqual(r.base.get('a')!.tags, ['Chatbot', 'Web app'], 'tags from both sides are kept');
-    assert.equal(r.base.get('a')!.overview, 'sheet text'); assert.equal(r.conflicts.length, 0);
-    r = merge(M({}), M({ a: P({ overview: 'one' }) }), M({ a: P({ overview: 'two' }) }));
-    assert.equal(r.conflicts.length, 1); assert.equal(r.base.get('a')!.overview, 'one', 'a conflict keeps the sheet value'); assert.equal(r.conflicts[0].app, 'two', 'and reports the app value');
-    // later syncs: the side that changed wins; a tag removed on one side is removed from both
-    const base = M({ a: P({ overview: 'old', tags: ['Web app', 'Chatbot'] }) });
-    r = merge(base, M({ a: P({ overview: 'old', tags: ['Web app'] }) }), M({ a: P({ overview: 'new in app', tags: ['Web app', 'Chatbot', 'RAG / knowledge base'] }) }));
-    assert.equal(r.base.get('a')!.overview, 'new in app'); assert.deepEqual(r.toSheet.update[0].fields, { overview: 'new in app', tags: ['RAG / knowledge base', 'Web app'] });
-    assert.deepEqual(r.base.get('a')!.tags, ['RAG / knowledge base', 'Web app'], 'Chatbot removed in the sheet, RAG added in the app');
-    r = merge(base, M({ a: P({ overview: 'sheet edit', tags: ['Web app', 'Chatbot'] }) }), M({ a: P({ overview: 'app edit', tags: ['Web app', 'Chatbot'] }) }));
-    assert.equal(r.conflicts.length, 1, 'both changed the same field');
-    // removals follow, and the brake holds back a mass removal
-    r = merge(M({ a: P({}), b: P({ name: 'B' }) }), M({ a: P({}) }), M({ a: P({}), b: P({ name: 'B' }) }));
-    assert.deepEqual(r.toApp.remove, ['b'], 'removed in the sheet, so put aside in the app');
-    const many = Object.fromEntries(Array.from({ length: 10 }, (_, i) => ['k' + i, P({ name: 'K' + i })]));
-    r = merge(M(many), M({ k0: many.k0 }), M(many));
-    assert.equal(r.toApp.remove.length, 0); assert.equal(r.heldBack[0].keys.length, 9, 'nine removals at once are held back'); assert.ok(r.base.has('k5'));
-    assert.equal(merge(M({}), M({ a: { name: 'A', price: '35' } }), M({ a: { name: 'A', price: '35.00' } })).toSheet.update.length, 0, '35 and 35.00 are the same');
-  }
-
-  // ---- two-way sheet sync: reading and writing the sheet ----
-  {
-    const proj = [
-      ['Project name', 'Landing Page Link', 'Tags', 'Project stage', '', 'Industry', '', 'Project overview'],
-      ['', '', '', 'MVP', 'Rescue / takeover', 'Healthcare', 'Dental', ''],
-      ['Put an x under every tag', '', '', '', '', '', '', ''],
-      ['Navience', 'https://navience.ai', '=formula', 'x', '', 'x', '', 'Claims AI'],
-      ['Chloe', '', '', '', 'x', '', 'x', 'Dental calls'],
-    ];
-    const dict = [['Category', 'Tag', 'Jobs (of 401)', 'Share of jobs', 'Match weight', 'What it means'], ['Project stage', 'MVP', '45', '11%', '2', 'First version'],
-      ['Project stage', 'Rescue / takeover', '27', '6%', '2', ''], ['Industry', 'Healthcare', '49', '', '2', ''], ['Industry', 'Dental', '5', '', '2', ''], ['Job counts: keyword matches']];
-    const io = new FakeSheet({ [TABS.projects]: proj, [TABS.tags]: dict });
-    const P0 = readProjects(await io.grid(TABS.projects));
-    assert.deepEqual(P0.get('navience'), { name: 'Navience', landing_link: 'https://navience.ai', system_link: null, staging_link: null, mobile_link: null, showable: null, overview: 'Claims AI', case_study_link: null, case_study_summary: null, tags: ['MVP', 'Healthcare'] });
-    const T0 = readTags(await io.grid(TABS.tags), await io.grid(TABS.projects));
-    assert.equal(T0.size, 4); assert.equal(T0.get('mvp')!.weight, '2'); assert.ok(!T0.has('job counts: keyword matches'), 'the footer note is not a tag');
-    // the app added a tag (Legal), a project (Kruzee) using it, edited Chloe, and has a profile; the sheet has no Profiles tab yet
-    const appTags = new Map(T0); appTags.set('legal', { name: 'Legal', category: 'Industry', weight: '2', description: null });
-    const appProj = new Map(P0); appProj.set('chloe', { ...P0.get('chloe')!, overview: 'Dental calls, now with SMS', tags: ['Rescue / takeover', 'Dental', 'Legal'] });
-    appProj.set('kruzee', { ...P0.get('navience')!, name: 'Kruzee', landing_link: 'https://kruzee.com', overview: 'Driving lessons', tags: ['MVP', 'Legal'] });
-    const appProf = new Map([['hassan ijaz', { name: 'Hassan Ijaz', active: 'Yes', price: '25', rules: 'No timelines' } as Rec]]);
-    const mt = merge(new Map(T0), T0, appTags), mp = merge(new Map(P0), P0, appProj), mf = merge(new Map(), new Map(), appProf);
-    await applyToSheet(io, { tags: mt.toSheet, projects: mp.toSheet, profiles: mf.toSheet }, { tags: mt.base, projects: mp.base, profiles: mf.base });
-    const P1 = readProjects(await io.grid(TABS.projects));
-    assert.deepEqual(P1.get('chloe')!.tags, ['Rescue / takeover', 'Dental', 'Legal'], 'the new tag got a column and Chloe its x');
-    assert.equal(P1.get('chloe')!.overview, 'Dental calls, now with SMS');
-    assert.deepEqual(P1.get('kruzee')!.tags, ['MVP', 'Legal']); assert.equal(P1.get('kruzee')!.landing_link, 'https://kruzee.com');
-    const g = await io.grid(TABS.projects);
-    assert.equal(g[1].indexOf('Legal'), 7, 'Legal is placed at the end of the Industry group'); assert.equal(g[0][7], '', 'inside the group, no new group header');
-    assert.equal(g[3][2], '=formula', 'cells the sync does not own are left alone'); assert.equal(g[3][8], 'Claims AI', 'the overview moved right with its column');
-    const d = await io.grid(TABS.tags); assert.deepEqual(d.find((r) => r[1] === 'Legal')!.slice(0, 2), ['Industry', 'Legal']);
-    assert.equal(d[d.length - 1][0], 'Job counts: keyword matches', 'the footer stays last');
-    const pr = readProfiles(await io.grid(TABS.profiles));
-    assert.equal(pr.get('hassan ijaz')!.price, '25'); assert.equal(pr.get('hassan ijaz')!.rules, 'No timelines', 'the Profiles tab was made and filled');
-    // the sheet removes Navience: once the app agrees, the sync removes the row from the sheet when the app removed it
-    const mp2 = merge(mp.base, P1, new Map([...mp.base].filter(([k]) => k !== 'navience')));
-    assert.deepEqual(mp2.toSheet.remove, ['navience']);
-    await applyToSheet(io, { tags: { create: [], update: [], remove: [] }, projects: mp2.toSheet, profiles: { create: [], update: [], remove: [] } }, { tags: mt.base, projects: mp2.base, profiles: mf.base });
-    assert.ok(!readProjects(await io.grid(TABS.projects)).has('navience')); assert.ok(readProjects(await io.grid(TABS.projects)).has('kruzee'));
-  }
 
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

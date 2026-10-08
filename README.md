@@ -27,9 +27,8 @@ GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backe
 | **Gate instructions** | admin | How the gate reads and judges a job (not the rules), in versions. Saving never overwrites: it makes a new version that only counts once activated. Has a test box and a full prompt preview. |
 | **Rules** | admin | The FAIL and FLAG rules with their codes and a How to apply note, how many jobs each fired on, add / edit / retire. Applied from the next job. |
 | **Writing guide** | everyone reads; managers and admins edit | The six proposal types, writing rules, banned phrases, modules, screening answers and checklist the Claude plugin follows, with versions. |
-| **Sheet sync** | admin | Two-way sync of projects, tags and profiles with the Google Sheet: connection, Sync now, conflicts, last runs. |
 | **Settings** | admin | **The AI** (GLM, Claude or GPT, with a model and a connection test), projects shown, recommended, the fewest and most a person can pick (1 to 2), the minimum match score, the shortest override reason, outcome choices and lost reasons, quiet days, rules passed to the writer. Applied to the next job, no restart. |
-| **Connect Claude** | everyone | Makes personal tokens so Claude can save sheet data into Upwork Pro (see `mcp/README.md`). |
+| **Connect Claude** | everyone | Connect your own Claude by signing in (the connector link, your connections, Disconnect), or make a personal token for a local setup (see `mcp/README.md`). |
 | Users | admin | Accounts and roles. |
 | **Logs** | admin | **Activity** (audit log with filters) and **AI calls** (every model call: job, step, model, time, failures). |
 

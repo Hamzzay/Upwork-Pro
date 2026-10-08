@@ -80,15 +80,32 @@ Then ask Claude, for example: *"Import the Rule Codes sheet from Upwork Jobs His
 - Everything is in the Logs (`import_commit`, `import_undo`, `token_create`, `token_revoke`).
 - Previews not saved within 24 hours are deleted. At most 100 rows per API call, 5,000 per import, 10 open imports per person.
 
-## Running it on a server (real testing)
+## Running it on a server: each person signs in (OAuth)
 
-`npm run build && npm run start:http` serves the same tools at `http://127.0.0.1:3100/mcp` (stateless; each request carries the person's own token as `Authorization: Bearer upw_...`;
-it never reads files). Put it behind HTTPS (a reverse proxy) next to the Upwork Pro server, and set `UPWORK_PRO_URL` to the server's address.
+`npm run build && npm run start:http` serves the same tools at `http://127.0.0.1:3100/mcp`. It never reads files. Put it behind
+HTTPS on the same domain as Upwork Pro (a reverse proxy: `/mcp` and `/.well-known/oauth-protected-resource` to port 3100, the rest to
+the backend) and set:
 
-**Claude website (claude.ai):** by default custom connectors sign in with OAuth, which this does not have. Claude's connector docs also describe an "Advanced settings, Request headers" option in the
-Add custom connector dialog that sends a fixed header on every request (see https://claude.com/docs/connectors/custom/add-unlisted). If your plan shows it, add the header
-`Authorization: Bearer upw_...` with your own token from Connect Claude, and the HTTP mode above should work as is. **This is not tested yet** (it needs the server on a public HTTPS address): it is the
-first thing to try in real testing. If the dialog has no such option, the fallback is a small OAuth sign-in in the app (the same email and password page, then a token); that is not built.
+| Where | Setting | Example |
+| --- | --- | --- |
+| MCP | `UPWORK_PRO_URL` (how the MCP reaches the backend) | `http://127.0.0.1:3000` |
+| MCP | `UPWORK_PRO_PUBLIC_URL` (where people sign in) and `MCP_URL` (the connector link) | `https://pro.example.com`, `https://pro.example.com/mcp` |
+| backend `.env` | `PUBLIC_URL` and `MCP_URL` (the same two) | as above |
+
+**How a person connects** (Claude website, Desktop or Claude Code): add a custom connector with the link (Connect Claude shows it),
+press Connect, sign in on the Upwork Pro page with their own email and password, and Allow. Claude gets a token for that person
+(1 hour, renewed by a refresh token that lasts 60 days and is replaced at every use). Everything that Claude saves is recorded as
+them, with their role's permissions. They see and disconnect their connections on Connect Claude.
+
+How it works (MCP authorization spec): an unsigned request gets `401` with `WWW-Authenticate: Bearer resource_metadata=...`; Claude
+reads the protected resource metadata (served here and by the backend), the authorization server metadata
+(`/.well-known/oauth-authorization-server`), registers itself (`/oauth/register`), and runs the code flow with PKCE (`/oauth/authorize`,
+`/oauth/token`). The backend's `src/oauth.ts` holds it all. The MCP checks every token with `GET /api/plugin/whoami` (cached a minute).
+A personal token from Connect Claude still works as a Bearer token, for a local setup.
+
+Checked locally with the MCP SDK's own OAuth client: discovery, registration, sign-in and Allow, tokens, tool calls as that person,
+a code used twice refused, refresh, a reused refresh token cutting the connection off, Deny, a foreign return address and a missing
+PKCE check refused. Not yet tried from claude.ai itself: that needs the server on a public https address.
 
 ## Tests
 
