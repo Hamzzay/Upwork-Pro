@@ -511,6 +511,17 @@ could be written two different ways. Now there is one Writing guide.
 - Checked: tests (the six types and their lengths, every starter mapping resolves, the ranking order, banned phrases, dashes, length);
   a real GLM draft for job #35 (Type 1, 193 words, no check warnings, nothing saved); the page in the browser.
 
+### R22. One job page in tabs, one press per step (done; phone widths not checked yet)
+- The read-only job page and the step-by-step page are one page (`jobPage` in `app.js`): the job header, then tabs that stay at the top:
+  Overview, Job post, 1 Screening, 2 Projects, 3 Profile, 4 Proposal, 5 Tracking, History. Steps not reachable yet are greyed out.
+  It opens on the step waiting on you (a new job on Screening), else on Overview. Links: `#/s/12/<tab>`; old `#/s/12/work?step=N` still work.
+- Overview: one "next action" card with its button, the key facts, the reason it was continued, the proposal text with Copy.
+- Screening: the decision first (Continue or Skip), then the report; the job post has its own tab. Job #50: 2.5 screens (was 4.6).
+- One press: continuing past a FLAG or FAIL (the reason is the confirmation, no pop-up); new "Skip this job"; Projects "Confirm and
+  continue" saves and opens Profile; Profile writes the proposal and opens it; "Finish the proposal" opens Tracking.
+- Proposal: the editor left, chat and "how it was written" beside it on wide screens.
+- Checked in the browser on jobs #50 and #35: every tab 1.2 to 2.6 screens, no console errors.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

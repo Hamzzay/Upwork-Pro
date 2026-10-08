@@ -282,7 +282,7 @@ async function newView() {
     err.hidden = true; btnBusy(btn, 'Sending');
     try {
       const r = await api('POST', '/screenings', { input: box.value, job_url: urlIn.value.trim() || null });
-      location.hash = '#/s/' + r.id + '/work'; // a new job goes straight into the workflow
+      location.hash = '#/s/' + r.id + '/screening'; // a new job opens on its Screening tab
     } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Screen this job'); }
   };
   btn.onclick = submit;
@@ -571,7 +571,7 @@ const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pic
 /** The workflow step a stage opens at. */
 const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, review: 4 };
 /** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
-const jobHref = (r) => (STEP_OF_STAGE[r.stage] && r.user_id === me.id ? `#/s/${r.id}/work?step=${STEP_OF_STAGE[r.stage]}` : '#/s/' + r.id);
+const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
 const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
@@ -739,6 +739,18 @@ function progressCard(status) {
       'This usually takes under a minute. You can leave this page; the result is saved.'));
 }
 
+/** Skip the job: one press, with an optional note. It moves to Not pursued. */
+function skipButton(s) {
+  const btn = h('button', { class: 'btn', type: 'button' }, 'Skip this job');
+  btn.onclick = async () => {
+    const note = (document.getElementById('why')?.value || '').trim();
+    btnBusy(btn, 'Skipping');
+    try { await api('PATCH', `/screenings/${s.id}/tracking`, { proceeded: 'no', ...(note ? { notes: note } : {}) }); toast('Skipped. It is under Not pursued.'); route(); }
+    catch (x) { toast(x.message, true); btn.disabled = false; btn.replaceChildren('Skip this job'); }
+  };
+  return btn;
+}
+
 function overrideCard(s) {
   const ta = h('textarea', { id: 'why', style: 'min-height:96px', placeholder: 'For example: client has a strong history with us, and the scope was clarified on a call.' });
   const minLen = cfg('override.min_reason', 15);
@@ -749,16 +761,17 @@ function overrideCard(s) {
     const n = ta.value.trim().length; btn.disabled = n < minLen;
     count.textContent = n < minLen ? `${n} / ${minLen} minimum` : `${n} characters`; count.className = 'counter' + (n >= minLen ? ' ok' : '');
   };
-  btn.onclick = () => modal({
-    title: 'Continue despite the ' + s.verdict + '?', confirm: 'Yes, continue',
-    body: h('p', { class: 'muted' }, 'Your reason is saved with this record and is visible to managers and admins.'),
-    onConfirm: async () => { try { await api('POST', `/screenings/${s.id}/override`, { reason: ta.value }); toast('Saved. You can continue with this job.'); afterAction(1); } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; throw x; } },
-  });
+  // one press: the reason itself is the confirmation (it is saved and shown to managers and admins)
+  btn.onclick = async () => {
+    err.hidden = true; btnBusy(btn, 'Continuing');
+    try { await api('POST', `/screenings/${s.id}/override`, { reason: ta.value }); toast('Continued. Now pick the projects.'); afterAction(1); }
+    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Continue with this job'); }
+  };
   return h('div', { class: 'card override ' + s.verdict },
     h('div', { class: 'head' }, icon('warn'), h('div', {}, h('strong', {}, `This job is a ${s.verdict}. Do you still want to continue?`),
-      h('div', { class: 'small muted' }, 'A reason is required and stays on record.'))),
+      h('div', { class: 'small muted' }, 'A reason is required and stays on record, visible to managers and admins.'))),
     h('div', { class: 'card-pad' }, h('div', { class: 'row spread', style: 'margin-bottom:6px' }, h('label', { class: 'lbl', for: 'why', style: 'margin:0' }, 'Why continue?'), count), ta, err,
-      h('div', { style: 'margin-top:14px' }, btn)));
+      h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, btn, skipButton(s))));
 }
 
 
@@ -775,7 +788,7 @@ function continueCard(s) {
   return h('div', { class: 'card override PASS' },
     h('div', { class: 'head' }, icon('check'), h('div', {}, h('strong', {}, 'This job passed the SOP gate.'),
       h('div', { class: 'small muted' }, 'Continue to tag the job and match it with Stackup projects.'))),
-    h('div', { class: 'card-pad' }, owner ? [err, btn] : h('p', { class: 'hint' }, 'Only the person who submitted this job can continue with it.')));
+    h('div', { class: 'card-pad' }, owner ? [err, h('div', { class: 'row', style: 'gap:8px' }, btn, skipButton(s))] : h('p', { class: 'hint' }, 'Only the person who submitted this job can continue with it.')));
 }
 
 function matchingSection(s, initial) {
@@ -818,15 +831,20 @@ function matchingSection(s, initial) {
     const range = pmin === pmax ? `${pmax}` : `${pmin} to ${pmax}`;
     const count = h('span', { class: 'counter' + (okSize ? ' ok' : '') }, `${picked.size} of ${pmax} selected`);
     const err = h('div', { class: 'err', hidden: true });
-    const confirmBtn = h('button', { class: 'btn primary', type: 'button', disabled: !okSize || !changed }, m.confirmed_at ? 'Save changed selection' : picked.size === 1 ? 'Confirm this project' : `Confirm these ${picked.size} projects`);
+    // one press: confirming (or keeping) the choice moves straight on to the profile
+    const confirmLabel = !m.confirmed_at ? `Confirm ${picked.size === 1 ? 'this project' : 'these ' + picked.size + ' projects'} and continue` : changed ? 'Save the new choice and continue' : 'Continue to the profile';
+    const confirmBtn = h('button', { class: 'btn primary', type: 'button', disabled: !okSize }, confirmLabel);
     const save = async (ids, btn, label) => {
       err.hidden = true; btnBusy(btn, 'Saving');
-      try { await api('PUT', `/screenings/${s.id}/selection`, { project_ids: ids }); toast('Selection saved'); await poll(); if (stepCtx) stepCtx.refresh(); }
+      try {
+        await api('PUT', `/screenings/${s.id}/selection`, { project_ids: ids });
+        if (stepCtx) await stepCtx.advanceTo(2); else { toast('Selection saved'); await poll(); }
+      }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren(label); }
     };
-    confirmBtn.onclick = () => save([...picked], confirmBtn, confirmBtn.textContent);
+    confirmBtn.onclick = () => (changed ? save([...picked], confirmBtn, confirmLabel) : stepCtx ? stepCtx.go(2) : null);
     const recIds = rows.filter((r) => r.recommended).map((r) => r.project_id);
-    const recLabel = recIds.length === 1 ? 'Use the recommended one' : `Use the ${recIds.length} recommended`;
+    const recLabel = recIds.length === 1 ? 'Use the recommended one and continue' : `Use the ${recIds.length} recommended and continue`;
     const recBtn = h('button', { class: 'btn', type: 'button', disabled: recIds.length < pmin || recIds.length > pmax }, recLabel);
     recBtn.onclick = () => { picked = new Set(recIds); save(recIds, recBtn, recLabel); };
     const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended);
@@ -1027,95 +1045,6 @@ function profileSection(s, initial) {
   return box;
 }
 
-function stepperView(data) {
-  const { s, id } = data; let { override, matching, proposal } = data;
-  let st = stepState(matching, proposal);
-  const hp = hashParams(); let cur = Number(hp.step) - 1;
-  if (!(cur >= 0 && cur < STEPS.length && st.unlocked[cur])) cur = st.current;
-  const owner = s.user_id === me.id;
-  const bar = h('ol', { class: 'stepper-bar', 'aria-label': 'Progress' });
-  const content = h('div', { class: 'stepcontent' });
-  const nav = h('div', { class: 'stepnav' });
-  let active = null;
-
-  function leaveOk() { return !(active && active.__dirty && active.__dirty()) || confirm('You have unsaved changes in the proposal. Leave this step anyway?'); }
-  function go(n) {
-    if (n < 0 || n >= STEPS.length || !st.unlocked[n]) return;
-    if (n !== cur && !leaveOk()) return;
-    cur = n; setHashParams({ step: n + 1 }); drawBar(); drawContent(); drawNav();
-    document.querySelector('.stepper-bar')?.scrollIntoView({ block: 'start' });
-  }
-  async function refresh() {
-    const d = await api('GET', '/screenings/' + id); override = d.override; matching = d.matching; proposal = d.proposal; data.s = d.screening; st = stepState(matching, proposal); drawBar(); drawNav();
-  }
-  const ctx = { go, refresh, advanceTo: async (n) => { await refresh(); active = null; go(n); } };
-
-  function drawBar() {
-    bar.replaceChildren(...STEPS.map(([key, label], i) => {
-      const state = i === cur ? 'current' : st.done[i] ? 'done' : st.unlocked[i] ? 'open' : 'locked';
-      const b = h('button', { type: 'button', class: 'stp ' + state, disabled: !st.unlocked[i], 'aria-current': i === cur ? 'step' : null, title: st.unlocked[i] ? label : 'Finish the earlier steps first', onclick: () => go(i) },
-        h('span', { class: 'dot' }, st.done[i] && i !== cur ? icon('check') : String(i + 1)), h('span', { class: 'lab' }, label));
-      return h('li', {}, b);
-    }));
-  }
-
-  function screeningStep() {
-    if (s.status === 'queued' || s.status === 'running') return h('div', {}, progressCard(s.status), postingCard(s, true));
-    if (s.status === 'error') {
-      const retry = h('button', { class: 'btn primary', onclick: async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } } }, 'Try again');
-      return h('div', {}, h('div', { class: 'card' }, emptyState('x', 'Screening did not finish', s.error_message || 'Something went wrong.',
-        owner ? h('div', { class: 'row', style: 'justify-content:center' }, retry, h('a', { class: 'btn', href: '#/new' }, 'Paste the text instead')) : null)), postingCard(s, true));
-    }
-    if (!s.report) return h('div', { class: 'notice' }, icon('info'), 'This job has no screening report.');
-    const out = [postingCard(data.s, true), h('div', { style: 'height:16px' })];
-    const blocks = s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1));
-    blocks.forEach((b, i) => out.push(b, i < blocks.length - 1 ? h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:28px 0' }) : null));
-    out.push(h('div', { style: 'height:16px' }));
-    if (override) out.push(h('div', { class: 'card logged' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('strong', {}, 'Continued despite the ' + override.verdict_at_time), h('blockquote', {}, override.reason), h('div', { class: 'small muted' }, `${override.user_name} · ${full(override.created_at)}`))));
-    else if (matching && matching.continued) out.push(h('div', { class: 'card logged' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('strong', {}, 'Continued'), h('div', { class: 'small muted' }, 'This job passed the SOP gate and was taken forward.'))));
-    else if ((s.verdict === 'FAIL' || s.verdict === 'FLAG') && owner) out.push(overrideCard(s));
-    else if (s.verdict === 'FAIL' || s.verdict === 'FLAG') out.push(h('div', { class: 'notice' }, icon('info'), 'No decision recorded yet. Only the person who submitted this job can continue with it.'));
-    else if (s.verdict === 'PASS') out.push(continueCard(s));
-    return h('div', {}, out);
-  }
-  function trackingStep() {
-    const holder = h('div', {});
-    const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
-    // once tracking is saved the journey is over: show the summary, and the form only when asked
-    const draw = (editing) => holder.replaceChildren(
-      editing ? trackingCard(s, (saved) => { Object.assign(s, saved, { tracking_updated_at: new Date().toISOString() }); draw(false); window.scrollTo({ top: 0 }); })
-        : completePanel(s, matching, proposal, canEdit ? () => draw(true) : null),
-      h('div', { style: 'height:16px' }), recordDetails(s, override, matching, proposal));
-    draw(!s.tracking_updated_at);
-    return holder;
-  }
-  function drawContent() {
-    active = null;
-    const builders = [screeningStep, () => (matching && matching.continued ? matchingSection(s, matching) : h('div', {})), () => profileSection(s, matching), () => proposalSection(s, proposal, matching), trackingStep];
-    const el = builders[cur]();
-    content.replaceChildren(el); active = el;
-  }
-  function drawNav() {
-    const prev = h('button', { class: 'btn', type: 'button', disabled: cur === 0, onclick: () => go(cur - 1) }, icon('back'), cur > 0 ? STEPS[cur - 1][1] : 'Previous');
-    let next;
-    if (cur === 3 && owner && !(proposal && proposal.finalized_at)) {
-      next = h('button', { class: 'btn primary', type: 'button', disabled: !(proposal && proposal.status === 'done'), title: 'Finish the proposal and open the tracking step' }, 'Done: go to tracking');
-      next.onclick = async () => {
-        if (!active || !active.__finish) return;
-        btnBusy(next, 'Finishing');
-        try { const ok = await active.__finish(); if (ok) { await refresh(); go(4); } else { next.disabled = false; next.replaceChildren('Done: go to tracking'); } }
-        catch (x) { toast(x.message, true); next.disabled = false; next.replaceChildren('Done: go to tracking'); }
-      };
-    } else if (cur < STEPS.length - 1) {
-      next = h('button', { class: 'btn primary', type: 'button', disabled: !st.unlocked[cur + 1], title: st.unlocked[cur + 1] ? '' : 'Finish this step first', onclick: () => go(cur + 1) }, STEPS[cur + 1][1], icon('arrow'));
-    } else next = h('a', { class: 'btn', href: lastList.history }, 'Back to jobs');
-    nav.replaceChildren(prev, h('span', { class: 'grow faint small' }, `Step ${cur + 1} of ${STEPS.length}`), next);
-  }
-  stepCtx = ctx;
-  drawBar(); drawContent(); drawNav();
-  return h('div', { class: 'workflow' }, bar, content, nav);
-}
-
 /** The job post as copied from Upwork, in fields: terms, description, skills, questions, activity, the client and their history. */
 function postingCard(s, open = true) {
   const p = s.posting;
@@ -1199,67 +1128,6 @@ function jobHeader(s, actions) {
   ];
 }
 
-/** The job, read-only and all on one page. Edit opens the step-by-step workflow. */
-async function jobView(id) {
-  const { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
-  if (s.status !== 'done' || !s.report) return detailView(id); // still screening, or failed: the workflow page shows progress and retry
-  stepCtx = null;
-  const stage = stageOf(s, matching, proposal);
-  const canEdit = s.user_id === me.id || me.role === 'admin' || me.role === 'manager';
-  const waiting = NEEDS_ACTION_STAGES.includes(stage) && s.user_id === me.id;
-  const stepNo = STEP_OF_STAGE[stage];
-  // the next thing to do is the main button; ready to send opens the status dialog with Sent, everything else the workflow step
-  const editBtn = !canEdit ? null : waiting && stage === 'ready' ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Mark as sent')
-    : h('a', { class: waiting ? 'btn primary' : 'btn', href: `#/s/${id}/work${stepNo ? '?step=' + stepNo : ''}` }, waiting ? NEXT_ACTION[stage] : 'Edit');
-  const canStatus = canEdit && ['submitted', 'closed'].includes(stage);
-  const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
-  const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null; // a plugin job arrives already written: no timing
-  const yn2 = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : null);
-  const facts = [
-    ['Result', h('span', {}, verdictPill(s.verdict, s.status), s.rule_codes ? h('span', { class: 'mono small muted' }, '  ' + s.rule_codes) : null)],
-    ['Where it stands', progressDots(stage)],
-    ['Decision', override ? `Continued past the ${override.verdict_at_time} by ${override.user_name}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
-    ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
-    ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
-    ['Template', proposal && proposal.template ? proposal.template.name : null],
-    ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : proposal.status) : null],
-    ['Paste to proposal', toProposal != null ? mins(toProposal) : null],
-    ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
-    ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
-    ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
-    ['Viewed / chat / interview', [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].some(Boolean) ? [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].map((v) => v || '-').join(' / ') : null],
-    ['Outcome', s.outcome],
-    ['Why lost', s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : null],
-    ['Status', s.client_viewed_at || s.proposal_sent_at || s.outcome_at ? h('span', {}, h('span', { class: 'chip brand' }, s.outcome || (s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : 'Sent'))) : null],
-  ];
-  const section = (titleTxt, sub, content, extra) => h('div', { class: 'card', style: 'margin-top:16px' }, h('div', { class: 'card-head' }, h('h2', {}, titleTxt), extra || (sub ? h('span', { class: 'sub' }, sub) : null)), content);
-
-  const text = proposal && proposal.current ? htmlToPlainText(proposal.current.html) : null;
-  const copyBtn = text ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await navigator.clipboard.writeText(text); toast('Proposal copied'); } catch { toast('Could not copy', true); } } }, 'Copy') : null;
-  const projectList = matching && matching.matches && matching.matches.length ? h('div', { class: 'card-pad' }, h('ul', { class: 'plist' }, matching.matches.map((m) => h('li', { class: m.selected ? 'on' : '' },
-    h('div', { class: 'row', style: 'gap:8px' }, m.selected ? h('span', { class: 'chip brand' }, 'Chosen') : m.recommended ? h('span', { class: 'chip' }, 'Recommended') : null,
-      m.project_id ? h('a', { href: '#/p/' + m.project_id }, h('strong', {}, m.project_name)) : h('strong', {}, m.project_name), h('span', { class: 'small muted' }, `${m.score} of ${m.max_score}`)),
-    h('div', { class: 'chips' }, m.shared.map((t) => h('span', { class: 'chip' }, t.name)))))),
-    matching.tags && matching.tags.length ? h('details', { class: 'desc' }, h('summary', {}, `Job tags (${matching.tags.length}) and why`), h('ul', { class: 'plain' }, matching.tags.map((t) => h('li', {}, h('strong', {}, t.name), h('span', { class: 'muted' }, ' · ' + t.category + ': ' + (t.reason || '')))))) : null) : null;
-
-  const parts = [
-    ...jobHeader(s, [canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
-      waiting && stage === 'ready' ? h('a', { class: 'btn', href: `#/s/${id}/work` }, 'Edit') : null, editBtn]),
-    h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
-    postingCard(s, true),
-    override ? section('Why it was continued', null, h('div', { class: 'card-pad' }, h('blockquote', { style: 'margin:0' }, override.reason), h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`))) : null,
-    text ? section('Proposal', null, h('div', { class: 'card-pad' }, h('pre', { class: 'proposal-text' }, text),
-      proposal.warnings && proposal.warnings.length ? h('details', { class: 'desc' }, h('summary', {}, `Warnings to check (${proposal.warnings.length})`), h('ul', { class: 'plain' }, proposal.warnings.map((w) => h('li', {}, w.text)))) : null),
-      h('div', { class: 'row', style: 'gap:8px;margin-left:auto' }, proposal.current ? h('span', { class: 'sub' }, `Version ${proposal.current.version_no}`) : null, copyBtn)) : null,
-    projectList ? section('Projects', 'Shown to the person, with the ones chosen', projectList) : null,
-    section('Screening report', s.skill_version ? `Gate instructions v${s.skill_version}` : null, h('div', { class: 'card-pad' }, s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1)))),
-    h('div', { style: 'height:16px' }), recordDetails(s, override, matching, proposal),
-  ];
-  const tl = timelineCard(id); parts.push(tl);
-  shell('history', parts, 1180);
-  tl.open = true; tl.dispatchEvent(new Event('toggle'));
-}
-
 /** Which gate instructions version and which rules screened this job; click to see the rules exactly as they were applied. */
 function gateChip(s) {
   if (!s.skill_version) return null;
@@ -1273,14 +1141,165 @@ function gateChip(s) {
   return h('button', { type: 'button', class: 'chip', style: 'cursor:pointer;font:inherit;font-size:12.5px', title: 'See the rules this job was screened against', onclick: show }, `Instructions v${s.skill_version} · ${rules.length} rules`);
 }
 
-/** The workflow page. A new job, a job opened from the Dashboard or the Jobs list, and a job still screening or failed all get the same frame. */
-async function detailView(id) {
-  const { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
-  stepCtx = null;
-  // still screening: look again shortly, while this job is still on screen (opened as the workflow or as the job page)
-  if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/work)?([?]|$)`).test(location.hash)) route(); }, 2500);
-  shell('history', [...jobHeader(s, s.status === 'done' ? h('a', { class: 'btn', href: '#/s/' + id }, 'View details') : null),
-    stepperView({ s, id, override, matching, proposal }), timelineCard(id)]);
+// ---------- one page per job, in tabs: Overview, Job post, the five steps, History ----------
+const JOBPAGE_TABS = [['overview', 'Overview'], ['post', 'Job post'], ['screening', 'Screening', 0], ['projects', 'Projects', 1], ['profile', 'Profile', 2],
+  ['proposal', 'Proposal', 3], ['tracking', 'Tracking', 4], ['history', 'History']];
+const STEP_TAB = ['screening', 'projects', 'profile', 'proposal', 'tracking'];
+/** The tab a job opens on when it is waiting on you. */
+const TAB_OF_STAGE = { screening: 'screening', failed: 'screening', decide: 'screening', projects: 'projects', profile: 'profile', writing: 'proposal', review: 'proposal' };
+
+async function jobPage(id, want) {
+  let { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
+  const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin' || me.role === 'manager';
+  let st = stepState(matching, proposal), stage = stageOf(s, matching, proposal);
+  const stepOf = (k) => STEP_TAB.indexOf(k);
+  const defaultTab = () => (s.status !== 'done' ? 'screening' : (owner && TAB_OF_STAGE[stage]) || 'overview');
+  let tab = JOBPAGE_TABS.some(([k]) => k === want) ? want : defaultTab();
+  if (stepOf(tab) > 0 && !st.unlocked[stepOf(tab)]) tab = defaultTab();
+  const bar = h('div', { class: 'jobtabs', role: 'tablist', 'aria-label': 'Job sections' });
+  const content = h('div', { class: 'jobtab' });
+  const foot = h('div', { class: 'stepnav' });
+  let active = null;
+
+  const leaveOk = () => !(active && active.__dirty && active.__dirty()) || confirm('You have unsaved changes in the proposal. Leave this tab anyway?');
+  function setTab(k) {
+    if (k !== tab && !leaveOk()) return;
+    tab = k; history.replaceState(null, '', `#/s/${id}/${k}`);
+    drawBar(); drawContent(); drawFoot(); window.scrollTo({ top: 0 });
+  }
+  async function refresh() {
+    const d = await api('GET', '/screenings/' + id);
+    s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal;
+    st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawBar(); drawFoot();
+  }
+  stepCtx = { go: (n) => setTab(STEP_TAB[n]), refresh, advanceTo: async (n) => { await refresh(); active = null; setTab(STEP_TAB[n]); } };
+
+  function drawBar() {
+    bar.replaceChildren(...JOBPAGE_TABS.map(([k, label, n]) => {
+      const step = n !== undefined, locked = step && !st.unlocked[n], done = step && st.done[n];
+      return h('button', { type: 'button', role: 'tab', class: 'jt' + (k === tab ? ' on' : '') + (locked ? ' locked' : '') + (done ? ' done' : ''), 'aria-selected': k === tab, disabled: locked,
+        title: locked ? 'Finish the earlier steps first' : label, onclick: () => setTab(k) },
+        step ? h('span', { class: 'jn' }, done ? icon('check') : String(n + 1)) : null, h('span', {}, label));
+    }));
+  }
+
+  // ---- the tabs
+  function overviewTab() {
+    const go = (k, label, primary = true) => h('button', { class: 'btn' + (primary ? ' primary' : ''), type: 'button', onclick: () => setTab(k) }, label);
+    const statusBtn = (label) => h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, label);
+    const who = owner ? null : `Waiting for ${s.user_name}.`;
+    const next = {
+      screening: ['Screening this job', 'This takes about a minute.', null],
+      failed: ['The screening did not finish', s.error_message || '', go('screening', 'Open Screening')],
+      decide: ['Decide: continue or skip', who || `The gate says ${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}.`, owner ? go('screening', 'Decide') : null],
+      projects: ['Pick the projects', who || 'Choose the projects the proposal will show.', owner ? go('projects', 'Pick projects') : null],
+      profile: ['Pick the profile', who || 'Choose the Upwork profile that sends it. The proposal is written straight after.', owner ? go('profile', 'Pick profile') : null],
+      writing: ['The proposal is being written', 'A few minutes. You can leave this page.', go('proposal', 'Open the proposal', false)],
+      review: ['Review and finish the proposal', who || 'Read it, edit or chat, then finish it.', owner ? go('proposal', 'Review proposal') : null],
+      ready: ['Ready to send', 'Send it on Upwork, then mark it as sent.', canEdit ? statusBtn('Mark as sent') : null],
+      submitted: ['Waiting on the client', 'Record what happens: viewed, chat, interview, outcome.', canEdit ? statusBtn('Update status') : null],
+      closed: [`Closed: ${s.outcome || 'done'}`, s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : '', canEdit ? statusBtn('Update status') : null],
+      skipped: ['Skipped', s.notes || 'Not pursued.', owner ? go('screening', 'Continue anyway', false) : null],
+    }[stage] || ['', '', null];
+    const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
+    const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
+    const yn2 = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : null);
+    const facts = [
+      ['Result', h('span', {}, verdictPill(s.verdict, s.status), s.rule_codes ? h('span', { class: 'mono small muted' }, '  ' + s.rule_codes) : null)],
+      ['Where it stands', progressDots(stage)],
+      ['Decision', override ? `Continued past the ${override.verdict_at_time} by ${override.user_name}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
+      ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
+      ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
+      ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
+      ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : proposal.status) : null],
+      ['Paste to proposal', toProposal != null ? mins(toProposal) : null],
+      ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
+      ['Proposal sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
+      ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
+      ['Viewed / chat / interview', [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].some(Boolean) ? [yn2(s.client_viewed), yn2(s.client_replied), yn2(s.interviewed)].map((v) => v || '-').join(' / ') : null],
+      ['Outcome', s.outcome],
+    ];
+    const text = proposal && proposal.current ? htmlToPlainText(proposal.current.html) : null;
+    const copyBtn = text ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await navigator.clipboard.writeText(text); toast('Proposal copied'); } catch { toast('Could not copy', true); } } }, 'Copy') : null;
+    return h('div', { style: 'display:grid;gap:16px' },
+      next[0] ? h('div', { class: 'card nextcard' }, h('div', {}, h('strong', {}, next[0]), next[1] ? h('div', { class: 'small muted' }, next[1]) : null), next[2]) : null,
+      h('div', { class: 'card card-pad' }, h('dl', { class: 'kv cols4' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v ? '' : 'ns' }, cap(v) || 'Not yet'))))),
+      override ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Why it was continued'), h('blockquote', { style: 'margin:0' }, override.reason),
+        h('div', { class: 'small muted', style: 'margin-top:6px' }, `${override.user_name} · ${full(override.created_at)}`)) : null,
+      text ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Proposal'), h('div', { class: 'row', style: 'gap:8px;margin-left:auto' },
+        proposal.current ? h('span', { class: 'sub' }, `Version ${proposal.current.version_no}`) : null, copyBtn)),
+        h('div', { class: 'card-pad' }, h('details', { class: 'desc', open: true }, h('summary', {}, 'The text'), h('pre', { class: 'proposal-text' }, text)))) : null);
+  }
+
+  function screeningTab() {
+    if (s.status === 'queued' || s.status === 'running') return h('div', {}, progressCard(s.status), h('p', { class: 'hint' }, 'The job post is in the Job post tab.'));
+    if (s.status === 'error') {
+      const retry = h('button', { class: 'btn primary', onclick: async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } } }, 'Try again');
+      return h('div', { class: 'card' }, emptyState('x', 'Screening did not finish', s.error_message || 'Something went wrong.',
+        owner ? h('div', { class: 'row', style: 'justify-content:center' }, retry, h('a', { class: 'btn', href: '#/new' }, 'Paste the text instead')) : null));
+    }
+    if (!s.report) return h('div', { class: 'notice' }, icon('info'), 'This job has no screening report.');
+    // the decision first, then the report
+    let decision;
+    if (override) decision = h('div', { class: 'card logged' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('strong', {}, 'Continued despite the ' + override.verdict_at_time), h('blockquote', {}, override.reason), h('div', { class: 'small muted' }, `${override.user_name} · ${full(override.created_at)}`)));
+    else if (matching && matching.continued) decision = h('div', { class: 'card logged' }, h('div', { class: 'ico' }, icon('check')), h('div', {}, h('strong', {}, 'Continued'), h('div', { class: 'small muted' }, 'This job passed the gate and was taken forward.')));
+    else if (!owner) decision = h('div', { class: 'notice' }, icon('info'), s.proceeded === 'no' ? 'Skipped.' : 'No decision yet. Only the person who submitted this job can continue with it.');
+    else decision = h('div', {}, s.proceeded === 'no' ? h('div', { class: 'notice', style: 'margin-bottom:12px' }, icon('info'), 'You skipped this job. You can still continue with it below.') : null,
+      s.verdict === 'PASS' ? continueCard(s) : overrideCard(s));
+    const blocks = s.report.jobs.map((j) => jobReportView(j, s.report.jobs.length > 1));
+    return h('div', { style: 'display:grid;gap:16px' }, decision, ...blocks);
+  }
+
+  function trackingTab() {
+    const holder = h('div', {});
+    const draw = (editing) => holder.replaceChildren(
+      editing ? trackingCard(s, (saved) => { Object.assign(s, saved, { tracking_updated_at: new Date().toISOString() }); draw(false); window.scrollTo({ top: 0 }); })
+        : completePanel(s, matching, proposal, canEdit ? () => draw(true) : null));
+    draw(!s.tracking_updated_at);
+    return holder;
+  }
+
+  function historyTab() {
+    const tl = timelineCard(id); setTimeout(() => { tl.open = true; tl.dispatchEvent(new Event('toggle')); });
+    return h('div', { style: 'display:grid;gap:16px' }, tl, recordDetails(s, override, matching, proposal));
+  }
+
+  function drawContent() {
+    active = null;
+    const build = {
+      overview: overviewTab, post: () => postingCard(s, true), screening: screeningTab,
+      projects: () => (matching && matching.continued ? matchingSection(s, matching) : h('div', { class: 'notice' }, icon('info'), 'Decide on the Screening tab first.')),
+      profile: () => profileSection(s, matching), proposal: () => proposalSection(s, proposal, matching), tracking: trackingTab, history: historyTab,
+    }[tab];
+    const el = build(); content.replaceChildren(el); active = el;
+  }
+
+  // ---- the bar under a step: back and forward between steps, and finishing the proposal
+  function drawFoot() {
+    const n = stepOf(tab);
+    if (n < 0) { foot.hidden = true; return; }
+    foot.hidden = false;
+    const prev = n > 0 ? h('button', { class: 'btn', type: 'button', onclick: () => setTab(STEP_TAB[n - 1]) }, icon('back'), JOBPAGE_TABS.find(([k]) => k === STEP_TAB[n - 1])[1]) : h('span', {});
+    let next = null;
+    if (n === 3 && owner && !(proposal && proposal.finalized_at)) {
+      next = h('button', { class: 'btn primary', type: 'button', disabled: !(proposal && proposal.status === 'done') }, 'Finish the proposal');
+      next.onclick = async () => {
+        if (!active || !active.__finish) return;
+        btnBusy(next, 'Finishing');
+        try { if (await active.__finish()) await stepCtx.advanceTo(4); else { next.disabled = false; next.replaceChildren('Finish the proposal'); } }
+        catch (x) { toast(x.message, true); next.disabled = false; next.replaceChildren('Finish the proposal'); }
+      };
+    } else if (n < STEP_TAB.length - 1 && st.unlocked[n + 1]) next = h('button', { class: 'btn', type: 'button', onclick: () => setTab(STEP_TAB[n + 1]) }, JOBPAGE_TABS.find(([k]) => k === STEP_TAB[n + 1])[1], icon('arrow'));
+    foot.replaceChildren(prev, h('span', { class: 'grow faint small' }, `Step ${n + 1} of ${STEP_TAB.length}`), next || h('span', {}));
+  }
+
+  const canStatus = canEdit && ['submitted', 'closed'].includes(stage);
+  const actions = [canStatus ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Update status') : null,
+    canEdit && stage === 'ready' ? h('button', { class: 'btn primary', type: 'button', onclick: () => statusDialog(id, () => route()) }, 'Mark as sent') : null];
+  if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) route(); }, 2500);
+  history.replaceState(null, '', `#/s/${id}/${tab}`);
+  drawBar(); drawContent(); drawFoot();
+  shell('history', [...jobHeader(s, actions), bar, content, foot]);
 }
 
 // ---------- industries ----------
@@ -2015,7 +2034,10 @@ async function route() {
     if (!me) return loginView();
     if (!CFG) CFG = (await api('GET', '/settings')).settings;
     const [, a, b, c] = location.hash.split('?')[0].split('/');
-    if (a === 's' && b) return c === 'work' ? await detailView(Number(b)) : await jobView(Number(b));
+    if (a === 's' && b) { // #/s/12, #/s/12/proposal, and the older #/s/12/work?step=4
+      const step = Number(hashParams().step);
+      return await jobPage(Number(b), c === 'work' ? (step >= 1 && step <= 5 ? STEP_TAB[step - 1] : undefined) : c);
+    }
     if (a === 'history') return await historyView();
     if (a === 'dashboard' || !a) return await dashboardView();
     if (a === 'templates') { location.hash = '#/writing'; return; } // the proposal types live on the Writing guide now

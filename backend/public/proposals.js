@@ -220,13 +220,15 @@ function proposalSection(s, initial, matching) {
     const staleBox = stale ? h('div', { class: 'newer', style: 'margin-top:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name} after this proposal was written, so the sign-off is out of date.`), owner ? startBtn('Write it again') : null) : null;
     const warns = data.warnings.length ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'Check before you send'), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
     count();
-    return h('div', {},
-      staleBox,
-      warns,
-      h('div', { class: 'row spread', style: 'margin:12px 0 8px' }, h('div', { class: 'row', style: 'gap:8px' }, vsel, dirtyChip), h('div', { class: 'row' }, owner ? saveBtn : null, copyBtn)),
-      viewing, bannerEl, editor.el, counter,
-      h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`),
-      h('div', { style: 'height:16px' }), explain(), h('div', { style: 'height:16px' }), h('div', { class: 'chatpanel' }));
+    // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
+    return h('div', { class: 'propgrid' },
+      h('div', { class: 'propmain' },
+        staleBox,
+        warns,
+        h('div', { class: 'row spread', style: 'margin:12px 0 8px' }, h('div', { class: 'row', style: 'gap:8px' }, vsel, dirtyChip), h('div', { class: 'row' }, owner ? saveBtn : null, copyBtn)),
+        viewing, bannerEl, editor.el, counter,
+        h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
+      h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), explain()));
   }
 
   function drawAll() {
