@@ -138,6 +138,24 @@ sudo ln -s /etc/nginx/sites-available/upwork-pro /etc/nginx/sites-enabled/ && su
 sudo certbot --nginx -d YOUR-DOMAIN
 ```
 
+**If the server runs Apache instead of Nginx** (the live server does): the same two routes, in the site's `<VirtualHost *:443>`
+block. The `/mcp` line must come before the `/` line, or every `/mcp` request goes to the web app and answers 404.
+
+```apache
+ProxyPreserveHost On
+ProxyPass        /mcp http://127.0.0.1:3100/mcp flushpackets=on timeout=300
+ProxyPassReverse /mcp http://127.0.0.1:3100/mcp
+ProxyPass        /    http://127.0.0.1:3000/
+ProxyPassReverse /    http://127.0.0.1:3000/
+```
+
+```bash
+sudo a2enmod proxy proxy_http && sudo apachectl configtest && sudo systemctl reload apache2
+```
+
+Check: `curl -s -o /dev/null -w "%{http_code}\n" https://YOUR-DOMAIN/mcp` prints 401. A 404 means `/mcp` is still reaching the
+web app; a 503 means the connector is not running (`pm2 status`).
+
 Certbot adds the https part and renews the certificate by itself. Leave ports 3000, 3100 and 3306 closed to the outside
 (`sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable`).
 
