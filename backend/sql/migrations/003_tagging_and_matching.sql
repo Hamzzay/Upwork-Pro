@@ -1,13 +1,13 @@
 ALTER TABLE screenings
-  ADD COLUMN IF NOT EXISTS continued_at DATETIME NULL,
-  ADD COLUMN IF NOT EXISTS tagging_status ENUM('queued','running','done','error') NULL,
-  ADD COLUMN IF NOT EXISTS tagging_error_code VARCHAR(60) NULL,
-  ADD COLUMN IF NOT EXISTS tagging_error_message VARCHAR(500) NULL,
-  ADD COLUMN IF NOT EXISTS tagging_model VARCHAR(80) NULL,
-  ADD COLUMN IF NOT EXISTS tagged_at DATETIME NULL,
-  ADD COLUMN IF NOT EXISTS selection_confirmed_at DATETIME NULL,
-  ADD COLUMN IF NOT EXISTS selection_confirmed_by INT UNSIGNED NULL,
-  ADD KEY IF NOT EXISTS idx_tagging_status (tagging_status);
+  ADD COLUMN continued_at DATETIME NULL,
+  ADD COLUMN tagging_status ENUM('queued','running','done','error') NULL,
+  ADD COLUMN tagging_error_code VARCHAR(60) NULL,
+  ADD COLUMN tagging_error_message VARCHAR(500) NULL,
+  ADD COLUMN tagging_model VARCHAR(80) NULL,
+  ADD COLUMN tagged_at DATETIME NULL,
+  ADD COLUMN selection_confirmed_at DATETIME NULL,
+  ADD COLUMN selection_confirmed_by INT UNSIGNED NULL,
+  ADD KEY idx_tagging_status (tagging_status);
 
 UPDATE screenings s JOIN overrides o ON o.screening_id=s.id SET s.continued_at = COALESCE(s.continued_at, o.created_at);
 
