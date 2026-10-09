@@ -814,6 +814,20 @@ no new package), so a `git pull` on the server is all a new version needs, and n
 download is in the Logs. Checked: signed out it is refused; as an employee the file downloads with its version in the name, unzips
 without errors, passes `claude plugin validate` and is identical to the `plugin` folder.
 
+### R40. The main admin is protected, everyone can change their own password, password boxes have Show (done)
+- **Main admin**: the first admin account (the lowest id with the admin role, the one `npm run seed` made). No other admin can change
+  its role, disable it or reset its password (`PATCH /admin/users/:id` answers 403). On Users it carries a "Main admin" label and,
+  for other admins, no controls. The main admin manages everyone as before.
+- **Change your own password**: a key button next to your name in the sidebar, and "Change password" on your own row in Users. It
+  asks for the current password and the new one twice (`POST /me/password`; 10 characters or more; wrong tries are limited). You stay
+  signed in where you are; every other session of yours is signed out. For every role, not only admins. An admin can no longer set
+  their own password through the reset (which skipped the current password).
+- **Show / Hide** on every password box (`withShow`): sign in, add a user, reset a password, change your password, and the sign-in
+  page Claude opens.
+- Checked: 14 calls against the running app (each change to the main admin refused and the account untouched; wrong and short
+  passwords refused; the change works; this session stays and another is signed out; the old password stops working), and in the
+  browser as a second admin. The Claude sign-in page's Show button was not seen in a browser (it needs a live request from Claude).
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

@@ -131,6 +131,11 @@ select { width: auto; -webkit-appearance: none; appearance: none; padding-right:
   background-repeat: no-repeat; background-position: right 11px center; background-size: 16px 16px; text-overflow: ellipsis; }
 select:disabled { cursor: not-allowed; opacity: .65; }
 .scoreinp, input.scoreinp { width: 68px; text-align: center; padding: 5px 8px; }
+/* a password box with its Show / Hide button inside the right edge */
+.pwwrap { position: relative; }
+.pwwrap input { padding-right: 64px; }
+.pwshow { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--brand); font: inherit; font-size: 13px; font-weight: 600; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.pwshow:hover { background: var(--brand-soft); }
 .hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .err { color: var(--fail); font-size: 13px; margin-top: 10px; display: flex; gap: 8px; align-items: flex-start; }
 .err svg { width: 16px; height: 16px; margin-top: 2px; }

@@ -31,6 +31,7 @@ const ICONS = {
   building: '<path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/>',
   video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
   chart: '<path d="M3 20h18M7 20v-8M12 20V5M17 20v-11"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>',
 };
 function icon(name) {
@@ -98,6 +99,27 @@ function modal({ title, body, confirm = 'Confirm', danger, onConfirm, wide, extr
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg); dlg.showModal();
   return dlg;
+}
+/** A password box with a Show / Hide button. Returns the wrapper; read the value from the input you passed in. */
+function withShow(input) {
+  const b = h('button', { type: 'button', class: 'pwshow', 'aria-label': 'Show the password', 'aria-pressed': 'false' }, 'Show');
+  b.onclick = () => { const on = input.type === 'password'; input.type = on ? 'text' : 'password'; b.textContent = on ? 'Hide' : 'Show'; b.setAttribute('aria-pressed', String(on)); b.setAttribute('aria-label', on ? 'Hide the password' : 'Show the password'); input.focus(); };
+  return h('div', { class: 'pwwrap' }, input, b);
+}
+/** Change your own password: the current one, then the new one twice. */
+function changePassword() {
+  const mk = (id, ac) => h('input', { type: 'password', id, autocomplete: ac });
+  const cur = mk('cp0', 'current-password'), nw = mk('cp1', 'new-password'), again = mk('cp2', 'new-password');
+  modal({ title: 'Change your password', confirm: 'Change password', body: h('div', {},
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cp0' }, 'Current password'), withShow(cur)),
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cp1' }, 'New password'), withShow(nw), h('div', { class: 'hint' }, 'At least 10 characters.')),
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cp2' }, 'New password again'), withShow(again)),
+    h('p', { class: 'hint' }, 'You stay signed in here. Any other place you are signed in is signed out.')),
+    onConfirm: async () => {
+      if (nw.value !== again.value) throw new Error('The two new passwords are not the same');
+      await api('POST', '/me/password', { current: cur.value, password: nw.value }); toast('Password changed');
+    } });
+  cur.focus();
 }
 function btnBusy(btn, label) { btn.disabled = true; btn.replaceChildren(h('span', { class: 'spin' }), label); }
 const emptyState = (iconName, title, text, action) =>
@@ -332,6 +354,7 @@ function shell(active, content, wide) {
       h('nav', { class: 'nav', 'aria-label': 'Main' }, groups.map(([label, links]) => [h('div', { class: 'nav-label' }, label), links.map(a)])),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
+        h('button', { class: 'iconbtn', title: 'Change your password', 'aria-label': 'Change your password', onclick: changePassword }, icon('key')),
         h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; CFG = null; route(); } }, icon('out')))),
     h('main', { class: 'content' }, h('div', { class: 'page' }, content))));
   window.scrollTo(0, 0);
@@ -359,7 +382,7 @@ function loginView() {
       try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; location.hash = '#/dashboard'; route(); }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Sign in'); }
     } }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'em' }, 'Email'), email),
-      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pw' }, 'Password'), pw), err, btn))));
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pw' }, 'Password'), withShow(pw)), err, btn))));
   email.focus();
 }
 
@@ -1926,7 +1949,7 @@ async function projectDetailView(id) {
 
 // ---------- users (admin) ----------
 async function usersView() {
-  const { users } = await api('GET', '/admin/users');
+  const { users, i_am_main: iAmMain } = await api('GET', '/admin/users');
   const patch = async (id, body, msg) => { try { await api('PATCH', '/admin/users/' + id, body); toast(msg); route(); } catch (x) { toast(x.message, true); route(); } };
   const roleSel = (cur, onchange) => h('select', { onchange }, ['employee', 'manager', 'admin'].map((r) => h('option', { value: r, selected: r === cur }, r[0].toUpperCase() + r.slice(1))));
   function addUser() {
@@ -1934,23 +1957,25 @@ async function usersView() {
     f.role.style.width = '100%';
     modal({ title: 'Add a user', confirm: 'Create user',
       body: h('div', {}, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'un' }, 'Full name'), f.name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ue' }, 'Email'), f.email),
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'up' }, 'Temporary password'), f.pw, h('div', { class: 'hint' }, 'At least 10 characters. Share it securely.')),
+        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'up' }, 'Temporary password'), withShow(f.pw), h('div', { class: 'hint' }, 'At least 10 characters. Share it securely, and ask them to change it (the key button next to their name).')),
         h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Role'), f.role,
           h('div', { class: 'hint' }, 'Employee: own records. Manager: sees all records. Admin: also manages users, the library and the job gate.'))),
       onConfirm: async () => { await api('POST', '/admin/users', { name: f.name.value, email: f.email.value, password: f.pw.value, role: f.role.value }); toast('User created'); route(); } });
   }
   function resetPw(u) {
     const pw = h('input', { type: 'password', id: 'rp', autocomplete: 'new-password' });
-    modal({ title: 'Reset password for ' + u.name, confirm: 'Reset password', body: h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'rp' }, 'New password'), pw, h('div', { class: 'hint' }, 'At least 10 characters. They will be signed out everywhere.')),
+    modal({ title: 'Reset password for ' + u.name, confirm: 'Reset password', body: h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'rp' }, 'New password'), withShow(pw), h('div', { class: 'hint' }, 'At least 10 characters. They will be signed out everywhere.')),
       onConfirm: async () => { await api('PATCH', '/admin/users/' + u.id, { password: pw.value }); toast('Password reset'); } });
   }
+  /** The main admin can only be changed by the main admin. */
+  const locked = (u) => u.main && !iAmMain;
   const row = (u) => h('tr', {},
     h('td', {}, h('div', { class: 'row', style: 'gap:10px;flex-wrap:nowrap' }, h('div', { class: 'avatar' }, initials(u.name)),
-      h('div', {}, h('strong', {}, u.name, u.id === me.id ? h('span', { class: 'faint', style: 'font-weight:400' }, ' (you)') : null), h('div', { class: 'meta' }, u.email)))),
-    h('td', {}, u.id === me.id ? 'Admin' : roleSel(u.role, (e) => patch(u.id, { role: e.target.value }, 'Role updated'))),
+      h('div', {}, h('strong', {}, u.name, u.id === me.id ? h('span', { class: 'faint', style: 'font-weight:400' }, ' (you)') : null, u.main ? h('span', { class: 'srcchip', title: 'The first admin account. Only this person can change it.' }, 'Main admin') : null), h('div', { class: 'meta' }, u.email)))),
+    h('td', {}, u.id === me.id || locked(u) ? cap(u.role) : roleSel(u.role, (e) => patch(u.id, { role: e.target.value }, 'Role updated'))),
     h('td', {}, onOff(u.active, 'Active', 'Disabled')),
     h('td', { class: 'muted nowrap', title: full(u.created_at) }, ago(u.created_at)),
-    u.id === me.id ? acts() : acts(h('button', { class: 'btn sm', onclick: () => resetPw(u) }, 'Reset password'),
+    u.id === me.id ? acts(h('button', { class: 'btn sm', onclick: changePassword }, 'Change password')) : locked(u) ? acts() : acts(h('button', { class: 'btn sm', onclick: () => resetPw(u) }, 'Reset password'),
       h('button', { class: 'btn sm', onclick: () => patch(u.id, { active: !Number(u.active) }, Number(u.active) ? 'User disabled' : 'User enabled') }, Number(u.active) ? 'Disable' : 'Enable')));
   shell('users', [pageHead('Users', 'Who can sign in, and what each person can see and change.', h('button', { class: 'btn primary', onclick: addUser }, icon('screen'), 'Add user')),
     listCard({ items: users, icon: 'users', emptyTitle: 'No users yet', emptyText: 'Add the people who will use Upwork Pro.',

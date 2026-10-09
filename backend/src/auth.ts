@@ -34,6 +34,9 @@ export async function login(email: string, password: string): Promise<{ token: s
 export const setSessionCookie = (res: Response, token: string) =>
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: config.prod, maxAge: SESSION_DAYS * 86_400_000, path: '/' });
 
+/** The signed-in session's stored hash, so a password change can sign out every other session but this one. */
+export const currentSessionHash = (req: Request): string | null => { const t = req.cookies?.[COOKIE]; return t ? sha(t) : null; };
+
 export async function logout(req: Request, res: Response) {
   const t = req.cookies?.[COOKIE];
   if (t) await exec('DELETE FROM sessions WHERE token_hash=?', [sha(t)]);

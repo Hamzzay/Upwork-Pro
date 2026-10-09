@@ -22,6 +22,9 @@ SECTIONS = [
     '<b>The title</b> of the page, with one line under it saying what the page is for.',
     '<b>The page\'s main button</b> is always at the top right.',
     '<b>You</b>, your role, and Sign out.']),
+  shot('signin-show.jpg', 'Signing in', 'Every password box has a <b>Show</b> button, so you can check what you typed.', ['<b>Show</b> and <b>Hide</b>.']),
+  shot('password-change.jpg', 'Change your own password', 'Press the key button next to your name, at the bottom of the sidebar. Everyone can do this.', [
+    'Your current password.', 'The new one, at least 10 characters, typed twice.', 'Show what you typed.', '<b>Change password</b>. You stay signed in here; any other place you are signed in is signed out.']),
   shot('phone.jpg', 'On a phone', 'Everything works on a phone. The sidebar becomes a Menu button.', ['Press <b>Menu</b> to open the links.']),
   note('Three things are the same on every list: a <b>search box</b> and <b>filters</b> on top (they apply as you type, and <b>Clear filters</b> appears once something is filtered), a row opens when you click it, and a row\'s buttons are at its right end. Deleting is always inside the Edit window, never in the row.'),
 ]),
@@ -161,7 +164,7 @@ SECTIONS = [
     'The instructions.', 'Say what you changed and why.', '<b>Save as new version</b>. Saving never overwrites.', 'The versions. <b>Activate</b> the one new screenings should use.'],
     'Further down you can paste a sample job and test your draft before you activate it.'),
   shot('settings.jpg', 'Settings (admin)', '', ['Which AI does the work. <b>Test connection</b> before <b>Use this AI</b>.', 'A number or list the app runs on.', 'Each has its own <b>Save</b>. A change applies to the next job.']),
-  shot('users.jpg', 'Users (admin)', '', ['Search, role and status.', 'Change a role here.', '<b>Reset password</b>, and <b>Disable</b> when someone leaves (their jobs stay).', '<b>Add user</b>.']),
+  shot('users.jpg', 'Users (admin)', '', ['Search, role and status.', 'The <b>main admin</b>: the first admin account. Only that person can change it; other admins cannot change its role, disable it or reset its password.', 'Change a role here.', 'Your own row: <b>Change password</b>. Other rows: <b>Reset password</b>, and <b>Disable</b> when someone leaves (their jobs stay).', '<b>Add user</b>.']),
   shot('user-add.jpg', 'Add a user', '', ['Their name and email.', 'A temporary password of at least 10 characters. Give it to them privately.', 'Their role.']),
 ]),
 ('numbers', 'Reading the numbers', [

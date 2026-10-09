@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
-import { attachUser, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
+import { attachUser, checkPassword, currentSessionHash, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
 import { detectInput, InputError, jobIdFromUrl } from './screening/jobsource';
 import { loadContext } from './screening/context';
 import { gatePrompt, normalizeReport } from './screening/contract';
@@ -46,6 +46,20 @@ api.post('/login', async (req, res) => {
 });
 api.post('/logout', async (req, res) => { await logout(req, res); res.json({ ok: true }); });
 api.get('/me', (req, res) => res.json({ user: req.user ?? null }));
+// Change your own password: needs the current one. Every other session of yours is signed out; this one stays.
+api.post('/me/password', requireRole(), async (req, res) => {
+  if (req.viaToken) return void res.status(403).json({ error: 'Sign in on the website to change your password' });
+  const b = z.object({ current: z.string().min(1, 'Enter your current password'), password: z.string().min(10, 'The new password must be at least 10 characters').max(200) }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  if (loginThrottled(`pw|${req.user!.id}`)) return void res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  const u = (await query<any>('SELECT password_hash FROM users WHERE id=?', [req.user!.id]))[0];
+  if (!u || !(await checkPassword(b.data.current, u.password_hash))) return void res.status(400).json({ error: 'The current password is not right' });
+  if (b.data.current === b.data.password) return void res.status(400).json({ error: 'The new password is the same as the current one' });
+  await exec('UPDATE users SET password_hash=? WHERE id=?', [await hashPassword(b.data.password), req.user!.id]);
+  await exec('DELETE FROM sessions WHERE user_id=? AND token_hash<>?', [req.user!.id, currentSessionHash(req) ?? '']);
+  await audit(req.user!.id, 'password_change');
+  res.json({ ok: true });
+});
 
 // ---------- screenings ----------
 const canSeeAll = (role: string) => role === 'admin' || role === 'manager';
@@ -764,8 +778,11 @@ api.post('/screenings/:id/override', requireRole(), async (req, res) => {
 
 // ---------- admin: users ----------
 const admin = requireRole('admin');
-api.get('/admin/users', admin, async (_req, res) => {
-  res.json({ users: await query('SELECT id, name, email, role, active, created_at FROM users ORDER BY id') });
+/** The main admin: the first admin account there is (the one made when Upwork Pro was set up). Only that person can change it. */
+const mainAdminId = async (): Promise<number | null> => (await query<any>("SELECT MIN(id) AS id FROM users WHERE role='admin'"))[0]?.id ?? null;
+api.get('/admin/users', admin, async (req, res) => {
+  const main = await mainAdminId();
+  res.json({ main_admin_id: main, i_am_main: main === req.user!.id, users: (await query<any>('SELECT id, name, email, role, active, created_at FROM users ORDER BY id')).map((u) => ({ ...u, main: u.id === main })) });
 });
 api.post('/admin/users', admin, async (req, res) => {
   const b = z.object({
@@ -794,6 +811,9 @@ api.patch('/admin/users/:id', admin, async (req, res) => {
   if (id === req.user!.id && (b.data.active === false || (b.data.role && b.data.role !== 'admin'))) {
     return void res.status(400).json({ error: 'You cannot demote or disable your own account' });
   }
+  // the main admin's role, status and password are theirs alone: no other admin can change them
+  if (id === (await mainAdminId()) && id !== req.user!.id) return void res.status(403).json({ error: 'Only the main admin can change the main admin account' });
+  if (id === req.user!.id && b.data.password) return void res.status(400).json({ error: 'Change your own password with Change password (it asks for the current one)' });
   const sets: string[] = []; const p: any[] = [];
   if (b.data.role) { sets.push('role=?'); p.push(b.data.role); }
   if (b.data.active !== undefined) { sets.push('active=?'); p.push(b.data.active ? 1 : 0); }

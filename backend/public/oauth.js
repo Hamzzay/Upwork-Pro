@@ -13,6 +13,12 @@
   const show = (...kids) => box.replaceChildren(brand(), ...kids);
   const fail = (msg) => show(el('h1', {}, 'Cannot connect'), el('p', { class: 'muted' }, msg));
 
+  // a password box with a Show / Hide button, as in the app
+  const withShow = (input) => {
+    const b = el('button', { type: 'button', class: 'pwshow', 'aria-label': 'Show the password' }, 'Show');
+    b.onclick = () => { const on = input.type === 'password'; input.type = on ? 'text' : 'password'; b.textContent = on ? 'Hide' : 'Show'; b.setAttribute('aria-label', on ? 'Hide the password' : 'Show the password'); input.focus(); };
+    return el('div', { class: 'pwwrap' }, input, b);
+  };
   function signIn() {
     const err = el('div', { class: 'err', hidden: true });
     const email = el('input', { type: 'email', id: 'em', autocomplete: 'username', required: true, placeholder: 'you@company.com' });
@@ -24,7 +30,7 @@
         try { await call('POST', '/login', { email: email.value, password: pw.value }); consent(); }
         catch (x) { err.textContent = x.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; }
       } }, el('div', { class: 'field' }, el('label', { class: 'lbl', for: 'em' }, 'Email'), email),
-        el('div', { class: 'field' }, el('label', { class: 'lbl', for: 'pw' }, 'Password'), pw), err, btn));
+        el('div', { class: 'field' }, el('label', { class: 'lbl', for: 'pw' }, 'Password'), withShow(pw)), err, btn));
     email.focus();
   }
 
