@@ -812,17 +812,28 @@ const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pic
 const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, type: 4, review: 4 };
 /** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to'];
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'discarded'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', discarded: 'discarded' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
 }
+/** Discard a job (admins): asks first, with an optional reason. It leaves every list, count and report; Restore brings it back. */
+function discardJob(id, title, after) {
+  const why = h('input', { type: 'text', id: 'dwhy', maxlength: 300, placeholder: 'For example: a test job' });
+  modal({ title: 'Discard this job?', confirm: 'Discard job', danger: true, body: h('div', {},
+    h('p', { class: 'muted', style: 'margin-top:0' }, `"${title}" will disappear from the Jobs list, the Dashboard, Reports, exports and Claude, for everyone. Nothing is deleted: an admin can restore it from Jobs, Discarded jobs.`),
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'dwhy' }, 'Why (optional)'), why)),
+    onConfirm: async () => { await api('POST', `/admin/screenings/${id}/discard`, { reason: why.value.trim() || undefined }); toast('Job discarded'); if (after) await after(); } });
+}
+async function restoreJob(id, after) { try { await api('POST', `/admin/screenings/${id}/restore`, {}); toast('Job restored'); if (after) await after(); } catch (x) { toast(x.message, true); } }
+
 /** The one action a row offers, by where the job stands. */
 function rowAction(r, reload) {
+  if (r.discarded_at) return me.role === 'admin' ? h('button', { class: 'btn sm', type: 'button', onclick: (e) => { e.stopPropagation(); restoreJob(r.id, reload); } }, 'Restore') : null;
   if (r.status !== 'done' || !canTrack(r.user_id)) return null;
   const stop = (e) => e.stopPropagation();
   if (STEP_OF_STAGE[r.stage] && r.user_id === me.id) return h('a', { class: 'btn sm', href: jobHref(r), onclick: stop }, NEXT_ACTION[r.stage]);
@@ -881,6 +892,7 @@ async function historyView() {
       t.key === 'closed' || t.key === 'submitted' || !t.key ? sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]) : null,
       (opts.types || []).length ? sel('ptype', 'Any proposal type', opts.types.map((x) => [x, x])) : null,
       sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]),
+      me.role === 'admin' ? sel('discarded', 'Live jobs', [['1', 'Discarded jobs']]) : null,
       me.role !== 'employee' ? h('label', { class: 'check', for: 'mine' }, mineBox, 'Only mine') : null],
       { actions: [colBtn, exportBtn], onClear: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } });
     filters.replaceChildren(fbar);
@@ -918,7 +930,7 @@ async function historyView() {
       ? emptyState('list', filtered ? 'No matches' : empty, filtered ? 'Try different filters.' : st.tab ? 'Jobs move here as they progress.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : st.tab ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
       : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)), h('th', { class: 'pin' }, ''))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
-          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null)),
+          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
           shown.map((c) => h('td', {}, c.cell(r))),
           // the row's action stays pinned to the right edge, visible however far the table scrolls
           h('td', { class: 'pin' }, rowAction(r, load)))))));
@@ -1367,7 +1379,9 @@ async function jobPage(id, want) {
       skipped: ['Skipped', s.notes || 'Not pursued.'],
     }[stage] || ['', ''];
     const go = (k, label) => actBtn(label, () => setTab(k), true);
-    setActions({
+    const discard = me.role !== 'admin' ? null : s.discarded_at ? actBtn('Restore job', () => restoreJob(id, async () => { await refresh(); route(); }), true)
+      : actBtn('Discard job', () => discardJob(id, s.title || 'This job', async () => { location.hash = lastList.history; }));
+    setActions(discard, s.discarded_at ? null : {
       failed: owner && go('screening', 'Open screening'), decide: owner && go('screening', 'Decide'), projects: owner && go('projects', 'Pick projects'),
       profile: owner && go('profile', 'Pick profile'), type: owner && go('proposal', 'Pick proposal type'), writing: go('proposal', 'Open the proposal'), review: owner && go('proposal', 'Review proposal'),
       ready: canEdit && actBtn('Mark as sent', statusUpdate, true), submitted: canEdit && actBtn('Update status', statusUpdate, true), closed: canEdit && actBtn('Update status', statusUpdate),
@@ -1388,6 +1402,8 @@ async function jobPage(id, want) {
       ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
     ].filter(([, v]) => v);
     return h('div', { class: 'stack' },
+      s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
+        h('div', { style: 'margin-top:4px' }, `It is hidden from every list, count, report and export, and from Claude. Discarded ${full(s.discarded_at)}${s.discarded_by_name ? ' by ' + s.discarded_by_name : ''}${s.discard_reason ? ': ' + s.discard_reason : '.'}`)) : null,
       next[0] ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
       facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null);
   }

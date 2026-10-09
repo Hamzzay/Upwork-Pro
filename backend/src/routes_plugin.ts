@@ -48,7 +48,7 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
   const d = b.data, user = req.user!;
   const jobId = d.job_url ? jobIdFromUrl(d.job_url) : null;
   if (jobId && !d.force_new) {
-    const dup = (await query<any>('SELECT s.id, s.title, s.created_at, u.name AS user_name FROM screenings s JOIN users u ON u.id=s.user_id WHERE s.upwork_job_id=? ORDER BY s.id DESC LIMIT 1', [jobId]))[0];
+    const dup = (await query<any>('SELECT s.id, s.title, s.created_at, u.name AS user_name FROM screenings s JOIN users u ON u.id=s.user_id WHERE s.upwork_job_id=? AND s.discarded_at IS NULL ORDER BY s.id DESC LIMIT 1', [jobId]))[0];
     if (dup) return void res.status(409).json({ error: `This Upwork job is already saved as job #${dup.id} (by ${dup.user_name}). Update that one, or send force_new to save it again.`, existing_id: dup.id });
   }
   const cfg = await getSettings();
@@ -97,7 +97,7 @@ plugin.post('/plugin/jobs/:id/decision', anyone, async (req, res) => {
 });
 
 async function ownJob(req: any, res: any) {
-  const s = (await query<any>('SELECT id, user_id, status, verdict, continued_at, proceeded FROM screenings WHERE id=?', [Number(req.params.id)]))[0];
+  const s = (await query<any>('SELECT id, user_id, status, verdict, continued_at, proceeded FROM screenings WHERE id=? AND discarded_at IS NULL', [Number(req.params.id)]))[0];
   if (!s || (!canSeeAll(req.user.role) && s.user_id !== req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
   if (s.status !== 'done') { res.status(409).json({ error: 'This job has not finished screening' }); return null; }
   return s;

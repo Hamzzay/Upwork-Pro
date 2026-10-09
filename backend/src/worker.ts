@@ -171,7 +171,7 @@ async function processChat(id: number) {
 async function tick() {
   while (!stopping && inFlight < config.llm.concurrency) {
     const rows = await query<any>(
-      `SELECT id, input_type, raw_input, upwork_job_id, job_text FROM screenings WHERE status='queued' ORDER BY id LIMIT 1`,
+      `SELECT id, input_type, raw_input, upwork_job_id, job_text FROM screenings WHERE status='queued' AND discarded_at IS NULL ORDER BY id LIMIT 1`,
     );
     if (rows.length) {
       // single worker process, but the guarded UPDATE keeps a second one from double-running a job
@@ -184,7 +184,7 @@ async function tick() {
       continue;
     }
     // the posting runs beside the screening: the job is pasted, so both are wanted, and it does not wait on a decision
-    const po = await query<{ id: number }>(`SELECT id FROM screenings WHERE posting_status='queued' AND (job_text IS NOT NULL OR input_type='text') ORDER BY id LIMIT 1`);
+    const po = await query<{ id: number }>(`SELECT id FROM screenings WHERE posting_status='queued' AND discarded_at IS NULL AND (job_text IS NOT NULL OR input_type='text') ORDER BY id LIMIT 1`);
     if (po.length) {
       const res = await exec(`UPDATE screenings SET posting_status='running' WHERE id=? AND posting_status='queued'`, [po[0].id]);
       if (!res.affectedRows) continue;
@@ -194,7 +194,7 @@ async function tick() {
         .finally(() => { inFlight--; });
       continue;
     }
-    const t = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' ORDER BY continued_at IS NULL, continued_at, id LIMIT 1`); // jobs a person continued first, then PASS jobs started early
+    const t = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL ORDER BY continued_at IS NULL, continued_at, id LIMIT 1`); // jobs a person continued first, then PASS jobs started early
     if (t.length) {
       const res = await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [t[0].id]);
       if (!res.affectedRows) continue;

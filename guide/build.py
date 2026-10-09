@@ -16,7 +16,7 @@ def note(text, kind='tip'): return f'<div class="note {kind}">{text}</div>'
 SECTIONS = [
 ('start', 'Start here', [
   '<p>Upwork Pro takes an Upwork job from the moment you find it to the day the client answers: it screens the job against our rules, picks the past projects that prove we can do it, writes the proposal in the right profile\'s voice, and then keeps track of what the client did. Everything it learns ends up in Reports, so we can see what works.</p>',
-  '<table><tr><th>You are</th><th>You can</th></tr><tr><td>Employee</td><td>Screen jobs, write and send proposals, update their status, see your own jobs and reports, read the library and the writing guide, connect your own Claude.</td></tr><tr><td>Manager</td><td>All of that for everyone\'s jobs, plus add and edit projects, industries, proposal types, the writing guide and signals.</td></tr><tr><td>Admin</td><td>Everything: also the tag dictionary, Upwork profiles, Loom videos, rules, gate instructions, settings, users and logs.</td></tr></table>',
+  '<table><tr><th>You are</th><th>You can</th></tr><tr><td>Employee</td><td>Screen jobs, write and send proposals, update their status, see your own jobs and reports, read the library and the writing guide, connect your own Claude.</td></tr><tr><td>Manager</td><td>All of that for everyone\'s jobs, plus add and edit projects, industries, proposal types, the writing guide and signals.</td></tr><tr><td>Admin</td><td>Everything: also the tag dictionary, Upwork profiles, Loom videos, rules, gate instructions, settings, users and logs. Only an admin can discard a job (and restore it).</td></tr></table>',
   shot('layout.jpg', 'How every page is laid out', 'Every page works the same way, so once you know one you know them all.', [
     '<b>The sidebar.</b> Work is what you do every day. Library is what proposals are built from. Proposal setup is how they are written. Admin is for admins.',
     '<b>The title</b> of the page, with one line under it saying what the page is for.',
@@ -89,6 +89,11 @@ SECTIONS = [
     'Submitted.', 'How far each proposal got: Sent, Viewed, Chat, Interview.', '<b>Gone quiet</b>: sent and nothing recorded for 5 days. Click it to see them.', 'Update the status in one click.']),
   shot('jobs-journey.jpg', 'A quick look at a job', 'Click "Where it stands" on any row.', ['The job\'s journey so far, without opening it.']),
   shot('jobs-columns.jpg', 'Choose your columns', 'Press <b>Columns</b>. Your choice is remembered for each tab, on this computer.', ['Tick what you want to see.']),
+  shot('job-discard.jpg', 'Discard a job (admin only)', 'For test jobs and mistakes. On the job\'s Overview tab, press <b>Discard job</b>.', [
+    'Say why, if you like.', '<b>Discard job</b>. It disappears from the Jobs list, the Dashboard, Reports, exports and Claude, for everyone.'],
+    'Nothing is deleted. Employees and managers cannot discard or see discarded jobs.'),
+  shot('jobs-discarded.jpg', 'Bring a discarded job back (admin only)', 'In the Jobs list, change the <b>Live jobs</b> filter to <b>Discarded jobs</b>.', [
+    'The filter. Only admins have it.', '<b>Restore</b> puts the job back exactly as it was.']),
   shot('jobs-export.jpg', 'Export', 'Press <b>Export</b> to get exactly the jobs on screen (with your filters) as Excel or CSV, with every detail: the post, the result, the proposal text, every status and date.', ['Excel or CSV. Up to 5,000 jobs.']),
 ]),
 ('claude', 'Working with Claude', [

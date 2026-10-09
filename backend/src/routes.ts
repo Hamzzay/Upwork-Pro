@@ -108,7 +108,7 @@ export const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT J
   LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
 const listSelect = `SELECT s.id, s.user_id, s.notes, s.source, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
   s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
-  s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date,
+  s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date, s.discarded_at, s.discard_reason,
   u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
   p.status AS proposal_status, p.finalized_at AS proposal_finalized_at, p.template_name,
   IF(s.source = 'claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS secs_to_proposal, ${stageSql} AS stage, ${phaseSql} AS phase,
@@ -128,12 +128,15 @@ export const listFilters = z.object({
   // added for the reports: where it was written, the proposal type, a job tag, a project shown, with or without a Loom video, and the date it was sent
   source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(160).optional(), tag: z.string().trim().max(120).optional(),
   project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
+  discarded: z.enum(['1']).optional(), // admins only: the discarded jobs instead of the live ones
 });
 export type ListFilters = z.infer<typeof listFilters>;
 
 /** Shared by the list, the counters and the export: which jobs this person may see, and the filters. */
 export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   const where: string[] = []; const p: any[] = [];
+  // a discarded job is in no list, count, report or export; only an admin can ask for the discarded ones
+  where.push(f.discarded === '1' && req.user.role === 'admin' ? 's.discarded_at IS NOT NULL' : 's.discarded_at IS NULL');
   if (!canSeeAll(req.user.role) || f.mine === '1') { where.push('s.user_id=?'); p.push(req.user.id); }
   if (f.verdict) { where.push('s.verdict=?'); p.push(f.verdict); }
   if (f.q) {
@@ -303,7 +306,7 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
     users: all ? await query('SELECT id, name FROM users ORDER BY name') : [],
     profiles: await query('SELECT id, name FROM upwork_profiles ORDER BY active DESC, name'),
     rules: await query("SELECT code, type, rule FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
-    outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL ORDER BY outcome')).map((r) => r.outcome),
+    outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL AND discarded_at IS NULL ORDER BY outcome')).map((r) => r.outcome),
     types: (await query<any>('SELECT DISTINCT template_name FROM proposals WHERE template_name IS NOT NULL ORDER BY template_name')).map((r) => r.template_name),
     stages: STAGES, needs_action: NEEDS_ACTION, in_progress: IN_PROGRESS, phases: PHASES,
   });
@@ -352,6 +355,8 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
      LEFT JOIN skill_versions sv ON sv.id=s.skill_version_id LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id WHERE s.id=?`, [id]);
   const s = rows[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  if (s.discarded_at && req.user!.role !== 'admin') return void res.status(404).json({ error: 'Not found' }); // discarded: gone for everyone but an admin
+  if (s.discarded_by) s.discarded_by_name = (await query<any>('SELECT name FROM users WHERE id=?', [s.discarded_by]))[0]?.name ?? null;
   const ov = await query<any>(`SELECT o.id, o.reason, o.verdict_at_time, o.created_at, u.name AS user_name FROM overrides o JOIN users u ON u.id=o.user_id WHERE o.screening_id=?`, [id]);
   res.json({
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
@@ -367,6 +372,25 @@ api.post('/screenings/:id/retry', requireRole(), async (req, res) => {
   const r = await exec(
     `UPDATE screenings SET status='queued', error_code=NULL, error_message=NULL WHERE id=? AND user_id=? AND status='error'`, [id, req.user!.id]);
   if (!r.affectedRows) return void res.status(409).json({ error: 'Only your own failed screenings can be retried' });
+  res.json({ ok: true });
+});
+
+// Discard a job (admins only): a test or a mistake. It leaves every list, count, report and export, and Claude cannot see it.
+// Nothing is deleted: Restore brings it back exactly as it was.
+api.post('/admin/screenings/:id/discard', requireRole('admin'), async (req, res) => {
+  const b = z.object({ reason: z.string().trim().max(300).optional() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const id = Number(req.params.id);
+  const r = await exec('UPDATE screenings SET discarded_at=NOW(), discarded_by=?, discard_reason=? WHERE id=? AND discarded_at IS NULL', [req.user!.id, b.data.reason || null, id]);
+  if (!r.affectedRows) return void res.status(404).json({ error: 'Not found, or already discarded' });
+  await audit(req.user!.id, 'job_discard', `screening=${id}${b.data.reason ? ' reason=' + b.data.reason : ''}`);
+  res.json({ ok: true });
+});
+api.post('/admin/screenings/:id/restore', requireRole('admin'), async (req, res) => {
+  const id = Number(req.params.id);
+  const r = await exec('UPDATE screenings SET discarded_at=NULL, discarded_by=NULL, discard_reason=NULL WHERE id=? AND discarded_at IS NOT NULL', [id]);
+  if (!r.affectedRows) return void res.status(404).json({ error: 'Not found, or not discarded' });
+  await audit(req.user!.id, 'job_restore', `screening=${id}`);
   res.json({ ok: true });
 });
 
@@ -467,7 +491,7 @@ api.get('/plugin/jobs', requireRole(), async (req, res) => {
 });
 api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
-  const r = (await query<any>(`${pluginSelect()} WHERE s.id=?`, [id]))[0];
+  const r = (await query<any>(`${pluginSelect()} WHERE s.id=? AND s.discarded_at IS NULL`, [id]))[0];
   if (!r || (!canSeeAll(req.user!.role) && r.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const cur = (await query<any>('SELECT v.version_no, v.content_html FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
   const events = await query('SELECT status, happened_at, reason, note FROM status_events WHERE screening_id=? ORDER BY happened_at, id', [id]);
@@ -964,7 +988,7 @@ api.get('/admin/rules', admin, async (_req, res) => {
   const rules = await query<any>("SELECT code, type, rule, details, active, created_at, updated_at FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)");
   // how many jobs each code fired on, so a retire decision can be made with the history in view
   const fired = new Map<string, number>();
-  for (const r of await query<any>('SELECT rule_codes FROM screenings WHERE rule_codes IS NOT NULL')) {
+  for (const r of await query<any>('SELECT rule_codes FROM screenings WHERE rule_codes IS NOT NULL AND discarded_at IS NULL')) {
     for (const c of String(r.rule_codes).split(/\s*,\s*/).filter(Boolean)) fired.set(c, (fired.get(c) ?? 0) + 1);
   }
   res.json({ rules: rules.map((r) => ({ ...r, active: !!r.active, fired: fired.get(r.code) ?? 0 })) });

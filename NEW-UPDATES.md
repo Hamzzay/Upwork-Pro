@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 025: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
+npm run migrate        # applies 008 to 026: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
 npm run seed:writing   # the shared writing rules (rules, banned phrases, modules, screening answers, checklist), insert-if-missing
 npm run seed:proposals # the 3 new signals and the 6 proposal types (R21)
 npm run merge:writing  # once: retires the 3 SOP templates, moves their samples to Type 1, drops the duplicate type documents (R21)
@@ -790,6 +790,21 @@ proposal had no Loom in it. (Until now the video was only a suggestion on the pr
 - Checked with a real job whose post asks for a Loom, and the real AI: the video was offered and selected, the link was in the
   proposal after a sentence about it, the job recorded it, and the writer warned that its sentence said more than the video's
   description. Tests cover the wording that counts as asking for a video, the writer's facts and the link check.
+
+### R38. The plugin asks for the Loom video too; an admin can discard a job (done)
+- **Plugin v0.4.1** (`~/Downloads/stackup-proposals-0.4.1.plugin`): the plugin already asked for the proposal type (step 8). New step
+  8b asks which of the sending profile's Loom videos to send, or none, recommending the best fit when the post asks for a video; the
+  writer puts the link in; `save_proposal` takes `loom_video` (the video's title, or null for none) and Upwork Pro records it on the
+  job. Checked against the running app: an unknown title is refused with the profile's titles, a chosen one is saved, leaving it out
+  keeps what was there, null clears it. Not run inside Claude itself.
+- **Discard a job** (admins only; Hamza: test jobs should not show in any list or number). On a job's Overview tab, **Discard job**
+  asks first, with an optional reason. The job then leaves the Jobs list and its counters, the Dashboard, Reports, exports, the rule
+  counts, and everything Claude reads or writes (`listWhere` now always adds `discarded_at IS NULL`, so every list and number that
+  uses it follows). Its owner and managers get "Not found". The worker skips its queued work. The same Upwork job can be screened
+  again. Nothing is deleted: in the Jobs list an admin switches **Live jobs** to **Discarded jobs** and presses **Restore**.
+  Migration `026_discard_jobs.sql` (run `npm run migrate`); `POST /admin/screenings/:id/discard` and `/restore`; both in the Logs.
+- Checked with 19 calls against the running app (a manager refused, each place counted before and after, restore brings the numbers
+  back), and the screens as an admin. The guide has both steps.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
