@@ -5,7 +5,7 @@ import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
 import { lastUsed } from '../llm/context';
 import { checkProposal } from './checks';
-import { bannedPatterns, loadGuide, wordRange } from './guide';
+import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, writerOut, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
@@ -136,6 +136,49 @@ async function readSignals(screeningId: number, jobText: string, stillWanted: ()
   return detected;
 }
 
+/** The active proposal types ranked for a job's signals, each with the signals it matched in words. One ranking for the chooser and the writer. */
+async function rankTypes(detected: DetectedValue[]) {
+  const tpls = await query<any>('SELECT id, name, priority, is_default FROM templates WHERE active=1');
+  const maps = await query<any>('SELECT template_id, signal_id, value_id, weight, role, req_group FROM template_signals');
+  const ranked = rankTemplates(detected.map((d) => ({ signal_id: d.signal_id, value_id: d.value_id, is_fallback: d.is_fallback })),
+    tpls.map((t) => ({ id: t.id, name: t.name, priority: t.priority, is_default: !!t.is_default,
+      mappings: maps.filter((m) => m.template_id === t.id).map((m) => ({ signal_id: m.signal_id, value_id: m.value_id, weight: m.weight, role: m.role, req_group: m.req_group })) })));
+  const sigLabel = new Map(detected.map((d) => [`${d.signal_id}:${d.value_id}`, `${d.signal_name}: ${d.value_name}`]));
+  const sigOnly = new Map(detected.map((d) => [d.signal_id, `${d.signal_name}: ${d.value_name}`]));
+  const lbl = (m: { signal_id: number; value_id: number | null }) => (m.value_id ? sigLabel.get(`${m.signal_id}:${m.value_id}`) : sigOnly.get(m.signal_id)) ?? 'signal';
+  const items = ranked.ranking.map((r) => ({ id: r.id, name: r.name, score: r.score, rank: r.rank, qualified: r.qualified,
+    matched: r.matched.map((m) => ({ label: lbl(m), weight: m.weight, role: m.role })), excluded_by: r.excluded_by.map((m) => lbl(m)) }));
+  return { ...ranked, items };
+}
+/**
+ * What the person chooses from before a proposal is written: every active type, best fit first. `ready` is false while the
+ * job's signals are still being read (the types then come in their own order, unranked, and can still be chosen).
+ */
+export async function typeChoices(screeningId: number) {
+  const detected = await storedSignals(screeningId);
+  const facts = new Map((await query<any>(`SELECT t.id, t.description, t.body_html, t.is_default, t.priority,
+      (SELECT COUNT(*) FROM template_samples s WHERE s.template_id=t.id AND s.active=1) AS samples FROM templates t WHERE t.active=1`)).map((t) => [t.id, t]));
+  const about = (id: number) => { const t = facts.get(id); const f = typeFacts(htmlToPlain(t?.body_html ?? '') || t?.description || ''); return { chosen_when: f.chosen_when, length: f.length, samples: Number(t?.samples ?? 0) }; };
+  if (!detected.length) {
+    const list = [...facts.values()].sort((a, b) => a.priority - b.priority || String(a.id).localeCompare(String(b.id)));
+    const names = new Map((await query<any>('SELECT id, name FROM templates WHERE active=1')).map((t) => [t.id, t.name]));
+    return { ready: false, defaulted: false, types: list.map((t, i) => ({ id: t.id, name: names.get(t.id), rank: i + 1, score: 0, qualified: false, suggested: false, matched: [], excluded_by: [], ...about(t.id) })) };
+  }
+  const r = await rankTypes(detected);
+  const missing = new Map(r.ranking.map((x) => [x.id, x.missing_groups]));
+  // the order to offer them in: the suggestion, the other types that fit, then the near fits (the default type first, then the
+  // fewest required signals missing, then the most matched), and last the types the job's signals rule out
+  const group = (x: { id: number; qualified: boolean; excluded_by: string[] }) => (r.chosen && x.id === r.chosen.id ? 0 : x.qualified ? 1 : x.excluded_by.length ? 3 : 2);
+  const types = r.items.map((x) => ({ ...x, suggested: !!r.chosen && x.id === r.chosen.id, ruled_out: x.excluded_by.length > 0, is_default: !!facts.get(x.id)?.is_default, missing: missing.get(x.id) ?? 0, ...about(x.id) }))
+    .sort((a, b) => group(a) - group(b) || (group(a) === 2 ? Number(b.is_default) - Number(a.is_default) || a.missing - b.missing || b.matched.length - a.matched.length : 0) || a.rank - b.rank);
+  return { ready: true, defaulted: r.defaulted, types };
+}
+/** The type the signals pick for a job, or null while they are not read yet. */
+export async function suggestedTypeId(screeningId: number): Promise<number | null> {
+  const detected = await storedSignals(screeningId);
+  return detected.length ? (await rankTypes(detected)).chosen?.id ?? null : null;
+}
+
 type Facts = Awaited<ReturnType<typeof loadFacts>>;
 interface Draft { template: { id: number; name: string; score: number; choice: 'auto' | 'manual'; ranking: string }; text: string; warnings: { source: string; text: string }[]; model: string }
 
@@ -158,19 +201,11 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
 
   // 2. template: the best fit for the signals, or the one the user chose
   await stage('template');
-  const tpls = await query<any>('SELECT id, name, priority, is_default FROM templates WHERE active=1');
-  const maps = await query<any>('SELECT template_id, signal_id, value_id, weight, role, req_group FROM template_signals');
-  const ranked = rankTemplates(detected.map((d) => ({ signal_id: d.signal_id, value_id: d.value_id, is_fallback: d.is_fallback })),
-    tpls.map((t) => ({ id: t.id, name: t.name, priority: t.priority, is_default: !!t.is_default,
-      mappings: maps.filter((m) => m.template_id === t.id).map((m) => ({ signal_id: m.signal_id, value_id: m.value_id, weight: m.weight, role: m.role, req_group: m.req_group })) })));
+  const ranked = await rankTypes(detected);
   if (!ranked.chosen) throw new Error('no_template');
   let chosen = ranked.chosen; let choice: 'auto' | 'manual' = 'auto';
   if (opts.templateId) { const m = ranked.ranking.find((x) => x.id === opts.templateId); if (m) { chosen = m; choice = 'manual'; } }
-  const sigLabel = new Map(detected.map((d) => [`${d.signal_id}:${d.value_id}`, `${d.signal_name}: ${d.value_name}`]));
-  const sigOnly = new Map(detected.map((d) => [d.signal_id, `${d.signal_name}: ${d.value_name}`]));
-  const lbl = (m: { signal_id: number; value_id: number | null }) => (m.value_id ? sigLabel.get(`${m.signal_id}:${m.value_id}`) : sigOnly.get(m.signal_id)) ?? 'signal';
-  const ranking = JSON.stringify({ defaulted: ranked.defaulted && choice === 'auto', items: ranked.ranking.map((r) => ({ id: r.id, name: r.name, score: r.score, rank: r.rank, qualified: r.qualified,
-    matched: r.matched.map((m) => ({ label: lbl(m), weight: m.weight, role: m.role })), excluded_by: r.excluded_by.map((m) => lbl(m)) })) });
+  const ranking = JSON.stringify({ defaulted: ranked.defaulted && choice === 'auto', items: ranked.items });
   if (opts.onTemplate) await opts.onTemplate({ id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking });
   if (!opts.stillWanted()) return null;
   const template = (await loadTemplate(chosen.id))!;

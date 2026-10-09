@@ -26,7 +26,7 @@ SECTIONS = [
   note('Three things are the same on every list: a <b>search box</b> and <b>filters</b> on top (they apply as you type, and <b>Clear filters</b> appears once something is filtered), a row opens when you click it, and a row\'s buttons are at its right end. Deleting is always inside the Edit window, never in the row.'),
 ]),
 ('daily', 'The daily job, without Claude', [
-  '<p>One job, five steps. The job page shows the step you are on and the button for it is always at the top right of the tab row.</p>',
+  '<p>One job, five steps: decide, projects, profile, proposal (choose its type, then review it), and tracking. The job page shows the step you are on and the button for it is always at the top right of the tab row.</p>',
   shot('screen-1-paste.jpg', '1. Screen a job', 'Open <b>Screen a job</b> in the sidebar.', [
     'On Upwork, select the whole job page (Cmd + A, Cmd + C) and paste it here. Include the "About the client" part: the screening depends on it.',
     'Paste the job\'s link too. It is saved with the job and stops the same job being screened twice.',
@@ -44,14 +44,19 @@ SECTIONS = [
     'The two recommended projects are already ticked.', 'Click a card to tick or untick it. To swap, untick one first.',
     'Press <b>Confirm and continue</b>.', 'How many you have picked, out of how many you may.']),
   shot('job-profile.jpg', '4. Pick the profile', 'Which Upwork profile sends this proposal. The proposal is written in that profile\'s voice, with its rate, links and rules.', [
-    'Click the profile.', 'Press <b>Confirm and write proposal</b>.']),
-  shot('job-writing.jpg', 'The proposal is written for you', 'This takes a few minutes. You can leave and come back.', ['It reads the job\'s signals, chooses the proposal type that suits them, then writes.']),
+    'Click the profile.', 'Press <b>Confirm and continue</b>.']),
+  shot('job-type.jpg', 'Choose the type of proposal', 'Nothing is written until you choose. The types that suit this job come first, each with the reason it fits.', [
+    'The suggested type: the best fit for what the job post says. It is already selected.',
+    'The other types offered, with why each fits or does not. Click one to choose it instead. "Ruled out" means something in the post speaks against it; you can still pick it.',
+    '<b>Show all types</b> lists every proposal type.',
+    'Press <b>Write the proposal</b>. Only the type you chose is written.']),
+  shot('job-writing.jpg', 'The proposal is written for you', 'This takes a few minutes. You can leave and come back.', ['It writes the type you chose, with your projects and profile.']),
   shot('job-proposal.jpg', '5. Review the proposal', 'Read it. It is your proposal: change anything.', [
     'The proposal. Edit it like any document.',
     'Every save, chat change and restore is kept as a version. Pick an older one here to see it or bring it back.',
     '<b>Chat with the AI</b> to change it: "make it shorter", "add a question about their calendar". Each answer is saved as a new version.',
     '<b>Copy</b> puts the text on your clipboard, ready to paste into Upwork. <b>Finish proposal</b> when you are happy with it.',
-    'Open this to see why it was written this way: the signals it read and the proposal type it chose. You can write it again with another type.'],
+    'Open this to see the signals it read and how every type ranked. You can write it again with another type.'],
     'Above the text, a yellow line lists things to check before sending (for example a figure the writer could not find in our facts).'),
   shot('job-tracking.jpg', 'Send it on Upwork, then mark it as sent', 'Paste the proposal into Upwork and submit it there. Then come back to the <b>Tracking</b> tab.', [
     '<b>Mark as sent</b> (later this button says <b>Update status</b>). <b>Edit details</b> is for Connects, boost, the Loom video and notes.',

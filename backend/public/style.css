@@ -440,6 +440,8 @@ ul.plain li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; 
 .pcard2 { display: grid; gap: 4px; text-align: left; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); font: inherit; color: inherit; cursor: pointer; }
 .pcard2:hover:not([disabled]) { border-color: var(--line-strong); }
 .pcard2[disabled] { cursor: default; }
+.typegrid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.typecard { align-content: start; gap: 6px; }
 .pcard2 svg { width: 16px; height: 16px; color: var(--brand); }
 
 /* ---------- rich text editor and the proposal ---------- */

@@ -78,10 +78,10 @@ api.post('/screenings', requireRole(), async (req, res) => {
  * A job is submitted once it is marked Sent, and closed once it has a final outcome ("Pending" is the one outcome
  * that is not final). Skipped and failed jobs are "not pursued".
  */
-export const STAGES = ['screening', 'decide', 'projects', 'profile', 'writing', 'review', 'ready', 'submitted', 'closed', 'skipped', 'failed'] as const;
-export const IN_PROGRESS = ['screening', 'decide', 'projects', 'profile', 'writing', 'review', 'ready'];
+export const STAGES = ['screening', 'decide', 'projects', 'profile', 'type', 'writing', 'review', 'ready', 'submitted', 'closed', 'skipped', 'failed'] as const;
+export const IN_PROGRESS = ['screening', 'decide', 'projects', 'profile', 'type', 'writing', 'review', 'ready'];
 // waiting on a person: these are the steps. "screening" and "writing" are the AI at work for a minute or two.
-export const NEEDS_ACTION = ['decide', 'projects', 'profile', 'review', 'ready'];
+export const NEEDS_ACTION = ['decide', 'projects', 'profile', 'type', 'review', 'ready'];
 export const PHASES = ['in_progress', 'submitted', 'closed', 'not_pursued'] as const;
 const sentSql = `(s.proposal_sent_at IS NOT NULL OR s.proposal_sent_date IS NOT NULL)`;
 const closedSql = `(s.outcome IS NOT NULL AND s.outcome <> 'Pending')`;
@@ -94,7 +94,8 @@ const stageSql = `CASE
     WHEN s.continued_at IS NULL THEN 'decide'
     WHEN s.selection_confirmed_at IS NULL THEN 'projects'
     WHEN s.proposal_profile_confirmed_at IS NULL THEN 'profile'
-    WHEN p.id IS NULL OR p.status IN ('queued','running') THEN 'writing'
+    WHEN p.id IS NULL THEN 'type'
+    WHEN p.status IN ('queued','running') THEN 'writing'
     WHEN p.finalized_at IS NULL THEN 'review'
     ELSE 'ready' END`;
 const phaseSql = `CASE WHEN (${stageSql}) IN ('skipped','failed') THEN 'not_pursued' WHEN (${stageSql}) IN ('submitted','closed') THEN (${stageSql}) ELSE 'in_progress' END`;
@@ -706,14 +707,10 @@ api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
   if (!prof) return void res.status(400).json({ error: 'That profile does not exist' });
   if (!prof.active) return void res.status(400).json({ error: 'That profile is disabled' });
   await exec('UPDATE screenings SET proposal_profile_id=?, upwork_profile_id=?, proposal_profile_confirmed_at=NOW(), proposal_profile_confirmed_by=? WHERE id=?', [prof.id, prof.id, req.user!.id, s.id]);
-  // the first time a profile is chosen, the proposal starts by itself: signals, template, writing
+  // nothing is written yet: the person chooses the proposal type next (Proposal tab), and that starts the writing
   const existing = (await query<any>('SELECT id, profile_id, status FROM proposals WHERE screening_id=?', [s.id]))[0];
-  let started = false;
-  if (!existing) {
-    await exec(`INSERT INTO proposals (screening_id, status, template_choice, created_by) VALUES (?, 'queued', 'auto', ?)`, [s.id, req.user!.id]);
-    started = true;
-  }
-  await audit(req.user!.id, 'proposal_profile', `screening=${s.id} profile=${prof.id}${started ? ' proposal=started' : ''}`);
+  const started = false;
+  await audit(req.user!.id, 'proposal_profile', `screening=${s.id} profile=${prof.id}`);
   // a profile changed after the proposal was written: the sign-off is out of date, the person decides whether to write again
   res.json({ ok: true, started, needs_rewrite: !!existing && existing.profile_id !== null && existing.profile_id !== prof.id });
 });

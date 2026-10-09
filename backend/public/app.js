@@ -395,7 +395,7 @@ async function newView() {
     h('div', { class: 'steps' },
       h('div', { class: 'step' }, h('div', { class: 'n' }, '1'), h('strong', {}, 'Paste the job'), h('p', {}, 'A job link, or the full page text copied from Upwork.')),
       h('div', { class: 'step' }, h('div', { class: 'n' }, '2'), h('strong', {}, 'We screen it'), h('p', {}, 'The SOP rules run in about a minute and return PASS, FLAG or FAIL.')),
-      h('div', { class: 'step' }, h('div', { class: 'n' }, '3'), h('strong', {}, 'Decide, then write'), h('p', {}, `Continue (a FLAG or FAIL needs a reason), pick ${cfg('selection.min', 1) === cfg('selection.max', 2) ? cfg('selection.max', 2) : cfg('selection.min', 1) + ' to ' + cfg('selection.max', 2)} projects and a profile, and the proposal is written for you.`))),
+      h('div', { class: 'step' }, h('div', { class: 'n' }, '3'), h('strong', {}, 'Decide, then write'), h('p', {}, `Continue (a FLAG or FAIL needs a reason), pick ${cfg('selection.min', 1) === cfg('selection.max', 2) ? cfg('selection.max', 2) : cfg('selection.min', 1) + ' to ' + cfg('selection.max', 2)} projects, a profile and the proposal type, and the proposal is written for you.`))),
     h('div', { class: 'notice' }, icon('info'), h('div', {}, 'Links are read through the Upwork API, which is not connected yet. For now, paste the page text.')),
   ]);
   box.focus();
@@ -674,7 +674,7 @@ async function statusDialog(id, onDone) {
  * "Screening" and "Writing" are the AI at work for a minute or two, so they get no step number.
  */
 const STAGE_INFO = {
-  decide: [1, 'Decision pending'], projects: [2, 'Projects pending'], profile: [3, 'Profile pending'], review: [4, 'Review pending'], ready: [5, 'Ready to send'],
+  decide: [1, 'Decision pending'], projects: [2, 'Projects pending'], profile: [3, 'Profile pending'], type: [4, 'Proposal type pending'], review: [4, 'Review pending'], ready: [5, 'Ready to send'],
   screening: [0, 'Screening…'], writing: [0, 'Writing…'],
   submitted: [0, 'Submitted'], closed: [0, 'Closed'], skipped: [0, 'Skipped'], failed: [0, 'Failed'],
 };
@@ -796,7 +796,7 @@ const JOB_COLS = [
 /** The tabs: each is a phase, with its own starting columns, stage filter and counter tile. */
 const JOB_TABS = [
   { key: '', label: 'All', cols: ['progress', 'verdict', 'country', 'profile', 'user', 'created'] },
-  { key: 'in_progress', label: 'In progress', cols: ['progress', 'verdict', 'country', 'budget', 'profile', 'user', 'created'], stages: ['decide', 'projects', 'profile', 'review', 'ready', 'screening', 'writing'], need: true },
+  { key: 'in_progress', label: 'In progress', cols: ['progress', 'verdict', 'country', 'budget', 'profile', 'user', 'created'], stages: ['decide', 'projects', 'profile', 'type', 'review', 'ready', 'screening', 'writing'], need: true },
   { key: 'submitted', label: 'Submitted', cols: ['progress', 'journey', 'since', 'sent', 'connects', 'profile', 'user'], quiet: true },
   { key: 'closed', label: 'Closed', cols: ['outcome', 'close', 'sent', 'verdict', 'profile', 'user', 'country'] },
   { key: 'not_pursued', label: 'Not pursued', cols: ['progress', 'why', 'verdict', 'country', 'budget', 'user', 'created'], stages: ['skipped', 'failed'] },
@@ -805,11 +805,11 @@ function savedCols(tab) {
   try { const v = JSON.parse(localStorage.getItem('jobs.cols2.' + (tab || 'all')) || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
   return new Set((JOB_TABS.find((t) => t.key === tab) || JOB_TABS[0]).cols);
 }
-const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'review', 'ready'];
+const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'type', 'review', 'ready'];
 /** What the person does next, as a button label, for each step that waits on them. */
-const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pick profile', review: 'Review proposal', ready: 'Mark as sent' };
+const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pick profile', type: 'Pick proposal type', review: 'Review proposal', ready: 'Mark as sent' };
 /** The workflow step a stage opens at. */
-const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, review: 4 };
+const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, type: 4, review: 4 };
 /** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
 const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to'];
@@ -1151,7 +1151,7 @@ function stepState(matching, proposal) {
   return { done, unlocked, current };
 }
 
-/** Choose the one Upwork profile the proposal is sent from, as cards in a grid. Confirming it writes the proposal and opens it. */
+/** Choose the one Upwork profile the proposal is sent from, as cards in a grid. Confirming it opens the Proposal tab, where the type is chosen. */
 function profileSection(s, initial) {
   const owner = s.user_id === me.id;
   const setActions = actionsFor();
@@ -1167,11 +1167,11 @@ function profileSection(s, initial) {
       const b = e.currentTarget; btnBusy(b, 'Saving');
       try {
         const r = await api('PUT', `/screenings/${s.id}/proposal-profile`, { profile_id: current });
-        toast(r.started ? 'Writing the proposal…' : 'Profile saved'); chosen = undefined;
+        toast('Profile saved'); chosen = undefined;
         if (stepCtx) await stepCtx.advanceTo(3); else route();
-      } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; b.disabled = false; b.replaceChildren(saved ? 'Use this profile instead' : 'Confirm and write proposal'); }
+      } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; b.disabled = false; b.replaceChildren(saved ? 'Use this profile instead' : 'Confirm and continue'); }
     };
-    if (owner) setActions(!saved ? actBtn('Confirm and write proposal', confirmIt, true) : current && current !== saved.id ? actBtn('Use this profile instead', confirmIt, true) : null);
+    if (owner) setActions(!saved ? actBtn('Confirm and continue', confirmIt, true) : current && current !== saved.id ? actBtn('Use this profile instead', confirmIt, true) : null);
     const card = (p) => {
       const on = current === p.id;
       const pick = () => { if (!owner) return; chosen = p.id; err.hidden = true; draw(); };
@@ -1184,7 +1184,7 @@ function profileSection(s, initial) {
     box.replaceChildren(h('div', { class: 'card card-pad' },
       h('div', { class: 'jp-sec' }, saved ? `Sent from ${saved.name}` : 'Which profile sends this proposal?'),
       h('div', { class: 'jp-label', style: 'margin:2px 0 14px' }, saved ? `Confirmed${saved.confirmed_by ? ' by ' + saved.confirmed_by : ''} ${full(saved.confirmed_at)}.${owner ? ' Pick another to change it.' : ''}`
-        : owner ? 'Pick one, then confirm at the top right: the proposal is written straight after.' : 'Chosen by the person who submitted this job.'),
+        : owner ? 'Pick one, then confirm at the top right. Next you choose the proposal type.' : 'Chosen by the person who submitted this job.'),
       err,
       profs.length ? h('div', { class: 'pgrid2', role: 'radiogroup', 'aria-label': 'Upwork profile' }, profs.map(card)) : h('p', { class: 'jp-body' }, 'No Upwork profiles are set up yet. An admin can add them under Upwork profiles.')));
   }
@@ -1256,7 +1256,8 @@ function stageOf(s, matching, proposal) {
   if (!(matching && matching.continued)) return 'decide';
   if (!matching.confirmed_at) return 'projects';
   if (!matching.proposal_profile) return 'profile';
-  if (!proposal || proposal.status === 'queued' || proposal.status === 'running') return 'writing';
+  if (!proposal) return 'type';
+  if (proposal.status === 'queued' || proposal.status === 'running') return 'writing';
   if (!proposal.finalized_at) return 'review';
   return 'ready';
 }
@@ -1300,7 +1301,7 @@ const JOBPAGE_TABS = [['overview', 'Overview'], ['post', 'Job post'], ['screenin
   ['proposal', 'Proposal', 3], ['tracking', 'Tracking', 4], ['history', 'History']];
 const STEP_TAB = ['screening', 'projects', 'profile', 'proposal', 'tracking'];
 /** The tab a job opens on when it is waiting on you. */
-const TAB_OF_STAGE = { screening: 'screening', failed: 'screening', decide: 'screening', projects: 'projects', profile: 'profile', writing: 'proposal', review: 'proposal' };
+const TAB_OF_STAGE = { screening: 'screening', failed: 'screening', decide: 'screening', projects: 'projects', profile: 'profile', type: 'proposal', writing: 'proposal', review: 'proposal' };
 /** The tab row's button slot, set while a job page is on screen. */
 let tabActions = null, tabGen = 0;
 const setActions = (...btns) => { if (tabActions) tabActions(btns.flat().filter(Boolean)); };
@@ -1356,7 +1357,8 @@ async function jobPage(id, want) {
       failed: ['The screening did not finish', s.error_message || ''],
       decide: ['Decide: continue or skip', `The gate says ${vword(s.verdict)}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}.${who}`],
       projects: ['Pick the projects', 'Choose the projects the proposal will show.' + who],
-      profile: ['Pick the profile', 'Choose the Upwork profile that sends it; the proposal is written straight after.' + who],
+      profile: ['Pick the profile', 'Choose the Upwork profile that sends it.' + who],
+      type: ['Pick the proposal type', 'Choose how the proposal is written. The types that suit this job come first.' + who],
       writing: ['The proposal is being written', 'A few minutes. You can leave this page.'],
       review: ['Review and finish the proposal', 'Read it, edit it or ask the AI, then finish it.' + who],
       ready: ['Ready to send', 'Send it on Upwork, then mark it as sent.'],
@@ -1367,7 +1369,7 @@ async function jobPage(id, want) {
     const go = (k, label) => actBtn(label, () => setTab(k), true);
     setActions({
       failed: owner && go('screening', 'Open screening'), decide: owner && go('screening', 'Decide'), projects: owner && go('projects', 'Pick projects'),
-      profile: owner && go('profile', 'Pick profile'), writing: go('proposal', 'Open the proposal'), review: owner && go('proposal', 'Review proposal'),
+      profile: owner && go('profile', 'Pick profile'), type: owner && go('proposal', 'Pick proposal type'), writing: go('proposal', 'Open the proposal'), review: owner && go('proposal', 'Review proposal'),
       ready: canEdit && actBtn('Mark as sent', statusUpdate, true), submitted: canEdit && actBtn('Update status', statusUpdate, true), closed: canEdit && actBtn('Update status', statusUpdate),
     }[stage] || null);
     const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion } from './proposal/pipeline';
+import { addVersion, suggestedTypeId, typeChoices } from './proposal/pipeline';
 
 export const proposals = Router();
 const admin = requireRole('admin');
@@ -303,6 +303,12 @@ proposals.get('/screenings/:id/proposal', anyone, async (req, res) => {
 });
 
 // Write (or write again, optionally with a template the user chose).
+// The proposal types to choose from before writing: every active type, best fit for the job's signals first.
+proposals.get('/screenings/:id/proposal/types', anyone, async (req, res) => {
+  const s = await visibleScreening(req, res); if (!s) return;
+  res.json(await typeChoices(s.id));
+});
+
 proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
   const b = z.object({ template_id: z.number().int().positive().nullish() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: 'Invalid request' });
@@ -314,6 +320,8 @@ proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
     const t = (await query<any>('SELECT id FROM templates WHERE id=? AND active=1', [b.data.template_id]))[0];
     if (!t) return void res.status(400).json({ error: 'That template is not available' });
     tpl = t.id;
+    // choosing the type the signals suggest is not an override: it is recorded as chosen from the signals (and can use the early draft)
+    if ((await suggestedTypeId(s.id)) === tpl) tpl = null;
   }
   const existing = (await query<any>('SELECT id, status FROM proposals WHERE screening_id=?', [s.id]))[0];
   if (existing && (existing.status === 'queued' || existing.status === 'running')) return void res.status(409).json({ error: 'The proposal is already being written' });

@@ -141,7 +141,8 @@ function proposalSection(s, initial, matching) {
   };
   // the tab row: Copy, Save version (only with unsaved edits), Write again (when the profile changed), Finish
   function drawActions() {
-    if (!data || !data.current || busy()) { setActions(owner && !busy() ? startBtn(data && data.status === 'error' ? 'Try again' : 'Write the proposal') : null); return; }
+    if (!data) return; // nothing written yet: the type chooser puts its own button in the tab row
+    if (!data.current || busy()) { setActions(owner && !busy() ? startBtn(data.status === 'error' ? 'Try again' : 'Write the proposal', data.template ? data.template.id : null) : null); return; }
     const dirty = editor && editor.isDirty();
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
     const copy = actBtn('Copy', async () => { const ok = await copyText(htmlToPlainText(editor.getHtml())); toast(ok ? 'Copied. Paste it into Upwork.' : 'Could not copy. Select the text and copy it.', !ok); });
@@ -156,6 +157,49 @@ function proposalSection(s, initial, matching) {
       catch (x) { toast(x.message, true); drawActions(); }
     }, true) : null;
     setActions(stale && owner ? startBtn('Write it again', null, false) : null, copy, save, finish);
+  }
+
+  // ----- before anything is written: which type of proposal? The types that suit the job's signals come first.
+  const SUGGEST = 5; // how many are shown before "Show all types"
+  let picked = null, byHand = false, showAll = false, choices = null, typeTimer = null;
+  function typeChooser() {
+    const el = h('div', { class: 'stack' });
+    const write = async (e) => {
+      const b = e.currentTarget; btnBusy(b, 'Starting');
+      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: picked }); await reload(); drawAll(); startPolling(); if (typeof stepCtx !== 'undefined' && stepCtx) stepCtx.refresh(); }
+      catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren('Write the proposal'); }
+    };
+    const why = (t) => { const req = t.matched.filter((m) => m.role === 'required').map((m) => m.label), sup = t.matched.filter((m) => m.role !== 'required').map((m) => m.label);
+      return [req.length ? 'Fits because of ' + req.join('; ') : null, sup.length ? (req.length ? 'Also ' : 'Supported by ') + sup.join('; ') : null, t.excluded_by.length ? 'Ruled out by ' + t.excluded_by.join('; ') : null].filter(Boolean).join('. '); };
+    const draw = () => {
+      if (!owner) { el.replaceChildren(h('div', { class: 'jp-sec' }, 'Waiting for the proposal type'), h('p', { class: 'jp-label' }, `${s.user_name || 'The person who submitted this job'} chooses how the proposal is written.`)); return; }
+      if (!choices) { el.replaceChildren(h('div', { class: 'skel', style: 'width:50%' })); return; }
+      if (picked === null) picked = (choices.types.find((t) => t.suggested) || choices.types[0] || {}).id ?? null;
+      const shown = showAll ? choices.types : choices.types.filter((t, i) => i < SUGGEST || t.id === picked);
+      setActions(picked ? actBtn('Write the proposal', write, true) : null);
+      const card = (t) => h('button', { type: 'button', class: 'pcard2 typecard' + (picked === t.id ? ' on' : ''), role: 'radio', 'aria-checked': picked === t.id, onclick: () => { picked = t.id; byHand = true; draw(); } },
+        h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('span', { class: 'jp-sec', style: 'min-width:0' }, t.name),
+          t.suggested ? h('span', { class: 'tagpill' }, 'Suggested') : choices.ready && t.qualified ? h('span', { class: 'pill PASS' }, 'Also fits') : t.ruled_out ? h('span', { class: 'pill wait' }, 'Ruled out') : picked === t.id ? icon('check') : null),
+        t.chosen_when ? h('div', { class: 'jp-label' }, 'For when ' + t.chosen_when) : null,
+        choices.ready && why(t) ? h('div', { class: 'jp-label' }, why(t) + '.') : null,
+        h('div', { class: 'jp-label faint' }, [t.length, `${t.samples} sample${t.samples === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));
+      el.replaceChildren(...[
+        h('div', {}, h('div', { class: 'jp-sec' }, 'Which type of proposal?'),
+          h('div', { class: 'jp-label' }, choices.ready
+            ? (choices.defaulted ? 'No type matched this job\'s signals, so the default type is suggested. ' : 'The best fit for this job\'s signals is suggested and already selected. ') + 'Pick another if you prefer, then press Write the proposal at the top right. Only that type is written.'
+            : 'The job\'s signals are still being read, so the types are not ranked yet. Wait a moment for the suggestion, or pick a type now.')),
+        !choices.ready ? h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Reading the signals...') : null,
+        h('div', { class: 'pgrid2 typegrid', role: 'radiogroup', 'aria-label': 'Proposal type' }, shown.map(card)),
+        choices.types.length > shown.length || showAll ? h('div', {}, h('button', { type: 'button', class: 'linkbtn', onclick: () => { showAll = !showAll; draw(); } }, showAll ? `Show the top ${SUGGEST} only` : `Show all ${choices.types.length} types`)) : null].filter(Boolean)); // replaceChildren prints a null as the word
+    };
+    const load = async () => {
+      clearTimeout(typeTimer);
+      try { const was = choices && choices.ready; choices = await api('GET', `/screenings/${s.id}/proposal/types`); if (choices.ready && !was && !byHand) picked = null; /* the suggestion arrived: select it, unless the person already chose */ } catch (x) { if (!choices) { el.replaceChildren(h('p', { class: 'err' }, x.message)); return; } }
+      if (!box.isConnected || data) return;
+      draw(); if (!choices.ready) typeTimer = setTimeout(load, 3000);
+    };
+    draw(); if (owner) load();
+    return el;
   }
 
   function drawProgress() {
@@ -249,7 +293,7 @@ function proposalSection(s, initial, matching) {
   function drawAll() {
     let body;
     if (!data) {
-      body = h('div', {}, h('div', { class: 'jp-sec' }, 'Write the proposal'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, 'The AI reads the job\'s signals, picks the proposal type that suits them, and writes it with your projects and profile.'));
+      body = typeChooser();
     } else if (busy()) {
       body = h('div', { class: 'progress propprogress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', { style: 'font-size:17px' }, data.status === 'queued' ? 'Waiting for a free slot' : (STAGE_TEXT[data.stage] || 'Working')),
         h('p', { class: 'muted', style: 'margin-top:4px' }, 'Detecting the signals, choosing a proposal type and writing takes a few minutes with the real model (two AI calls). You can leave this page; the result is saved.'));

@@ -754,6 +754,26 @@ pictures show our jobs and profiles. It is served from the `guide` folder at the
 it and the server needs nothing extra. Checked: signed out, the page and a picture redirect to sign-in; signed in, both load.
 The sidebar link itself was not looked at in a browser. `SERVER-SETUP.md` (new) is the step by step for putting it all on a server.
 
+### R36. You choose the proposal type before anything is written; the connector's icon (done)
+Hamza: after the projects I was never asked which type of proposal to write. It should ask first, suggest, and write only that type.
+- **Confirming the profile no longer starts the writing.** The Proposal tab now opens on "Which type of proposal?": the type the
+  job's signals suggest (already selected), then the other types that fit, then the near fits, then the ones the signals rule out,
+  each with when it is used, why it fits or not, its length and sample count. Five are shown, "Show all types" lists the rest.
+  **Write the proposal** (tab row) writes only the chosen type. While the signals are still being read the types are listed
+  unranked and can still be chosen; the suggestion appears by itself.
+- New stage **Proposal type pending** (step 4 of 5, between Profile and Review): in the Jobs list, its filter, Needs action, the
+  dashboard and the Overview tab. Jobs that had a profile but no proposal used to read "Writing…" forever; they now read this.
+- Server: `GET /screenings/:id/proposal/types` (`typeChoices` in `pipeline.ts`, one ranking shared with the writer);
+  `PUT /proposal-profile` no longer queues a proposal; `POST /proposal/start` records a choice equal to the suggestion as "from the
+  signals" (so the early draft can still be used) and anything else as "by hand", which is what Reports, "How the type was chosen"
+  now compares.
+- **The Claude connector showed a different icon from the browser**: the site only had `favicon.svg`, and `/favicon.ico` answered
+  404, which is what Claude asks for. Added `favicon.ico`, `icon-192.png`, `icon-512.png` and `apple-touch-icon.png`, made from the
+  same logo, and linked them from both pages. Claude may keep its old icon for a while; removing and adding the connector refreshes it.
+- Checked with a real job and the real AI: after the profile no proposal existed and the stage read "Proposal type pending"; five
+  types were offered with the suggestion selected; a different type was picked and exactly that type was written, recorded as chosen
+  by hand. The guide has the new step and picture. The server and the worker were restarted.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
