@@ -7,6 +7,10 @@ import { htmlToPlain, textToHtml } from './html';
 import { jobIdFromUrl } from './screening/jobsource';
 import { getSettings } from './settings';
 import { loomVideos, PROFILE_FIELDS, profileBody } from './routes_library';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { appRoot } from './config';
+import { zip } from './zip';
 
 /**
  * The Claude plugin saves its own work here: the job it screened, the proposal it wrote, and (through the shared status
@@ -315,6 +319,38 @@ plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
 });
 
 /** Who this token belongs to. The MCP checks it before serving a request, and the plugin can say who is signed in. */
+// ---------- the Claude plugin itself, as a file anyone signed in can download and add to their Claude ----------
+// It is zipped from the `plugin` folder at the top of the repository each time, so a `git pull` is all an update needs.
+const PLUGIN_DIR = join(appRoot, '..', 'plugin');
+function pluginFiles(): { path: string; data: Buffer }[] {
+  const out: { path: string; data: Buffer }[] = [];
+  const walk = (rel: string) => {
+    for (const name of readdirSync(join(PLUGIN_DIR, rel)).sort()) {
+      if (name === '.DS_Store' || name === 'node_modules' || name === '.git') continue;
+      const p = rel ? rel + '/' + name : name, full = join(PLUGIN_DIR, p);
+      if (statSync(full).isDirectory()) walk(p); else out.push({ path: p, data: readFileSync(full) });
+    }
+  };
+  for (const top of ['.claude-plugin', 'README.md', 'skills']) { if (!existsSync(join(PLUGIN_DIR, top))) continue; if (statSync(join(PLUGIN_DIR, top)).isDirectory()) walk(top); else out.push({ path: top, data: readFileSync(join(PLUGIN_DIR, top)) }); }
+  return out;
+}
+function pluginInfo() {
+  const manifest = join(PLUGIN_DIR, '.claude-plugin', 'plugin.json');
+  if (!existsSync(manifest)) return null;
+  const m = JSON.parse(readFileSync(manifest, 'utf8'));
+  const skills = existsSync(join(PLUGIN_DIR, 'skills')) ? readdirSync(join(PLUGIN_DIR, 'skills')).filter((n) => existsSync(join(PLUGIN_DIR, 'skills', n, 'SKILL.md'))).sort() : [];
+  return { name: String(m.name), version: String(m.version), description: String(m.description ?? ''), skills, file: `${m.name}-${m.version}.plugin` };
+}
+plugin.get('/plugin/info', anyone, (_req, res) => { const i = pluginInfo(); res.json({ available: !!i, ...(i ?? {}) }); });
+plugin.get('/plugin/download', anyone, async (req, res) => {
+  const i = pluginInfo();
+  if (!i) return void res.status(404).json({ error: 'The plugin files are not on this server' });
+  const data = zip(pluginFiles());
+  await audit(req.user!.id, 'plugin_download', `version=${i.version}`);
+  res.setHeader('Content-Type', 'application/zip'); res.setHeader('Content-Disposition', `attachment; filename="${i.file}"`); res.setHeader('Cache-Control', 'no-store');
+  res.send(data);
+});
+
 plugin.get('/plugin/whoami', anyone, async (req, res) => {
   res.json({ id: req.user!.id, name: req.user!.name, email: req.user!.email, role: req.user!.role });
 });

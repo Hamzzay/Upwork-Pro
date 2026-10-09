@@ -806,6 +806,14 @@ proposal had no Loom in it. (Until now the video was only a suggestion on the pr
 - Checked with 19 calls against the running app (a manager refused, each place counted before and after, restore brings the numbers
   back), and the screens as an admin. The guide has both steps.
 
+### R39. The plugin is downloaded from the app (done)
+Connect Claude has a new card, **Get the Claude plugin**: the version, a **Download the plugin** button and the steps to add it to
+Claude. Everyone who is signed in can download it (`GET /api/plugin/download`, with `GET /api/plugin/info` for the version and
+skills). The file is zipped on the server from the `plugin` folder of the repository each time (`src/zip.ts`, a small ZIP writer,
+no new package), so a `git pull` on the server is all a new version needs, and nobody passes plugin files around any more. Each
+download is in the Logs. Checked: signed out it is refused; as an employee the file downloads with its version in the name, unzips
+without errors, passes `claude plugin validate` and is identical to the `plugin` folder.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

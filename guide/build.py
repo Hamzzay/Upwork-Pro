@@ -104,9 +104,12 @@ SECTIONS = [
     'Everything your Claude saves is recorded as you. Never share your sign-in or a token.'),
   shot('connect-token.jpg', 'Or use a token (when Upwork Pro runs on your own computer)', '', [
     'Name the token and press <b>Make a token</b>. Copy it at once: it is shown one time only.', 'Paste the settings it gives you into Claude Desktop.', 'Your tokens. Revoke one the moment you think someone else has it.']),
-  '<h3>Install the plugin</h3><ol><li>Get the file <code>stackup-proposals-0.4.0.plugin</code> from your admin.</li><li>In Claude, open Plugins and add the file.</li><li>Restart Claude.</li></ol>',
+  shot('connect-plugin.jpg', 'Get the plugin', 'On the same page, under the connection. Everyone can download it.', [
+    '<b>Download the plugin</b>. You get one file, named with its version.',
+    'Add it in Claude: open Plugins, add a plugin from a file, choose the file, then restart Claude.'],
+    'When this card shows a newer version than the one you installed, download it again and add it the same way.'),
   '<h3>What to say to Claude</h3><table><tr><th>You want to</th><th>Say</th><th>What happens</th></tr>'
-  '<tr><td>Write a proposal</td><td><code>/proposal</code> and paste the job page text and link</td><td>Claude screens the job, asks you to decide on a flag or fail, shows the projects and the profile it suggests, writes the proposal, and saves the job and the proposal in Upwork Pro.</td></tr>'
+  '<tr><td>Write a proposal</td><td><code>/proposal</code> and paste the job page text and link</td><td>Claude screens the job, asks you to decide on a flag or fail, then asks for the profile, the projects, the proposal type and the Loom video, writes the proposal, and saves the job and the proposal in Upwork Pro.</td></tr>'
   '<tr><td>Check a job only</td><td>"Is this job worth applying to?" and paste it</td><td>Pass, Flag or Fail with the rules and reasons.</td></tr>'
   '<tr><td>Record what happened</td><td>"Mark the dental clinic job as sent", "The client viewed it", "We lost it, they hired someone else"</td><td>The status is saved in Upwork Pro with its time. A loss needs a reason; Claude asks if you did not give one.</td></tr>'
   '<tr><td>See what is waiting</td><td>"Which of my proposals are waiting on the client?"</td><td>The list from Upwork Pro.</td></tr>'

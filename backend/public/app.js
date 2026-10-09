@@ -2227,7 +2227,7 @@ async function settingsView() {
 
 // ---------- connect Claude: personal tokens for the import MCP ----------
 async function connectView() {
-  const [{ tokens }, { types }, conn] = await Promise.all([api('GET', '/tokens'), api('GET', '/import/types'), api('GET', '/oauth/connections')]);
+  const [{ tokens }, { types }, conn, plug] = await Promise.all([api('GET', '/tokens'), api('GET', '/import/types'), api('GET', '/oauth/connections'), api('GET', '/plugin/info').catch(() => ({ available: false }))]);
   const name = h('input', { type: 'text', id: 'tkname', maxlength: 80, placeholder: 'e.g. My laptop, Claude Desktop' });
   const days = h('select', { id: 'tkdays', 'aria-label': 'Expires after' }, [[30, '30 days'], [90, '90 days'], [365, '1 year']].map(([v, l]) => h('option', { value: v, selected: v === 90 }, l)));
   const out = h('div', { 'aria-live': 'polite' });
@@ -2269,8 +2269,18 @@ async function connectView() {
       h('tbody', {}, conn.connections.map((c) => h('tr', {}, h('td', {}, h('strong', {}, c.client_name)), h('td', { title: full(c.connected_at) }, ago(c.connected_at)),
         h('td', {}, c.last_used_at ? ago(c.last_used_at) : h('span', { class: 'faint' }, 'Not yet')), acts(h('button', { class: 'btn sm', type: 'button', onclick: () => disconnect(c) }, 'Disconnect')))))))
       : h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line)' }, h('p', { class: 'muted', style: 'margin:0' }, 'No Claude connected with sign-in yet.')));
-  shell('connect', [pageHead('Connect Claude', 'Let Claude save into Upwork Pro: the jobs, proposals and statuses from your Claude plugin, and data from your sheets (previewed first, saved only when you say yes).'),
+  shell('connect', [pageHead('Connect Claude', 'Connect your own Claude to Upwork Pro and get the plugin: Claude then screens jobs and writes proposals our way, saves them here under your name, and can read the numbers back.'),
     signInCard,
+    plug.available ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Get the Claude plugin'), h('span', { class: 'sub' }, `Stackup proposals, version ${plug.version}`),
+        h('a', { class: 'btn primary', href: '/api/plugin/download', download: plug.file }, icon('doc'), 'Download the plugin')),
+      h('div', { class: 'card-pad' },
+        h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'The plugin is what makes Claude work our way: it screens a job, matches projects, asks for the profile, the proposal type and the Loom video, writes the proposal, and saves everything here. It reads the library, rules and writing guide from Upwork Pro, so it always uses the current ones.'),
+        h('ol', { class: 'small', style: 'margin:0;padding-left:20px;display:grid;gap:4px' },
+          h('li', {}, 'Connect your Claude first (the card above).'),
+          h('li', {}, `Press Download the plugin. You get the file ${plug.file}.`),
+          h('li', {}, 'In Claude: open Plugins, add a plugin from a file, and choose that file. Then restart Claude.'),
+          h('li', {}, 'In Claude, type /proposal and paste a job. To see what is working, ask "which profile had the best view rate last month?".')),
+        h('p', { class: 'hint' }, `When this page shows a newer version than the one you installed, download it again and add it the same way. It has ${plug.skills.length} skills: ${plug.skills.join(', ')}.`))) : null,
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'What you can import')),
       h('div', { class: 'card-pad' }, h('div', { class: 'stack', style: 'gap:12px' }, types.map((k) => h('div', {}, h('div', { class: 'row', style: 'gap:8px' }, h('strong', {}, k.label), k.allowed ? h('span', { class: 'pill PASS' }, 'You can') : h('span', { class: 'pill wait' }, cap(k.roles.join(' or ')) + ' only')),
         h('div', { class: 'jp-label' }, k.description)))),
