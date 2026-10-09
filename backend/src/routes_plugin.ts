@@ -117,6 +117,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     template: z.string().trim().max(160).optional(),
     finished: z.boolean().default(true),
     continue_reason: z.string().trim().max(2000).optional(),
+    loom_video: z.string().trim().max(200).nullable().optional(),
   }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
   const s = await ownJob(req, res); if (!s) return;
@@ -130,6 +131,14 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
   const profs = await query<any>('SELECT id, name FROM upwork_profiles WHERE active=1');
   const prof = typeof d.profile === 'number' ? profs.find((p) => p.id === d.profile) : profs.find((p) => p.name.toLowerCase() === String(d.profile).toLowerCase());
   if (!prof) return void res.status(400).json({ error: `No active Upwork profile called "${d.profile}". Active profiles: ${profs.map((p) => p.name).join(', ') || 'none'}. Add it with add_profile, then save again.`, field: 'profile' });
+  // the Loom video sent with it: one of the sending profile's videos, by its title; null records that none was sent
+  let loom: { id: number; title: string } | null | undefined;
+  if (d.loom_video === null) loom = null;
+  else if (d.loom_video) {
+    const vids = await query<any>('SELECT id, title FROM loom_videos WHERE profile_id=?', [prof.id]);
+    loom = vids.find((v) => v.title.toLowerCase() === d.loom_video!.toLowerCase()) ?? undefined;
+    if (!loom) return void res.status(400).json({ error: `${prof.name} has no Loom video called "${d.loom_video}". Its videos: ${vids.map((v) => v.title).join('; ') || 'none'}. Use a title from get_library (loom_videos), or leave loom_video out.`, field: 'loom_video' });
+  }
   const lib = await query<any>('SELECT id, name FROM projects');
   const picked = d.projects.map((n) => ({ name: n, p: lib.find((x) => x.name.toLowerCase() === n.toLowerCase()) ?? null }));
   const unknown = picked.filter((x) => !x.p).map((x) => x.name);
@@ -165,10 +174,11 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
       proposalId = Number(ins.insertId);
     }
     await conn.query(`INSERT INTO proposal_versions (proposal_id, version_no, content_html, source, note, created_by) VALUES (?,?,?,'plugin','From the Claude plugin',?)`, [proposalId, version, textToHtml(d.text), userId]);
+    if (loom !== undefined) await conn.query('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [loom ? loom.id : null, loom ? loom.title : null, s.id]);
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(userId, 'plugin_proposal_save', `screening=${s.id} version=${version} profile=${prof.id}${d.finished ? ' finished' : ''}`);
-  res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, projects_not_in_library: unknown,
+  res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, loom_video: loom ? loom.title : loom === null ? 'none' : undefined, projects_not_in_library: unknown,
     add_missing: unknown.length ? 'Add each of these with add_project (name, links, overview, tags from the project sheet), then save again so they link to the library.' : undefined,
     next: d.finished ? 'Ready to send: once it is submitted on Upwork, set the status to Sent.' : 'Saved as a draft. Save again with finished=true when it is final.' });
 });
@@ -279,7 +289,7 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
       case_study_summary: allCs || csNames.has(String(p.name).toLowerCase()) ? p.case_study_summary : null, has_case_study: !!p.case_study_summary || null,
       industries: inds.filter((x) => x.project_id === p.id).map((x) => x.name),
       tags: links.filter((x) => x.project_id === p.id && x.category !== 'Industry').map((x) => x.name) })),
-    loom_videos_note: 'Short Loom videos per profile. Suggest the one from the sending profile whose tags share the most weight with the job (industry included); none if nothing is shared. Link one only when the proposal type asks for a video.',
+    loom_videos_note: 'Short Loom videos per profile. Before writing, ask the person which of the sending profile\'s videos to send, or none: recommend the one whose tags share the most weight with the job (industry included) when the post asks for a video, and none otherwise. Put the chosen link in the proposal and send its title as loom_video on save_proposal.',
     loom_videos: (await loomVideos('v.active=1 AND p.active=1')).map((v) => clean({ profile: v.profile_name, title: v.title, url: v.url, topic: v.topic, tags: v.tags.map((t: any) => t.name) })),
   });
 });

@@ -5,7 +5,7 @@ description: Runs the full Stackup Upwork proposal workflow from a job link to a
 
 # Proposal workflow
 
-Take one Upwork job from link to a proposal saved in Upwork Pro, in ten steps. Do the reading, matching, drafting and saving. Stop at the five decision points and wait for the person's answer before moving on.
+Take one Upwork job from link to a proposal saved in Upwork Pro, in ten steps. Do the reading, matching, drafting and saving. Stop at the six decision points and wait for the person's answer before moving on.
 
 Read `references/config.md` first. Upwork Pro (through the `upwork-pro` MCP tools) is where every job and proposal is saved. Load those tools with ToolSearch and call `plugin_options` once at the start: it lists the profiles, project names, rule codes, outcomes and loss reasons Upwork Pro accepts. Only if the tools are not available, use the Google Sheet Job Log instead (read `references/log-columns.md` before writing to it) and say so in one line.
 
@@ -93,11 +93,25 @@ If no project clears the minimum score, say so and offer: continue with none, or
 
 Score all eight types with the type selection from `get_writing_guide` (`type_selection`; fallback `../proposal-writer/references/type-selection.md`). Show the top two or three as a visible table (type, required signals met, supporting signals, why), recommended one marked, before asking.
 
-**Decision 4.** Ask the person to pick the type.
+**Decision 4.** Ask the person to pick the type. Write only the type they pick.
+
+## Step 8b. Loom video
+
+Nothing is written until this is answered too. The videos are in `get_library` (`loom_videos`): use only the ones of the chosen profile.
+
+1. Does the post ask for a video (a Loom by name, or a recorded, intro or screen video)? Say so in one line.
+2. Find the profile's video that fits best: the one whose tags share the most weight with the job tags (industry included). A video that shares nothing is not a fit.
+3. Show the profile's videos as a visible table (title, what it shows, tags shared with this job), the best fit marked.
+
+**Decision 4b.** Ask: which video to send, or **No Loom video**.
+* The post asks for a video and the profile has one: recommend the best fit.
+* The post does not ask for one: recommend **No Loom video**, with the best fit as the second option.
+* The post asks for a video and the profile has none: say so plainly ("The client asks for a video and this profile has no Loom videos"), and offer: continue without one, or the person pastes a link to a video they recorded. A pasted link goes into the proposal as given; it is not saved as `loom_video` (only library videos are).
+* The profile has no videos and the post does not ask: skip this step silently.
 
 ## Step 9. Draft and verify
 
-Apply the `proposal-writer` skill with: job data, signals, profile record, chosen projects, chosen type, and the rate.
+Apply the `proposal-writer` skill with: job data, signals, profile record, chosen projects, chosen type, the chosen Loom video (or none), and the rate.
 
 1. Write the cover letter and, if the job has screening questions, the screening answers.
 2. Run the verification checklist. Rewrite any failing item once. If it still fails, list it under "Needs your eye".
@@ -112,6 +126,7 @@ Call `save_proposal` for job #N with:
 * `text`: the approved cover letter exactly as written. If there are screening answers, add them after it under a line "Screening answers", numbered in the client's order.
 * `profile`: the chosen profile's name exactly as in `plugin_options`. Never save it under another profile.
 * `projects`: the chosen project names. `template`: the proposal type, e.g. "Type 1: Standard build". `finished: true`.
+* `loom_video`: the title of the Loom video chosen at step 8b, exactly as in `get_library`; `null` when the person chose none. Leave it out only when step 8b was skipped.
 
 **Before saving, add what Upwork Pro is missing, right away:**
 * The profile is not in `plugin_options`: call `add_profile` with the profile record (see the `profiles` skill).

@@ -45,7 +45,11 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.4.0)
+## Status (v0.4.1)
+
+v0.4.1: the Loom video. After the proposal type (step 8), `/proposal` now asks which of the sending profile's Loom videos to send, or
+none, recommending the best fit when the post asks for a video. The link is written into the proposal and the choice is saved with it
+(`save_proposal`, `loom_video`), so Upwork Pro's reports can compare proposals with a video against those without. The same as the app.
 
 v0.4.0: new skill `job-trends`. Ask what is working (which profile, proposal type, project, industry, tag or Loom video gets viewed,
 gets a chat, an interview or a hire) and Claude reads the numbers with `get_trends`, or the jobs themselves with `analyze_jobs`, in

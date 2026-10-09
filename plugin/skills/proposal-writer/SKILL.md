@@ -19,6 +19,12 @@ rules, banned phrases, modules, screening answer rules and the verification chec
 type's full text. If Upwork Pro is not reachable, use the bundled files in `references/` (same content) and say so in one line.
 Below, each `references/...` file means that part of the guide.
 
+## The Loom video
+
+* **A video was chosen:** include its link exactly once, on its own line, after one short sentence that says what the video shows (from its title and description, nothing more). Never describe what is not in its description.
+* **None was chosen:** do not mention or promise a video. If the post asks for one, put "The client asks for a video and none was chosen" first under "Needs your eye".
+* Before showing the draft, check the chosen link is in it, once.
+
 ## Choosing the type
 
 Score every type with the type selection rules (`references/type-selection.md`) and show the top two or three with the signals that matched. The person picks.
