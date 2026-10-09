@@ -161,12 +161,12 @@ function proposalSection(s, initial, matching) {
 
   // ----- before anything is written: which type of proposal? The types that suit the job's signals come first.
   const SUGGEST = 5; // how many are shown before "Show all types"
-  let picked = null, byHand = false, showAll = false, choices = null, typeTimer = null;
+  let picked = null, byHand = false, showAll = false, choices = null, typeTimer = null, loomPick; // loomPick: a video id, null for none, undefined until loaded
   function typeChooser() {
     const el = h('div', { class: 'stack' });
     const write = async (e) => {
       const b = e.currentTarget; btnBusy(b, 'Starting');
-      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: picked }); await reload(); drawAll(); startPolling(); if (typeof stepCtx !== 'undefined' && stepCtx) stepCtx.refresh(); }
+      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: picked, loom_video_id: loomPick ?? null }); await reload(); drawAll(); startPolling(); if (typeof stepCtx !== 'undefined' && stepCtx) stepCtx.refresh(); }
       catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren('Write the proposal'); }
     };
     const why = (t) => { const req = t.matched.filter((m) => m.role === 'required').map((m) => m.label), sup = t.matched.filter((m) => m.role !== 'required').map((m) => m.label);
@@ -175,6 +175,20 @@ function proposalSection(s, initial, matching) {
       if (!owner) { el.replaceChildren(h('div', { class: 'jp-sec' }, 'Waiting for the proposal type'), h('p', { class: 'jp-label' }, `${s.user_name || 'The person who submitted this job'} chooses how the proposal is written.`)); return; }
       if (!choices) { el.replaceChildren(h('div', { class: 'skel', style: 'width:50%' })); return; }
       if (picked === null) picked = (choices.types.find((t) => t.suggested) || choices.types[0] || {}).id ?? null;
+      // the Loom video: the one already chosen; else, when the post asks for a video, the one that fits best; else none
+      const lm = choices.loom || { asked: false, chosen: null, videos: [] };
+      if (loomPick === undefined) loomPick = lm.chosen ?? (lm.asked && lm.videos.length ? (lm.videos.find((v) => v.best) || lm.videos[0]).id : null);
+      const loomCard = (v) => h('button', { type: 'button', class: 'pcard2 typecard' + (loomPick === (v ? v.id : null) ? ' on' : ''), role: 'radio', 'aria-checked': loomPick === (v ? v.id : null), onclick: () => { loomPick = v ? v.id : null; draw(); } },
+        h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('span', { class: 'jp-sec', style: 'min-width:0' }, v ? v.title : 'No Loom video'), v && v.best ? h('span', { class: 'tagpill' }, 'Fits best') : null),
+        h('div', { class: 'jp-label' }, v ? v.topic || 'No description yet' : 'The proposal does not mention a video.'),
+        v && v.best && v.shared.length ? h('div', { class: 'jp-label faint' }, 'Shares ' + v.shared.join(', ') + ' with this job') : null);
+      const loomBlock = h('div', { class: 'stack', style: 'gap:10px;margin-top:8px' },
+        h('div', {}, h('div', { class: 'jp-sec' }, 'Send a Loom video with it?'),
+          h('div', { class: 'jp-label' }, lm.asked ? 'This job post asks for a video. ' + (lm.videos.length ? 'The one that fits best is selected. Its link is written into the proposal.' : '') : lm.videos.length ? 'Pick one and its link is written into the proposal.' : '')),
+        lm.asked && !lm.videos.length ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'The client asks for a video, and this profile has no Loom videos.'),
+          h('div', { style: 'margin-top:4px' }, 'An admin can add one under Loom videos (then reload this page). Or record one now and paste its link into the proposal after it is written.')) : null,
+        lm.videos.length ? h('div', { class: 'pgrid2 typegrid', role: 'radiogroup', 'aria-label': 'Loom video' }, loomCard(null), lm.videos.map(loomCard))
+          : !lm.asked ? h('div', { class: 'jp-label' }, 'This profile has no Loom videos yet. An admin adds them under Loom videos.') : null);
       const shown = showAll ? choices.types : choices.types.filter((t, i) => i < SUGGEST || t.id === picked);
       setActions(picked ? actBtn('Write the proposal', write, true) : null);
       const card = (t) => h('button', { type: 'button', class: 'pcard2 typecard' + (picked === t.id ? ' on' : ''), role: 'radio', 'aria-checked': picked === t.id, onclick: () => { picked = t.id; byHand = true; draw(); } },
@@ -190,7 +204,8 @@ function proposalSection(s, initial, matching) {
             : 'The job\'s signals are still being read, so the types are not ranked yet. Wait a moment for the suggestion, or pick a type now.')),
         !choices.ready ? h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Reading the signals...') : null,
         h('div', { class: 'pgrid2 typegrid', role: 'radiogroup', 'aria-label': 'Proposal type' }, shown.map(card)),
-        choices.types.length > shown.length || showAll ? h('div', {}, h('button', { type: 'button', class: 'linkbtn', onclick: () => { showAll = !showAll; draw(); } }, showAll ? `Show the top ${SUGGEST} only` : `Show all ${choices.types.length} types`)) : null].filter(Boolean)); // replaceChildren prints a null as the word
+        choices.types.length > shown.length || showAll ? h('div', {}, h('button', { type: 'button', class: 'linkbtn', onclick: () => { showAll = !showAll; draw(); } }, showAll ? `Show the top ${SUGGEST} only` : `Show all ${choices.types.length} types`)) : null,
+        loomBlock].filter(Boolean)); // replaceChildren prints a null as the word
     };
     const load = async () => {
       clearTimeout(typeTimer);

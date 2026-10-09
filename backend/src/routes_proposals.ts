@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { addVersion, loomChoices, suggestedTypeId, typeChoices } from './proposal/pipeline';
 
 export const proposals = Router();
 const admin = requireRole('admin');
@@ -306,11 +306,11 @@ proposals.get('/screenings/:id/proposal', anyone, async (req, res) => {
 // The proposal types to choose from before writing: every active type, best fit for the job's signals first.
 proposals.get('/screenings/:id/proposal/types', anyone, async (req, res) => {
   const s = await visibleScreening(req, res); if (!s) return;
-  res.json(await typeChoices(s.id));
+  res.json({ ...(await typeChoices(s.id)), loom: await loomChoices(s.id) });
 });
 
 proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
-  const b = z.object({ template_id: z.number().int().positive().nullish() }).safeParse(req.body ?? {});
+  const b = z.object({ template_id: z.number().int().positive().nullish(), loom_video_id: z.number().int().positive().nullable().optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: 'Invalid request' });
   const s = await ownedScreening(req, res); if (!s) return;
   if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the projects first' });
@@ -325,6 +325,15 @@ proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
   }
   const existing = (await query<any>('SELECT id, status FROM proposals WHERE screening_id=?', [s.id]))[0];
   if (existing && (existing.status === 'queued' || existing.status === 'running')) return void res.status(409).json({ error: 'The proposal is already being written' });
+  // the Loom video to send with it: one of the sending profile's own, or none. Left as it is when the request does not say.
+  if (b.data.loom_video_id !== undefined) {
+    if (b.data.loom_video_id === null) await exec('UPDATE screenings SET loom_video_id=NULL, loom_video_title=NULL WHERE id=?', [s.id]);
+    else {
+      const v = (await query<any>('SELECT id, title FROM loom_videos WHERE id=? AND profile_id=?', [b.data.loom_video_id, s.proposal_profile_id]))[0];
+      if (!v) return void res.status(400).json({ error: 'That Loom video does not belong to the sending profile' });
+      await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, s.id]);
+    }
+  }
   if (existing) {
     await exec(`UPDATE proposals SET status='queued', stage=NULL, error_code=NULL, error_message=NULL, template_choice=?, template_id=COALESCE(?, template_id), finished_at=NULL WHERE id=?`, [tpl ? 'manual' : 'auto', tpl, existing.id]);
     if (!tpl) await exec('UPDATE proposals SET template_id=NULL WHERE id=?', [existing.id]);

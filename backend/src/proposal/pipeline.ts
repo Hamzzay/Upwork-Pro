@@ -7,6 +7,7 @@ import { lastUsed } from '../llm/context';
 import { checkProposal } from './checks';
 import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
+import { pickLoom } from '../screening/matching';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, writerOut, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 
@@ -31,7 +32,9 @@ export interface Basis { projectIds: number[]; profileId: number }
 const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',') + '|' + b.profileId;
 
 async function loadFacts(screeningId: number, basis?: Basis) {
-  const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id FROM screenings s WHERE s.id=?', [screeningId]))[0];
+  const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id FROM screenings s WHERE s.id=?', [screeningId]))[0];
+  // the Loom video the person chose for this proposal; an early draft (a guess) never has one
+  const loom = !basis && s.loom_video_id ? (await query<any>('SELECT title, url, topic FROM loom_videos WHERE id=?', [s.loom_video_id]))[0] ?? null : null;
   const profileId: number | null = basis ? basis.profileId : s.proposal_profile_id;
   const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules, certifications FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
   const matches = await query<any>(
@@ -43,7 +46,8 @@ async function loadFacts(screeningId: number, basis?: Basis) {
   const projects: ProjectFact[] = matches.map((m) => ({ name: m.project_name, live_link: m.live_link || null, notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
     tags: tags.filter((t) => t.project_id === m.project_id).map((t) => t.name), industries: inds.filter((t) => t.project_id === m.project_id).map((t) => t.name) }));
   const sender: SenderFact = { name: pr.name, gitlab_link: gitlabLink(pr.gitlab_account) || pr.github_url || null, tagline: pr.tagline || null,
-    voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null, certifications: pr.certifications || null };
+    voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null, certifications: pr.certifications || null,
+    loom: loom ? { title: loom.title, url: loom.url, topic: loom.topic || null } : null };
   let report: any = null; try { report = JSON.parse(s.report_json); } catch { /* old or missing */ }
   const job = report?.job ?? report?.jobs?.[0] ?? null;
   const requirements: string[] = [];
@@ -154,6 +158,19 @@ async function rankTypes(detected: DetectedValue[]) {
  * What the person chooses from before a proposal is written: every active type, best fit first. `ready` is false while the
  * job's signals are still being read (the types then come in their own order, unranked, and can still be chosen).
  */
+/** Does the job post ask for a video? Loom by name, or a recorded / intro video. */
+export const asksForVideo = (jobText: string) => /\bloom\b|\b(video|screen)\s*(intro(duction)?|message|recording|response|proposal|walk-?through|cover letter)\b|\b(record|send|share|include|attach)\w*\s+(us\s+|me\s+)?(a\s+)?(short\s+|quick\s+|brief\s+)?(\d+\s*-?\s*(min(ute)?s?|sec(ond)?s?)\s+)?video\b/i.test(jobText);
+export async function loomChoices(screeningId: number) {
+  const s = (await query<any>('SELECT job_text, raw_input, proposal_profile_id, loom_video_id FROM screenings WHERE id=?', [screeningId]))[0];
+  if (!s?.proposal_profile_id) return { asked: false, chosen: null, videos: [] };
+  const vids = await query<any>('SELECT id, title, url, topic, sort_order FROM loom_videos WHERE profile_id=? AND (active=1 OR id=?) ORDER BY sort_order, title', [s.proposal_profile_id, s.loom_video_id ?? 0]);
+  const vt = vids.length ? await query<any>('SELECT lt.video_id, t.name FROM loom_video_tags lt JOIN tags t ON t.id=lt.tag_id WHERE lt.video_id IN (?)', [vids.map((v) => v.id)]) : [];
+  const jobTags = await query<any>('SELECT tag_name AS name, weight FROM job_tags WHERE screening_id=?', [screeningId]);
+  const best = pickLoom(jobTags, vids.map((v) => ({ ...v, tags: vt.filter((x) => x.video_id === v.id).map((x) => x.name) })));
+  return { asked: asksForVideo(String(s.job_text ?? s.raw_input ?? '')), chosen: s.loom_video_id ?? null,
+    videos: vids.map((v) => ({ id: v.id, title: v.title, url: v.url, topic: v.topic, best: !!best && best.video.id === v.id, shared: best && best.video.id === v.id ? best.shared : [] })) };
+}
+
 export async function typeChoices(screeningId: number) {
   const detected = await storedSignals(screeningId);
   const facts = new Map((await query<any>(`SELECT t.id, t.description, t.body_html, t.is_default, t.priority,
@@ -231,7 +248,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const library = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
   const warnings = [...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
     ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
-      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link }, banned: bannedPatterns(guide.banned), wordRange: wordRange(htmlToPlain(template.body_html)) }).map((t) => ({ source: 'check', text: t }))];
+      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: wordRange(htmlToPlain(template.body_html)) }).map((t) => ({ source: 'check', text: t }))];
   return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, warnings, model: lastUsed()?.model ?? config.llm.model };
 }
 
@@ -311,7 +328,7 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
   const stage = (st: string) => setStage(proposalId, st);
   // the first automatic write can use the early draft; a rewrite or a chosen template always writes again
   const firstWrite = p.template_choice === 'auto' && !(await query<any>('SELECT 1 FROM proposal_versions WHERE proposal_id=? LIMIT 1', [proposalId])).length;
-  const early = firstWrite && f.profileId ? await takeEarlyDraft(p.screening_id, { projectIds: f.projectIds, profileId: f.profileId }, () => stage('writing')) : null;
+  const early = firstWrite && f.profileId && !f.sender.loom ? await takeEarlyDraft(p.screening_id, { projectIds: f.projectIds, profileId: f.profileId }, () => stage('writing')) : null;
   const saveTemplate = (t: Draft['template']) => exec('UPDATE proposals SET template_id=?, template_name=?, template_score=?, template_choice=?, template_ranking=? WHERE id=?',
     [t.id, t.name, t.score, t.choice, t.ranking, proposalId]).then(() => undefined);
   const d = early ?? await compose(p.screening_id, f, { templateId: p.template_choice === 'manual' ? p.template_id : null, stillWanted, stage, onTemplate: saveTemplate });
@@ -346,7 +363,7 @@ export async function runChat(messageId: number) {
     resultVersion = await addVersion(p.id, textToHtml(revised), 'chat', null, note, basedOn);
     const library = (await query<any>('SELECT name FROM projects')).map((x) => x.name as string);
     const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
-      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
+      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
     await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(warnings), p.id]);
   }
   await exec(`INSERT INTO proposal_messages (proposal_id, role, content, status, based_on_version, result_version) VALUES (?, 'assistant', ?, 'done', ?, ?)`, [p.id, parsed.data.reply.slice(0, 4000), basedOn, resultVersion]);

@@ -406,5 +406,21 @@ const ctx = { rules, projects };
     assert.equal(packRows([['y'.repeat(200000)]], 80000).rows.length, 1, 'one oversized row still goes through');
   }
 
+  // ---------- the Loom video in a proposal ----------
+  {
+    const { asksForVideo } = await import('../src/proposal/pipeline');
+    for (const yes of ['Please include a Loom with your proposal', 'Send a short video introduction', 'record a 2 minute video explaining your approach', 'Attach a quick video', 'A video cover letter is required'])
+      assert.ok(asksForVideo(yes), 'asks for a video: ' + yes);
+    for (const no of ['We build video streaming apps', 'Experience with video processing in ffmpeg', 'Weekly calls on Zoom'])
+      assert.ok(!asksForVideo(no), 'does not ask for a video: ' + no);
+    const sender = { name: 'Jane Doe', gitlab_link: null, tagline: null };
+    const sys = (loom: any) => writerSystem({ template: { name: 'T', body_html: '<p>x</p>', prompt: null }, detected: [], samples: [], sender: { ...sender, loom }, projects: [], clientRequirements: [] });
+    assert.ok(sys({ title: 'Voice agents', url: 'https://www.loom.com/share/abc', topic: 'How we build them' }).includes('https://www.loom.com/share/abc'), 'the writer is given the chosen video');
+    assert.ok(sys(null).includes('none chosen: do not mention or promise a video'), 'and told not to promise one when none is chosen');
+    const chk = (text: string) => checkProposal({ text, selectedProjects: [], otherProjectNames: [], foreignNames: [], sender: { name: 'Jane Doe', gitlab_link: null, loom_link: 'https://www.loom.com/share/abc' } });
+    assert.ok(chk('Hello.\nJane Doe').some((x) => x.includes('Loom video you chose is not in the proposal')), 'a missing Loom link is flagged');
+    assert.ok(!chk('Here is a short video: https://www.loom.com/share/abc\nJane Doe').some((x) => /Loom video you chose|not one of the provided/.test(x)), 'the Loom link is an allowed link');
+  }
+
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

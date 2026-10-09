@@ -3,7 +3,7 @@ export interface CheckInput {
   selectedProjects: { name: string; live_link: string | null; notes: string | null }[];
   otherProjectNames: string[];       // every other library project
   foreignNames: string[];            // names of sample authors and people named in templates
-  sender: { name: string; gitlab_link: string | null };
+  sender: { name: string; gitlab_link: string | null; loom_link?: string | null };
   banned?: { phrase: string; re: RegExp }[];   // from the Writing guide
   wordRange?: [number, number] | null;          // the proposal type's length, for the cover letter
 }
@@ -23,9 +23,10 @@ export function checkProposal(i: CheckInput): string[] {
   }
   for (const n of i.otherProjectNames) if (n.length >= 4 && !i.selectedProjects.some((p) => p.name.toLowerCase() === n.toLowerCase()) && has(t, n)) w.push(`The proposal names "${n}", which is not one of the 2 selected projects. Check or remove it.`);
   for (const n of i.foreignNames) if (n && n.toLowerCase() !== i.sender.name.toLowerCase() && has(t, n)) w.push(`The proposal contains the name "${n}", which comes from a sample or template. Remove it.`);
-  const allowed = new Set([...i.selectedProjects.map((p) => p.live_link).filter(Boolean), i.sender.gitlab_link].filter(Boolean).map((u) => norm(String(u))));
+  const allowed = new Set([...i.selectedProjects.map((p) => p.live_link).filter(Boolean), i.sender.gitlab_link, i.sender.loom_link].filter(Boolean).map((u) => norm(String(u))));
   for (const u of new Set(urls(t))) if (!allowed.has(norm(u))) w.push(`The link ${u} is not one of the provided project or profile links. Check it.`);
   if (!has(t, i.sender.name)) w.push(`The sign-off does not contain the sender name "${i.sender.name}".`);
+  if (i.sender.loom_link && !t.toLowerCase().includes(norm(i.sender.loom_link))) w.push('The Loom video you chose is not in the proposal. Add its link, or write it again.');
   if (i.sender.gitlab_link && !t.toLowerCase().includes(norm(i.sender.gitlab_link))) w.push('The sign-off does not contain the sender\'s code link (GitLab link or GitHub link).');
   const given = i.selectedProjects.map((p) => p.notes ?? '').join(' ');
   const pct = [...new Set(t.match(/\d+(?:\.\d+)?\s*(?:[-–—]\s*\d+(?:\.\d+)?\s*)?%/g) ?? [])].filter((x) => !given.includes(x.replace(/\s+/g, '')) && !given.includes(x));

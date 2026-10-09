@@ -774,6 +774,23 @@ Hamza: after the projects I was never asked which type of proposal to write. It 
   types were offered with the suggestion selected; a different type was picked and exactly that type was written, recorded as chosen
   by hand. The guide has the new step and picture. The server and the worker were restarted.
 
+### R37. The Loom video is chosen before writing and its link is in the proposal (done)
+Hamza: the client asked for a Loom; the Profile step named the video that fits, but I was never asked to choose it, and the
+proposal had no Loom in it. (Until now the video was only a suggestion on the profile card: the writer never received it.)
+- **Chosen on the same screen as the proposal type** ("Send a Loom video with it?"): the sending profile's videos and "No Loom
+  video". When the job post asks for a video (`asksForVideo`: Loom by name, or a recorded or intro video), the one that fits the
+  job's tags best is already selected; otherwise none is. If the post asks and the profile has no videos, a warning says so.
+- **The writer gets it** (`SenderFact.loom`): the title, what it shows and the link, to include once on its own line after one
+  sentence. With none chosen the writer is told not to mention or promise a video. The chat revision gets the same facts.
+- **Checked after writing**: the Loom link is an allowed link, and a proposal that leaves it out gets a warning.
+- **Recorded on the job** (`loom_video_id`, `loom_video_title`, from R32), so Reports, Loom video, fills in by itself. It can still
+  be changed under Tracking, Edit details; write the proposal again to put the new link in.
+- A proposal with a video is never taken from the early draft (that draft was written without one).
+- `POST /proposal/start` takes `loom_video_id` (a video of the sending profile, or null); `GET /proposal/types` returns `loom`.
+- Checked with a real job whose post asks for a Loom, and the real AI: the video was offered and selected, the link was in the
+  proposal after a sentence about it, the job recorded it, and the writer warned that its sentence said more than the video's
+  description. Tests cover the wording that counts as asking for a video, the writer's facts and the link check.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

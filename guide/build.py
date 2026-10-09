@@ -50,6 +50,10 @@ SECTIONS = [
     'The other types offered, with why each fits or does not. Click one to choose it instead. "Ruled out" means something in the post speaks against it; you can still pick it.',
     '<b>Show all types</b> lists every proposal type.',
     'Press <b>Write the proposal</b>. Only the type you chose is written.']),
+  shot('job-loom.jpg', 'Send a Loom video with it?', 'On the same screen, under the types. When the job post asks for a video, the one that fits best is already selected.', [
+    'Pick a video of the sending profile, or <b>No Loom video</b>. The link of the one you pick is written into the proposal, and it is recorded on the job for the reports.',
+    'Then press <b>Write the proposal</b>.'],
+    'If the client asks for a video and the profile has none, the screen says so: an admin adds videos under Loom videos.'),
   shot('job-writing.jpg', 'The proposal is written for you', 'This takes a few minutes. You can leave and come back.', ['It writes the type you chose, with your projects and profile.']),
   shot('job-proposal.jpg', '5. Review the proposal', 'Read it. It is your proposal: change anything.', [
     'The proposal. Edit it like any document.',
