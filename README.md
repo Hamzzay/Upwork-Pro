@@ -22,6 +22,7 @@ GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backe
 | What was built and why, change by change | `NEW-UPDATES.md` |
 | What is open and how to pick up the work | `TASKS.md` |
 | Using it from Claude (the MCP and the plugin) | `mcp/README.md`, `plugin/README.md` |
+| Putting it on a server, step by step | `SERVER-SETUP.md` |
 
 ## Pages
 

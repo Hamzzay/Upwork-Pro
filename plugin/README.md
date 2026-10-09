@@ -45,7 +45,11 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.3.0)
+## Status (v0.4.0)
+
+v0.4.0: new skill `job-trends`. Ask what is working (which profile, proposal type, project, industry, tag or Loom video gets viewed,
+gets a chat, an interview or a hire) and Claude reads the numbers with `get_trends`, or the jobs themselves with `analyze_jobs`, in
+pages so nothing is cut off. Needs the MCP from the same commit (`cd mcp && npm run build`).
 
 v0.3.0: the team's v0.2.7 work merged with the Upwork Pro connection. Eight proposal types (7 Problem first, 8 Approach first with
 questions) chosen by required, supporting and excluding signals; three new signals (Platform, Job focus, Decisions left open); the
