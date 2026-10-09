@@ -30,6 +30,7 @@ const ICONS = {
   badge: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M5.5 17c.8-2 2.2-3 3.5-3s2.7 1 3.5 3M15 9h3M15 13h3"/>',
   building: '<path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/>',
   video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
+  chart: '<path d="M3 20h18M7 20v-8M12 20V5M17 20v-11"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>',
 };
 function icon(name) {
@@ -70,6 +71,8 @@ function ago(s) {
 }
 /** ago() inside a sentence: "Finished just now", not "Finished Just now". */
 const agoIn = (s) => { const t = ago(s); return t === 'Just now' ? 'just now' : t; };
+/** A day in a table: 7 Oct 2026. */
+const dayText = (s) => { if (!s) return ''; const t = String(s); const d = t.length <= 10 ? new Date(t + 'T00:00:00') : toDate(t); return isNaN(d) ? t : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); };
 const full = (s) => { const d = toDate(s); return d ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
 const initials = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
@@ -99,10 +102,32 @@ function modal({ title, body, confirm = 'Confirm', danger, onConfirm, wide, extr
 function btnBusy(btn, label) { btn.disabled = true; btn.replaceChildren(h('span', { class: 'spin' }), label); }
 const emptyState = (iconName, title, text, action) =>
   h('div', { class: 'empty' }, h('div', { class: 'ico' }, icon(iconName)), h('strong', {}, title), h('div', {}, text), action ? h('div', { style: 'margin-top:16px' }, action) : null);
+const VERDICT_WORD = { PASS: 'Pass', FLAG: 'Flag', FAIL: 'Fail' };
+/** The gate result as a badge: Pass, Flag or Fail everywhere (never in capitals). */
+const vword = (v) => (VERDICT_WORD[v] || String(v || '')).toLowerCase();
+const verdictBadge = (v) => h('span', { class: 'vbadge ' + v }, VERDICT_WORD[v] || v);
 const verdictPill = (v, status) =>
-  v ? h('span', { class: 'pill ' + v }, v)
+  v ? verdictBadge(v)
     : status === 'error' ? h('span', { class: 'pill bad' }, 'Failed')
-    : h('span', { class: 'pill wait' }, status === 'running' ? 'Screening' : 'Queued');
+    : h('span', { class: 'pill wait busy' }, status === 'running' ? 'Screening' : 'Queued');
+/** On or off, the same badge on every list: green when on, grey when off. */
+const onOff = (on, yes = 'Active', no = 'Inactive') => h('span', { class: 'pill ' + (Number(on) ? 'PASS' : 'wait') }, Number(on) ? yes : no);
+/** A yes/no question in the app's own dialog (never the browser's). Resolves true when confirmed. */
+function ask(title, text, confirm = 'Continue', danger = false) {
+  return new Promise((resolve) => {
+    let yes = false;
+    const dlg = modal({ title, confirm, danger, body: h('p', { class: 'muted' }, text), onConfirm: async () => { yes = true; } });
+    dlg.addEventListener('close', () => resolve(yes));
+  });
+}
+/** A date filter that says what it is: the word sits inside the control. */
+function dateField(label, value, onChange) {
+  const el = h('input', { type: 'date', 'aria-label': label + ' date', value });
+  el.onchange = () => onChange(el.value);
+  return h('label', { class: 'datefield' }, label, el);
+}
+/** A table's last cell: the row's buttons, right aligned. */
+const acts = (...btns) => h('td', { class: 'acts' }, btns);
 
 // ---------- searchable dropdowns ----------
 /**
@@ -207,6 +232,65 @@ function clientPaged(items, render) {
 }
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+// ---------- filters: one bar for every list ----------
+// Every list in the app starts with the same bar: a search box, then its filters in equal columns, then the list's own
+// buttons at the right end. "Clear filters" appears only while something is filtered. Add a list: use listCard() or filterBar().
+function fSearch(placeholder, value, onInput) {
+  const input = h('input', { type: 'search', placeholder, 'aria-label': placeholder, value: value || '' });
+  input.oninput = debounce(() => onInput(input.value.trim()), 250);
+  const el = h('div', { class: 'search' }, icon('search'), input);
+  el.input = input;
+  return el;
+}
+function fSelect(label, options, value, onChange) {
+  const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(value) === String(v) }, l)));
+  el.onchange = () => onChange(el.value);
+  return el;
+}
+function filterBar(controls, opts = {}) {
+  const clear = opts.onClear ? h('button', { class: 'btn', type: 'button', hidden: true, onclick: opts.onClear }, 'Clear filters') : null;
+  const extra = [opts.actions].flat().filter(Boolean);
+  const bar = h('div', { class: 'filterbar' }, controls.filter(Boolean), h('div', { class: 'fb-actions' + (extra.length ? ' wide' : '') }, clear, extra));
+  bar.setActive = (on) => { if (clear) clear.hidden = !on; };
+  return bar;
+}
+/** The usual on/off filter. `get(item)` returns the item's active flag. */
+const statusFilter = (get, off = 'Inactive') => ({ key: 'status', label: 'Any status', options: [['1', 'Active'], ['0', off]], test: (it, v) => String(Number(get(it))) === v });
+/**
+ * A list that is already in memory, with the filter bar on top: search, dropdown filters, pages, and an empty state.
+ * o: { items, search: { placeholder, text(item) }, filters: [{ key, label, options, test(item, value) }], render(slice), icon, emptyTitle, emptyText,
+ *      emptyAction, actions, paged (false shows everything), bare (true: the bar in its own card, the list below it), onSync }.
+ * Search, filters and the page are kept in the URL, so Back returns to the same view.
+ */
+function listCard(o) {
+  const filters = o.filters || [], hp = hashParams();
+  const st = { q: hp.q || '', page: Math.max(1, Number(hp.page) || 1) };
+  for (const f of filters) st[f.key] = hp[f.key] || '';
+  const size = o.paged === false ? Infinity : PAGE_SIZE;
+  const body = h('div', {});
+  const reset = () => { st.page = 1; draw(); };
+  const searchEl = o.search ? fSearch(o.search.placeholder, st.q, (v) => { st.q = v; reset(); }) : null;
+  const sels = filters.map((f) => fSelect(f.label, f.options, st[f.key], (v) => { st[f.key] = v; reset(); }));
+  const bar = filterBar([searchEl, ...sels], { actions: o.actions, onClear: () => { st.q = ''; if (searchEl) searchEl.input.value = ''; filters.forEach((f, i) => { st[f.key] = ''; sels[i].value = ''; }); reset(); } });
+  function draw() {
+    const q = st.q.toLowerCase();
+    const shown = o.items.filter((it) => (!q || o.search.text(it).toLowerCase().includes(q)) && filters.every((f) => !st[f.key] || f.test(it, st[f.key])));
+    st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / size)));
+    setHashParams({ q: st.q, page: st.page, ...Object.fromEntries(filters.map((f) => [f.key, st[f.key]])) });
+    if (o.onSync) o.onSync();
+    const active = !!(st.q || filters.some((f) => st[f.key]));
+    bar.setActive(active);
+    const slice = size === Infinity ? shown : shown.slice((st.page - 1) * size, st.page * size);
+    const empty = () => emptyState(o.icon || 'list', active ? 'No matches' : o.emptyTitle || 'Nothing here yet', active ? 'Try a different search or filter.' : o.emptyText || '', !active && o.emptyAction ? o.emptyAction : null);
+    body.replaceChildren(...[shown.length ? o.render(slice, active) : o.bare ? h('div', { class: 'card' }, empty()) : empty(),
+      size === Infinity ? null : pager(shown.length, st.page, (n) => { st.page = n; draw(); })].filter(Boolean));
+  }
+  draw();
+  return o.bare ? [h('div', { class: 'card' }, bar), body] : h('div', { class: 'card' }, bar, body);
+}
+/** A plain table: `heads` are the column names ('' for the actions column), `rows` the <tr> elements. */
+const dataTable = (heads, rows, cls) => h('div', { class: 'tablewrap' }, h('table', { class: cls || null }, h('thead', {}, h('tr', {}, heads.filter((x) => x !== null).map((t) => h('th', { class: t ? null : 'acts' }, t)))), h('tbody', {}, rows)));
+
 // ---------- layout ----------
 const APP_NAME = 'Upwork Pro';
 const STAFF = ['manager', 'admin'], ADMIN = ['admin'];
@@ -216,6 +300,7 @@ const NAV = [
     { key: 'dashboard', icon: 'home', label: 'Dashboard' },
     { key: 'new', icon: 'screen', label: 'Screen a job' },
     { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
+    { key: 'reports', icon: 'chart', label: 'Reports' },
     { key: 'connect', icon: 'link', label: 'Connect Claude' }] },
   { label: 'Library', links: [
     { key: 'projects', icon: 'folder', label: 'Projects' },
@@ -237,9 +322,11 @@ function shell(active, content, wide) {
   const a = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label));
   const groups = NAV.map((g) => [g.label, g.links.filter((l) => !l.roles || l.roles.includes(me.role)).map((l) => [l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label])])
     .filter(([, links]) => links.length);
+  const menu = h('button', { class: 'btn sm navtoggle', type: 'button', 'aria-expanded': 'false', onclick: () => { const open = menu.closest('.shell').classList.toggle('navopen'); menu.setAttribute('aria-expanded', String(open)); } }, icon('list'), 'Menu');
   $app.replaceChildren(h('div', { class: 'shell' },
     h('aside', { class: 'side' },
-      h('div', { class: 'brand' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
+      h('a', { class: 'brand', href: '#/dashboard', style: 'color:inherit;text-decoration:none' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
+      menu,
       h('nav', { class: 'nav', 'aria-label': 'Main' }, groups.map(([label, links]) => [h('div', { class: 'nav-label' }, label), links.map(a)])),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
@@ -247,8 +334,14 @@ function shell(active, content, wide) {
     h('main', { class: 'content' }, h('div', { class: 'page' }, content))));
   window.scrollTo(0, 0);
 }
-const pageHead = (title, sub, actions) =>
-  h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, title), sub ? h('p', { class: 'sub' }, sub) : null), actions ? h('div', { class: 'actions' }, actions) : null);
+/**
+ * The header every page uses: an optional back link, the title with its badges beside it, one quiet line under it,
+ * and the page's buttons on the right. `opts.back` is [href, label]; `opts.badges` sit next to the title.
+ */
+const pageHead = (title, sub, actions, opts = {}) =>
+  h('div', {}, opts.back ? h('a', { href: opts.back[0], class: 'back' }, icon('back'), opts.back[1]) : null,
+    h('div', { class: 'page-head' }, h('div', {}, h('div', { class: 'titlerow' }, h('h1', {}, title), opts.badges || null), sub ? h('p', { class: 'sub' }, sub) : null),
+      actions ? h('div', { class: 'actions' }, actions) : null));
 
 // ---------- login ----------
 function loginView() {
@@ -258,7 +351,7 @@ function loginView() {
   const btn = h('button', { class: 'btn primary lg', type: 'submit', style: 'width:100%;margin-top:20px' }, 'Sign in');
   $app.replaceChildren(h('div', { class: 'auth' }, h('div', { class: 'card' },
     h('div', { class: 'brand' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
-    h('h1', {}, 'Welcome back'), h('p', { class: 'muted', style: 'margin-bottom:22px' }, 'Sign in to screen Upwork jobs and write proposals.'),
+    h('h1', {}, 'Welcome back'), h('p', { class: 'jp-label', style: 'margin-bottom:22px' }, 'Sign in to screen Upwork jobs and write proposals.'),
     h('form', { onsubmit: async (e) => {
       e.preventDefault(); err.hidden = true; btnBusy(btn, 'Signing in');
       try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; location.hash = '#/dashboard'; route(); }
@@ -273,7 +366,7 @@ async function newView() {
   const box = h('textarea', { id: 'jobin', 'aria-label': 'Job link or page text', placeholder: 'Paste an Upwork job link, or copy the whole job page and paste it here.\n\nInclude the "About the client" section: the screening depends on it.' });
   const chip = h('span', { class: 'chip' }, 'Waiting for input');
   const err = h('div', { class: 'err', hidden: true });
-  const btn = h('button', { class: 'btn primary lg', type: 'button' }, 'Screen this job');
+  const btn = h('button', { class: 'btn primary', type: 'button' }, 'Screen this job');
   const urlIn = h('input', { type: 'text', id: 'joburl', placeholder: 'https://www.upwork.com/jobs/...' });
   const detect = () => {
     const v = box.value.trim();
@@ -294,8 +387,8 @@ async function newView() {
   shell('new', [
     pageHead('Screen a job', 'Check an Upwork job against the SOP before anyone spends Connects on it.'),
     h('div', { class: 'card composer' }, box,
-      h('div', { class: 'composer-bar' }, chip, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, 'Ctrl + Enter to send'), btn)),
-    h('div', { class: 'field', style: 'margin-top:16px;max-width:520px' }, h('label', { class: 'lbl', for: 'joburl' }, 'Job link (optional)'), urlIn, h('div', { class: 'hint' }, 'Saved with the record when you paste text instead of a link.')),
+      h('div', { class: 'composer-bar' }, chip, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), btn)),
+    h('div', { class: 'field', style: 'max-width:520px' }, h('label', { class: 'lbl', for: 'joburl' }, 'Job link (optional)'), urlIn, h('div', { class: 'hint' }, 'Saved with the record when you paste text instead of a link.')),
     err,
     h('div', { class: 'steps' },
       h('div', { class: 'step' }, h('div', { class: 'n' }, '1'), h('strong', {}, 'Paste the job'), h('p', {}, 'A job link, or the full page text copied from Upwork.')),
@@ -312,7 +405,7 @@ const ymd = (d) => d.toLocaleDateString('sv'); // YYYY-MM-DD in local time
 function periodRange(key) {
   const now = new Date(), t = ymd(now);
   if (key === 'today') return { from: t, to: t };
-  if (key === '7' || key === '30') { const d = new Date(now); d.setDate(d.getDate() - Number(key) + 1); return { from: ymd(d), to: t }; }
+  if (key === '7' || key === '30' || key === '90d') { const d = new Date(now); d.setDate(d.getDate() - parseInt(key, 10) + 1); return { from: ymd(d), to: t }; }
   if (key === 'month') return { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: t };
   return {};
 }
@@ -322,7 +415,7 @@ async function dashboardView() {
   const hp = hashParams();
   const st = { period: PERIODS.some(([k]) => k === hp.period) ? hp.period : '30', profile: hp.profile || '', user: hp.user || '', mine: hp.mine === '1' };
   const opts = await api('GET', '/screenings/filter-options');
-  const body = h('div', {});
+  const body = h('div', { class: 'stack' });
   const sel = (key, label, options) => {
     const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
     el.onchange = () => { st[key] = el.value; load(); };
@@ -332,9 +425,10 @@ async function dashboardView() {
   const drawSeg = () => seg.replaceChildren(...PERIODS.map(([k, l]) => h('button', { type: 'button', class: st.period === k ? 'on' : '', 'aria-pressed': st.period === k, onclick: () => { st.period = k; drawSeg(); load(); } }, l)));
   drawSeg();
   const mineBox = h('input', { type: 'checkbox', id: 'dmine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; load(); };
-  const bar = h('div', { class: 'toolbar dashbar' }, seg, h('span', { class: 'grow' }), sel('profile', 'All profiles', opts.profiles.map((p) => [p.id, p.name])),
-    opts.users.length ? sel('user', 'Everyone', opts.users.map((u) => [u.id, u.name])) : null,
-    me.role !== 'employee' ? h('label', { class: 'row small', for: 'dmine', style: 'gap:6px' }, mineBox, 'Only mine') : null);
+  const profSel = sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])), userSel = opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null;
+  const fbar = filterBar([seg, profSel, userSel, me.role !== 'employee' ? h('label', { class: 'check', for: 'dmine' }, mineBox, 'Only mine') : null],
+    { onClear: () => { st.profile = ''; st.user = ''; st.mine = false; profSel.value = ''; if (userSel) userSel.value = ''; mineBox.checked = false; load(); } });
+  const bar = h('div', { class: 'card' }, fbar);
 
   /** A link to the Jobs list with the dashboard's filters plus `extra`, so every number can be opened. */
   const jobsLink = (extra = {}) => {
@@ -345,7 +439,7 @@ async function dashboardView() {
     return '#/history?' + q;
   };
   const kpi = (label, value, sub, link, cls) => h(link ? 'a' : 'div', { class: 'stat kpi ' + (cls || ''), href: link || null }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), sub ? h('span', { class: 'sub small muted' }, sub) : null);
-  const panel = (title, sub, content, wide) => h('div', { class: 'card dpanel' + (wide ? ' wide' : '') }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), h('div', { class: 'card-pad' }, content));
+  const panel = (title, sub, content, wide, after) => h('div', { class: 'card dpanel' + (wide ? ' wide' : '') }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), h('div', { class: 'card-pad' }, content, after || null));
   const hbar = (label, value, max, extra, link, shown) => h(link ? 'a' : 'div', { class: 'hbar', href: link || null }, h('span', { class: 'lbl', title: label }, label),
     h('span', { class: 'track' }, h('i', { style: `width:${max ? Math.max(value ? 2 : 0, (value / max) * 100) : 0}%` })), h('span', { class: 'num' }, shown ?? value.toLocaleString()), h('span', { class: 'ext small muted' }, extra || ''));
 
@@ -369,7 +463,7 @@ async function dashboardView() {
       h('div', { class: 'dgrid' },
         panel('Funnel', 'From screening to hire', h('div', { class: 'hbars' }, funnel.map(([l, v, ex]) => hbar(l, v, c.screened, pct(v, c.screened), jobsLink(ex))))),
         panel('Speed', 'Paste to proposal ready', h('div', {},
-          h('div', { class: 'bigtime' }, mins(t.avg_to_proposal) || '-', h('span', { class: 'small muted' }, ' average')),
+          h('div', { class: 'bigtime' }, mins(t.avg_to_proposal) || '-', h('span', { class: 'small muted', style: 'font-weight:400;letter-spacing:0' }, ' average')),
           h('p', { class: 'small muted', style: 'margin:2px 0 14px' }, t.min_to_proposal != null ? `fastest ${mins(t.min_to_proposal)} · slowest ${mins(t.max_to_proposal)}` : 'No proposals in this period'),
           h('div', { class: 'hbars' }, [['Screening', t.avg_screening], ['Project matching', t.avg_matching], ['Writing (after the profile)', t.avg_writing]].map(([l, v]) =>
             hbar(l, v || 0, Math.max(t.avg_screening || 0, t.avg_matching || 0, t.avg_writing || 0, 1), null, null, v == null ? '-' : mins(v)))),
@@ -378,9 +472,10 @@ async function dashboardView() {
           ? h('div', {}, h('div', { class: 'chips', style: 'margin-bottom:10px' }, d.needs_action.filter((k) => d.stages[k]).map((k) => h('a', { class: 'chip', href: jobsLink({ stage: k }) }, `${STAGE_INFO[k][1]}: ${d.stages[k]}`))),
             h('ul', { class: 'waitlist' }, d.waiting.map((r) => h('li', {}, h('a', { href: jobHref(r) }, r.title || 'Job #' + r.id), h('span', { class: 'small muted' }, `${STAGE_INFO[r.stage][1]} · ${r.user_name} · ${ago(r.created_at)}`)))))
           : h('p', { class: 'muted' }, 'Every job in this period is complete or skipped.')),
-        panel('Jobs per day', 'Screened, continued and proposals', d.daily.length ? h('div', { class: 'daybars' }, d.daily.map((x) => h('div', { class: 'day', title: `${x.day}: ${x.screened} screened, ${x.continued} continued, ${x.proposals} proposals` },
+        panel('Jobs per day', 'Screened and proposals written', d.daily.length ? h('div', { class: 'daybars' }, d.daily.map((x) => h('div', { class: 'day', title: `${x.day}: ${x.screened} screened, ${x.continued} continued, ${x.proposals} proposals` },
           h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(x.screened / maxDay) * 100}%` }), h('i', { class: 'p', style: `height:${(x.proposals / maxDay) * 100}%` })),
-          h('span', { class: 'small muted' }, x.day.slice(5))))) : h('p', { class: 'muted' }, 'No jobs in this period.')),
+          h('span', { class: 'small muted nowrap' }, toDate(x.day + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))))) : h('p', { class: 'muted' }, 'No jobs in this period.'), false,
+          d.daily.length ? h('div', { class: 'legend' }, h('span', {}, h('i', { class: 's' }), 'Screened'), h('span', {}, h('i', {}), 'Proposals')) : null),
         panel('Rules that fire most', 'And how often people continue anyway', d.rules.length ? h('div', { class: 'hbars' }, d.rules.map((r) =>
           hbar(r.code + (r.rule ? '  ' + r.rule : ''), r.fired, d.rules[0].fired, `${pct(r.continued, r.fired)} continued`, jobsLink({ rule: r.code })))) : h('p', { class: 'muted' }, 'No rules fired in this period.'), true),
         d.by_user.length ? panel('By person', null, people(d.by_user, 'user'), true) : null,
@@ -391,10 +486,150 @@ async function dashboardView() {
     if (r.from) q.set('from', r.from); if (r.to) q.set('to', r.to);
     for (const k of ['profile', 'user']) if (st[k]) q.set(k, st[k]); if (st.mine) q.set('mine', '1');
     setHashParams({ period: st.period === '30' ? '' : st.period, profile: st.profile, user: st.user, mine: st.mine ? '1' : '' });
+    fbar.setActive(!!(st.profile || st.user || st.mine));
     draw(await api('GET', '/dashboard?' + q));
   }
   shell('dashboard', [pageHead('Dashboard', 'How the team is doing: what came in, what went out, how fast, and what is waiting.', h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), bar, body], 1480);
-  body.append(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%' })));
+  body.append(h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:60%' })));
+  await load();
+}
+
+// ---------- reports: every trend, for the jobs the filters match ----------
+/** Save rows as a CSV file from the browser (a cell that starts like a formula gets a quote, so a spreadsheet never runs it). */
+function downloadCsv(name, heads, rows) {
+  const cell = (v) => { let t = v == null ? '' : String(v); if (/^[=+\-@]/.test(t)) t = "'" + t; return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const blob = new Blob(['﻿' + [heads, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const REPORT_PERIODS = [['', 'All time'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['month', 'This month'], ['custom', 'Custom dates']];
+/** The rates every report row shows, each as [share, of how many]. */
+const RATES = [['view', 'View rate', (r) => [r.viewed, r.sent]], ['chat', 'Chat rate', (r) => [r.chat, r.sent]], ['interview', 'Interview rate', (r) => [r.interview, r.sent]], ['hire', 'Hire rate', (r) => [r.hired, r.sent]]];
+const share = (a, b) => (b ? a / b : null);
+const pctText = (v) => (v == null ? '' : Math.round(v * 100) + '%');
+
+async function reportsView() {
+  const hp = hashParams();
+  const st = { period: hp.period ?? '90', from: hp.from || '', to: hp.to || '', basis: hp.basis === 'sent' ? 'sent' : 'screened', profile: hp.profile || '', user: hp.user || '', source: hp.source || '', v: hp.v || '',
+    dim: hp.dim || 'profile', min: Number(hp.min) || 1, sort: hp.sort || 'sent', dir: hp.dir === 'asc' ? 'asc' : 'desc' };
+  if (!REPORT_PERIODS.some(([k]) => k === st.period)) st.period = '90';
+  const opts = await api('GET', '/screenings/filter-options');
+  const body = h('div', { class: 'stack' });
+  let data = null;
+  const range = () => { if (st.period === 'custom') return { from: st.from, to: st.to }; if (st.period === '7' || st.period === '30' || st.period === '90' || st.period === 'month') return periodRange(st.period === '90' ? '90d' : st.period); return {}; };
+  /** The same filters as a Jobs list link, plus `extra` (a row's own filter). */
+  const jobsLink = (extra) => {
+    const r = range(), q = new URLSearchParams(), pre = st.basis === 'sent' ? 'sent_' : '';
+    if (r.from) q.set(pre + 'from', r.from); if (r.to) q.set(pre + 'to', r.to);
+    for (const k of ['profile', 'user', 'source', 'v']) if (st[k]) q.set(k, st[k]);
+    for (const [k, v] of Object.entries(extra || {})) q.set(k, v);
+    return '#/history?' + q;
+  };
+  const fromIn = dateField('From', st.from, (v) => { st.from = v; load(); }), toIn = dateField('To', st.to, (v) => { st.to = v; load(); });
+  const syncDates = () => { fromIn.hidden = toIn.hidden = st.period !== 'custom'; };
+  const sel = (key, label, options, keep) => { const el = fSelect(label, options, st[key], (v) => { st[key] = v || (keep ?? ''); if (key === 'period') syncDates(); load(); }); return el; };
+  const periodSel = h('select', { 'aria-label': 'Period', class: 'fsel', 'data-plain': true }, REPORT_PERIODS.map(([k, l]) => h('option', { value: k, selected: st.period === k }, l)));
+  periodSel.onchange = () => { st.period = periodSel.value; syncDates(); load(); };
+  const basisSel = h('select', { 'aria-label': 'Dates by', class: 'fsel', 'data-plain': true }, [['screened', 'By date screened'], ['sent', 'By date sent']].map(([k, l]) => h('option', { value: k, selected: st.basis === k }, l)));
+  basisSel.onchange = () => { st.basis = basisSel.value; load(); };
+  const profSel = sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])), userSel = opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null;
+  const srcSel = sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]), vSel = sel('v', 'Any gate result', [['PASS', 'Pass'], ['FLAG', 'Flag'], ['FAIL', 'Fail']]);
+  const exportBtn = h('button', { class: 'btn', type: 'button', onclick: () => { if (!data) return;
+    downloadCsv(`upwork-pro-report-${ymd(new Date())}.csv`, ['Report', 'Group', 'Jobs', 'Continued', 'Proposals written', 'Sent', 'Viewed', 'Chat opened', 'Interview', 'Hired', 'Lost', 'Connects', 'View rate', 'Chat rate', 'Interview rate', 'Hire rate'],
+      [{ label: 'Everything', rows: [data.totals] }, ...data.dims].flatMap((d) => d.rows.map((r) => [d.label, r.name, r.jobs, r.continued, r.written, r.sent, r.viewed, r.chat, r.interview, r.hired, r.lost, r.connects, ...RATES.map(([, , f]) => pctText(share(...f(r))))]))); toast('Report saved as a CSV file'); } }, icon('doc'), 'Export');
+  const fbar = filterBar([periodSel, fromIn, toIn, basisSel, profSel, userSel, srcSel, vSel], { actions: exportBtn,
+    onClear: () => { Object.assign(st, { profile: '', user: '', source: '', v: '' }); for (const x of [profSel, userSel, srcSel, vSel]) if (x) x.value = ''; load(); } });
+  syncDates();
+
+  const rateCell = (r, f) => { const [a, b] = f(r), v = share(a, b); return h('td', { class: 'num', title: b ? `${a} of ${b} sent` : 'Nothing sent yet' }, v == null ? h('span', { class: 'faint' }, 'No data') : [h('span', { class: 'ratebar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round(v * 100)}%` })), pctText(v)]); };
+  const sortVal = { name: (r) => r.name.toLowerCase(), jobs: (r) => r.jobs, sent: (r) => r.sent, view: (r) => share(r.viewed, r.sent) ?? -1, chat: (r) => share(r.chat, r.sent) ?? -1, interview: (r) => share(r.interview, r.sent) ?? -1, hire: (r) => share(r.hired, r.sent) ?? -1, cost: (r) => (r.sent ? r.connects / r.sent : -1) };
+  function breakdown(d) {
+    const rows = d.rows.filter((r) => (d.basis === 'sent' ? r.sent : Math.max(r.sent, st.min === 1 ? r.jobs : 0)) >= st.min && (st.min === 1 || r.sent >= st.min));
+    const keep = d.key === 'week' && st.sort === 'sent' && st.dir === 'desc'; // weeks read in time order unless another column is chosen
+    if (!keep) rows.sort((a, b) => { const x = sortVal[st.sort](a), y = sortVal[st.sort](b); return (x < y ? -1 : x > y ? 1 : 0) * (st.dir === 'asc' ? 1 : -1); });
+    const th = (label, key, num) => { const on = st.sort === key; const b = h('button', { type: 'button', class: 'sortbtn' + (on ? ' on' : '') }, label, on ? (st.dir === 'asc' ? ' ▲' : ' ▼') : '');
+      b.onclick = () => { if (on) st.dir = st.dir === 'asc' ? 'desc' : 'asc'; else { st.sort = key; st.dir = key === 'name' ? 'asc' : 'desc'; } draw(); }; return h('th', { class: num ? 'num' : null, 'aria-sort': on ? (st.dir === 'asc' ? 'ascending' : 'descending') : null }, b); };
+    return rows.length ? h('div', { class: 'tablewrap' }, h('table', { class: 'report' }, h('thead', {}, h('tr', {}, th(d.label, 'name'), th('Jobs', 'jobs', true), th('Sent', 'sent', true), th('View rate', 'view', true), th('Chat rate', 'chat', true), th('Interview rate', 'interview', true), th('Hire rate', 'hire', true), th('Connects per proposal', 'cost', true))),
+      h('tbody', {}, rows.map((r) => h('tr', { class: r.link ? 'click' : '', tabindex: r.link ? 0 : null, title: r.link ? 'Open these jobs' : null, onclick: r.link ? () => (location.hash = jobsLink(r.link)) : null, onkeydown: r.link ? (e) => { if (e.key === 'Enter') location.hash = jobsLink(r.link); } : null },
+        h('td', {}, h('strong', {}, r.name)), h('td', { class: 'num' }, r.jobs), h('td', { class: 'num' }, r.sent), RATES.map(([, , f]) => rateCell(r, f)),
+        h('td', { class: 'num' }, r.sent && r.connects ? (r.connects / r.sent).toFixed(1) : h('span', { class: 'faint' }, 'No data')))))))
+      : emptyState('chart', 'Nothing to compare yet', st.min > 1 ? `No group has ${st.min} sent proposals in this period. Lower "At least" or widen the dates.` : d.basis === 'sent' ? 'This report counts sent proposals, and none is recorded for these filters.' : 'No jobs match these filters.');
+  }
+  /** What is working: for the dimensions that matter most, the group with the best rate, among groups with enough sent proposals to mean something. */
+  function highlights() {
+    const need = Math.max(3, st.min), out = [];
+    for (const [key, rateKey] of [['profile', 'view'], ['profile', 'chat'], ['type', 'chat'], ['project', 'chat'], ['industry', 'chat'], ['person', 'chat'], ['loom', 'chat'], ['source', 'chat'], ['sent_weekday', 'view'], ['boost', 'view']]) {
+      const d = data.dims.find((x) => x.key === key), [, label, f] = RATES.find((x) => x[0] === rateKey);
+      const ok = d.rows.filter((r) => r.sent >= need); if (ok.length < 2) continue;
+      const best = [...ok].sort((a, b) => share(...f(b)) - share(...f(a)))[0], [a, b] = f(best), rest = ok.filter((r) => r !== best), ra = rest.reduce((n, r) => n + f(r)[0], 0), rb = rest.reduce((n, r) => n + f(r)[1], 0);
+      if (!a || share(a, b) <= share(ra, rb)) continue;
+      out.push(h('li', {}, h('button', { type: 'button', class: 'linkbtn', onclick: () => { st.dim = key; dimSel.value = key; draw(); document.getElementById('breakdown').scrollIntoView({ behavior: 'smooth' }); } }, d.label),
+        h('span', {}, ': ', h('strong', {}, best.name), ` has the best ${label.toLowerCase()}, ${pctText(share(a, b))} (${a} of ${b} sent). The others together: ${pctText(share(ra, rb))}.`)));
+    }
+    return out.length ? h('ul', { class: 'jp-list', style: 'margin:0' }, out) : h('p', { class: 'jp-label', style: 'margin:0' }, `Not enough sent proposals to compare yet. A group needs at least ${need} sent proposals, and there must be two such groups. Keep recording Sent, Viewed, Chat opened, Interview and the outcome on each job.`);
+  }
+  const dimSel = h('select', { 'aria-label': 'Break down by', class: 'fsel' });
+  dimSel.onchange = () => { st.dim = dimSel.value; draw(); };
+  const minSel = h('select', { 'aria-label': 'At least', class: 'fsel', 'data-plain': true }, [[1, 'Every group'], [3, 'At least 3 sent'], [5, 'At least 5 sent'], [10, 'At least 10 sent'], [25, 'At least 25 sent']].map(([v, l]) => h('option', { value: v, selected: st.min === v }, l)));
+  minSel.onchange = () => { st.min = Number(minSel.value); draw(); };
+
+  function draw() {
+    const t = data.totals, tm = data.timing;
+    setHashParams({ period: st.period === '90' ? '' : st.period || 'all', from: st.period === 'custom' ? st.from : '', to: st.period === 'custom' ? st.to : '', basis: st.basis === 'sent' ? 'sent' : '', profile: st.profile, user: st.user, source: st.source, v: st.v,
+      dim: st.dim === 'profile' ? '' : st.dim, min: st.min === 1 ? '' : st.min, sort: st.sort === 'sent' ? '' : st.sort, dir: st.dir === 'desc' ? '' : st.dir });
+    fbar.setActive(!!(st.profile || st.user || st.source || st.v));
+    if (!dimSel.options.length) dimSel.replaceChildren(...data.dims.map((d) => h('option', { value: d.key }, `By ${d.label[0].toLowerCase()}${d.label.slice(1)}`)));
+    if (!data.dims.some((d) => d.key === st.dim)) st.dim = 'profile';
+    dimSel.value = st.dim;
+    const d = data.dims.find((x) => x.key === st.dim);
+    const kpi = (label, value, sub, link) => h(link ? 'a' : 'div', { class: 'stat kpi', href: link || null, style: link ? null : 'cursor:default' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), h('span', { class: 'sub muted' }, sub));
+    const rate = (a, b) => (b ? pctText(a / b) : 'No data');
+    const funnel = [['Screened', t.jobs, {}], ['Continued', t.continued, {}], ['Proposal written', t.written, {}], ['Sent', t.sent, {}], ['Viewed', t.viewed, {}], ['Chat opened', t.chat, {}], ['Interview', t.interview, {}], ['Hired', t.hired, { outcome: 'Hired' }]];
+    const hours = (v) => (v == null ? 'No data' : v < 1 ? Math.round(v * 60) + ' min' : v < 48 ? v + ' h' : Math.round(v / 24) + ' days');
+    const weeks = data.dims.find((x) => x.key === 'week').rows, maxW = Math.max(1, ...weeks.map((w) => w.jobs));
+    // a small card per report, so every trend is on the page at once; its top groups by sent, with the chat rate
+    const mini = (x) => { const top = x.rows.filter((r) => r.sent || x.basis === 'jobs').slice(0, 4);
+      return h('button', { type: 'button', class: 'card card-pad cardlink minirep' + (x.key === st.dim ? ' on' : ''), onclick: () => { st.dim = x.key; draw(); document.getElementById('breakdown').scrollIntoView({ behavior: 'smooth' }); } },
+        h('strong', {}, x.label), top.length ? h('div', { class: 'minirows' }, top.map((r) => h('div', {}, h('span', { class: 'clip' }, r.name), h('span', { class: 'muted' }, r.sent ? `${r.sent} sent · ${rate(r.viewed, r.sent)} viewed` : `${r.jobs} job${r.jobs === 1 ? '' : 's'}`))))
+          : h('div', { class: 'jp-label' }, 'Nothing recorded yet')); };
+    body.replaceChildren(...[
+      data.capped ? h('div', { class: 'notice' }, icon('info'), `Showing the newest ${data.limit.toLocaleString()} jobs these filters match. Narrow the dates to count them all.`) : null,
+      h('div', { class: 'stats six' },
+        kpi('Sent', t.sent, `of ${t.jobs} screened · ${t.connects} Connects`, jobsLink({ tab: 'submitted' })),
+        kpi('View rate', rate(t.viewed, t.sent), `${t.viewed} viewed`),
+        kpi('Chat rate', rate(t.chat, t.sent), `${t.chat} chats opened`),
+        kpi('Interview rate', rate(t.interview, t.sent), `${t.interview} interviews`),
+        kpi('Hire rate', rate(t.hired, t.sent), `${t.hired} hired · ${t.lost} lost`, jobsLink({ outcome: 'Hired' })),
+        kpi('Connects per hire', t.hired && t.connects ? Math.round(t.connects / t.hired) : 'No data', t.sent && t.connects ? `${(t.connects / t.sent).toFixed(1)} per proposal` : 'Record Connects on each job')),
+      h('div', { class: 'dgrid' },
+        h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Funnel'), h('span', { class: 'sub' }, 'Each step as a share of the one before')),
+          h('div', { class: 'card-pad hbars' }, funnel.map(([l, v, ex], i) => h('a', { class: 'hbar', href: jobsLink(ex) }, h('span', { class: 'lbl' }, l), h('span', { class: 'track' }, h('i', { style: `width:${t.jobs ? Math.max(v ? 2 : 0, (v / t.jobs) * 100) : 0}%` })),
+            h('span', { class: 'num' }, v), h('span', { class: 'ext muted' }, i ? rate(v, funnel[i - 1][1]) : ''))))),
+        h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'What is working'), h('span', { class: 'sub' }, 'The best group in each report')), h('div', { class: 'card-pad' }, highlights())),
+        h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Over time'), h('span', { class: 'sub' }, 'Jobs screened and proposals sent, by week')),
+          h('div', { class: 'card-pad' }, weeks.length ? [h('div', { class: 'daybars' }, weeks.map((w) => h('a', { class: 'day', href: jobsLink(w.link), title: `${w.name}: ${w.jobs} screened, ${w.sent} sent, ${w.viewed} viewed, ${w.chat} chats, ${w.hired} hired` },
+            h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(w.jobs / maxW) * 100}%` }), h('i', { class: 'p', style: `height:${(w.sent / maxW) * 100}%` })),
+            h('span', { class: 'small muted nowrap' }, toDate(w.key + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))))),
+            h('div', { class: 'legend' }, h('span', {}, h('i', { class: 's' }), 'Screened'), h('span', {}, h('i', {}), 'Sent'))] : h('p', { class: 'muted' }, 'No jobs in this period.'))),
+        h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'How long things take'), h('span', { class: 'sub' }, 'Averages')),
+          h('div', { class: 'card-pad' }, h('dl', { class: 'facts' }, [['Paste to proposal ready', tm.secs_to_proposal == null ? 'No data' : mins(tm.secs_to_proposal)], ['Sent to first view', hours(tm.hours_to_view)], ['Sent to chat opened', hours(tm.hours_to_chat)], ['Sent to closed', tm.days_to_close == null ? 'No data' : tm.days_to_close + ' days']]
+            .map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v === 'No data' ? 'ns' : '' }, v))))))),
+      h('div', { class: 'card', id: 'breakdown' }, h('div', { class: 'card-head' }, h('h2', {}, 'Break it down'), h('span', { class: 'sub' }, d.help)),
+        h('div', { class: 'filterbar' }, dimSel, minSel, h('div', { class: 'fb-actions wide' }, h('span', { class: 'jp-label' }, 'A row opens its jobs. A column title sorts.'))),
+        breakdown(d)),
+      h('div', {}, h('h2', {}, 'Every report'), h('p', { class: 'jp-label' }, 'Each card is one way to cut the same jobs. Open one to see it in full above.')),
+      h('div', { class: 'grid4 minigrid' }, data.dims.map(mini)),
+      h('div', { class: 'notice' }, icon('info'), h('span', {}, 'A rate is only as good as what is recorded: mark each proposal Sent, then Viewed, Chat opened, Interview and its outcome (the Update status button), and record Connects, boost and the Loom video under Tracking, Edit details. Small groups swing a lot: use "At least" to hide them.')),
+    ].filter(Boolean));
+  }
+  async function load() {
+    const r = range(), q = new URLSearchParams(), pre = st.basis === 'sent' ? 'sent_' : '';
+    if (r.from) q.set(pre + 'from', r.from); if (r.to) q.set(pre + 'to', r.to);
+    for (const [k, api] of [['profile', 'profile'], ['user', 'user'], ['source', 'source'], ['v', 'verdict']]) if (st[k]) q.set(api, st[k]);
+    data = await api('GET', '/reports?' + q); draw();
+  }
+  shell('reports', [pageHead('Reports', 'What is working and what is not: the same jobs counted by profile, person, proposal type, project, industry, tag, signal, rule, Loom video and more. Every row opens the jobs behind it.'),
+    h('div', { class: 'card' }, fbar), body]);
+  body.append(h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:60%' })));
   await load();
 }
 
@@ -503,19 +738,18 @@ async function journeyPanel(r) {
 }
 const shortDate = (s) => { const d = toDate(s); return d ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''; };
 
-const VERDICT_WORD = { PASS: 'Pass', FLAG: 'Flag', FAIL: 'Fail' };
 /** The gate result: a quiet badge, the rule codes as chips (three, then "+N"), and the details on click. */
 function resultCell(r) {
   if (!r.verdict) return verdictPill(r.verdict, r.status);
   const codes = (r.rule_codes || '').split(/\s*,\s*/).filter(Boolean);
-  const content = h('div', { class: 'result' }, h('span', { class: 'vbadge ' + r.verdict }, h('i', {}), VERDICT_WORD[r.verdict]),
+  const content = h('div', { class: 'result' }, verdictBadge(r.verdict),
     codes.length ? h('span', { class: 'codes' }, codes.slice(0, 3).map((c) => h('span', { class: 'code ' + (c[0] === 'F' ? 'F' : 'G') }, c)), codes.length > 3 ? h('span', { class: 'code more' }, '+' + (codes.length - 3)) : null) : null);
   return codes.length ? cellBtn(content, 'See each rule and the value behind it', (a) => popover(a, () => flagsPanel(r))) : content;
 }
 async function flagsPanel(r) {
   const d = await api('GET', `/screenings/${r.id}/flags`);
   const item = (x, kind) => h('li', { class: kind }, h('div', {}, h('span', { class: 'code ' + (kind === 'fail' ? 'F' : 'G') }, x.code), ' ', h('strong', {}, x.rule)), x.value ? h('div', { class: 'small muted' }, cap(x.value)) : null);
-  return [h('div', { class: 'pop-head' }, h('span', { class: 'vbadge ' + d.verdict }, h('i', {}), VERDICT_WORD[d.verdict]),
+  return [h('div', { class: 'pop-head' }, verdictBadge(d.verdict),
       h('span', { class: 'small muted' }, `${d.fails.length} fail rule${d.fails.length === 1 ? '' : 's'} · ${d.flags.length} flag${d.flags.length === 1 ? '' : 's'}`)),
     h('ul', { class: 'flaglist' }, d.fails.map((x) => item(x, 'fail')), d.flags.map((x) => item(x, 'flag'))),
     h('a', { class: 'btn sm', href: '#/s/' + r.id, style: 'margin-top:8px' }, 'Open job')];
@@ -548,7 +782,7 @@ const JOB_COLS = [
   { key: 'profile', label: 'Profile', sort: 'profile', cell: (r) => clip(r.profile_name, 140) },
   { key: 'user', label: 'By', sort: 'user', cell: (r) => r.user_name },
   { key: 'template', label: 'Template', cell: (r) => clip(r.template_name, 180) },
-  { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_at || r.proposal_sent_date ? h('span', { title: full(r.proposal_sent_at || r.proposal_sent_date) }, String(r.proposal_sent_at || r.proposal_sent_date).slice(0, 10)) : '') },
+  { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_at || r.proposal_sent_date ? h('span', { title: full(r.proposal_sent_at || r.proposal_sent_date) }, dayText(r.proposal_sent_at || r.proposal_sent_date)) : '') },
   { key: 'connects', label: 'Connects', cell: (r) => (r.connects_spent != null ? r.connects_spent + (r.boost_connects ? ' + ' + r.boost_connects : '') : '') },
   { key: 'response', label: 'Viewed / chat / interview', cell: (r) => [yn(r.client_viewed), yn(r.client_replied), yn(r.interviewed)].map((v) => v || '-').join(' / ') },
   { key: 'outcome', label: 'Outcome', sort: 'outcome', cell: (r) => outcomeCell(r) },
@@ -576,11 +810,11 @@ const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pic
 const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, review: 4 };
 /** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab'];
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
@@ -604,15 +838,16 @@ async function historyView() {
   const opts = await api('GET', '/screenings/filter-options');
   const tab = () => JOB_TABS.find((t) => t.key === st.tab) || JOB_TABS[0];
   let cols = savedCols(st.tab);
-  const tabsEl = h('div', { class: 'jobtabs', role: 'tablist' }), statsEl = h('div', { class: 'stats' }), bodyEl = h('div', {}), filters = h('div', { class: 'toolbar filters' });
+  const tabsEl = h('div', { class: 'jobtabs', role: 'tablist' }), statsEl = h('div', { class: 'stats' }), bodyEl = h('div', {}), filters = h('div', {});
+  let fbar = null;
 
   const sel = (key, label, options) => {
     const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
     el.onchange = () => { st[key] = el.value; st.page = 1; load(); };
     return el;
   };
-  const dateIn = (key, label) => { const el = h('input', { type: 'date', 'aria-label': label, title: label, value: st[key], class: 'fdate' }); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
-  const searchIn = h('input', { type: 'search', placeholder: 'Search by job, client country, person, profile or rule', 'aria-label': 'Search jobs', value: st.q });
+  const dateIn = (key, label) => dateField(label, st[key], (v) => { st[key] = v; st.page = 1; load(); });
+  const searchIn = h('input', { type: 'search', placeholder: 'Search jobs', 'aria-label': 'Search jobs', title: 'Search by job, client country, person, profile, rule or link', value: st.q });
   searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; load().catch((x) => toast(x.message, true)); }, 300);
   const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
   const outcomes = [...new Set([...outcomeList(), ...opts.outcomes])];
@@ -636,14 +871,17 @@ async function historyView() {
   function drawFilters() {
     const t = tab();
     const stageOpts = t.stages ? [...(t.need ? [['needs_action', 'Needs action']] : []), ...t.stages.map((x) => [x, STAGE_INFO[x][1]])] : t.quiet ? [['quiet', 'Gone quiet']] : null;
-    filters.replaceChildren(...[h('div', { class: 'search' }, icon('search'), searchIn), dateIn('from', 'From date'), dateIn('to', 'To date'),
+    fbar = filterBar([h('div', { class: 'search' }, icon('search'), searchIn), dateIn('from', 'From'), dateIn('to', 'To'),
       stageOpts ? sel('stage', t.key === 'in_progress' ? 'Any step' : t.quiet ? 'Any submitted' : 'Skipped or failed', stageOpts) : null,
       sel('rule', 'Any rule', opts.rules.map((r) => [r.code, `${r.code}  ${r.rule}`])),
       sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])),
       opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null,
       t.key === 'closed' || t.key === 'submitted' || !t.key ? sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]) : null,
-      me.role !== 'employee' ? h('label', { class: 'row small', for: 'mine', style: 'gap:6px' }, mineBox, 'Only mine') : null,
-      h('span', { class: 'grow' }), clearBtn, colBtn, exportBtn].filter(Boolean)); // replaceChildren would print a null
+      (opts.types || []).length ? sel('ptype', 'Any proposal type', opts.types.map((x) => [x, x])) : null,
+      sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]),
+      me.role !== 'employee' ? h('label', { class: 'check', for: 'mine' }, mineBox, 'Only mine') : null],
+      { actions: [colBtn, exportBtn], onClear: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } });
+    filters.replaceChildren(fbar);
   }
   function drawTabs() {
     const total = Object.values(stats.tabs || {}).reduce((a, b) => a + b, 0);
@@ -672,6 +910,7 @@ async function historyView() {
     const order = tab().cols; // the tab's own order first, then any extra column the person added
     const shown = JOB_COLS.filter((c) => cols.has(c.key)).sort((a, b) => (order.includes(a.key) ? order.indexOf(a.key) : 99) - (order.includes(b.key) ? order.indexOf(b.key) : 99));
     const filtered = FILTER_KEYS.some((k) => k !== 'tab' && st[k]);
+    if (fbar) fbar.setActive(filtered);
     const empty = { in_progress: 'Nothing in progress', submitted: 'Nothing submitted yet', closed: 'Nothing closed yet', not_pursued: 'Nothing skipped or failed' }[st.tab] || 'No jobs yet';
     const table = !rows.length
       ? emptyState('list', filtered ? 'No matches' : empty, filtered ? 'Try different filters.' : st.tab ? 'Jobs move here as they progress.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : st.tab ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
@@ -682,7 +921,11 @@ async function historyView() {
           // the row's action stays pinned to the right edge, visible however far the table scrolls
           h('td', { class: 'pin' }, rowAction(r, load)))))));
     if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); });
-    bodyEl.replaceChildren(table, pager(total, st.page, (n) => { st.page = n; load(); }));
+    const EXTRA = { tag: 'Tag', project: 'Project shown', loom: 'Loom video', sent_from: 'Sent from', sent_to: 'Sent to' };
+    const extras = Object.keys(EXTRA).filter((k) => st[k]);
+    const note = extras.length ? h('div', { class: 'toolbar', style: 'gap:6px' }, h('span', { class: 'jp-label' }, 'Also filtered by'), extras.map((k) => h('button', { type: 'button', class: 'chip', title: 'Remove this filter', onclick: () => { st[k] = ''; st.page = 1; load(); } },
+      `${EXTRA[k]}: ${k === 'loom' ? (st[k] === 'yes' ? 'with a video' : 'without a video') : k.startsWith('sent_') ? dayText(st[k]) : st[k]}`, h('span', { 'aria-hidden': 'true' }, ' ×')))) : null;
+    bodyEl.replaceChildren(...[note, table, pager(total, st.page, (n) => { st.page = n; load(); })].filter(Boolean));
   }
   let seq = 0;
   async function load() {
@@ -725,7 +968,7 @@ function jobReportView(j, multi) {
   const [t, s] = VERDICT_TEXT[j.verdict];
   return h('section', { style: 'display:grid;gap:16px' },
     h('div', { class: 'verdict-banner ' + j.verdict }, h('div', { class: 'vicon' }, icon(vIcon[j.verdict])),
-      h('div', {}, h('div', { class: 'vt' }, j.verdict), h('h2', {}, multi ? j.title : t), h('div', { class: 'vs' }, multi ? t + '. ' + s : s))),
+      h('div', {}, h('div', { class: 'vt' }, VERDICT_WORD[j.verdict]), h('h2', {}, multi ? j.title : t), h('div', { class: 'vs' }, multi ? t + '. ' + s : s))),
     j.fails.length ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Failed rules (${j.fails.length})`), issues(j.fails, 'fail'),
       j.override_note ? h('div', { class: 'callout', style: 'margin-top:12px' }, j.override_note) : null) : null,
     j.flags.length ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Flags (${j.flags.length})`), issues(j.flags, 'flag')) : null,
@@ -885,7 +1128,7 @@ function recordDetails(s, override, matching, proposal) {
     ['Flag reasons', s.flag_reasons], ['Rule codes', s.rule_codes], ['Proceeded', s.proceeded], ['Override reason', override ? override.reason : null],
     ['Selected projects', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join('; ') : null],
     ['Written with template', proposal && proposal.template ? proposal.template.name : null],
-    ['Proposal sent date', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null], ['Outcome', s.outcome], ['Notes', s.notes],
+    ['Proposal sent date', s.proposal_sent_date ? dayText(s.proposal_sent_date) : null], ['Outcome', s.outcome], ['Notes', s.notes],
   ];
   return h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', {}, 'Record details'), h('span', { class: 'sub' }, 'Every tracked field')),
@@ -1025,7 +1268,7 @@ function jobHeader(s, stage) {
     s.profile_name, gateChip(s), s.source_url ? h('a', { href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, 'Upwork post') : null].filter(Boolean);
   return [
     h('a', { href: lastList.history, class: 'jp-back' }, icon('back'), 'Jobs'),
-    h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? h('span', { class: 'vbadge ' + s.verdict }, s.verdict) : null,
+    h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? verdictBadge(s.verdict) : null,
       label ? h('span', { class: 'jp-stage' }, n ? `Step ${n} of 5 · ${label}` : label) : null),
     h('div', { class: 'jp-meta' }, bits.flatMap((b, i) => (i ? [sep(), b] : [b]))),
   ];
@@ -1080,9 +1323,9 @@ async function jobPage(id, want) {
   let active = null;
   tabActions = (btns) => actionsEl.replaceChildren(...btns);
 
-  const leaveOk = () => !(active && active.__dirty && active.__dirty()) || confirm('You have unsaved changes in the proposal. Leave this tab anyway?');
-  function setTab(k) {
-    if (k !== tab && !leaveOk()) return;
+  const leaveOk = async () => !(active && active.__dirty && active.__dirty()) || ask('Leave without saving?', 'You have unsaved changes in the proposal. They are lost if you leave this tab.', 'Leave this tab', true);
+  async function setTab(k) {
+    if (k !== tab && !(await leaveOk())) return;
     tab = k; history.replaceState(null, '', `#/s/${id}/${k}`);
     drawTabs(); drawContent(); window.scrollTo({ top: 0 });
   }
@@ -1091,7 +1334,7 @@ async function jobPage(id, want) {
     s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal;
     st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawTabs();
   }
-  stepCtx = { go: (n) => setTab(STEP_TAB[n]), refresh, advanceTo: async (n) => { await refresh(); active = null; setTab(STEP_TAB[n]); } };
+  stepCtx = { go: (n) => setTab(STEP_TAB[n]), refresh, advanceTo: async (n) => { await refresh(); active = null; await setTab(STEP_TAB[n]); } };
   const statusUpdate = () => statusDialog(id, async () => { await refresh(); drawContent(); });
 
   function drawTabs() {
@@ -1109,7 +1352,7 @@ async function jobPage(id, want) {
     const next = {
       screening: ['Screening this job', 'This takes about a minute.'],
       failed: ['The screening did not finish', s.error_message || ''],
-      decide: ['Decide: continue or skip', `The gate says ${s.verdict}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}.${who}`],
+      decide: ['Decide: continue or skip', `The gate says ${vword(s.verdict)}${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}.${who}`],
       projects: ['Pick the projects', 'Choose the projects the proposal will show.' + who],
       profile: ['Pick the profile', 'Choose the Upwork profile that sends it; the proposal is written straight after.' + who],
       writing: ['The proposal is being written', 'A few minutes. You can leave this page.'],
@@ -1129,13 +1372,13 @@ async function jobPage(id, want) {
     const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
     const status = s.outcome && s.outcome !== 'Pending' ? s.outcome : s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : s.proposal_sent_at || s.proposal_sent_date ? 'Sent' : null;
     const facts = [
-      ['Verdict', s.verdict ? `${s.verdict}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : null],
-      ['Decision', override ? `Continued past the ${override.verdict_at_time}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
+      ['Verdict', s.verdict ? `${VERDICT_WORD[s.verdict]}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : null],
+      ['Decision', override ? `Continued past the ${vword(override.verdict_at_time)}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
       ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
       ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
       ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
       ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : null) : null],
-      ['Status', status], ['Sent', s.proposal_sent_date ? String(s.proposal_sent_date).slice(0, 10) : null],
+      ['Status', status], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) : null],
       ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
       ['Paste to proposal', toProposal != null ? mins(toProposal) : null],
       ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
@@ -1158,10 +1401,10 @@ async function jobPage(id, want) {
     const decided = !!override || !!(matching && matching.continued);
     const parts = [];
     // the verdict, in one line
-    parts.push(h('div', { class: 'card card-pad verdictline ' + j.verdict }, h('span', { class: 'vbadge ' + j.verdict }, j.verdict), h('div', {}, h('div', { class: 'jp-sec' }, title), h('div', { class: 'jp-label' }, sub))));
+    parts.push(h('div', { class: 'card card-pad verdictline ' + j.verdict }, verdictBadge(j.verdict), h('div', {}, h('div', { class: 'jp-sec' }, title), h('div', { class: 'jp-label' }, sub))));
     // the decision
     if (decided) {
-      parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, override ? `Continued despite the ${override.verdict_at_time}` : 'Continued'),
+      parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, override ? `Continued despite the ${vword(override.verdict_at_time)}` : 'Continued'),
         override ? h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, override.reason) : null,
         h('div', { class: 'jp-label' }, override ? `${override.user_name} · ${full(override.created_at)}` : 'Taken forward to the projects.')));
     } else if (!owner) {
@@ -1186,7 +1429,7 @@ async function jobPage(id, want) {
       });
       setActions(s.proceeded === 'no' ? null : skip, cont);
       parts.push(h('div', { class: 'card card-pad' },
-        h('div', { class: 'jp-sec' }, s.proceeded === 'no' ? 'You skipped this job. Continue anyway?' : needReason ? `Continue despite the ${j.verdict}?` : 'Continue with this job?'),
+        h('div', { class: 'jp-sec' }, s.proceeded === 'no' ? 'You skipped this job. Continue anyway?' : needReason ? `Continue despite the ${vword(j.verdict)}?` : 'Continue with this job?'),
         h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, needReason ? 'Write why. The reason stays on record, visible to managers and admins. Continue and Skip are at the top right.' : 'Continue to match it with projects, or skip it. The buttons are at the top right.'),
         ta, err));
     }
@@ -1206,16 +1449,22 @@ async function jobPage(id, want) {
   function trackingTab() {
     const setActions = actionsFor();
     const box = h('div', { class: 'stack' }, h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:50%' })));
-    const details = () => {
+    const details = async () => {
+      const { videos } = await api('GET', '/looms');
+      // the sending profile's videos first; a video that was sent before stays in the list even if it was disabled since
+      const mine = videos.filter((v) => (Number(v.active) || v.id === s.loom_video_id) && (!s.upwork_profile_id || v.profile_id === s.upwork_profile_id));
+      const loom = h('select', { id: 'tl', style: 'width:100%' }, h('option', { value: '' }, 'No Loom video'), mine.map((v) => h('option', { value: v.id, selected: v.id === s.loom_video_id }, v.title + (s.upwork_profile_id ? '' : ' (' + v.profile_name + ')'))));
       const c = h('input', { type: 'number', id: 'tc', min: 0, max: 1000, value: s.connects_spent ?? '' });
       const bo = h('input', { type: 'number', id: 'tb', min: 0, max: 1000, value: s.boost_connects ?? '' });
       const no = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000 }); no.value = s.notes || '';
       modal({ title: 'Edit details', confirm: 'Save', body: h('div', { class: 'stack' },
         h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tc' }, 'Connects spent'), c), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tb' }, 'Boost (Connects)'), bo)),
+        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tl' }, 'Loom video sent with the proposal'), loom,
+          h('div', { class: 'hint' }, mine.length ? 'Recorded so the reports can compare proposals with a video against those without.' : 'This profile has no Loom videos yet. An admin adds them under Loom videos.')),
         h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), no)),
         onConfirm: async () => {
           const num = (el) => (el.value === '' ? null : Number(el.value));
-          await api('PATCH', `/screenings/${id}/tracking`, { connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null });
+          await api('PATCH', `/screenings/${id}/tracking`, { connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null, loom_video_id: num(loom) });
           toast('Saved'); await refresh(); drawContent();
         } });
     };
@@ -1229,7 +1478,7 @@ async function jobPage(id, want) {
         h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'History'),
           ev.length ? h('ol', { class: 'statuslist' }, ev.map((e) => h('li', {}, h('span', { class: 'jp-sec' }, e.status),
             h('span', { class: 'jp-label' }, ` ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}`), e.reason ? h('div', { class: 'jp-label' }, e.reason) : null))) : h('p', { class: 'jp-label' }, 'Nothing recorded yet.')),
-        h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, [['Connects spent', s.connects_spent], ['Boost', s.boost_connects], ['Notes', s.notes]].map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v == null || v === '' ? 'ns' : '' }, v == null || v === '' ? 'Not recorded' : String(v)))))));
+        h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, [['Connects spent', s.connects_spent], ['Boost', s.boost_connects], ['Loom video', s.loom_video_title], ['Notes', s.notes]].map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v == null || v === '' ? 'ns' : '' }, v == null || v === '' ? 'Not recorded' : String(v)))))));
     }).catch((x) => box.replaceChildren(h('div', { class: 'card card-pad' }, h('p', { class: 'err' }, x.message))));
     return box;
   }
@@ -1280,45 +1529,30 @@ function industryEditor(ind, projects, after) {
 async function industriesView() {
   const [{ industries }, { projects }] = await Promise.all([api('GET', '/industries'), api('GET', '/projects')]);
   const canEdit = canEditProjects();
-  const hp = hashParams(); const st = { q: hp.q || '', page: Math.max(1, Number(hp.page) || 1) };
-  const bodyEl = h('div', {});
-  const searchIn = h('input', { type: 'search', placeholder: 'Search industries or projects', 'aria-label': 'Search industries', value: st.q });
-  const sync = () => { setHashParams({ page: st.page, q: st.q }); lastList.industries = location.hash; };
-  searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; draw(); }, 200);
-  const open = (i) => () => { sync(); location.hash = '#/i/' + i.id; };
-  function draw() {
-    const q = st.q.toLowerCase();
-    const shown = industries.filter((i) => !q || (i.name + ' ' + (i.description || '') + ' ' + i.projects.map((p) => p.name).join(' ')).toLowerCase().includes(q));
-    st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / PAGE_SIZE))); sync();
-    const slice = shown.slice((st.page - 1) * PAGE_SIZE, st.page * PAGE_SIZE);
-    const table = !shown.length ? emptyState('building', industries.length ? 'No matches' : 'No industries yet', industries.length ? 'Try a different search.' : 'Add the industries Stackup has worked in.')
-      : h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Industry', 'Projects', 'Status', canEdit ? '' : null].map((t) => (t === null ? null : h('th', {}, t))))),
-        h('tbody', {}, slice.map((i) => h('tr', { class: 'click', tabindex: 0, onclick: open(i), onkeydown: (e) => { if (e.key === 'Enter') open(i)(); } },
-          h('td', {}, h('strong', {}, i.name), i.description ? h('div', { class: 'meta' }, i.description.slice(0, 90)) : null),
-          h('td', {}, i.projects.length ? h('div', { class: 'chips' }, i.projects.slice(0, 3).map((p) => h('span', { class: 'chip' }, p.name)),
-            i.projects.length > 3 ? h('a', { class: 'chip brand', href: '#/i/' + i.id, title: 'Show all ' + i.projects.length + ' projects', onclick: (e) => { e.stopPropagation(); sync(); } }, '+' + (i.projects.length - 3)) : null) : h('span', { class: 'faint small' }, 'No projects yet')),
-          h('td', {}, Number(i.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive')),
-          canEdit ? h('td', {}, h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); industryEditor(i, projects, () => route()); } }, 'Edit')) : null)))));
-    bodyEl.replaceChildren(table, pager(shown.length, st.page, (n) => { st.page = n; draw(); }));
-  }
-  shell('industries', [pageHead('Industries', 'The industries Stackup has worked in. A project can belong to several industries, and an industry can have several projects.',
-    canEdit ? h('button', { class: 'btn primary', onclick: () => industryEditor(null, projects, () => route()) }, icon('screen'), 'Add industry') : null),
-    h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn)), bodyEl)]);
-  draw();
+  const open = (i) => () => { location.hash = '#/i/' + i.id; };
+  const add = canEdit ? h('button', { class: 'btn primary', onclick: () => industryEditor(null, projects, () => route()) }, icon('screen'), 'Add industry') : null;
+  shell('industries', [pageHead('Industries', 'The industries Stackup has worked in. A project can belong to several industries, and an industry can have several projects.', add),
+    listCard({ items: industries, icon: 'building', emptyTitle: 'No industries yet', emptyText: 'Add the industries Stackup has worked in.',
+      search: { placeholder: 'Search industries', text: (i) => i.name + ' ' + (i.description || '') + ' ' + i.projects.map((p) => p.name).join(' ') },
+      filters: [statusFilter((i) => i.active)],
+      onSync: () => { lastList.industries = location.hash; },
+      render: (slice) => dataTable(['Industry', 'Projects', 'Status', canEdit ? '' : null], slice.map((i) => h('tr', { class: 'click', tabindex: 0, onclick: open(i), onkeydown: (e) => { if (e.key === 'Enter') open(i)(); } },
+        h('td', {}, h('strong', {}, i.name), i.description ? h('div', { class: 'meta' }, i.description.slice(0, 90)) : null),
+        h('td', {}, i.projects.length ? h('div', { class: 'chips' }, i.projects.slice(0, 3).map((p) => h('span', { class: 'chip' }, p.name)),
+          i.projects.length > 3 ? h('span', { class: 'chip', title: 'Show all ' + i.projects.length + ' projects' }, '+' + (i.projects.length - 3)) : null) : h('span', { class: 'faint' }, 'No projects yet')),
+        h('td', {}, onOff(i.active)),
+        canEdit ? acts(h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); industryEditor(i, projects, () => route()); } }, 'Edit')) : null))) })]);
 }
 
 async function industryDetailView(id) {
   const [{ industry: i }, { projects }] = await Promise.all([api('GET', '/industries/' + id), api('GET', '/projects')]);
   const canEdit = canEditProjects();
   shell('industries', [
-    h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.industries, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to industries')),
     pageHead(i.name, `${i.projects.length} project${i.projects.length === 1 ? '' : 's'}`,
-      [Number(i.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive'),
-        canEdit ? h('button', { class: 'btn primary', onclick: () => industryEditor(i, projects, (nid) => (nid ? route() : (location.hash = lastList.industries))) }, 'Edit industry') : null]),
+      canEdit ? h('button', { class: 'btn primary', onclick: () => industryEditor(i, projects, (nid) => (nid ? route() : (location.hash = lastList.industries))) }, 'Edit industry') : null,
+      { back: [lastList.industries, 'Industries'], badges: onOff(i.active) }),
     i.description ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'About'), h('p', {}, i.description)) : null,
-    i.description ? h('div', { style: 'height:16px' }) : null,
     i.related ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Related industries'), h('p', {}, i.related)) : null,
-    i.related ? h('div', { style: 'height:16px' }) : null,
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Projects (${i.projects.length})`),
       i.projects.length ? h('div', { class: 'chips' }, i.projects.map((p) => h('a', { class: 'chip brand', href: '#/p/' + p.id }, p.name))) : emptyState('folder', 'No projects yet', canEdit ? 'Edit the industry to add projects.' : 'No projects are linked to this industry yet.')),
   ]);
@@ -1328,16 +1562,15 @@ async function industryDetailView(id) {
 async function dictionaryView() {
   const { categories } = await api('GET', '/tags');
   const hp = hashParams();
-  const st = { tab: hp.tab === 'categories' ? 'categories' : 'tags', q: hp.q || '', cat: hp.cat || '', status: hp.st || '', page: Math.max(1, Number(hp.page) || 1) };
+  const st = { tab: hp.tab === 'categories' ? 'categories' : 'tags' };
   const all = categories.flatMap((c) => c.tags.map((t) => ({ ...t, category: c.name })));
   const bodyEl = h('div', {});
   const tabsEl = h('div', { class: 'tabs', role: 'tablist' });
   const actionsEl = h('div', {});
-  const sync = () => setHashParams({ tab: st.tab === 'tags' ? '' : st.tab, page: st.page, q: st.q, cat: st.cat, st: st.status });
 
   function tagDialog(t) {
     const f = { name: h('input', { type: 'text', id: 'tn1', maxlength: 120, value: t ? t.name : '' }),
-      cat: h('select', { id: 'tc1', style: 'width:100%' }, categories.map((c) => h('option', { value: c.id, selected: t ? c.id === t.category_id : c.id === (Number(st.cat) || categories[0].id) }, c.name))),
+      cat: h('select', { id: 'tc1', style: 'width:100%' }, categories.map((c) => h('option', { value: c.id, selected: t ? c.id === t.category_id : c.id === (Number(hashParams().cat) || categories[0].id) }, c.name))),
       score: h('input', { type: 'number', id: 'ts1', min: 0, max: 10, step: 1, value: t ? t.weight : 1 }), desc: h('input', { type: 'text', id: 'td1', maxlength: 500, value: t && t.description ? t.description : '' }),
       active: h('input', { type: 'checkbox', id: 'ta1', checked: t ? !!Number(t.active) : true }) };
     modal({ title: t ? 'Edit tag' : 'Add a tag', confirm: t ? 'Save tag' : 'Add tag', wide: true,
@@ -1350,7 +1583,7 @@ async function dictionaryView() {
         body: h('p', { class: 'muted' }, t.project_count ? `${t.project_count} project${t.project_count === 1 ? ' uses' : 's use'} this tag, so it cannot be deleted. Remove it from them, or disable it instead.` : 'This removes the tag. Past job results keep its name. It cannot be undone.'),
         onConfirm: async () => { await api('DELETE', '/admin/tags/' + t.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Tag deleted'); route(); } }) }, 'Delete') : null,
       onConfirm: async () => {
-        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, related: f.related.value.trim() || null, active: f.active.checked };
+        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, active: f.active.checked };
         await api(t ? 'PATCH' : 'POST', t ? '/admin/tags/' + t.id : '/admin/tags', body); toast(t ? 'Tag saved' : 'Tag added'); route();
       } });
   }
@@ -1375,48 +1608,32 @@ async function dictionaryView() {
     try { await api('PATCH', '/admin/tags/' + t.id, { weight: v }); t.weight = v; toast(`Score for ${t.name} is now ${v}`); }
     catch (x) { toast(x.message, true); input.value = t.weight; }
   }
-
-  function drawTags() {
-    const q = st.q.toLowerCase();
-    const shown = all.filter((t) => (!q || (t.name + ' ' + (t.description || '')).toLowerCase().includes(q)) && (!st.cat || String(t.category_id) === st.cat) && (st.status === '' || String(Number(t.active)) === st.status));
-    st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / PAGE_SIZE))); sync();
-    const slice = shown.slice((st.page - 1) * PAGE_SIZE, st.page * PAGE_SIZE);
-    const searchIn = h('input', { type: 'search', placeholder: 'Search tags', 'aria-label': 'Search tags', value: st.q });
-    const catSel = h('select', { 'aria-label': 'Filter by category' }, h('option', { value: '' }, 'Any category'), categories.map((c) => h('option', { value: c.id, selected: String(c.id) === st.cat }, c.name)));
-    const stSel = h('select', { 'aria-label': 'Filter by status' }, [['', 'Any status'], ['1', 'Active'], ['0', 'Disabled']].map(([v, l]) => h('option', { value: v, selected: v === st.status }, l)));
-    searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; drawTags(); searchIn.focus(); }, 250);
-    catSel.onchange = () => { st.cat = catSel.value; st.page = 1; drawTags(); }; stSel.onchange = () => { st.status = stSel.value; st.page = 1; drawTags(); };
-    const table = !shown.length ? emptyState('tag', 'No tags match', 'Try a different search or filter.')
-      : h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Tag', 'Category', 'Score', 'Projects', 'Status', ''].map((t) => h('th', {}, t)))),
-        h('tbody', {}, slice.map((t) => {
-          const inp = h('input', { type: 'number', class: 'scoreinp', min: 0, max: 10, step: 1, value: t.weight, 'aria-label': 'Score for ' + t.name });
-          inp.onchange = () => saveScore(t, inp);
-          return h('tr', {}, h('td', {}, h('strong', {}, t.name), t.description ? h('div', { class: 'meta' }, t.description.slice(0, 100)) : null), h('td', { class: 'muted' }, t.category), h('td', {}, inp),
-            h('td', { class: 'muted' }, t.project_count), h('td', {}, Number(t.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Disabled')),
-            h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => tagDialog(t) }, 'Edit'),
-              h('button', { class: 'btn sm', onclick: async () => { try { await api('PATCH', '/admin/tags/' + t.id, { active: !Number(t.active) }); toast(Number(t.active) ? 'Tag disabled' : 'Tag enabled'); } catch (x) { toast(x.message, true); } route(); } }, Number(t.active) ? 'Disable' : 'Enable'))));
-        }))));
-    bodyEl.replaceChildren(h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn), catSel, stSel), table, pager(shown.length, st.page, (n) => { st.page = n; drawTags(); }));
-  }
-  function drawCategories() {
-    sync();
-    const row = (c) => h('tr', {},
+  const tagsList = () => listCard({ items: all, icon: 'tag', emptyTitle: 'No tags yet', emptyText: 'Add the tags jobs and projects are described with.',
+    search: { placeholder: 'Search tags', text: (t) => t.name + ' ' + (t.description || '') },
+    filters: [{ key: 'cat', label: 'Any category', options: categories.map((c) => [c.id, c.name]), test: (t, v) => String(t.category_id) === v }, statusFilter((t) => t.active, 'Disabled')],
+    render: (slice) => dataTable(['Tag', 'Category', 'Score', 'Projects', 'Status', ''], slice.map((t) => {
+      const inp = h('input', { type: 'number', class: 'scoreinp', min: 0, max: 10, step: 1, value: t.weight, 'aria-label': 'Score for ' + t.name });
+      inp.onchange = () => saveScore(t, inp);
+      return h('tr', {}, h('td', {}, h('strong', {}, t.name), t.description ? h('div', { class: 'meta' }, t.description.slice(0, 100)) : null), h('td', { class: 'muted' }, t.category), h('td', {}, inp),
+        h('td', { class: 'muted' }, t.project_count), h('td', {}, onOff(t.active, 'Active', 'Disabled')),
+        acts(h('button', { class: 'btn sm', onclick: () => tagDialog(t) }, 'Edit'),
+          h('button', { class: 'btn sm', onclick: async () => { try { await api('PATCH', '/admin/tags/' + t.id, { active: !Number(t.active) }); toast(Number(t.active) ? 'Tag disabled' : 'Tag enabled'); } catch (x) { toast(x.message, true); } route(); } }, Number(t.active) ? 'Disable' : 'Enable')));
+    })) });
+  const categoriesList = () => listCard({ items: categories, icon: 'tag', emptyTitle: 'No categories yet', emptyText: 'Add a category, then its tags.',
+    search: { placeholder: 'Search categories', text: (c) => c.name },
+    filters: [{ key: 'kind', label: 'Any kind', options: [['1', 'Compliance'], ['0', 'Not compliance']], test: (c, v) => String(Number(!!c.is_compliance)) === v }],
+    render: (slice) => dataTable(['Order', 'Category', 'Tags', ''], slice.map((c) => h('tr', {},
       h('td', { class: 'muted' }, c.sort_order),
-      h('td', {}, h('strong', {}, c.name), c.is_compliance ? h('span', { class: 'chip', style: 'margin-left:8px' }, 'Compliance') : null),
+      h('td', {}, h('strong', {}, c.name), c.is_compliance ? h('span', { class: 'pill wait', style: 'margin-left:8px' }, 'Compliance') : null),
       h('td', { class: 'muted' }, `${c.tags.length} (${c.tags.filter((t) => Number(t.active)).length} active)`),
-      h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'btn sm', onclick: () => categoryDialog(c) }, 'Edit'))));
-    const table = clientPaged(categories, (slice) => h('div', { class: 'tablewrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['Order', 'Category', 'Tags', ''].map((t) => h('th', {}, t)))),
-      h('tbody', {}, slice.map(row)))));
-    bodyEl.replaceChildren(table);
-  }
+      acts(h('button', { class: 'btn sm', onclick: () => categoryDialog(c) }, 'Edit'))))) });
   function drawTabs() {
-    tabsEl.replaceChildren(...[['tags', `Tags (${all.length})`], ['categories', `Categories (${categories.length})`]].map(([k, l]) =>
-      h('button', { class: 'tab' + (st.tab === k ? ' on' : ''), role: 'tab', 'aria-selected': st.tab === k ? 'true' : 'false', onclick: () => { st.tab = k; st.page = 1; drawAll(); } }, l)));
+    tabsEl.replaceChildren(...[['tags', 'Tags', all.length], ['categories', 'Categories', categories.length]].map(([k, l, n]) =>
+      h('button', { class: 'tab' + (st.tab === k ? ' on' : ''), role: 'tab', 'aria-selected': st.tab === k ? 'true' : 'false', onclick: () => { if (st.tab === k) return; st.tab = k; history.replaceState(null, '', '#/dictionary' + (k === 'tags' ? '' : '?tab=' + k)); drawAll(); } }, l, h('span', { class: 'n' }, String(n)))));
     actionsEl.replaceChildren(st.tab === 'tags' ? h('button', { class: 'btn primary', onclick: () => tagDialog(null) }, icon('screen'), 'Add tag') : h('button', { class: 'btn primary', onclick: () => categoryDialog(null) }, icon('screen'), 'Add category'));
   }
-  function drawAll() { drawTabs(); if (st.tab === 'tags') drawTags(); else drawCategories(); }
-  shell('dictionary', [pageHead('Tag dictionary', 'The tags jobs and projects are described with. The score is what a shared tag is worth when a job is matched to projects.', actionsEl), tabsEl, h('div', { class: 'card' }, bodyEl)], true);
+  function drawAll() { drawTabs(); bodyEl.replaceChildren(st.tab === 'tags' ? tagsList() : categoriesList()); }
+  shell('dictionary', [pageHead('Tag dictionary', 'The tags jobs and projects are described with. The score is what a shared tag is worth when a job is matched to projects.', actionsEl), tabsEl, bodyEl], true);
   drawAll();
 }
 
@@ -1471,29 +1688,29 @@ async function profilesView() {
   }
   const values = (f) => Object.fromEntries([['name', f.name.value], ...FIELDS.map(([k, , type]) => [k, type === 'number' ? (f[k].value === '' ? null : Number(f[k].value)) : (f[k].value.trim() || null)])]);
   function add() { const { f, body } = form(null); modal({ title: 'Add an Upwork profile', confirm: 'Add profile', body, wide: true, onConfirm: async () => { await api('POST', '/profiles', values(f)); toast('Profile added'); route(); } }); }
-  function edit(p) { const { f, body } = form(p); modal({ title: 'Edit ' + p.name, confirm: 'Save changes', body, wide: true, onConfirm: async () => { await api('PATCH', '/profiles/' + p.id, values(f)); toast('Profile updated'); route(); } }); }
+  function edit(p) { const { f, body } = form(p); modal({ title: 'Edit ' + p.name, confirm: 'Save profile', body, wide: true, extra: () => h('button', { class: 'btn danger', type: 'button', onclick: () => remove(p) }, 'Delete'),
+    onConfirm: async () => { await api('PATCH', '/profiles/' + p.id, values(f)); toast('Profile saved'); route(); } }); }
   const toggle = async (p) => { try { await api('PATCH', '/profiles/' + p.id, { active: !Number(p.active) }); toast(Number(p.active) ? 'Profile disabled' : 'Profile enabled'); } catch (x) { toast(x.message, true); } route(); };
   const remove = (p) => modal({ title: 'Delete ' + p.name + '?', confirm: 'Delete profile', danger: true,
     body: h('p', { class: 'muted' }, 'A profile that already has screenings cannot be deleted. Disable it instead and it disappears from the screening form.'),
-    onConfirm: async () => { await api('DELETE', '/profiles/' + p.id); toast('Profile deleted'); route(); } });
+    onConfirm: async () => { await api('DELETE', '/profiles/' + p.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Profile deleted'); route(); } });
   const row = (p) => h('tr', {},
     h('td', {}, h('strong', {}, p.name), p.added_via === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Added by the Claude plugin') : null,
       p.services ? h('div', { class: 'meta' }, p.services.slice(0, 90)) : p.notes ? h('div', { class: 'meta' }, p.notes.slice(0, 80)) : null,
-      p.profile_url ? h('div', { class: 'small' }, h('a', { href: p.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on Upwork')) : null),
-    h('td', {}, p.tagline ? h('span', {}, p.tagline) : h('span', { class: 'faint' }, '-')),
-    h('td', {}, p.price !== null && p.price !== undefined ? h('strong', {}, money(p.price)) : h('span', { class: 'faint' }, '-')),
-    h('td', {}, (() => { const g = gitlabLink(p.gitlab_account) || (p.github_url ? { href: p.github_url, label: p.github_url.replace(/^https?:\/\//, '') } : null); return g ? h('a', { href: g.href, target: '_blank', rel: 'noopener noreferrer' }, g.label) : h('span', { class: 'faint' }, '-'); })()),
-    h('td', {}, Number(p.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Disabled')),
-    h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' },
-      h('button', { class: 'btn sm', onclick: () => edit(p) }, 'Edit'),
-      h('button', { class: 'btn sm', onclick: () => toggle(p) }, Number(p.active) ? 'Disable' : 'Enable'),
-      h('button', { class: 'btn sm danger', onclick: () => remove(p) }, 'Delete'))));
-  const table = clientPaged(profiles, (slice) => h('div', { class: 'tablewrap' }, h('table', {},
-    h('thead', {}, h('tr', {}, ['Profile', 'Headline', 'Rate', 'Code link', 'Status', ''].map((t) => h('th', {}, t)))),
-    h('tbody', {}, slice.map(row)))));
+      p.profile_url ? h('div', { class: 'meta' }, h('a', { href: p.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on Upwork')) : null),
+    h('td', {}, p.tagline ? h('span', {}, p.tagline) : h('span', { class: 'faint' }, 'Not set')),
+    h('td', { class: 'nowrap' }, p.price !== null && p.price !== undefined ? money(p.price) + ' / hr' : h('span', { class: 'faint' }, 'Not set')),
+    h('td', {}, (() => { const g = gitlabLink(p.gitlab_account) || (p.github_url ? { href: p.github_url, label: p.github_url.replace(/^https?:\/\//, '') } : null); return g ? h('a', { href: g.href, target: '_blank', rel: 'noopener noreferrer' }, g.label) : h('span', { class: 'faint' }, 'Not set'); })()),
+    h('td', {}, onOff(p.active, 'Active', 'Disabled')),
+    acts(h('button', { class: 'btn sm', onclick: () => edit(p) }, 'Edit'),
+      h('button', { class: 'btn sm', onclick: () => toggle(p) }, Number(p.active) ? 'Disable' : 'Enable')));
   shell('profiles', [
-    pageHead('Upwork profiles', 'The profiles your team applies from. Every screening is recorded against one.', h('button', { class: 'btn primary', onclick: add }, icon('screen'), 'Add profile')),
-    h('div', { class: 'card' }, profiles.length ? table : emptyState('badge', 'No profiles yet', 'Add the Upwork profiles your team applies from.', h('button', { class: 'btn primary', onclick: add }, 'Add profile'))),
+    pageHead('Upwork profiles', 'The profiles your team applies from. Every proposal is sent from one, in its voice and with its rates and rules.', h('button', { class: 'btn primary', onclick: add }, icon('screen'), 'Add profile')),
+    listCard({ items: profiles, icon: 'badge', emptyTitle: 'No profiles yet', emptyText: 'Add the Upwork profiles your team applies from.', emptyAction: h('button', { class: 'btn primary', onclick: add }, 'Add profile'),
+      search: { placeholder: 'Search profiles', text: (p) => [p.name, p.tagline, p.services, p.industries, p.notes, p.submitted_by].filter(Boolean).join(' ') },
+      filters: [statusFilter((p) => p.active, 'Disabled'),
+        { key: 'filled', label: 'Any setup', options: [['1', 'Ready (rate and headline set)'], ['0', 'Needs filling in']], test: (p, v) => String(Number(p.price != null && !!p.tagline)) === v }],
+      render: (slice) => dataTable(['Profile', 'Headline', 'Rate', 'Code link', 'Status', ''], slice.map(row)) }),
   ]);
 }
 
@@ -1528,24 +1745,28 @@ async function loomsView() {
       } });
   }
   const shownProfiles = profiles.filter((p) => Number(p.active) || videos.some((v) => v.profile_id === p.id));
-  const card = (p) => {
-    const mine = videos.filter((v) => v.profile_id === p.id);
-    return h('div', { class: 'card card-pad' },
-      h('div', { class: 'row spread' }, h('div', {}, h('div', { class: 'jp-sec' }, p.name), h('div', { class: 'jp-label' }, `${mine.length} video${mine.length === 1 ? '' : 's'}${Number(p.active) ? '' : ' · profile disabled'}`)),
-        h('button', { class: 'btn sm', onclick: () => editor(null, p.id) }, 'Add video')),
-      mine.length ? h('div', { class: 'tablewrap', style: 'margin-top:10px' }, h('table', {},
-        h('thead', {}, h('tr', {}, ['Video', 'Tags', 'Status', ''].map((t) => h('th', {}, t)))),
-        h('tbody', {}, mine.map((v) => h('tr', {},
-          h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null),
-          h('td', {}, v.tags.length ? h('div', { class: 'chips' }, v.tags.map((t) => h('span', { class: 'chip' }, t.name))) : h('span', { class: 'faint' }, 'No tags: never suggested')),
-          h('td', {}, Number(v.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Disabled')),
-          h('td', {}, h('button', { class: 'btn sm', onclick: () => editor(v) }, 'Edit')))))))
-        : null);
-  };
+  const card = (p, mine) => h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h2', {}, p.name), h('span', { class: 'sub' }, `${mine.length} video${mine.length === 1 ? '' : 's'}${Number(p.active) ? '' : ' · profile disabled'}`),
+      h('button', { class: 'btn sm', onclick: () => editor(null, p.id) }, 'Add video')),
+    mine.length ? dataTable(['Video', 'Tags', 'Status', ''], mine.map((v) => h('tr', {},
+      h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null),
+      h('td', {}, v.tags.length ? h('div', { class: 'chips' }, v.tags.map((t) => h('span', { class: 'chip' }, t.name))) : h('span', { class: 'faint' }, 'No tags: never suggested')),
+      h('td', {}, onOff(v.active, 'Active', 'Disabled')),
+      acts(h('button', { class: 'btn sm', onclick: () => editor(v) }, 'Edit')))))
+      : h('p', { class: 'card-pad jp-label', style: 'margin:0' }, 'No videos yet. Add the first one for this profile.'));
+  // one row per profile, so the shared list can search and filter them; each carries its videos
+  const groups = shownProfiles.map((p) => ({ p, videos: videos.filter((v) => v.profile_id === p.id) }));
+  const hit = (v, q) => !q || (v.title + ' ' + (v.topic || '') + ' ' + v.tags.map((t) => t.name).join(' ')).toLowerCase().includes(q);
   shell('looms', [
     pageHead('Loom videos', 'Short videos per profile, each tagged with the jobs it suits. On a job\'s Profile step, each profile shows the video that fits best.',
       h('button', { class: 'btn primary', onclick: () => editor(null, null) }, icon('screen'), 'Add video')),
-    shownProfiles.length ? h('div', { class: 'stack' }, shownProfiles.map(card)) : h('div', { class: 'card' }, emptyState('video', 'No profiles yet', 'Add an Upwork profile first, then its videos.')),
+    listCard({ items: groups, bare: true, paged: false, icon: 'video', emptyTitle: 'No profiles yet', emptyText: 'Add an Upwork profile first, then its videos.',
+      search: { placeholder: 'Search videos', text: (g) => g.p.name + ' ' + g.videos.map((v) => v.title + ' ' + (v.topic || '') + ' ' + v.tags.map((t) => t.name).join(' ')).join(' ') },
+      filters: [{ key: 'profile', label: 'Any profile', options: shownProfiles.map((p) => [p.id, p.name]), test: (g, v) => String(g.p.id) === v },
+        { key: 'status', label: 'Any status', options: [['1', 'Active videos'], ['0', 'Disabled videos'], ['none', 'Profiles without a video']], test: (g, v) => (v === 'none' ? !g.videos.length : g.videos.some((x) => String(Number(x.active)) === v)) },
+        { key: 'tagged', label: 'Any tagging', options: [['1', 'Tagged'], ['0', 'Not tagged (never suggested)']], test: (g, v) => g.videos.some((x) => String(Number(x.tags.length > 0)) === v) }],
+      render: (slice) => { const hp = hashParams(), q = (hp.q || '').toLowerCase();
+        return h('div', { class: 'stack' }, slice.map((g) => card(g.p, g.videos.filter((v) => (g.p.name.toLowerCase().includes(q) || hit(v, q)) && (!['1', '0'].includes(hp.status) || String(Number(v.active)) === hp.status) && (!hp.tagged || String(Number(v.tags.length > 0)) === hp.tagged))))); } }),
   ]);
 }
 
@@ -1630,43 +1851,26 @@ function projectEditor(p, categories, after, industries = []) {
 async function projectsView() {
   const [{ projects }, { categories }, { industries }] = await Promise.all([api('GET', '/projects'), api('GET', '/tags'), api('GET', '/industries')]);
   const canEdit = canEditProjects();
-  const hp = hashParams();
-  const st = { q: hp.q || '', tag: hp.tag || '', status: hp.st || '', page: Math.max(1, Number(hp.page) || 1) };
-  const bodyEl = h('div', {});
-  const searchIn = h('input', { type: 'search', placeholder: 'Search projects or tags', 'aria-label': 'Search projects', value: st.q });
-  const tagSel = h('select', { 'aria-label': 'Filter by tag' }, h('option', { value: '' }, 'Any tag'),
-    categories.map((c) => h('optgroup', { label: c.name }, c.tags.filter((t) => Number(t.active)).map((t) => h('option', { value: t.id, selected: String(t.id) === st.tag }, t.name)))));
-  const statSel = h('select', { 'aria-label': 'Filter by status' }, [['', 'Any status'], ['1', 'Active'], ['0', 'Inactive']].map(([v, l]) => h('option', { value: v, selected: v === st.status }, l)));
-  const toolbar = h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn), tagSel, statSel);
-  const sync = () => { setHashParams({ page: st.page, q: st.q, tag: st.tag, st: st.status }); lastList.projects = location.hash; };
-  const reset = () => { st.page = 1; draw(); };
-  searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); reset(); }, 200);
-  tagSel.onchange = () => { st.tag = tagSel.value; reset(); };
-  statSel.onchange = () => { st.status = statSel.value; reset(); };
   const afterEdit = () => route();
-  const detail = (p) => () => { sync(); location.hash = '#/p/' + p.id; };
-
-  function draw() {
-    const q = st.q.toLowerCase();
-    const shown = projects.filter((p) => (!q || (p.name + ' ' + p.tags.map((t) => t.name).join(' ') + ' ' + p.industries.map((i) => i.name).join(' ')).toLowerCase().includes(q)) &&
-      (!st.tag || p.tags.some((t) => String(t.id) === st.tag)) && (st.status === '' || String(Number(p.active)) === st.status));
-    st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / PAGE_SIZE)));
-    const slice = shown.slice((st.page - 1) * PAGE_SIZE, st.page * PAGE_SIZE);
-    sync();
-    const table = !shown.length ? emptyState('folder', projects.length ? 'No matches' : 'No projects yet', projects.length ? 'Try a different search or filter.' : 'Add the projects Stackup has delivered.')
-      : h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Project', 'Industries', 'Tags', 'Status', canEdit ? '' : null].map((t) => (t === null ? null : h('th', {}, t))))),
-        h('tbody', {}, slice.map((p) => h('tr', { class: 'click', tabindex: 0, onclick: detail(p), onkeydown: (e) => { if (e.key === 'Enter') detail(p)(); } },
-          h('td', {}, h('strong', {}, p.name), p.live_link ? h('div', { class: 'meta' }, p.live_link.replace(/^https?:\/\//, '').slice(0, 50)) : null),
-          h('td', {}, p.industries.length ? h('div', { class: 'chips' }, p.industries.slice(0, 2).map((i) => h('span', { class: 'chip' }, i.name)), p.industries.length > 2 ? h('span', { class: 'chip brand' }, '+' + (p.industries.length - 2)) : null) : h('span', { class: 'faint small' }, '-')),
-          h('td', {}, p.tags.length ? h('div', { class: 'chips' }, p.tags.slice(0, 4).map((t) => h('span', { class: 'chip' }, t.name)),
-            p.tags.length > 4 ? h('a', { class: 'chip brand', href: '#/p/' + p.id, title: 'Show all ' + p.tags.length + ' tags', onclick: (e) => { e.stopPropagation(); sync(); } }, '+' + (p.tags.length - 4)) : null) : h('span', { class: 'faint small' }, 'Not tagged yet')),
-          h('td', {}, Number(p.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive')),
-          canEdit ? h('td', {}, h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); projectEditor(p, categories, afterEdit, industries); } }, 'Edit')) : null)))));
-    bodyEl.replaceChildren(table, pager(shown.length, st.page, (n) => { st.page = n; draw(); }));
-  }
-  shell('projects', [pageHead('Projects', "Stackup's delivered work. Tags are how a new job is matched to the projects that prove the same kind of work.",
-    canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(null, categories, afterEdit, industries) }, icon('screen'), 'Add project') : null), h('div', { class: 'card' }, toolbar, bodyEl)], true);
-  draw();
+  const detail = (p) => () => { location.hash = '#/p/' + p.id; };
+  const add = canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(null, categories, afterEdit, industries) }, icon('screen'), 'Add project') : null;
+  shell('projects', [pageHead('Projects', "Stackup's delivered work. Tags are how a new job is matched to the projects that prove the same kind of work.", add),
+    listCard({ items: projects, icon: 'folder', emptyTitle: 'No projects yet', emptyText: 'Add the projects Stackup has delivered.',
+      search: { placeholder: 'Search projects', text: (p) => p.name + ' ' + p.tags.map((t) => t.name).join(' ') + ' ' + p.industries.map((i) => i.name).join(' ') },
+      filters: [
+        { key: 'industry', label: 'Any industry', options: industries.map((i) => [i.id, i.name]), test: (p, v) => p.industries.some((i) => String(i.id) === v) },
+        { key: 'tag', label: 'Any tag', options: categories.flatMap((c) => c.tags.filter((t) => Number(t.active)).map((t) => [t.id, `${t.name} (${c.name})`])), test: (p, v) => p.tags.some((t) => String(t.id) === v) },
+        { key: 'has', label: 'Any content', options: [['case', 'Has a case study'], ['nocase', 'No case study'], ['nolink', 'No proposal link'], ['notags', 'Not tagged']],
+          test: (p, v) => (v === 'case' ? !!p.case_study_summary : v === 'nocase' ? !p.case_study_summary : v === 'nolink' ? !p.live_link : !p.tags.length) },
+        statusFilter((p) => p.active)],
+      onSync: () => { lastList.projects = location.hash; },
+      render: (slice) => dataTable(['Project', 'Industries', 'Tags', 'Status', canEdit ? '' : null], slice.map((p) => h('tr', { class: 'click', tabindex: 0, onclick: detail(p), onkeydown: (e) => { if (e.key === 'Enter') detail(p)(); } },
+        h('td', {}, h('strong', {}, p.name), p.live_link ? h('div', { class: 'meta' }, p.live_link.replace(/^https?:\/\//, '').slice(0, 50)) : null),
+        h('td', {}, p.industries.length ? h('div', { class: 'chips' }, p.industries.slice(0, 2).map((i) => h('span', { class: 'chip' }, i.name)), p.industries.length > 2 ? h('span', { class: 'chip' }, '+' + (p.industries.length - 2)) : null) : h('span', { class: 'faint' }, 'None')),
+        h('td', {}, p.tags.length ? h('div', { class: 'chips' }, p.tags.slice(0, 4).map((t) => h('span', { class: 'chip' }, t.name)),
+          p.tags.length > 4 ? h('span', { class: 'chip', title: 'Show all ' + p.tags.length + ' tags' }, '+' + (p.tags.length - 4)) : null) : h('span', { class: 'faint' }, 'Not tagged yet')),
+        h('td', {}, onOff(p.active)),
+        canEdit ? acts(h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); projectEditor(p, categories, afterEdit, industries); } }, 'Edit')) : null))) })], true);
 }
 
 async function projectDetailView(id) {
@@ -1679,10 +1883,9 @@ async function projectDetailView(id) {
   const urlList = (v) => (v ? h('div', { style: 'display:grid;gap:2px' }, v.split(/\s+/).filter(Boolean).map((u) => ext(u) || u)) : null);
   const kv = (label, v) => h('div', {}, h('dt', {}, label), h('dd', { class: v ? '' : 'ns' }, v || 'Not recorded'));
   shell('projects', [
-    h('div', { style: 'margin-bottom:14px' }, h('a', { href: lastList.projects, class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to projects')),
     pageHead(p.name, `${p.tags.length} tag${p.tags.length === 1 ? '' : 's'} across ${groups.length} categor${groups.length === 1 ? 'y' : 'ies'}`,
-      [Number(p.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Inactive'),
-        canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(p, categories, (nid) => (nid ? route() : (location.hash = lastList.projects)), industries) }, 'Edit project') : null]),
+      canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(p, categories, (nid) => (nid ? route() : (location.hash = lastList.projects)), industries) }, 'Edit project') : null,
+      { back: [lastList.projects, 'Projects'], badges: onOff(p.active) }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'), h('dl', { class: 'kv cols2' },
       kv('Proposal link', link), kv('Landing page', ext(p.landing_link)), kv('System', ext(p.system_link)), kv('Mobile', urlList(p.mobile_link)),
       kv('Staging', ext(p.staging_link)), kv('Case study', ext(p.case_study_link)),
@@ -1690,13 +1893,10 @@ async function projectDetailView(id) {
       h('div', {}, h('dt', {}, 'Added'), h('dd', {}, full(p.created_at))), h('div', {}, h('dt', {}, 'Last updated'), h('dd', {}, full(p.updated_at))),
       p.added_via === 'claude_plugin' ? h('div', {}, h('dt', {}, 'Added by'), h('dd', {}, 'The Claude plugin')) : null,
       p.notes ? h('div', { style: 'grid-column:1/-1' }, h('dt', {}, 'Notes'), h('dd', {}, p.notes)) : null)),
-    h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Overview'), p.overview ? h('p', { style: 'margin:0;white-space:pre-wrap' }, p.overview) : h('p', { class: 'faint small' }, 'No overview yet. The proposal writer describes the project from it.'),
       p.case_study_summary ? [h('h3', { class: 'section-title', style: 'margin-top:18px' }, 'Case study summary'), h('p', { style: 'margin:0;white-space:pre-wrap' }, p.case_study_summary)] : null),
-    h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Industries (${p.industries.length})`),
       p.industries.length ? h('div', { class: 'chips' }, p.industries.map((i) => h('a', { class: 'chip brand', href: '#/i/' + i.id }, i.name))) : h('p', { class: 'faint small' }, 'No industries yet.')),
-    h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Tags (${p.tags.length})`),
       groups.length ? h('div', { style: 'display:grid;gap:18px' }, groups.map((g) => h('div', {}, h('div', { class: 'tc-title' }, g.name, h('span', { class: 'faint' }, ` (${g.tags.length})`)),
         h('div', { class: 'chips' }, g.tags.map((t) => h('span', { class: 'chip', title: t.description || '' }, t.name))))))
@@ -1725,18 +1925,28 @@ async function usersView() {
       onConfirm: async () => { await api('PATCH', '/admin/users/' + u.id, { password: pw.value }); toast('Password reset'); } });
   }
   const row = (u) => h('tr', {},
-    h('td', {}, h('div', { class: 'row', style: 'gap:10px;flex-wrap:nowrap' }, h('div', { class: 'avatar', style: 'width:32px;height:32px;font-size:12px' }, initials(u.name)),
-      h('div', {}, h('strong', {}, u.name, u.id === me.id ? h('span', { class: 'faint' }, ' (you)') : null), h('div', { class: 'small muted' }, u.email)))),
-    h('td', {}, u.id === me.id ? h('span', { class: 'chip' }, 'Admin') : roleSel(u.role, (e) => patch(u.id, { role: e.target.value }, 'Role updated'))),
-    h('td', {}, Number(u.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Disabled')),
-    h('td', { class: 'muted' }, ago(u.created_at)),
-    h('td', {}, u.id === me.id ? null : h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' },
-      h('button', { class: 'btn sm', onclick: () => resetPw(u) }, 'Reset password'),
-      h('button', { class: 'btn sm ' + (Number(u.active) ? 'danger' : ''), onclick: () => patch(u.id, { active: !Number(u.active) }, Number(u.active) ? 'User disabled' : 'User enabled') }, Number(u.active) ? 'Disable' : 'Enable'))));
-  const table = clientPaged(users, (slice) => h('div', { class: 'tablewrap' }, h('table', {},
-    h('thead', {}, h('tr', {}, ['User', 'Role', 'Status', 'Created', ''].map((t) => h('th', {}, t)))),
-    h('tbody', {}, slice.map(row)))));
-  shell('users', [pageHead('Users', 'Control who can use the gate and what they can see.', h('button', { class: 'btn primary', onclick: addUser }, icon('screen'), 'Add user')), h('div', { class: 'card' }, table)]);
+    h('td', {}, h('div', { class: 'row', style: 'gap:10px;flex-wrap:nowrap' }, h('div', { class: 'avatar' }, initials(u.name)),
+      h('div', {}, h('strong', {}, u.name, u.id === me.id ? h('span', { class: 'faint', style: 'font-weight:400' }, ' (you)') : null), h('div', { class: 'meta' }, u.email)))),
+    h('td', {}, u.id === me.id ? 'Admin' : roleSel(u.role, (e) => patch(u.id, { role: e.target.value }, 'Role updated'))),
+    h('td', {}, onOff(u.active, 'Active', 'Disabled')),
+    h('td', { class: 'muted nowrap', title: full(u.created_at) }, ago(u.created_at)),
+    u.id === me.id ? acts() : acts(h('button', { class: 'btn sm', onclick: () => resetPw(u) }, 'Reset password'),
+      h('button', { class: 'btn sm', onclick: () => patch(u.id, { active: !Number(u.active) }, Number(u.active) ? 'User disabled' : 'User enabled') }, Number(u.active) ? 'Disable' : 'Enable')));
+  shell('users', [pageHead('Users', 'Who can sign in, and what each person can see and change.', h('button', { class: 'btn primary', onclick: addUser }, icon('screen'), 'Add user')),
+    listCard({ items: users, icon: 'users', emptyTitle: 'No users yet', emptyText: 'Add the people who will use Upwork Pro.',
+      search: { placeholder: 'Search users', text: (u) => u.name + ' ' + u.email },
+      filters: [{ key: 'role', label: 'Any role', options: [['employee', 'Employee'], ['manager', 'Manager'], ['admin', 'Admin']], test: (u, v) => u.role === v }, statusFilter((u) => u.active, 'Disabled')],
+      render: (slice) => dataTable(['User', 'Role', 'Status', 'Added', ''], slice.map(row)) })]);
+}
+
+/** A card listing saved versions, newest first, with a search over their notes. `item(v)` draws one; `text(v)` is what the search reads. */
+function versionsCard(versions, item, text) {
+  const list = h('div', { class: 'vlist' });
+  const draw = (q) => { const shown = versions.filter((v) => !q || text(v).toLowerCase().includes(q.toLowerCase()));
+    list.replaceChildren(...(shown.length ? shown.map(item) : [h('p', { class: 'card-pad jp-label', style: 'margin:0' }, 'No version matches.')])); };
+  draw('');
+  return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Versions'), h('span', { class: 'sub' }, String(versions.length))),
+    h('div', { class: 'filterbar' }, fSearch('Search versions', '', draw)), list);
 }
 
 // ---------- Gate instructions: the method part of the gate prompt (admin); the rules come from the Rules page ----------
@@ -1779,12 +1989,12 @@ async function skillView() {
       Number(v.is_active) ? null : h('button', { class: 'btn sm', onclick: () => modal({ title: 'Activate version ' + v.version + '?', confirm: 'Activate', body: h('p', { class: 'muted' }, 'New screenings will use these instructions, with the current rules, straight away. Past records keep the version and rules they used.'),
         onConfirm: async () => { await api('POST', `/admin/skill/${v.id}/activate`, {}); toast('Version ' + v.version + ' is now active'); route(); } }) }, 'Activate')));
   shell('skill', [pageHead('Gate instructions', 'How the gate reads and judges a job. Saving never overwrites: it creates a new version.'),
-    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), h('span', {}, 'The FAIL and FLAG rules are not written here: they come from the ', h('a', { href: '#/rules' }, 'Rules'), ' page and are added after these instructions for every job. The report layout is fixed by the app. Test a draft before you activate it.')),
+    h('div', { class: 'notice' }, icon('info'), h('span', {}, 'The FAIL and FLAG rules are not written here: they come from the ', h('a', { href: '#/rules' }, 'Rules'), ' page and are added after these instructions for every job. The report layout is fixed by the app. Test a draft before you activate it.')),
     h('div', { class: 'two' }, h('div', {},
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Instructions'), h('span', { class: 'sub' }, dirty, ' Editing from version ' + (active ? active.version : '-'))), ta,
         h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line)' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cn' }, 'Change note'), note), h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, saveBtn, previewBtn))),
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Try the draft')), h('div', { class: 'card-pad' }, sample, h('div', { style: 'margin-top:12px' }, testBtn), out))),
-      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Versions')), clientPaged(versions, (slice) => h('div', { class: 'vlist' }, slice.map(vitem)))))], true);
+      versionsCard(versions, vitem, (v) => `version ${v.version} ${v.change_note || ''}`))], true);
 }
 
 // ---------- logs (admin): activity and AI calls ----------
@@ -1793,42 +2003,46 @@ async function auditView() {
   const st = { tab: hp.tab === 'calls' ? 'calls' : 'activity', page: Math.max(1, Number(hp.page) || 1), action: hp.action || '', user: hp.user || '', from: hp.from || '', to: hp.to || '', kind: hp.kind || '', ok: hp.ok || '', model: hp.model || '', job: hp.job || '' };
   const opts = await api('GET', '/screenings/filter-options');
   const holder = h('div', { class: 'card' });
-  const tabs = h('div', { class: 'seg', role: 'tablist' });
+  const tabs = h('div', { class: 'tabs', role: 'tablist' });
   const drawTabs = () => tabs.replaceChildren(...[['activity', 'Activity'], ['calls', 'AI calls']].map(([k, l]) =>
-    h('button', { type: 'button', role: 'tab', 'aria-selected': st.tab === k, class: st.tab === k ? 'on' : '', onclick: () => { st.tab = k; st.page = 1; drawTabs(); load(); } }, l)));
+    h('button', { type: 'button', role: 'tab', 'aria-selected': st.tab === k, class: 'tab' + (st.tab === k ? ' on' : ''), onclick: () => { st.tab = k; st.page = 1; drawTabs(); load(); } }, l)));
   drawTabs();
   const sel = (key, label, options) => { const el = h('select', { class: 'fsel', 'aria-label': label }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l))); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
-  const dateIn = (key, label) => { const el = h('input', { type: 'date', class: 'fdate', 'aria-label': label, title: label, value: st[key] }); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
+  const dateIn = (key, label) => dateField(label, st[key], (v) => { st[key] = v; st.page = 1; load(); });
   const secs = (ms) => (ms / 1000).toFixed(1) + ' s';
+  /** The shared filter bar; Clear empties the keys this tab filters by. */
+  const bar = (controls, keys) => { const b = filterBar(controls, { onClear: () => { for (const k of keys) st[k] = ''; st.page = 1; load(); } }); b.setActive(keys.some((k) => st[k])); return b; };
   async function load() {
     const keys = st.tab === 'calls' ? ['kind', 'ok', 'model', 'from', 'to', 'job'] : ['action', 'user', 'from', 'to'];
     const q = new URLSearchParams({ page: st.page }); for (const k of keys) if (st[k]) q.set(k, st[k]);
     setHashParams({ tab: st.tab === 'activity' ? '' : st.tab, page: st.page, ...Object.fromEntries(['action', 'user', 'from', 'to', 'kind', 'ok', 'model', 'job'].map((k) => [k, keys.includes(k) ? st[k] : ''])) });
     if (st.tab === 'activity') {
       const d = await api('GET', '/admin/audit?' + q);
-      holder.replaceChildren(h('div', { class: 'toolbar filters' }, sel('action', 'Any action', d.actions.map((a) => [a, a.replace(/_/g, ' ')])), sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])), dateIn('from', 'From date'), dateIn('to', 'To date')),
+      holder.replaceChildren(bar([sel('action', 'Any action', d.actions.map((a) => [a, cap(a.replace(/_/g, ' '))])), sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])), dateIn('from', 'From'), dateIn('to', 'To')], ['action', 'user', 'from', 'to']),
         d.log.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Who', 'Action', 'Detail'].map((t) => h('th', {}, t)))),
-          h('tbody', {}, d.log.map((l) => h('tr', {}, h('td', { class: 'muted', title: full(l.created_at) }, ago(l.created_at)), h('td', {}, l.user_name || 'System'),
-            h('td', {}, h('span', { class: 'chip' }, l.action.replace(/_/g, ' '))), h('td', { class: 'mono muted' }, l.detail || '')))))) : emptyState('audit', 'Nothing here', 'No activity matches these filters.'),
+          h('tbody', {}, d.log.map((l) => h('tr', {}, h('td', { class: 'muted nowrap', title: full(l.created_at) }, ago(l.created_at)), h('td', { class: 'nowrap' }, l.user_name || 'System'),
+            h('td', { class: 'nowrap' }, cap(l.action.replace(/_/g, ' '))), h('td', { class: 'mono muted', style: 'overflow-wrap:anywhere' }, l.detail || '')))))) : emptyState('audit', 'Nothing here', 'No activity matches these filters.'),
         pager(d.total, d.page, (n) => { st.page = n; load(); }));
     } else {
       const d = await api('GET', '/admin/calls?' + q);
       const errs = d.summary.reduce((a, r) => a + r.errors, 0), all = d.summary.reduce((a, r) => a + r.calls, 0);
-      holder.replaceChildren(h('div', { class: 'toolbar filters' }, sel('kind', 'Any job type', d.kinds.map((k) => [k, k.replace(/_/g, ' ')])), sel('ok', 'Any result', [['1', 'Succeeded'], ['0', 'Failed']]),
-          sel('model', 'Any model', d.models.map((m) => [m, m])), dateIn('from', 'From date'), dateIn('to', 'To date')),
-        h('div', { class: 'card-pad' }, h('div', { class: 'row small muted', style: 'margin-bottom:8px' }, `${all.toLocaleString()} call${all === 1 ? '' : 's'} · ${errs} failed · by step:`),
+      holder.replaceChildren(bar([sel('kind', 'Any job type', d.kinds.map((k) => [k, cap(k.replace(/_/g, ' '))])), sel('ok', 'Any result', [['1', 'Succeeded'], ['0', 'Failed']]),
+          sel('model', 'Any model', d.models.map((m) => [m, m])), dateIn('from', 'From'), dateIn('to', 'To')], ['kind', 'ok', 'model', 'from', 'to', 'job']),
+        h('div', { class: 'card-head', style: 'border-bottom:0' }, h('h2', {}, 'By step'), h('span', { class: 'sub' }, `${all.toLocaleString()} call${all === 1 ? '' : 's'} · ${errs} failed`)),
+        h('div', {},
           d.summary.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Job type', 'Step', 'Model', 'Calls', 'Failed', 'Average', 'Slowest'].map((t) => h('th', {}, t)))),
-            h('tbody', {}, d.summary.map((r) => h('tr', {}, h('td', {}, r.kind.replace(/_/g, ' ')), h('td', {}, r.step || '-'), h('td', { class: 'mono small' }, r.model || '-'), h('td', {}, r.calls),
+            h('tbody', {}, d.summary.map((r) => h('tr', {}, h('td', {}, cap(r.kind.replace(/_/g, ' '))), h('td', {}, cap(r.step || '-')), h('td', { class: 'mono' }, r.model || '-'), h('td', {}, r.calls),
               h('td', {}, r.errors ? h('span', { class: 'pill bad' }, r.errors) : '0'), h('td', {}, secs(r.avg_ms)), h('td', {}, secs(r.max_ms))))))) : null),
-        d.calls.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Job', 'Type / step', 'Model', 'Time', 'Result'].map((t) => h('th', {}, t)))),
-          h('tbody', {}, d.calls.map((c) => h('tr', {}, h('td', { class: 'muted', title: full(c.created_at) }, ago(c.created_at)),
+        h('div', { class: 'card-head', style: 'border-top:1px solid var(--line);border-bottom:0' }, h('h2', {}, 'Every call')),
+        d.calls.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Job', 'Type and step', 'Model', 'Time', 'Result'].map((t) => h('th', {}, t)))),
+          h('tbody', {}, d.calls.map((c) => h('tr', {}, h('td', { class: 'muted nowrap', title: full(c.created_at) }, ago(c.created_at)),
             h('td', {}, c.screening_id ? h('a', { href: '#/s/' + c.screening_id }, '#' + c.screening_id + ' ' + (c.title || '').slice(0, 40)) : h('span', { class: 'faint' }, '-')),
-            h('td', {}, `${c.kind.replace(/_/g, ' ')}${c.step ? ' / ' + c.step : ''}`), h('td', { class: 'mono small' }, c.model || ''), h('td', {}, secs(c.ms)),
+            h('td', {}, cap(`${c.kind.replace(/_/g, ' ')}${c.step ? ' / ' + c.step : ''}`)), h('td', { class: 'mono' }, c.model || ''), h('td', {}, secs(c.ms)),
             h('td', {}, Number(c.ok) ? h('span', { class: 'pill PASS' }, 'OK') : h('span', { class: 'pill bad', title: c.error || '' }, c.error || 'Failed'))))))) : emptyState('audit', 'No AI calls yet', 'Calls are logged from now on: every screening, tagging, signal reading and proposal.'),
         pager(d.total, d.page, (n) => { st.page = n; load(); }));
     }
   }
-  shell('audit', [pageHead('Logs', 'Activity: who did what. AI calls: every model call, how long it took and whether it failed.'), h('div', { style: 'margin-bottom:12px' }, tabs), holder], 1480);
+  shell('audit', [pageHead('Logs', 'Activity: who did what. AI calls: every model call, how long it took and whether it failed.'), tabs, holder], 1480);
   await load();
 }
 
@@ -1845,7 +2059,7 @@ async function rulesView() {
   const add = (type) => {
     const f = fields(null);
     f.rule.placeholder = type === 'fail' ? 'e.g. Client asks for work outside Upwork' : 'e.g. Job needs a language we do not use';
-    modal({ title: type === 'fail' ? 'Add a FAIL rule' : 'Add a FLAG rule', confirm: 'Add rule', body: f.body('It gets the next free code. Codes are never reused, so old jobs keep their meaning. The gate applies it from the next job on.'),
+    modal({ title: type === 'fail' ? 'Add a fail rule' : 'Add a flag rule', confirm: 'Add rule', body: f.body('It gets the next free code. Codes are never reused, so old jobs keep their meaning. The gate applies it from the next job on.'),
       onConfirm: async () => { const r = await api('POST', '/admin/rules', { type, rule: f.rule.value, details: f.det.value }); toast('Added ' + r.code); route(); } });
   };
   const edit = (r) => {
@@ -1854,17 +2068,22 @@ async function rulesView() {
       onConfirm: async () => { await api('PATCH', '/admin/rules/' + r.code, { rule: f.rule.value, details: f.det.value }); toast(r.code + ' saved'); route(); } });
   };
   const toggle = async (r) => { await api('PATCH', '/admin/rules/' + r.code, { active: !r.active }); toast(r.code + (r.active ? ' retired' : ' restored')); route(); };
-  const table = (type) => h('div', { class: 'tablewrap' }, h('table', { class: 'rulestable' }, h('thead', {}, h('tr', {}, ['Code', 'Rule', 'Fired on', 'Status', ''].map((x) => h('th', {}, x)))),
-    h('tbody', {}, rules.filter((r) => r.type === type).map((r) => h('tr', { class: r.active ? '' : 'retired' },
-      h('td', { class: 'mono' }, h('strong', {}, r.code)), h('td', { style: 'white-space:normal' }, r.rule, r.details ? h('div', { class: 'small muted', style: 'margin-top:4px' }, 'How to apply: ' + r.details) : null),
-      h('td', {}, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-      h('td', {}, r.active ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Retired')),
-      h('td', {}, h('div', { class: 'row', style: 'justify-content:flex-end;flex-wrap:nowrap' }, h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Edit'),
-        h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore'))))))));
-  shell('rules', [pageHead('Rules', 'The FAIL and FLAG rules the gate applies. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.'),
-    h('div', { class: 'notice', style: 'margin:0 0 16px' }, icon('info'), h('span', {}, 'Every active rule, with its "How to apply" note, is added after the ', h('a', { href: '#/skill' }, 'Gate instructions'), ' for every job. A change here applies from the next job on, and each job keeps the rules it was screened against.')),
-    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'FAIL rules'), h('button', { class: 'btn sm primary', onclick: () => add('fail') }, 'Add FAIL rule')), table('fail')),
-    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'FLAG rules'), h('button', { class: 'btn sm primary', onclick: () => add('flag') }, 'Add FLAG rule')), table('flag'))], true);
+  const row = (r) => h('tr', { class: r.active ? '' : 'retired' },
+    h('td', {}, h('span', { class: 'code ' + (r.type === 'fail' ? 'F' : 'G') }, r.code)),
+    h('td', {}, h('span', { class: 'vbadge ' + (r.type === 'fail' ? 'FAIL' : 'FLAG') }, r.type === 'fail' ? 'Fail' : 'Flag')),
+    h('td', { style: 'white-space:normal' }, r.rule, r.details ? h('div', { class: 'meta', style: 'margin-top:2px' }, 'How to apply: ' + r.details) : null),
+    h('td', { class: 'nowrap' }, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
+    h('td', {}, onOff(r.active, 'Active', 'Retired')),
+    acts(h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Edit'), h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore')));
+  shell('rules', [pageHead('Rules', 'The fail and flag rules the gate applies. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.',
+      [h('button', { class: 'btn', onclick: () => add('flag') }, icon('screen'), 'Add flag rule'), h('button', { class: 'btn primary', onclick: () => add('fail') }, icon('screen'), 'Add fail rule')]),
+    h('div', { class: 'notice' }, icon('info'), h('span', {}, 'Every active rule, with its "How to apply" note, is added after the ', h('a', { href: '#/skill' }, 'Gate instructions'), ' for every job. A change here applies from the next job on, and each job keeps the rules it was screened against.')),
+    listCard({ items: rules, paged: false, icon: 'warn', emptyTitle: 'No rules yet', emptyText: 'Add the first fail or flag rule.',
+      search: { placeholder: 'Search rules', text: (r) => r.code + ' ' + r.rule + ' ' + (r.details || '') },
+      filters: [{ key: 'type', label: 'Fail and flag', options: [['fail', 'Fail rules'], ['flag', 'Flag rules']], test: (r, v) => r.type === v },
+        { key: 'status', label: 'Any status', options: [['1', 'Active'], ['0', 'Retired']], test: (r, v) => String(Number(!!r.active)) === v },
+        { key: 'fired', label: 'Fired or not', options: [['1', 'Fired on a job'], ['0', 'Never fired']], test: (r, v) => String(Number(r.fired > 0)) === v }],
+      render: (slice) => dataTable(['Code', 'Type', 'Rule', 'Fired on', 'Status', ''], slice.map(row), 'rulestable') })], true);
 }
 
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
@@ -1872,22 +2091,29 @@ const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned
 async function writingView() {
   const { types, docs } = await api('GET', '/writing-docs');
   const staff = me.role === 'admin' || me.role === 'manager';
-  const docCard = (d) => h('a', { class: 'card card-pad', href: '#/wg/' + d.id, style: 'display:grid;gap:6px;text-decoration:none;color:inherit' },
+  const docCard = (d) => h('a', { class: 'card card-pad cardlink', href: '#/wg/' + d.id },
     h('div', { class: 'row spread' }, h('strong', {}, d.title), Number(d.active) ? null : h('span', { class: 'pill wait' }, 'Off')),
-    h('div', { class: 'small muted' }, `${WG_KIND[d.kind]} · ${d.versions} version${Number(d.versions) === 1 ? '' : 's'} · edited ${ago(d.updated_at)}${d.updated_by_name ? ' by ' + d.updated_by_name : ''}`));
-  const typeCard = (t) => h(staff ? 'a' : 'div', { class: 'card card-pad', href: staff ? '#/t/' + t.id : null, style: 'display:grid;gap:6px;text-decoration:none;color:inherit' },
+    h('div', { class: 'jp-label' }, `${WG_KIND[d.kind]} · ${d.versions} version${Number(d.versions) === 1 ? '' : 's'} · edited ${ago(d.updated_at)}${d.updated_by_name ? ' by ' + d.updated_by_name : ''}`));
+  const typeCard = (t) => h(staff ? 'a' : 'div', { class: 'card card-pad cardlink', href: staff ? '#/t/' + t.id : null },
     h('div', { class: 'row spread' }, h('strong', {}, t.name), Number(t.active) ? null : h('span', { class: 'pill wait' }, 'Retired')),
-    t.chosen_when ? h('div', { class: 'small' }, h('span', { class: 'muted' }, 'Chosen when: '), t.chosen_when) : t.description ? h('div', { class: 'small muted' }, t.description.slice(0, 140)) : null,
-    h('div', { class: 'small muted' }, [t.length, `${t.signal_count} signal${Number(t.signal_count) === 1 ? '' : 's'}`, `${t.sample_count} sample${Number(t.sample_count) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));
-  const section = (title, sub, list, card, extra) => h('div', { style: 'margin-bottom:22px' }, h('div', { class: 'row spread', style: 'margin-bottom:4px' }, h('h2', { style: 'font-size:17px;margin:0' }, title), extra || null),
-    h('p', { class: 'muted small', style: 'margin:0 0 12px' }, sub), h('div', { class: 'grid3' }, list.map(card)));
+    t.chosen_when ? h('div', { class: 'jp-label clamp2', title: t.chosen_when }, 'Chosen when ' + t.chosen_when) : t.description ? h('div', { class: 'jp-label clamp2' }, t.description.slice(0, 140)) : null,
+    h('div', { class: 'small faint' }, [t.length, `${t.signal_count} signal${Number(t.signal_count) === 1 ? '' : 's'}`, `${t.sample_count} sample${Number(t.sample_count) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
-  const active = types.filter((t) => Number(t.active)).sort(byName), retired = types.filter((t) => !Number(t.active));
-  shell('writing', [pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.'),
-    section('Proposal types', 'One is picked per job from its signals (the best score wins; nothing matching gives the lowest priority). Each has its format, length, signals and sample proposals.',
-      active, typeCard, staff ? h('a', { class: 'btn sm primary', href: '#/t/new' }, 'Add a type') : null),
-    section('Rules for every proposal', 'Applied with every type: by the app\'s writer, its checks and the plugin.', docs, docCard),
-    retired.length ? section('Retired', 'No longer chosen. Kept for reference and for the proposals already written with them.', retired, typeCard) : null], true);
+  // every card is one item, so the shared list can search and filter them
+  const items = [...types.filter((t) => Number(t.active)).sort(byName).map((t) => ({ group: 'types', t })), ...docs.map((d) => ({ group: 'rules', d })), ...types.filter((t) => !Number(t.active)).map((t) => ({ group: 'retired', t }))];
+  const text = (x) => (x.t ? [x.t.name, x.t.chosen_when, x.t.description, x.t.length].filter(Boolean).join(' ') : x.d.title + ' ' + WG_KIND[x.d.kind]);
+  const GROUPS = [['types', 'Proposal types', 'One is picked for each job from its signals. Each has its format, length, signals and sample proposals.'],
+    ['rules', 'Rules for every proposal', 'Applied with every type: by the app\'s writer, its checks and the plugin.'],
+    ['retired', 'Retired', 'No longer chosen. Kept for reference and for the proposals already written with them.']];
+  shell('writing', [pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.',
+      staff ? h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add proposal type') : null),
+    listCard({ items, bare: true, paged: false, icon: 'doc', emptyTitle: 'Nothing in the writing guide yet', emptyText: 'Run the writing guide seed, or add a proposal type.',
+      search: { placeholder: 'Search the writing guide', text },
+      filters: [{ key: 'kind', label: 'Everything', options: GROUPS.map(([k, l]) => [k, l]), test: (x, v) => x.group === v },
+        { key: 'ready', label: 'Any setup', options: [['nosamples', 'Types without samples'], ['nosignals', 'Types without signals'], ['off', 'Turned off or retired']],
+          test: (x, v) => (v === 'nosamples' ? !!x.t && !Number(x.t.sample_count) : v === 'nosignals' ? !!x.t && !Number(x.t.signal_count) : x.t ? !Number(x.t.active) : !Number(x.d.active)) }],
+      render: (slice) => h('div', { class: 'stack' }, GROUPS.map(([k, title, sub]) => { const list = slice.filter((x) => x.group === k);
+        return list.length ? h('section', { class: 'stack', style: 'gap:12px' }, h('div', {}, h('h2', {}, title), h('p', { class: 'jp-label' }, sub)), h('div', { class: 'grid3' }, list.map((x) => (x.t ? typeCard(x.t) : docCard(x.d))))) : null; })) })], true);
 }
 async function writingDocView(id) {
   const { doc, versions } = await api('GET', '/writing-docs/' + id);
@@ -1902,11 +2128,11 @@ async function writingDocView(id) {
   toggle.onclick = async () => { try { await api('PUT', '/writing-docs/' + id, { content: doc.content, active: !Number(doc.active) }); toast(Number(doc.active) ? 'Turned off: the plugin no longer sees it' : 'Turned on'); route(); } catch (x) { toast(x.message, true); } };
   const vrow = (v) => h('div', { class: 'vitem' }, h('div', { class: 'top' }, h('strong', {}, full(v.created_at))), h('div', { class: 'small muted' }, (v.note || 'No note') + (v.created_by_name ? ' · ' + v.created_by_name : '')),
     canEdit ? h('div', {}, h('button', { class: 'btn sm', onclick: async () => { const r = await api('GET', `/writing-docs/${id}/versions/${v.id}`); ta.value = r.version.content; dirty.hidden = ta.value === doc.content; toast('Loaded into the editor. Save to restore it.'); window.scrollTo(0, 0); } }, 'Load')) : null);
-  shell('writing', [h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/writing', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to the writing guide')),
-    pageHead(doc.title, `${WG_KIND[doc.kind]}${Number(doc.active) ? '' : ' · off'}. Written in Markdown.`, canEdit ? toggle : null),
+  shell('writing', [
+    pageHead(doc.title, `${WG_KIND[doc.kind]}. Written in Markdown.`, canEdit ? toggle : null, { back: ['#/writing', 'Writing guide'], badges: onOff(doc.active, 'On', 'Off') }),
     h('div', { class: 'two' }, h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Text'), h('span', { class: 'sub' }, dirty)), ta,
       canEdit ? h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line);display:grid;gap:12px' }, note, h('div', {}, save)) : null),
-      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, `Versions (${versions.length})`)), h('div', { class: 'vlist' }, versions.map(vrow))))], true);
+      versionsCard(versions, vrow, (v) => `${full(v.created_at)} ${v.note || ''} ${v.created_by_name || ''}`))], true);
 }
 
 // ---------- settings (admin) ----------
@@ -1918,9 +2144,9 @@ async function settingsView() {
     catch (x) { toast(x.message, true); btn.disabled = false; btn.replaceChildren('Save'); }
   };
   const row = (key, input, read) => {
-    const btn = h('button', { class: 'btn sm primary', type: 'button' }, 'Save');
+    const btn = h('button', { class: 'btn sm', type: 'button' }, 'Save');
     btn.onclick = () => { let v; try { v = read(); } catch (x) { return toast(x.message, true); } save(key, v, btn); };
-    return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'small muted' }, meta[key].help) : null), h('div', { class: 'setin' }, input, btn));
+    return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'jp-label' }, meta[key].help) : null), h('div', { class: 'setin' }, input, btn));
   };
   const num = (key) => { const el = h('input', { type: 'number', min: 0, step: 1, value: settings[key], style: 'width:110px' }); return row(key, el, () => Number(el.value)); };
   const list = (key, ph) => { const el = h('input', { type: 'text', value: settings[key].join(', '), placeholder: ph, style: 'min-width:320px' }); return row(key, el, () => el.value.split(',').map((x) => x.trim()).filter(Boolean)); };
@@ -1958,9 +2184,9 @@ async function settingsView() {
       catch (x) { toast(x.message, true); saveBtn.disabled = false; saveBtn.replaceChildren('Use this AI'); }
     };
     const now = ai.providers.find((p) => p.id === ai.current.provider);
-    return h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'AI'), h('span', { class: 'sub' }, ai.mock ? 'Mock mode: no real AI is called' : `Now using ${now.label}, ${ai.current.model}`)),
+    return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'AI'), h('span', { class: 'sub' }, ai.mock ? 'Mock mode: no real AI is called' : `Now using ${now.label}, ${ai.current.model}`)),
       h('div', { class: 'card-pad' },
-        ai.mock ? h('div', { class: 'notice', style: 'margin-bottom:12px' }, icon('info'), 'The server is in mock mode (LLM_PROVIDER=mock in .env). Switch it to claude-cli to use a real AI. The choice below is kept but is not used until then.') : null,
+        ai.mock ? h('div', { class: 'notice', style: 'margin-bottom:12px' }, icon('info'),  'The server is in mock mode (LLM_PROVIDER=mock in .env). Switch it to claude-cli to use a real AI. The choice below is kept but is not used until then.') : null,
         h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'Which AI does the screening, tagging, signals, proposals and chat. A change applies to the next job, with no restart. Keys stay in the .env file and are never shown here.'),
         h('div', { class: 'grid2' },
           h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'aiprov' }, 'Provider'), provSel, h('div', { style: 'margin-top:6px' }, keyChip)),
@@ -1971,10 +2197,10 @@ async function settingsView() {
   const sig = settings['writer.structured_signal'];
   const sigNum = h('input', { type: 'number', min: 1, value: sig.signal, style: 'width:90px', 'aria-label': 'Signal number' });
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
-  const group = (title, rows) => h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'card-pad setlist' }, rows));
-  shell('settings', [pageHead('Settings', 'Numbers and lists the app used to have fixed in code. Changes apply to the next job, no restart needed.'), aiCard,
+  const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
+  shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     group('Project matching', [num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
-    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...')]),
+    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
 }
@@ -2003,12 +2229,12 @@ async function connectView() {
   const revoke = (t) => modal({ title: 'Revoke "' + t.name + '"?', confirm: 'Revoke', danger: true, body: h('p', {}, 'Anything using this token stops working at once. This cannot be undone.'),
     onConfirm: async () => { await api('DELETE', '/tokens/' + t.id); toast('Token revoked'); route(); } });
   const status = (t) => (t.revoked_at ? h('span', { class: 'pill wait' }, 'Revoked') : new Date(t.expires_at) < new Date() ? h('span', { class: 'pill wait' }, 'Expired') : h('span', { class: 'pill PASS' }, 'Active'));
-  const rows = tokens.map((t) => h('tr', {}, h('td', {}, t.name), h('td', {}, status(t)), h('td', {}, ago(t.created_at)), h('td', {}, t.last_used_at ? ago(t.last_used_at) : h('span', { class: 'faint' }, 'Never')), h('td', {}, new Date(t.expires_at).toLocaleDateString()),
-    h('td', {}, !t.revoked_at && new Date(t.expires_at) > new Date() ? h('button', { class: 'btn sm', type: 'button', onclick: () => revoke(t) }, 'Revoke') : null)));
+  const rows = tokens.map((t) => h('tr', {}, h('td', {}, t.name), h('td', {}, status(t)), h('td', {}, ago(t.created_at)), h('td', {}, t.last_used_at ? ago(t.last_used_at) : h('span', { class: 'faint' }, 'Never')), h('td', {}, dayText(t.expires_at)),
+    acts(!t.revoked_at && new Date(t.expires_at) > new Date() ? h('button', { class: 'btn sm', type: 'button', onclick: () => revoke(t) }, 'Revoke') : null)));
   // sign-in (OAuth): the way for everyone; tokens stay for a local setup
   const disconnect = (c) => modal({ title: 'Disconnect ' + c.client_name + '?', confirm: 'Disconnect', danger: true, body: h('p', {}, 'That Claude stops reaching Upwork Pro at once. To use it again, sign in from Claude again.'),
     onConfirm: async () => { await api('DELETE', '/oauth/connections/' + c.grant_id); toast('Disconnected'); route(); } });
-  const signInCard = h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'Connect with sign-in'), h('span', { class: 'sub' }, 'Recommended: no token to copy')),
+  const signInCard = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Connect with sign-in'), h('span', { class: 'sub' }, 'Recommended: no token to copy')),
     h('div', { class: 'card-pad' },
       h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'Each person connects their own Claude and signs in with their own Upwork Pro account. Everything that Claude saves is recorded as them.'),
       h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Connector link'), h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' },
@@ -2021,15 +2247,15 @@ async function connectView() {
       h('p', { class: 'hint' }, 'Claude reaches the link from the internet, so this works once Upwork Pro is online with https. Until then, use a token below.')),
     conn.connections.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Connected app', 'Since', 'Last used', ''].map((x) => h('th', {}, x)))),
       h('tbody', {}, conn.connections.map((c) => h('tr', {}, h('td', {}, h('strong', {}, c.client_name)), h('td', { title: full(c.connected_at) }, ago(c.connected_at)),
-        h('td', {}, c.last_used_at ? ago(c.last_used_at) : h('span', { class: 'faint' }, 'Not yet')), h('td', {}, h('button', { class: 'btn sm', type: 'button', onclick: () => disconnect(c) }, 'Disconnect')))))))
+        h('td', {}, c.last_used_at ? ago(c.last_used_at) : h('span', { class: 'faint' }, 'Not yet')), acts(h('button', { class: 'btn sm', type: 'button', onclick: () => disconnect(c) }, 'Disconnect')))))))
       : h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line)' }, h('p', { class: 'muted', style: 'margin:0' }, 'No Claude connected with sign-in yet.')));
   shell('connect', [pageHead('Connect Claude', 'Let Claude save into Upwork Pro: the jobs, proposals and statuses from your Claude plugin, and data from your sheets (previewed first, saved only when you say yes).'),
     signInCard,
-    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'What you can import')),
-      h('div', { class: 'card-pad' }, types.map((k) => h('div', { style: 'margin-bottom:10px' }, h('strong', {}, k.label + ' '), k.allowed ? h('span', { class: 'pill PASS' }, 'You can') : h('span', { class: 'pill wait' }, k.roles.join(' or ') + ' only'),
-        h('div', { class: 'small muted' }, k.description))),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'What you can import')),
+      h('div', { class: 'card-pad' }, h('div', { class: 'stack', style: 'gap:12px' }, types.map((k) => h('div', {}, h('div', { class: 'row', style: 'gap:8px' }, h('strong', {}, k.label), k.allowed ? h('span', { class: 'pill PASS' }, 'You can') : h('span', { class: 'pill wait' }, cap(k.roles.join(' or ')) + ' only')),
+        h('div', { class: 'jp-label' }, k.description)))),
         h('p', { class: 'hint' }, 'You can only import what your role lets you edit on the website. Every import is previewed first, is written to the Logs, and can be undone as a whole.'))),
-    h('div', { class: 'card', style: 'margin-bottom:16px' }, h('div', { class: 'card-head' }, h('h2', {}, 'Or make a token'), h('span', { class: 'sub' }, 'For a local setup (Upwork Pro on this computer)')),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Or make a token'), h('span', { class: 'sub' }, 'For a local setup (Upwork Pro on this computer)')),
       h('div', { class: 'card-pad' },
         h('p', { class: 'muted', style: 'margin:0 0 12px' }, 'A token is like a password for Claude: as you, it can import sheets, look things up, and save the jobs, proposals and statuses from your Claude plugin. Nothing else (no users, no settings). Keep it private. Revoke it if it leaks.'),
         h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tkname' }, 'Name'), name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tkdays' }, 'Expires after'), days)),
@@ -2052,6 +2278,7 @@ async function route() {
     }
     if (a === 'history') return await historyView();
     if (a === 'dashboard' || !a) return await dashboardView();
+    if (a === 'reports') return await reportsView();
     if (a === 'templates') { location.hash = '#/writing'; return; } // the proposal types live on the Writing guide now
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'signals' && me.role !== 'employee') return await signalsView();

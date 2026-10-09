@@ -75,6 +75,30 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
 
   T('get_job', 'One job in Upwork Pro: where it stands, its status and history, and its latest proposal text.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
 
+  // ---------- analysis: many jobs at once, and the trend numbers ----------
+  const jobFilters = {
+    from: z.string().optional().describe('Screened on or after this day, YYYY-MM-DD'), to: z.string().optional().describe('Screened on or before this day, YYYY-MM-DD'),
+    sent_from: z.string().optional().describe('Sent on or after this day, YYYY-MM-DD'), sent_to: z.string().optional().describe('Sent on or before this day, YYYY-MM-DD'),
+    phase: z.enum(['in_progress', 'submitted', 'closed', 'not_pursued']).optional(), profile_name: z.string().optional().describe('Upwork profile name, see plugin_options'),
+    person: z.string().optional().describe('The name of the person who submitted the jobs (managers and admins)'), outcome: z.string().optional().describe('An outcome from plugin_options, or "none" for no outcome yet'),
+    verdict: z.enum(['PASS', 'FLAG', 'FAIL']).optional(), rule: z.string().optional().describe('A rule code, e.g. G14'), source: z.enum(['app', 'claude_plugin']).optional().describe('Written in Upwork Pro or with the Claude plugin'),
+    ptype: z.string().optional().describe('Proposal type name'), tag: z.string().optional().describe('A job tag name'), project: z.string().optional().describe('A project shown in the proposal'),
+    loom: z.enum(['yes', 'no']).optional().describe('Sent with or without a Loom video'), q: z.string().optional().describe('Text in the title, client country, person, profile or rule'),
+  };
+  const qs = (a: Record<string, unknown>) => new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : String(v)]));
+  T('analyze_jobs', `Many jobs in one call, to compare what worked: which proposals were viewed, got a chat, an interview, a hire. One row per job as a list of cells; the column names come once in "columns". Filter by dates and anything else, newest first.
+The answer always fits: when "more" is true, call again with after = next_after and the same filters, and repeat until "more" is false. Collect every page before you analyse; never draw a conclusion from one page of several.
+Every row already has: who, profile, where it was written, gate result and rule codes, the decision, proposal type, projects shown, industry, proposal length, Loom video, Connects, sent / viewed / chat / interview with their times, outcome and loss reason, client country, budget.
+"include" adds heavier fields only when the question needs them (each makes pages smaller): client (hire rate, spend, rating), tags, signals, flags (each rule with the value behind it), history, description (the job post), proposal (the proposal text). For counts and rates across groups, use get_trends instead: it is already counted.`,
+    { ...jobFilters, include: z.array(z.enum(['client', 'tags', 'signals', 'flags', 'history', 'description', 'proposal'])).optional(), after: z.number().int().optional().describe('next_after from the previous page'),
+      text_chars: z.number().int().min(100).max(20000).optional().describe('Cut each description and proposal at this many characters (default 1500)') },
+    { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/analysis/jobs?' + qs(a)));
+
+  T('get_trends', `The trend numbers from Upwork Pro's Reports page, already counted: for every group of every report, how many jobs were screened, continued, written, sent, viewed, got a chat, an interview, were hired or lost, and the Connects spent. Reports: profile, person, type (proposal type), type_choice, project, project_count, industry, tag, signal, rule, verdict, decision, source, loom, loom_video, boost, connects, length, speed, sent_weekday, sent_time, country, job_type, experience, outcome, loss_reason, week.
+Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is how many groups per report (default 15). Rates are of sent proposals. Always say the sample size next to a rate, and say when a group is too small to mean much.`,
+    { ...jobFilters, reports: z.array(z.string()).optional().describe('Report keys, e.g. ["profile", "type", "week"]'), top: z.number().int().min(1).max(100).optional() },
+    { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/analysis/report?' + qs(a)));
+
   const pairs = z.array(z.object({ label: z.string(), value: z.string() }));
   const rules = z.array(z.object({ code: z.string().describe('e.g. F2 or G14'), rule: z.string().optional(), value: z.string().optional().describe('The actual value behind it, e.g. "Hire rate 32%"') }));
   T('save_job', 'Save a job the plugin screened. Stored as sent (the app does not screen it again) and marked as coming from the Claude plugin. Refused if the same Upwork job is already saved (use find_jobs), unless force_new.',

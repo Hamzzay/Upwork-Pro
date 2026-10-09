@@ -86,7 +86,7 @@ function proposalSection(s, initial, matching) {
   box.__finish = async () => {
     if (!data || data.status !== 'done' || !data.current) throw new Error('The proposal is not ready yet');
     if (editor && editor.isDirty()) {
-      if (!confirm('Save your unsaved changes as a new version and finish?')) return false;
+      if (!(await ask('Save and finish?', 'Your unsaved changes are saved as a new version, then the proposal is finished.', 'Save and finish'))) return false;
       await api('POST', `/proposals/${data.id}/versions`, { html: editor.getHtml(), based_on: loaded }); editor.markClean();
     }
     await api('POST', `/screenings/${s.id}/proposal/done`, {});
@@ -132,7 +132,7 @@ function proposalSection(s, initial, matching) {
   const startBtn = (label, templateId, primary = true) => {
     const b = h('button', { class: 'btn sm' + (primary ? ' primary' : ''), type: 'button' }, label);
     b.onclick = async () => {
-      if (editor && editor.isDirty() && !confirm('You have unsaved changes. Writing again adds a new version and loads it. Continue?')) return;
+      if (editor && editor.isDirty() && !(await ask('Write it again?', 'You have unsaved changes. Writing again adds a new version and loads it in their place.', 'Write again'))) return;
       btnBusy(b, 'Starting');
       try { await api('POST', `/screenings/${s.id}/proposal/start`, templateId ? { template_id: templateId } : {}); await reload(); drawAll(); startPolling(); }
       catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren(label); }
@@ -168,7 +168,7 @@ function proposalSection(s, initial, matching) {
     const sel = h('select', { id: 'pt-sel', 'aria-label': 'Proposal type to write with' }, templates.map((x) => h('option', { value: x.id, selected: t && x.id === t.id }, x.name)));
     const again = h('button', { class: 'btn', type: 'button' }, 'Write again with this type');
     again.onclick = async () => {
-      if (editor && editor.isDirty() && !confirm('You have unsaved changes. Writing again adds a new version and loads it. Continue?')) return;
+      if (editor && editor.isDirty() && !(await ask('Write it again?', 'You have unsaved changes. Writing again adds a new version and loads it in their place.', 'Write again'))) return;
       btnBusy(again, 'Starting');
       try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: Number(sel.value) }); await reload(); drawAll(); startPolling(); } catch (x) { toast(x.message, true); again.disabled = false; again.replaceChildren('Write again with this type'); }
     };
@@ -211,7 +211,7 @@ function proposalSection(s, initial, matching) {
     };
     send.onclick = go; input.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') go(); });
     const quick = ['Make it shorter', 'More technical', 'Warmer tone', 'Add a closing question'].map((q) => h('button', { type: 'button', class: 'chip qchip', disabled: !owner || chatBusy(), onclick: () => { input.value = q; input.focus(); } }, q));
-    el.replaceChildren(h('h3', { class: 'section-title' }, 'Chat with the AI'), list, owner ? h('div', {}, h('div', { class: 'chips', style: 'margin:8px 0' }, quick), input, h('div', { class: 'row', style: 'margin-top:8px;justify-content:space-between' }, h('span', { class: 'faint small' }, 'Ctrl + Enter to send'), send)) : h('p', { class: 'hint' }, 'Only the person who submitted this job can chat with the AI.'));
+    el.replaceChildren(h('h3', { class: 'section-title' }, 'Chat with the AI'), list, owner ? h('div', {}, h('div', { class: 'chips', style: 'margin:8px 0' }, quick), input, h('div', { class: 'row', style: 'margin-top:8px;justify-content:space-between' }, h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), send)) : h('p', { class: 'hint' }, 'Only the person who submitted this job can chat with the AI.'));
     list.scrollTop = list.scrollHeight;
   }
 
@@ -227,7 +227,7 @@ function proposalSection(s, initial, matching) {
     vsel.onchange = async () => {
       const no = Number(vsel.value);
       if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; return; }
-      if (editor.isDirty() && !confirm('You have unsaved changes. Show the other version anyway?')) { vsel.value = cur.version_no; return; }
+      if (editor.isDirty() && !(await ask('Show the other version?', 'You have unsaved changes. They are lost when the other version is shown.', 'Show it', true))) { vsel.value = cur.version_no; return; }
       const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html);
       viewing.replaceChildren(...[`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null].filter(Boolean));
     };
@@ -295,21 +295,19 @@ async function templateView(idStr) {
     onConfirm: async () => { await api('DELETE', '/templates/' + t.id); toast('Proposal type deleted'); location.hash = '#/writing'; } }) }, 'Delete') : null;
 
   const parts = [
-    h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/writing', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to the writing guide')),
-    pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', [del, saveBtn]),
+    pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', [del, saveBtn],
+      { back: ['#/writing', 'Writing guide'], badges: isNew ? null : onOff(t.active, 'Active', 'Retired') }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'),
       h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Name'), f.name),
         h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Tens set the priority group (10 first, then 20, 30, 40); within a group, more supporting signals win, then the lower number.'))),
       h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td' }, 'Description'), f.desc),
       h('div', { class: 'field row', style: 'margin-top:12px' }, f.active, h('label', { for: 'ta', style: 'font-weight:600' }, 'Active (can be chosen for proposals)')),
       h('div', { class: 'field row', style: 'margin-top:8px' }, f.isDefault, h('label', { for: 'tdf', style: 'font-weight:600' }, 'Default type (used when no type qualifies)'))),
-    h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Format'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'The structure and rules the proposal must follow. The AI reads this as written.'), fmt.el),
-    h('div', { style: 'height:16px' }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Prompt'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Extra instructions used with this type. Safety rules (no invented facts, links or numbers) always apply on top.'), f.prompt),
     err,
   ];
-  if (!isNew) { parts.push(h('div', { style: 'height:16px' }), mappingCard(t, signals), h('div', { style: 'height:16px' }), samplesCard(t)); }
+  if (!isNew) { parts.push(mappingCard(t, signals), samplesCard(t)); }
   shell('writing', parts, true);
 }
 
@@ -334,13 +332,13 @@ function mappingCard(t, signals) {
       vSel.onchange = () => { r.value_id = vSel.value ? Number(vSel.value) : null; r.source = 'manual'; };
       w.onchange = () => { if (r.role === 'weight') r.weight = Number(w.value); else r.req_group = Number(w.value); r.source = 'manual'; };
       trs.push(h('tr', {}, h('td', {}, sSel), h('td', {}, vSel), h('td', {}, roleSel), h('td', {}, w), h('td', {}, r.source === 'starter' ? h('span', { class: 'chip', title: 'Suggested from the template text. Review it.' }, 'Starter') : h('span', { class: 'faint small' }, 'Yours')),
-        h('td', {}, h('button', { class: 'btn sm danger', type: 'button', onclick: () => { rows.splice(i, 1); draw(); } }, 'Remove'))));
+        acts(h('button', { class: 'btn sm', type: 'button', onclick: () => { rows.splice(i, 1); draw(); } }, 'Remove'))));
     }
     holder.replaceChildren(rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Signal', 'Value', 'Role', 'Weight or group', '', ''].map((x) => h('th', {}, x)))), h('tbody', {}, trs))) : h('p', { class: 'faint small' }, 'No signals yet. Without any, this template can only be the default or be chosen by hand.'));
   }
-  const add = h('button', { class: 'btn', type: 'button' }, 'Add a signal');
+  const add = h('button', { class: 'btn sm', type: 'button' }, 'Add signal');
   add.onclick = () => { rows.push({ signal_id: signals[0].id, value_id: null, weight: 0, role: 'supporting', req_group: null, source: 'manual' }); draw(); };
-  const save = h('button', { class: 'btn primary', type: 'button' }, 'Save signals');
+  const save = h('button', { class: 'btn sm primary', type: 'button' }, 'Save signals');
   save.onclick = async () => {
     err.hidden = true; btnBusy(save, 'Saving');
     try { await api('PUT', `/templates/${t.id}/signals`, { mappings: rows.map((r) => ({ signal_id: r.signal_id, value_id: r.value_id, weight: r.role === 'weight' ? r.weight : 0, role: r.role, req_group: r.role === 'required' ? r.req_group || 1 : null })) }); toast('Signals saved'); route(); }
@@ -350,7 +348,7 @@ function mappingCard(t, signals) {
   const hasStarter = rows.some((r) => r.source === 'starter');
   return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, `Signals this type suits (${rows.length})`), h('div', { class: 'row' }, add, save)),
     h('p', { class: 'hint', style: 'margin:8px 0 12px' }, 'Required: the type is only chosen when these match (rows with the same group number are alternatives). Rules it out: any match excludes the type. Supporting: each match adds one point. Qualifying types are compared by priority group (the priority number divided by 10), then points. When none qualifies, the default type is used. "Any stated value" matches whenever the post states a value.'),
-    hasStarter ? h('div', { class: 'notice', style: 'margin:0 0 12px' }, icon('info'), 'Rows marked "starter" were suggested from what the type says. Review them: they are a starting point, not a rule.') : null, holder, err);
+    hasStarter ? h('div', { class: 'notice' }, icon('info'), 'Rows marked "starter" were suggested from what the type says. Review them: they are a starting point, not a rule.') : null, holder, err);
 }
 
 function samplesCard(t) {
@@ -372,24 +370,20 @@ function samplesCard(t) {
   }
   async function load() {
     const d = await api('GET', `/templates/${t.id}/samples?page=${pg}`); pg = d.page;
-    holder.replaceChildren(d.samples.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Sample', 'By', 'Job', 'Status', ''].map((x) => h('th', {}, x)))),
+    holder.replaceChildren(...[d.samples.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Sample', 'By', 'Job', 'Status', ''].map((x) => h('th', {}, x)))),
       h('tbody', {}, d.samples.map((s) => h('tr', {}, h('td', {}, h('strong', {}, s.title), h('div', { class: 'meta' }, s.content.slice(0, 110).replace(/\n/g, ' ') + '...')), h('td', { class: 'muted' }, s.author || '-'),
         h('td', {}, s.job_url ? h('a', { href: s.job_url, target: '_blank', rel: 'noopener noreferrer' }, 'Job') : h('span', { class: 'faint' }, '-')),
-        h('td', {}, Number(s.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Off')), h('td', {}, h('button', { class: 'btn sm', type: 'button', onclick: () => dialog(s) }, 'Edit'))))))) : h('p', { class: 'faint small' }, 'No samples yet. Add proposals that worked: the AI uses up to 3 of them as a reference for tone and structure.'),
-      pager(d.total, d.page, (n) => { pg = n; load(); }));
+        h('td', {}, onOff(s.active, 'Active', 'Off')), acts(h('button', { class: 'btn sm', type: 'button', onclick: () => dialog(s) }, 'Edit'))))))) : h('p', { class: 'faint small' }, 'No samples yet. Add proposals that worked: the AI uses up to 3 of them as a reference for tone and structure.'),
+      pager(d.total, d.page, (n) => { pg = n; load(); })].filter(Boolean)); // replaceChildren prints a null as the word
   }
   load();
-  return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Sample proposals'), h('button', { class: 'btn', type: 'button', onclick: () => dialog(null) }, 'Add a sample')), h('div', { style: 'height:10px' }), holder);
+  return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Sample proposals'), h('button', { class: 'btn sm', type: 'button', onclick: () => dialog(null) }, 'Add sample')), h('div', { style: 'height:10px' }), holder);
 }
 
 // ---------- signals ----------
 async function signalsView() {
   const [{ signals }, { layers }] = await Promise.all([api('GET', '/signals'), api('GET', '/signal-layers')]);
   const isAdmin = me.role === 'admin';
-  const hp = hashParams(); const st = { q: hp.q || '', layer: hp.layer || '', page: Math.max(1, Number(hp.page) || 1) };
-  const bodyEl = h('div', {});
-  const searchIn = h('input', { type: 'search', placeholder: 'Search signals', 'aria-label': 'Search signals', value: st.q });
-  const layerSel = h('select', { 'aria-label': 'Layer' }, h('option', { value: '' }, 'All layers'), layers.map((l) => h('option', { value: l.id, selected: String(l.id) === st.layer }, l.name)));
   function dialog() {
     const f = { number: h('input', { type: 'number', id: 'sgn', min: 1, step: 1, value: Math.max(...signals.map((x) => x.number)) + 1 }), name: h('input', { type: 'text', id: 'sgm', maxlength: 160 }),
       layer: h('select', { id: 'sgl', style: 'width:100%' }, layers.map((l) => h('option', { value: l.id }, l.name))), decides: h('textarea', { id: 'sgd', style: 'min-height:70px' }), multi: h('input', { type: 'checkbox', id: 'sgx' }) };
@@ -399,23 +393,18 @@ async function signalsView() {
         h('div', { class: 'field row', style: 'margin-top:12px' }, f.multi, h('label', { for: 'sgx', style: 'font-weight:600' }, 'Multi-select (a job can have several values)')), h('p', { class: 'hint' }, 'Add its values on the next page.')),
       onConfirm: async () => { const r = await api('POST', '/signals', { number: Number(f.number.value), layer_id: Number(f.layer.value), name: f.name.value, decides: f.decides.value.trim() || null, multi_select: f.multi.checked }); toast('Signal added'); location.hash = '#/sig/' + r.id; } });
   }
-  function draw() {
-    const q = st.q.toLowerCase();
-    const shown = signals.filter((s) => (!q || (s.name + ' ' + (s.decides || '')).toLowerCase().includes(q)) && (!st.layer || String(s.layer_id) === st.layer));
-    st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / PAGE_SIZE))); setHashParams({ page: st.page, q: st.q, layer: st.layer });
-    const slice = shown.slice((st.page - 1) * PAGE_SIZE, st.page * PAGE_SIZE);
-    bodyEl.replaceChildren(shown.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Layer', 'Values', 'Proposal types', 'Status'].map((x) => h('th', {}, x)))),
-      h('tbody', {}, slice.map((s) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/sig/' + s.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/sig/' + s.id; } },
-        h('td', { class: 'muted' }, s.number), h('td', {}, h('strong', {}, s.name), s.multi_select ? h('span', { class: 'chip', style: 'margin-left:8px' }, 'Multi-select') : null, s.decides ? h('div', { class: 'meta' }, s.decides.slice(0, 110)) : null),
-        h('td', { class: 'muted' }, s.layer_name), h('td', { class: 'muted' }, s.value_count), h('td', { class: 'muted' }, s.template_count),
-        h('td', {}, Number(s.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Off'))))))) : emptyState('tag', 'No signals match', 'Try a different search or layer.'),
-      pager(shown.length, st.page, (n) => { st.page = n; draw(); }));
-  }
-  searchIn.oninput = debounce(() => { st.q = searchIn.value.trim(); st.page = 1; draw(); }, 200); layerSel.onchange = () => { st.layer = layerSel.value; st.page = 1; draw(); };
+  const open = (s) => () => { location.hash = '#/sig/' + s.id; };
   shell('signals', [pageHead('Signals', 'What the AI looks for in a job post. Each signal has values, a proposal move for each, and a default (fallback) for when the post says nothing.',
     isAdmin ? h('button', { class: 'btn primary', onclick: dialog }, icon('screen'), 'Add signal') : null),
-    h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('div', { class: 'search' }, icon('search'), searchIn), layerSel), bodyEl)]);
-  draw();
+    listCard({ items: signals, icon: 'audit', emptyTitle: 'No signals yet', emptyText: 'Run the proposal seed, or add a signal.',
+      search: { placeholder: 'Search signals', text: (s) => s.number + ' ' + s.name + ' ' + (s.decides || '') },
+      filters: [{ key: 'layer', label: 'Any layer', options: layers.map((l) => [l.id, l.name]), test: (s, v) => String(s.layer_id) === v },
+        { key: 'kind', label: 'Any kind', options: [['multi', 'Multi-select'], ['single', 'One value'], ['unused', 'Used by no proposal type']], test: (s, v) => (v === 'multi' ? !!s.multi_select : v === 'single' ? !s.multi_select : !Number(s.template_count)) },
+        statusFilter((s) => s.active, 'Off')],
+      render: (slice) => dataTable(['#', 'Signal', 'Layer', 'Values', 'Proposal types', 'Status'], slice.map((s) => h('tr', { class: 'click', tabindex: 0, onclick: open(s), onkeydown: (e) => { if (e.key === 'Enter') open(s)(); } },
+        h('td', { class: 'muted' }, s.number), h('td', {}, h('strong', {}, s.name), s.multi_select ? h('span', { class: 'pill wait', style: 'margin-left:8px' }, 'Multi-select') : null, s.decides ? h('div', { class: 'meta' }, cap(s.decides.slice(0, 110))) : null),
+        h('td', { class: 'muted' }, s.layer_name), h('td', { class: 'muted' }, s.value_count), h('td', { class: 'muted' }, s.template_count),
+        h('td', {}, onOff(s.active, 'Active', 'Off'))))) })]);
 }
 
 async function signalView(id) {
@@ -452,17 +441,17 @@ async function signalView(id) {
         await api(v ? 'PATCH' : 'POST', v ? '/signal-values/' + v.id : `/signals/${s.id}/values`, body); toast(v ? 'Value saved' : 'Value added'); route(); } });
   }
   const vcard = (v) => h('div', { class: 'card card-pad vcard' + (Number(v.active) ? '' : ' off') },
-    h('div', { class: 'row spread' }, h('div', { class: 'row', style: 'gap:8px' }, h('strong', {}, v.name), v.is_fallback ? h('span', { class: 'chip' }, 'Fallback') : null, Number(v.active) ? null : h('span', { class: 'chip' }, 'Off')), isAdmin ? h('button', { class: 'btn sm', type: 'button', onclick: () => valueDialog(v) }, 'Edit') : null),
-    v.detect ? h('div', { style: 'margin-top:10px' }, h('div', { class: 'faint small' }, v.is_fallback ? 'When' : 'How to detect it'), h('div', {}, v.detect)) : null,
-    v.move ? h('div', { style: 'margin-top:10px' }, h('div', { class: 'faint small' }, 'The proposal move'), h('div', {}, v.move)) : null);
+    h('div', { class: 'row spread' }, h('div', { class: 'row', style: 'gap:8px' }, h('strong', {}, v.name), v.is_fallback ? h('span', { class: 'pill wait' }, 'Fallback') : null, Number(v.active) ? null : h('span', { class: 'pill wait' }, 'Off')), isAdmin ? h('button', { class: 'btn sm', type: 'button', onclick: () => valueDialog(v) }, 'Edit') : null),
+    v.detect || v.move ? h('dl', { class: 'facts', style: 'margin-top:10px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))' },
+      v.detect ? h('div', {}, h('dt', {}, v.is_fallback ? 'When' : 'How to detect it'), h('dd', {}, cap(v.detect))) : null,
+      v.move ? h('div', {}, h('dt', {}, 'The proposal move'), h('dd', {}, cap(v.move))) : null) : null);
   shell('signals', [
-    h('div', { style: 'margin-bottom:14px' }, h('a', { href: '#/signals', class: 'row small', style: 'gap:6px;display:inline-flex' }, icon('back'), 'Back to signals')),
-    pageHead(`${s.number}. ${s.name}`, s.layer_name, [Number(s.active) ? h('span', { class: 'pill PASS' }, 'Active') : h('span', { class: 'pill wait' }, 'Off'), s.multi_select ? h('span', { class: 'chip' }, 'Multi-select') : null, isAdmin ? h('button', { class: 'btn primary', onclick: editSignal }, 'Edit signal') : null]),
-    s.decides || s.notes ? h('div', { class: 'card card-pad' }, s.decides ? [h('h3', { class: 'section-title' }, 'What it decides'), h('p', {}, s.decides)] : null, s.notes ? [h('h3', { class: 'section-title', style: 'margin-top:12px' }, 'Notes'), h('p', {}, s.notes)] : null) : null,
-    h('div', { class: 'row spread', style: 'margin:20px 0 10px' }, h('h3', { class: 'section-title', style: 'margin:0' }, `Values (${s.values.length})`), isAdmin ? h('button', { class: 'btn', type: 'button', onclick: () => valueDialog(null) }, 'Add a value') : null),
-    s.values.length ? clientPaged(s.values, (slice) => h('div', { style: 'display:grid;gap:12px' }, slice.map(vcard))) : emptyState('tag', 'No values yet', isAdmin ? 'Add the values this signal can take.' : 'This signal has no values.'),
-    h('div', { style: 'height:16px' }),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Templates that use it (${s.used_by.length})`),
-      s.used_by.length ? h('ul', { class: 'plain' }, s.used_by.map((u) => h('li', {}, h('a', { href: '#/t/' + u.id }, u.name), h('span', { class: 'muted' }, ` · ${u.value_name || 'Any stated value'} · weight ${u.weight}`)))) : h('p', { class: 'faint small' }, 'No template is mapped to this signal yet.')),
+    pageHead(`${s.number}. ${s.name}`, s.layer_name, isAdmin ? h('button', { class: 'btn primary', onclick: editSignal }, 'Edit signal') : null,
+      { back: ['#/signals', 'Signals'], badges: [onOff(s.active, 'Active', 'Off'), s.multi_select ? h('span', { class: 'pill wait' }, 'Multi-select') : null] }),
+    s.decides || s.notes ? h('div', { class: 'card card-pad' }, s.decides ? [h('h3', { class: 'section-title' }, 'What it decides'), h('p', {}, cap(s.decides))] : null, s.notes ? [h('h3', { class: 'section-title', style: 'margin-top:12px' }, 'Notes'), h('p', {}, s.notes)] : null) : null,
+    h('div', { class: 'sechead', style: 'margin-top:8px' }, h('h2', {}, `Values (${s.values.length})`), isAdmin ? h('button', { class: 'btn', type: 'button', onclick: () => valueDialog(null) }, icon('screen'), 'Add value') : null),
+    s.values.length ? clientPaged(s.values, (slice) => h('div', { style: 'display:grid;gap:12px' }, slice.map(vcard))) : h('div', { class: 'card' }, emptyState('tag', 'No values yet', isAdmin ? 'Add the values this signal can take.' : 'This signal has no values.')),
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Proposal types that use it (${s.used_by.length})`),
+      s.used_by.length ? h('ul', { class: 'plain' }, s.used_by.map((u) => h('li', {}, h('a', { href: '#/t/' + u.id }, u.name), h('span', { class: 'muted' }, ` · ${u.value_name || 'Any stated value'} · weight ${u.weight}`)))) : h('p', { class: 'jp-label' }, 'No proposal type is mapped to this signal yet.')),
   ], true);
 }

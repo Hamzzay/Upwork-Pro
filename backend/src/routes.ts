@@ -16,6 +16,7 @@ import { plugin } from './routes_plugin';
 import { writing } from './routes_writing';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
+import { buildReport, packRows } from './reports';
 import { withCallContext } from './llm/context';
 import { testCall } from './llm';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
@@ -102,7 +103,7 @@ const statusSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome WHEN s.intervi
   WHEN s.client_viewed='yes' THEN 'Viewed' WHEN s.proposal_sent_date IS NOT NULL OR s.proposal_sent_at IS NOT NULL THEN 'Sent' ELSE NULL END`;
 const statusAtSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome_at WHEN s.interviewed='yes' THEN s.interviewed_at WHEN s.client_replied='yes' THEN s.client_replied_at
   WHEN s.client_viewed='yes' THEN s.client_viewed_at ELSE COALESCE(s.proposal_sent_at, s.proposal_sent_date) END`;
-const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
+export const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
   LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
 const listSelect = `SELECT s.id, s.user_id, s.notes, s.source, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
   s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
@@ -123,6 +124,9 @@ export const listFilters = z.object({
   from: day.optional(), to: day.optional(), rule: z.string().trim().regex(/^[A-Z]\d{1,3}$/).optional(),
   profile: z.coerce.number().int().positive().optional(), user: z.coerce.number().int().positive().optional(),
   outcome: z.string().trim().max(60).optional(), stage: z.enum([...STAGES, 'needs_action', 'quiet']).optional(), phase: z.enum(PHASES).optional(),
+  // added for the reports: where it was written, the proposal type, a job tag, a project shown, with or without a Loom video, and the date it was sent
+  source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(160).optional(), tag: z.string().trim().max(120).optional(),
+  project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
 });
 export type ListFilters = z.infer<typeof listFilters>;
 
@@ -143,6 +147,13 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.user && canSeeAll(req.user.role)) { where.push('s.user_id=?'); p.push(f.user); }
   if (f.outcome) { if (f.outcome === 'none') where.push('s.outcome IS NULL'); else { where.push('s.outcome=?'); p.push(f.outcome); } }
   if (f.phase) { where.push(`(${phaseSql})=?`); p.push(f.phase); }
+  if (f.source) { where.push(f.source === 'app' ? `(s.source IS NULL OR s.source<>'claude_plugin')` : `s.source='claude_plugin'`); }
+  if (f.ptype) { where.push('p.template_name=?'); p.push(f.ptype); }
+  if (f.tag) { where.push('EXISTS (SELECT 1 FROM job_tags jt WHERE jt.screening_id=s.id AND jt.tag_name=?)'); p.push(f.tag); }
+  if (f.project) { where.push('EXISTS (SELECT 1 FROM job_matches jm WHERE jm.screening_id=s.id AND jm.selected=1 AND jm.project_name=?)'); p.push(f.project); }
+  if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
+  if (f.sent_from) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(f.sent_from + ' 00:00:00'); }
+  if (f.sent_to) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(f.sent_to); }
   if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
   else if (f.stage === 'quiet') { where.push(`(${stageSql})='submitted' AND COALESCE(${statusAtSql}, s.created_at) < NOW() - INTERVAL ? DAY`); p.push(quietDays); }
   else if (f.stage) { where.push(`(${stageSql})=?`); p.push(f.stage); }
@@ -238,6 +249,35 @@ api.get('/dashboard', requireRole(), async (req, res) => {
   });
 });
 
+/** The jobs the filters match, as the reports read them, with their tags, projects and signals. Shared by the Reports page and the plugin. */
+export const REPORT_LIMIT = 10000;
+export async function reportFor(req: any, f: ListFilters) {
+  const w = listWhere(req, f);
+  const jobs = await query<any>(`SELECT s.id, s.user_id, u.name AS user_name, s.upwork_profile_id AS profile_id, pr.name AS profile_name, s.source, s.verdict, s.rule_codes,
+      o.id IS NOT NULL AS overridden, o.verdict_at_time AS override_verdict, s.continued_at IS NOT NULL AS continued, p.finished_at IS NOT NULL AS written, p.template_name, p.template_choice,
+      ${sentSql} AS sent, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at, s.client_viewed='yes' AS viewed, s.client_replied='yes' AS chat, s.interviewed='yes' AS interview,
+      s.outcome, s.outcome_reason, s.outcome_at, s.client_viewed_at AS viewed_at, s.client_replied_at AS chat_at, s.connects_spent, s.boost_connects, s.created_at,
+      s.client_country, s.job_type, s.experience_level, s.loom_video_id, s.loom_video_title,
+      TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal,
+      (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html
+    ${listFrom} ${w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, REPORT_LIMIT + 1]);
+  const capped = jobs.length > REPORT_LIMIT; if (capped) jobs.pop();
+  for (const j of jobs) { const t = j.html ? htmlToPlain(j.html).trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; }
+  const ids = jobs.map((j) => j.id);
+  const extra = ids.length ? {
+    tags: await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?)', [ids]),
+    projects: await query<any>('SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?)', [ids]),
+    signals: await query<any>('SELECT screening_id, signal_number, signal_name, value_name, is_fallback FROM job_signals WHERE screening_id IN (?)', [ids]),
+  } : { tags: [], projects: [], signals: [] };
+  return { ...buildReport(jobs, extra, (await getSettings())['tracking.loss_outcomes']), capped, limit: REPORT_LIMIT };
+}
+// Reports: every trend we can count, for the jobs the filters match. Every row carries the Jobs list link that shows its jobs.
+api.get('/reports', requireRole(), async (req, res) => {
+  const f = listFilters.safeParse(req.query);
+  if (!f.success) return void res.status(400).json({ error: f.error.issues[0].message });
+  res.json(await reportFor(req, f.data));
+});
+
 // Everything about every job the filters match, as CSV or Excel. Same filters and order as the Jobs list.
 api.get('/screenings/export', requireRole(), async (req, res) => {
   const f = listFilters.extend({ format: z.enum(['csv', 'xlsx']).default('csv'), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
@@ -263,6 +303,7 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
     profiles: await query('SELECT id, name FROM upwork_profiles ORDER BY active DESC, name'),
     rules: await query("SELECT code, type, rule FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
     outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL ORDER BY outcome')).map((r) => r.outcome),
+    types: (await query<any>('SELECT DISTINCT template_name FROM proposals WHERE template_name IS NOT NULL ORDER BY template_name')).map((r) => r.template_name),
     stages: STAGES, needs_action: NEEDS_ACTION, in_progress: IN_PROGRESS, phases: PHASES,
   });
 });
@@ -341,8 +382,9 @@ const trackBody = z.object({
   interviewed: z.enum(['yes', 'no']).nullable().optional(),
   outcome_reason: z.string().trim().max(120).nullable().optional(),
   outcome_note: z.string().trim().max(2000).nullable().optional(),
+  loom_video_id: z.number().int().positive().nullable().optional(),
 });
-const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note'] as const;
+const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id'] as const;
 /** Every tracked field, so a change can be stored as old value -> new value. */
 const TRACKED = [...TRACK_KEYS, 'proposal_sent_at', 'client_viewed_at', 'client_replied_at', 'interviewed_at', 'outcome_at'];
 const show = (v: any) => (v == null ? null : v instanceof Date ? v.toISOString().replace('T', ' ').slice(0, 19) : String(v));
@@ -389,6 +431,8 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
   }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   await exec(`UPDATE screenings SET ${sets.join(',')}, tracking_updated_at=NOW() WHERE id=?`, [...p, id]);
+  // keep the video's title with the job, so the job still names it after the video is deleted
+  if (b.data.loom_video_id !== undefined) await exec('UPDATE screenings s LEFT JOIN loom_videos v ON v.id=s.loom_video_id SET s.loom_video_title=v.title WHERE s.id=?', [id]);
   // a milestone set through the form gets its date-time too (now, unless it already had one), like the status button
   await exec(`UPDATE screenings SET client_viewed_at=IF(client_viewed='yes', COALESCE(client_viewed_at, NOW()), client_viewed_at),
     client_replied_at=IF(client_replied='yes', COALESCE(client_replied_at, NOW()), client_replied_at), interviewed_at=IF(interviewed='yes', COALESCE(interviewed_at, NOW()), interviewed_at),
@@ -427,6 +471,102 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const cur = (await query<any>('SELECT v.version_no, v.content_html FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
   const events = await query('SELECT status, happened_at, reason, note FROM status_events WHERE screening_id=? ORDER BY happened_at, id', [id]);
   res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html) } : null, status_history: events } });
+});
+
+// ---------- bulk reads for analysis in Claude: many jobs at once, and the trend numbers ----------
+/** The Jobs list filters, plus names instead of ids (Claude knows a profile by its name). */
+const analysisFilters = listFilters.extend({ profile_name: z.string().trim().max(120).optional(), person: z.string().trim().max(120).optional() });
+async function analysisWhere(req: any, f: z.infer<typeof analysisFilters>) {
+  if (f.profile_name) {
+    const p = (await query<any>('SELECT id FROM upwork_profiles WHERE name=? LIMIT 1', [f.profile_name]))[0];
+    if (!p) throw Object.assign(new Error(`No Upwork profile is called "${f.profile_name}". See plugin_options for the names.`), { status: 400 });
+    f.profile = p.id;
+  }
+  if (f.person) {
+    const u = (await query<any>('SELECT id FROM users WHERE name=? LIMIT 1', [f.person]))[0];
+    if (!u) throw Object.assign(new Error(`No person is called "${f.person}".`), { status: 400 });
+    f.user = u.id;
+  }
+  return f;
+}
+const INCLUDES = ['tags', 'signals', 'flags', 'description', 'proposal', 'history', 'client'] as const;
+/**
+ * Many jobs in one call, for comparing what worked. One row per job as a list of cells (the column names come once, in
+ * `columns`), newest first. The answer is cut at a character budget and says whether more are left: ask again with
+ * `after` = `next_after` until `more` is false. `include` adds the heavier fields only when they are wanted.
+ */
+api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
+  const q = analysisFilters.extend({ include: z.string().max(200).optional(), after: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().min(1).max(1000).default(500), budget: z.coerce.number().int().min(2000).max(85000).default(80000),
+    text_chars: z.coerce.number().int().min(100).max(20000).default(1500) }).safeParse(req.query);
+  if (!q.success) return void res.status(400).json({ error: q.error.issues[0].message });
+  let f: z.infer<typeof analysisFilters>;
+  try { f = await analysisWhere(req, q.data); } catch (e: any) { return void res.status(e.status ?? 500).json({ error: e.message }); }
+  const inc = new Set((q.data.include ?? '').split(',').map((x) => x.trim()).filter(Boolean));
+  const unknown = [...inc].filter((x) => !(INCLUDES as readonly string[]).includes(x));
+  if (unknown.length) return void res.status(400).json({ error: `include can be: ${INCLUDES.join(', ')}. Not: ${unknown.join(', ')}` });
+  const w = listWhere(req, f, (await getSettings())['tracking.quiet_days']);
+  const total = Number((await query<any>(`SELECT COUNT(*) AS n ${listFrom} ${w.sql}`, w.p))[0].n);
+  const and = (extra: string) => (w.sql ? `${w.sql} AND ${extra}` : `WHERE ${extra}`);
+  const list = await query<any>(`SELECT s.id, s.created_at, u.name AS person, pr.name AS profile, s.source, s.title, s.source_url, s.verdict, s.rule_codes, (${stageSql}) AS stage,
+      s.continued_at IS NOT NULL AS continued, o.verdict_at_time AS continued_past, o.reason AS continue_reason, p.template_name, p.template_choice,
+      COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at, s.client_viewed, s.client_viewed_at, s.client_replied, s.client_replied_at, s.interviewed, s.interviewed_at,
+      s.outcome, s.outcome_at, s.outcome_reason, s.outcome_note, s.connects_spent, s.boost_connects, s.loom_video_title,
+      s.client_country, s.budget, s.job_type, s.experience_level, s.hire_rate, s.total_spent, s.payment_verified, s.client_rating, s.avg_hourly_paid, s.proposals AS proposals_on_job, s.posted,
+      TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, s.notes
+      ${inc.has('flags') || inc.has('description') ? ', s.report_json, s.posting_json, s.job_text' : ''}
+    ${listFrom} ${q.data.after ? and('s.id < ?') : w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, ...(q.data.after ? [q.data.after] : []), q.data.limit]);
+  const ids = list.map((r) => r.id);
+  const group = (rows: any[]) => { const m = new Map<number, any[]>(); for (const r of rows) (m.get(r.screening_id) ?? m.set(r.screening_id, []).get(r.screening_id)!).push(r); return m; };
+  const projects = group(ids.length ? await query<any>('SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?) ORDER BY rank_no', [ids]) : []);
+  const tags = group(ids.length ? await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?) ORDER BY category_name, tag_name', [ids]) : []);
+  const signals = group(ids.length && inc.has('signals') ? await query<any>('SELECT screening_id, signal_name, value_name FROM job_signals WHERE is_fallback=0 AND screening_id IN (?) ORDER BY signal_number', [ids]) : []);
+  const history = group(ids.length && inc.has('history') ? await query<any>('SELECT screening_id, status, happened_at, reason FROM status_events WHERE screening_id IN (?) ORDER BY happened_at, id', [ids]) : []);
+  const proposals = new Map<number, string>();
+  if (ids.length) for (const v of await query<any>(`SELECT p.screening_id, v.content_html FROM proposals p JOIN proposal_versions v ON v.proposal_id=p.id
+      WHERE p.screening_id IN (?) AND v.version_no=(SELECT MAX(v2.version_no) FROM proposal_versions v2 WHERE v2.proposal_id=p.id)`, [ids])) proposals.set(v.screening_id, htmlToPlain(v.content_html).trim());
+  const cut = (t: string | null | undefined) => { const x = (t ?? '').trim(); return x.length > q.data.text_chars ? x.slice(0, q.data.text_chars) + ' [cut]' : x; };
+  const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (v ? String(v).slice(0, 16) : null);
+  const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',
+    'proposal_words', 'loom_video', 'connects', 'boost', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
+    'client_country', 'budget', 'job_type', 'experience_level', 'secs_to_proposal',
+    ...(inc.has('client') ? ['hire_rate', 'total_spent', 'payment_verified', 'client_rating', 'avg_hourly_paid', 'proposals_on_job', 'posted'] : []),
+    ...(inc.has('tags') ? ['tags'] : []), ...(inc.has('signals') ? ['signals'] : []), ...(inc.has('flags') ? ['flags'] : []), ...(inc.has('history') ? ['status_history', 'continue_reason', 'outcome_note', 'notes'] : []),
+    ...(inc.has('description') ? ['description'] : []), ...(inc.has('proposal') ? ['proposal'] : [])];
+  const rows = list.map((r) => {
+    const t = tags.get(r.id) ?? [], prop = proposals.get(r.id) ?? '';
+    let rep: any = null, post: any = null;
+    if (inc.has('flags') || inc.has('description')) { try { rep = r.report_json ? normalizeReport(JSON.parse(r.report_json)).jobs[0] : null; } catch { rep = null; } try { post = r.posting_json ? JSON.parse(r.posting_json) : null; } catch { post = null; } }
+    return [r.id, when(r.created_at), r.person, r.profile, r.source === 'claude_plugin' ? 'Claude plugin' : 'Upwork Pro', (r.title ?? '').slice(0, 90), r.stage, r.verdict, r.rule_codes, Number(r.continued), r.continued_past,
+      r.template_name, r.template_name ? r.template_choice : null, (projects.get(r.id) ?? []).map((x) => x.project_name).join('; ') || null, t.filter((x) => /^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null,
+      prop ? prop.split(/\s+/).length : null, r.loom_video_title, r.connects_spent, r.boost_connects, when(r.sent_at), yes(r.client_viewed), when(r.client_viewed_at), yes(r.client_replied), when(r.client_replied_at),
+      yes(r.interviewed), when(r.interviewed_at), r.outcome, when(r.outcome_at), r.outcome_reason, r.client_country, r.budget, r.job_type, r.experience_level, r.secs_to_proposal,
+      ...(inc.has('client') ? [r.hire_rate, r.total_spent, r.payment_verified, r.client_rating, r.avg_hourly_paid, r.proposals_on_job, r.posted] : []),
+      ...(inc.has('tags') ? [t.filter((x) => !/^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null] : []),
+      ...(inc.has('signals') ? [(signals.get(r.id) ?? []).map((x) => `${x.signal_name}: ${x.value_name}`).join('; ') || null] : []),
+      ...(inc.has('flags') ? [rep ? [...rep.fails, ...rep.flags].map((x: any) => `${x.code ?? ''} ${x.rule}: ${x.value}`.trim()).join(' | ') || null : null] : []),
+      ...(inc.has('history') ? [(history.get(r.id) ?? []).map((x) => `${x.status} ${when(x.happened_at)}${x.reason ? ' (' + x.reason + ')' : ''}`).join('; ') || null, r.continue_reason, r.outcome_note, r.notes] : []),
+      ...(inc.has('description') ? [cut(post?.description || r.job_text)] : []), ...(inc.has('proposal') ? [cut(prop) || null] : [])];
+  });
+  const packed = packRows(rows, q.data.budget);
+  const last = packed.rows.length ? (packed.rows[packed.rows.length - 1][0] as number) : null;
+  const more = packed.more || (list.length === q.data.limit && total > list.length && packed.rows.length === rows.length && rows.length > 0 && (await query<any>(`SELECT 1 ${listFrom} ${and('s.id < ?')} LIMIT 1`, [...w.p, last])).length > 0);
+  await audit(req.user!.id, 'analysis_read', `jobs=${packed.rows.length} of ${total} include=${[...inc].join('+') || 'none'}`);
+  res.json({ total, returned: packed.rows.length, more, next_after: more ? last : null, columns, rows: packed.rows,
+    note: more ? `There are more jobs. Call again with after=${last} and the same filters, and keep going until more is false. Do not analyse until you have them all.` : 'That is every job these filters match.' });
+});
+/** The trend numbers themselves (the Reports page), so Claude does not have to count: the funnel for every group of every report. */
+api.get('/plugin/analysis/report', requireRole(), async (req, res) => {
+  const q = analysisFilters.extend({ reports: z.string().max(400).optional(), top: z.coerce.number().int().min(1).max(100).default(15) }).safeParse(req.query);
+  if (!q.success) return void res.status(400).json({ error: q.error.issues[0].message });
+  let f: z.infer<typeof analysisFilters>;
+  try { f = await analysisWhere(req, q.data); } catch (e: any) { return void res.status(e.status ?? 500).json({ error: e.message }); }
+  const r = await reportFor(req, f);
+  const want = new Set((q.data.reports ?? '').split(',').map((x) => x.trim()).filter(Boolean));
+  const slim = (x: any) => ({ name: x.name, jobs: x.jobs, continued: x.continued, written: x.written, sent: x.sent, viewed: x.viewed, chat_opened: x.chat, interview: x.interview, hired: x.hired, lost: x.lost, connects: x.connects });
+  res.json({ jobs: r.jobs, capped: r.capped, totals: slim(r.totals), timing: r.timing, available_reports: r.dims.map((d) => d.key),
+    how_to_read: 'Each group is counted from screened to hired. Rates are of sent proposals: view rate = viewed / sent, chat rate = chat_opened / sent, hire rate = hired / sent. A job with several tags, projects, rules or signals counts under each. Groups with few sent proposals swing a lot: say the sample size.',
+    reports: r.dims.filter((d) => !want.size || want.has(d.key)).map((d) => ({ key: d.key, name: d.label, what: d.help, groups: d.rows.slice(0, q.data.top).map(slim), groups_left_out: Math.max(0, d.rows.length - q.data.top) })) });
 });
 
 // The gate's fails and flags for one job, with each rule and the value behind it: the Result column's detail.

@@ -13,6 +13,16 @@ Stack: Node (Express 5, TypeScript), MySQL/MariaDB, and an AI of your choice (GL
 GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backend-glm-guide.pdf`); GPT calls the OpenAI API. The browser app is plain JavaScript in `backend/public`.
 `NEW-UPDATES.md` is the change log of the speed and refinement rounds (branch `hamza`).
 
+## Where to look
+
+| For | Open |
+| --- | --- |
+| How to use it (for the team, with pictures) | `guide/index.html` |
+| The design rules every page follows | `DESIGN.md` |
+| What was built and why, change by change | `NEW-UPDATES.md` |
+| What is open and how to pick up the work | `TASKS.md` |
+| Using it from Claude (the MCP and the plugin) | `mcp/README.md`, `plugin/README.md` |
+
 ## Pages
 
 | Page | Who | What it does |

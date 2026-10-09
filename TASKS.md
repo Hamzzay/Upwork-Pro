@@ -1,7 +1,8 @@
 # Tasks and handoff
 
 The running task list for Upwork Pro, kept so any Claude (or person) can pick up where the last one stopped.
-**Update this file whenever a task starts, finishes or changes.** What was built and why is in `NEW-UPDATES.md` (R1 to R23 and on).
+**Update this file whenever a task starts, finishes or changes.** What was built and why is in `NEW-UPDATES.md` (R1 to R34 and on).
+The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 October, line by line, are in `CHECKLIST.md`.
 
 ## How to pick up
 
@@ -45,7 +46,11 @@ The running task list for Upwork Pro, kept so any Claude (or person) can pick up
 | 7 | Certifications per profile, used only when a client requires one (R25) | done |
 | 8 | Loom videos per profile, tagged; the best one suggested on the Profile step and given to the plugin (R28). Next, once Hamza picks the topics: proposal types that link a video | done (types later) |
 | 9 | Merged plugin v0.3.0: the team's content plus the Upwork Pro connection, source in `plugin/` (R29). Hamza to install it and run `/proposal` on one job | done (end to end run pending) |
-| 10 | Step-by-step guide for the team, with screenshots and arrows, every tab and screen | to do (after 3 to 8, so the screens are final) |
+| 10 | Step-by-step guide for the team, with pictures and numbered markers, every tab and screen: `guide/index.html` (R34) | done |
+| 11 | One design for every screen, the rules in `DESIGN.md` (R30) | done |
+| 12 | The same filter bar on every list, and a search and filters on every list (R31) | done |
+| 13 | Reports page with 27 trends; the Loom video recorded per proposal (R32) | done |
+| 14 | MCP: `analyze_jobs` (bulk, paged) and `get_trends`; plugin v0.4.0 with the `job-trends` skill; `npm run test:read` (R33) | done (zip the plugin, rebuild the MCP, restart Claude) |
 
 ## Later
 
@@ -53,13 +58,16 @@ The running task list for Upwork Pro, kept so any Claude (or person) can pick up
 
 - Loom: Hamza to choose 5 to 7 video topics per profile and which one to three proposal types link a video; then add a "uses Loom" switch on types and the writer line.
 
+- Zip plugin v0.4.0 (`cd plugin && zip -qr ../stackup-proposals-0.4.0.plugin .claude-plugin README.md skills`), install it, and try "which profile had the best view rate?" in Claude.
+- Reports get useful with volume: keep statuses, Connects and the Loom video recorded on every job.
+- A real 500 job read through the MCP (only 28 jobs exist; paging is tested with small pages and with 500 rows in a unit test).
+- The guide's "waiting" and "decide" pictures could be retaken with the tidier markers (needs a job at the decide step that you own).
 - Host Upwork Pro on a public https address (needed for sign-in from claude.ai and for several Claudes to share it).
 - Plugin version check.
-- Phone width check of the job page.
 - Job #35's proposal was marked finished at 02:56 PKT on 2026-10-09 by the Admin account; Hamza to confirm it was him, else undo.
 
 ## How to test the job page
 
-In Chrome (signed in), for jobs at every stage (#49 decide, #50 projects, #51 review, #36 proposal failed, #35 and #48 ready, #1 and #7
+Every design check is listed at the end of `DESIGN.md`. In Chrome (signed in), for jobs at every stage (#49 decide, #50 projects, #51 review, #36 proposal failed, #35 and #48 ready, #1 and #7
 submitted, #10 and #47 closed, #44 and #45 skipped, #46 screening failed), open each tab and check: every button is in the tab row,
 nothing greyed out, at most five text styles, no "null", "undefined" or "NaN", no console errors.

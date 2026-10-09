@@ -21,6 +21,7 @@ import { createServer } from 'node:http';
 import { runOpenAI, strictSchema } from '../src/llm/openai';
 import { postingSchema } from '../src/screening/posting';
 import { writerSchema, chatSchema } from '../src/proposal/writer';
+import { buildReport, packRows, weekStart, type ReportJob } from '../src/reports';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
 const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string; details?: string }[];
@@ -368,6 +369,41 @@ const ctx = { rules, projects };
     assert.ok(gb.includes('NON-NEGOTIABLE RULES above win') && gb.includes('Screening answers') && gb.includes('BANNED PHRASES'));
     assert.ok(writerSystem({ template: { name: 'Type 3. Invite', body_html: '<p>x</p>', prompt: null }, detected: [], samples: [], sender: { name: 'J', gitlab_link: null, tagline: null }, projects: [], clientRequirements: [], guide: { rules: 'RULES TEXT', banned: null, modules: null, screening: null, checklist: null } })
       .includes('PROPOSAL TYPE: Type 3. Invite') , 'the writer gets the type');
+  }
+
+  // ---------- reports: the same jobs counted along every dimension ----------
+  {
+    const job = (o: Partial<ReportJob>): ReportJob => ({ id: 1, user_id: 1, user_name: 'Ann', profile_id: 1, profile_name: 'P1', source: null, verdict: 'PASS', rule_codes: null, overridden: 0, override_verdict: null,
+      continued: 1, written: 1, template_name: 'Type 1', template_choice: 'auto', sent: 0, sent_at: null, viewed: 0, chat: 0, interview: 0, outcome: null, outcome_reason: null, outcome_at: null, viewed_at: null, chat_at: null,
+      connects_spent: null, boost_connects: null, created_at: '2026-10-07 10:00:00', client_country: 'United States, Austin', job_type: 'hourly', experience_level: 'Expert', loom_video_id: null, loom_video_title: null, secs_to_proposal: 200, words: 150, ...o });
+    const jobs = [
+      job({ id: 1, sent: 1, sent_at: '2026-10-07 11:00:00', viewed: 1, viewed_at: '2026-10-07 13:00:00', chat: 1, chat_at: '2026-10-07 15:00:00', outcome: 'Hired', outcome_at: '2026-10-09 11:00:00', connects_spent: 12, boost_connects: 4, loom_video_id: 3, loom_video_title: 'Voice agents' }),
+      job({ id: 2, sent: 1, sent_at: '2026-10-08 00:00:00', viewed: 1, outcome: 'Not hired', outcome_reason: 'Budget too low', connects_spent: 8, verdict: 'FLAG', rule_codes: 'G3, G14', overridden: 1, override_verdict: 'FLAG' }),
+      job({ id: 3, profile_id: 2, profile_name: 'P2', user_id: 2, user_name: 'Bob', source: 'claude_plugin', sent: 1, sent_at: '2026-10-01 09:30:00', connects_spent: 30 }),
+      job({ id: 4, profile_id: null, profile_name: null, continued: 0, written: 0, template_name: null, verdict: 'FAIL', rule_codes: 'F2', viewed: 1 }), // viewed without sent is not counted
+    ];
+    const r = buildReport(jobs, { tags: [{ screening_id: 1, tag_name: 'Healthcare', category_name: 'Industry' }, { screening_id: 1, tag_name: 'AI agent', category_name: 'Capability' }, { screening_id: 2, tag_name: 'AI agent', category_name: 'Capability' }],
+      projects: [{ screening_id: 1, project_name: 'Apex' }, { screening_id: 1, project_name: 'Breesy' }, { screening_id: 2, project_name: 'Apex' }],
+      signals: [{ screening_id: 1, signal_number: 4, signal_name: 'Positioning', value_name: 'Business outcome', is_fallback: 0 }, { screening_id: 2, signal_number: 4, signal_name: 'Positioning', value_name: 'Default', is_fallback: 1 }] }, ['Not hired', 'No response']);
+    const dim = (k: string) => r.dims.find((d) => d.key === k)!.rows, row = (k: string, name: string) => dim(k).find((x) => x.name === name)!;
+    assert.deepEqual([r.totals.jobs, r.totals.continued, r.totals.written, r.totals.sent, r.totals.viewed, r.totals.chat, r.totals.hired, r.totals.lost, r.totals.connects], [4, 3, 3, 3, 2, 1, 1, 1, 54], 'the totals, with only sent proposals counted as viewed');
+    assert.deepEqual([row('profile', 'P1').sent, row('profile', 'P1').viewed, row('profile', 'P2').sent, row('profile', 'No profile yet').jobs], [2, 2, 1, 1]);
+    assert.deepEqual(row('profile', 'P1').link, { profile: '1' }, 'a row links to its jobs'); assert.equal(row('profile', 'No profile yet').link, null);
+    assert.equal(row('project', 'Apex').sent, 2, 'a job with two projects counts under both'); assert.equal(row('project', 'Breesy').hired, 1);
+    assert.equal(row('industry', 'Healthcare').jobs, 1); assert.equal(row('tag', 'AI agent (Capability)').jobs, 2, 'industry tags are their own report');
+    assert.equal(dim('signal').length, 1, 'a default signal value is left out'); assert.deepEqual(dim('rule').map((x) => x.key).sort(), ['F2', 'G14', 'G3']);
+    assert.equal(row('loom', 'With a Loom video').sent, 1); assert.equal(row('loom', 'No Loom video').sent, 2, 'only sent proposals are compared for Loom');
+    assert.equal(row('source', 'Claude plugin').jobs, 1); assert.equal(row('decision', 'Continued past a flag').jobs, 1); assert.equal(row('loss_reason', 'Budget too low').lost, 1);
+    assert.equal(row('boost', 'Boosted').sent, 1); assert.equal(row('connects', '25 or more Connects').sent, 1); assert.equal(row('country', 'United States').jobs, 4, 'the city is dropped from the country');
+    assert.equal(dim('sent_time').reduce((n, x) => n + x.sent, 0), 2, 'a sent date without a time is left out of time of day');
+    assert.equal(weekStart(new Date('2026-10-07T10:00:00')), '2026-10-05', 'weeks start on Monday'); assert.deepEqual(dim('week').map((x) => x.key), ['2026-10-05'], 'weeks by the date screened');
+    assert.deepEqual([r.timing.hours_to_view, r.timing.hours_to_chat, r.timing.days_to_close], [2, 4, 2]);
+    assert.equal(buildReport([], { tags: [], projects: [], signals: [] }, []).totals.jobs, 0, 'no jobs is not an error');
+    // a bulk read is cut by size, never mid row, and always moves on
+    const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
+    let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }
+    assert.equal(got, 500); assert.ok(pages <= 3, '500 standard rows fit in three answers');
+    assert.equal(packRows([['y'.repeat(200000)]], 80000).rows.length, 1, 'one oversized row still goes through');
   }
 
   console.log('all tests passed');

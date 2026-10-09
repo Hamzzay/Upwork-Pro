@@ -8,7 +8,8 @@
     "start": "node dist/src/index.js",
     "start:http": "node dist/src/index.js --http",
     "dev": "ts-node src/index.ts",
-    "test": "ts-node test/e2e.ts"
+    "test": "ts-node test/e2e.ts",
+    "test:read": "ts-node test/read.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

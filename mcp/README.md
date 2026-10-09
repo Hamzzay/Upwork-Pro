@@ -42,6 +42,22 @@ The same rules as the website apply, because the plugin calls the same API: Sent
 only once it is Sent, a reason for every lost outcome, every change kept in the status and change history. A token reaches only the
 person's own jobs (managers and admins: all), and never users, settings or the website's own pages.
 
+## Reading many jobs for analysis
+
+Two read-only tools let Claude look for trends in the jobs Upwork Pro holds. Both take the Jobs list's filters (dates screened
+or sent, profile, person, phase, outcome, gate result, rule, proposal type, tag, project, Loom video, text) and follow the same
+rule as the website: an employee reads their own jobs, managers and admins read everyone's.
+
+| Tool | What it returns |
+| --- | --- |
+| `analyze_jobs` | One row per job as a list of cells, the column names once in `columns`, newest first. Every row has who, profile, where it was written, gate result and rule codes, the decision, proposal type, projects, industry, proposal length, Loom video, Connects, sent / viewed / chat / interview with their times, outcome and loss reason, client country and budget. `include` adds `client`, `tags`, `signals`, `flags`, `history`, `description`, `proposal`. |
+| `get_trends` | The Reports page as numbers: for every group of every report (profile, person, type, project, industry, tag, signal, rule, verdict, source, loom, week and more), the count at each step from screened to hired, and the Connects. |
+
+An answer never gets cut off. `analyze_jobs` stops a page at about 80,000 characters and returns `more` and `next_after`: Claude
+calls again with `after` until `more` is false. 500 jobs take about 3 calls with the standard columns and about 17 with every
+heavy field. Each bulk read is written to the Logs (`analysis_read`). For a file instead, use Export on the Jobs page (up to
+5,000 jobs).
+
 ## Run it on your machine (test)
 
 ```
@@ -108,6 +124,10 @@ a code used twice refused, refresh, a reused refresh token cutting the connectio
 PKCE check refused. Not yet tried from claude.ai itself: that needs the server on a public https address.
 
 ## Tests
+
+`npm run test:read` checks the MCP against a running Upwork Pro and saves nothing, so it is safe on the real database: every
+read tool answers whole, `analyze_jobs` returns every job once across its pages, and `get_trends` agrees with the rows. Set
+`TOKEN` to a personal token (Connect Claude, Make a token) and, if the app is not on port 3000, `API_URL`.
 
 `npm test` runs 24 end-to-end checks through the MCP SDK's own client against a **scratch database** (never the real one): permissions per role,
 token limits, the real workbooks, previews, blocks, bad rows, stale commits, undo order, file safety, and the remote mode.

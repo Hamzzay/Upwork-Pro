@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 021: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
+npm run migrate        # applies 008 to 025: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
 npm run seed:writing   # the shared writing rules (rules, banned phrases, modules, screening answers, checklist), insert-if-missing
 npm run seed:proposals # the 3 new signals and the 6 proposal types (R21)
 npm run merge:writing  # once: retires the 3 SOP templates, moves their samples to Type 1, drops the duplicate type documents (R21)
@@ -642,6 +642,110 @@ The plugin's source is now in this repo (`plugin/`); the installable file is `~/
   tags as 0 until their tagging cleanup; Upwork Pro uses its Settings (minimum score) and the Tag dictionary weights.
 - Checked: `claude plugin validate` passes; every file a skill names exists; the reference files match Upwork Pro's writing guide.
   Not yet run end to end in Claude with a real job: install it, sign in to the connector, and try `/proposal` on one job.
+
+### R30. One design for every screen (done)
+Hamza: the job page looks right, the rest of the platform does not match it. Every screen was read and opened (26 screens, the
+dialogs, phone width, dark mode), then rebuilt on one system. The rules are in `DESIGN.md` (the 20 user experience rules the
+platform follows, the text styles, colours, layout and the shared parts); the request list with what was checked is `CHECKLIST.md`.
+- **One stylesheet** (`style.css`, rewritten): seven text styles and two weights everywhere (no capitals, no uppercase table headers
+  or section titles), flat cards (a shadow only on dialogs, menus and messages), one button height, one badge, one tab style, one way
+  to show facts (`dl.facts` / `dl.kv`), one notice, one folded section. The page spaces its own parts, so the spacer elements and
+  inline margins are gone.
+- **One page header** (`pageHead(title, sub, actions, { back, badges })`): the back link above the title, the status badge beside
+  it, one quiet line, buttons on the right. The five detail pages (project, industry, signal, proposal type, writing guide document)
+  had their own "Back to" link and put the badge among the buttons.
+- **One badge**: Pass, Flag and Fail are words everywhere (`verdictBadge`); on or off is `onOff(active)`. "Inactive" badges used to
+  pulse like a loading state.
+- **One table**: quiet headers, the row's buttons right aligned in one cell (`acts`), and Delete inside the edit dialog (Upwork
+  profiles had it in the row). `dataTable(heads, rows)` builds it.
+- **Dialogs**: the title and the buttons stay in view while the form scrolls; a destructive confirm is a red button. The browser's
+  own `confirm` pop-ups (four in the proposal editor, one on leaving a tab) are the app's dialog now (`ask`).
+- **Tabs**: Jobs, a job, the tag dictionary and Logs use the same tabs (Logs had a segmented control, the dictionary a third style).
+- **Sidebar**: the links scroll on their own so the person's name and Sign out never fall off a short screen; on a phone it is a top
+  bar with a Menu button (it was a row of icons without labels).
+- **Dates** read "7 Oct 2026" in lists (they were ISO in some, relative in others). Logs show readable action names on one line.
+- **Rules** is one list with a Type column (it was two tables). **Loom videos** uses card heads like every other card.
+- **Fixed on the way**: saving a tag failed (the dialog read a field that does not exist); a proposal type with no samples printed
+  "null"; Settings did not show three settings (outcomes that count as lost, loss reasons, days before "gone quiet").
+- Checked: `node --check`; a script opens 128 routes (every page, and every tab of 12 jobs at every stage) and finds no console
+  error, no "null" / "undefined" / "NaN" and no sideways scroll; 16 pages at phone width (390); dark mode; the employee's view
+  (admin pages stay closed, another person's job stays closed).
+
+### R31. The same filter bar on every list, and every list has one (done)
+Hamza: the filters were half a row here, a row and a half there. Now one bar (`filterBar`, `fSearch`, `fSelect`, `dateField`, and
+`listCard` for any list held in memory): a search box two columns wide, every filter one column of the same grid, the list's own
+buttons at the right end, and "Clear filters" only while something is filtered. Search, filters and the page are kept in the link.
+| List | Filters |
+| --- | --- |
+| Jobs | search, from, to, step, rule, profile, person, outcome, proposal type, where it was written, only mine |
+| Projects | search, industry, tag, content (case study, link, tags), status |
+| Industries | search, status |
+| Tag dictionary | tags: search, category, status. Categories: search, kind |
+| Upwork profiles | search, status, setup (rate and headline set or not) |
+| Loom videos | search, profile, status, tagged or not |
+| Signals | search, layer, kind, status |
+| Writing guide | search, kind, setup (types without samples or signals, turned off) |
+| Rules | search, fail or flag, status, fired or never |
+| Users | search, role, status |
+| Logs | action, person, from, to; AI calls: job type, result, model, from, to |
+| Gate instructions and writing guide versions | search |
+| Dashboard, Reports | period, profile, person (and for Reports: dates by screened or sent, where written, gate result) |
+Date filters say "From" and "To" inside the control (they were two unlabelled date boxes). Checked by the same script: on every
+list a search that matches nothing shows the empty state and Clear, Clear brings the rows back, and every dropdown filters.
+
+### R32. Reports: every trend, and the Loom video that went with a proposal (done)
+- **Reports page** (sidebar, under Jobs; everyone, an employee sees their own jobs). `GET /reports` with the Jobs list's filters;
+  the counting is pure code in `src/reports.ts` (tested without a database).
+- **The top**: sent, view rate, chat rate, interview rate, hire rate, Connects per hire; the funnel with each step as a share of the
+  one before; jobs and proposals by week; how long things take (paste to proposal, sent to first view, to chat, to close).
+- **What is working**: for profile, proposal type, project, industry, person, Loom video, where it was written, day sent and boost,
+  the group with the best rate, against the others together. Only groups with at least 3 sent proposals, and it says so when there
+  are too few.
+- **27 reports of the same jobs**, each with the funnel and the rates per group: profile, person, proposal type, how the type was
+  chosen, project attached, number of projects, industry, job tag, signal, rule fired, gate result, decision, where it was written,
+  Loom video or none, which Loom video, boost, Connects spent, proposal length, speed to proposal, day sent, time sent, client
+  country, job type, experience level, outcome, why lost, week. One opens in full ("Break it down": sortable columns, "At least N
+  sent" to hide small groups); all 27 are on the page as small cards.
+- **Every row opens its jobs.** The Jobs list (and the export, which uses the same filters) can now filter by proposal type, where
+  it was written, a tag, a project shown, with or without a Loom video, and the date sent (`ptype`, `source`, `tag`, `project`,
+  `loom`, `sent_from`, `sent_to` in `listFilters`). **Export** saves all 27 as one CSV.
+- **Loom video per proposal** (migration `025_loom_on_proposals.sql`: `screenings.loom_video_id`, `loom_video_title`): on a job's
+  Tracking tab, Edit details has "Loom video sent with the proposal" (the sending profile's videos). Without this, "video against no
+  video" could not be counted. Run `npm run migrate`.
+- Not reportable yet, because it is not recorded: which screening answers were used, and the client's reply text.
+
+### R33. The MCP reads jobs in bulk for analysis (done)
+Hamza: later I want to pull 500 jobs, or the jobs between two dates, with everything, into my Claude to see which got viewed, which
+got a chat, which proposal worked.
+- **`analyze_jobs`** (`GET /plugin/analysis/jobs`): one row per job as a list of cells with the column names once, newest first, with
+  the Jobs list's filters plus `profile_name` and `person`. Standard columns cover who, profile, where written, gate result, rules,
+  decision, type, projects, industry, length, Loom video, Connects, sent / viewed / chat / interview with times, outcome, loss
+  reason, country, budget. `include` adds client facts, tags, signals, flags with their values, status history, the job post and
+  the proposal text. **An answer is never cut off**: a page stops at about 80,000 characters and returns `more` and `next_after`.
+  500 jobs take about 3 calls with the standard columns, about 17 with everything.
+- **`get_trends`** (`GET /plugin/analysis/report`): the Reports page as numbers, so Claude does not count by hand.
+- **Plugin v0.4.0**: new skill `job-trends` (which tool to use, read every page before analysing, give the sample size with every
+  rate). Zip it as before; rebuild the MCP (`cd mcp && npm run build`) and restart Claude.
+- **Checked**: `npm run test:read` in `mcp/` (new, read only, safe on the real database): all 14 checks pass against the running app
+  (every read tool answers whole; `analyze_jobs` returns every job once across its pages; `get_trends` agrees with the rows). Paging
+  forced with small pages (3, 6 and 12 pages, no job lost or repeated). The write tools run end to end on a throwaway job (save,
+  duplicate refused, decision without a reason refused, Sent before the proposal refused, proposal, Sent, Viewed, a loss without a
+  reason refused, lost, read back), then the job was removed and the test token revoked. The scratch database suite
+  (`mcp/test/e2e.ts`) was not run: the app's database user may not create a database.
+- A real 500 job run could not be made (the database holds 28 jobs); the paging is unit tested with 500 rows instead.
+
+### R34. The team guide, with pictures (done)
+`guide/index.html` (open it in a browser; it prints well too): 53 pictures of the finished design, each with numbered markers and
+a list under it saying what each number is. Sections: start here (roles, the layout, phones), the daily job without Claude (screen,
+decide, projects, profile, proposal, send, status, Connects and Loom), finding and following jobs (tabs, filters, columns, export),
+working with Claude (connect, the plugin, what to say), adding and managing the library (projects, industries, tags, profiles, Loom
+videos), how proposals are written (signals, writing guide, types, rules, gate instructions, settings, users), reading the numbers
+(Dashboard, Reports, Logs), and five habits with a "when something goes wrong" table.
+- The text is in `guide/build.py`; run `python3 guide/build.py` after editing it. Pictures are in `guide/img/`.
+- The job in the pictures was an invented posting run through the real flow with the real AI (which also proved the redesigned job
+  page end to end: screen, continue, projects, profile, proposal, finish, sent, viewed, details). It was removed afterwards, with the
+  two sign-ins made for the checks.
+- Two pictures were taken before the marker style was tidied (the "waiting" and "decide" ones); they are readable but denser.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
