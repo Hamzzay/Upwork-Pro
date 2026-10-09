@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import { appRoot, config } from './config';
 import { api } from './routes';
 import { oauth } from './oauth';
+import { attachUser } from './auth';
 
 const app = express();
 app.disable('x-powered-by');
@@ -26,6 +27,9 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use('/api', api);
+// The team guide (guide/ at the top of the repository), at /guide, for signed-in people only: its pictures show our jobs and profiles.
+app.use('/guide', attachUser, (req, res, next) => (req.user ? next() : res.redirect('/')),
+  express.static(path.join(appRoot, '..', 'guide'), { index: 'index.html', setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 app.use(express.static(path.join(appRoot, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') })); // revalidate, so a deploy is seen without a hard reload
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

@@ -301,7 +301,8 @@ const NAV = [
     { key: 'new', icon: 'screen', label: 'Screen a job' },
     { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
     { key: 'reports', icon: 'chart', label: 'Reports' },
-    { key: 'connect', icon: 'link', label: 'Connect Claude' }] },
+    { key: 'connect', icon: 'link', label: 'Connect Claude' },
+    { href: '/guide/', icon: 'info', label: 'Guide' }] }, // the team guide, served beside the app; it opens in its own tab
   { label: 'Library', links: [
     { key: 'projects', icon: 'folder', label: 'Projects' },
     { key: 'industries', icon: 'building', label: 'Industries' },
@@ -319,8 +320,9 @@ const NAV = [
     { key: 'audit', icon: 'audit', label: 'Logs', roles: ADMIN }] },
 ];
 function shell(active, content, wide) {
-  const a = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label));
-  const groups = NAV.map((g) => [g.label, g.links.filter((l) => !l.roles || l.roles.includes(me.role)).map((l) => [l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label])])
+  const a = ([key, ic, label]) => (key.startsWith('/') ? h('a', { href: key, target: '_blank', rel: 'noopener' }, icon(ic), h('span', {}, label))
+    : h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label)));
+  const groups = NAV.map((g) => [g.label, g.links.filter((l) => !l.roles || l.roles.includes(me.role)).map((l) => [l.href || l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label])])
     .filter(([, links]) => links.length);
   const menu = h('button', { class: 'btn sm navtoggle', type: 'button', 'aria-expanded': 'false', onclick: () => { const open = menu.closest('.shell').classList.toggle('navopen'); menu.setAttribute('aria-expanded', String(open)); } }, icon('list'), 'Menu');
   $app.replaceChildren(h('div', { class: 'shell' },

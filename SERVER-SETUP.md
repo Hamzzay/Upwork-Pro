@@ -158,8 +158,9 @@ Certbot adds the https part and renews the certificate by itself. Leave ports 30
 
 1. Users: add each person with a temporary password (give it to them privately) and their role.
 2. Change the first admin's password if it was shared with anyone.
-3. Send the team the address, the guide (`guide/index.html` in the repository) and the plugin file
-   `stackup-proposals-0.4.0.plugin`.
+3. Send the team the address and the plugin file `stackup-proposals-0.4.0.plugin`. The guide comes with the app: **Guide** in the
+   sidebar, or `https://YOUR-DOMAIN/guide/` (signed-in people only). Nothing extra to set up: it is served from the `guide`
+   folder of the clone, so `git pull` updates it.
 
 ## Updating later
 

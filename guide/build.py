@@ -193,14 +193,14 @@ body = ''.join(f'<h2 id="{k}">{e(t)}</h2>' + ''.join(parts) for k, t, parts in S
 page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Upwork Pro: the team guide</title><style>{CSS}</style></head>
-<body><div class="wrap"><nav><strong>Upwork Pro guide</strong>{nav}</nav><main>
+<body><div class="wrap"><nav><strong>Upwork Pro guide</strong>{nav}<a id="toapp" href="/" hidden>Back to Upwork Pro</a></nav><main>
 <h1>Upwork Pro: the team guide</h1>
 <p class="lead">How to do the daily work, with Claude and without it, how to add and manage everything proposals are built from, and how to read the numbers. Each picture has numbers on it; the list under the picture says what each one is. Click a picture to see it full size.</p>
 {body}
 <p class="after" style="margin-top:48px">Pictures show Upwork Pro as of 9 October 2026. To update this guide, edit <code>guide/build.py</code> and run it.</p>
-</main></div></body></html>
+</main></div><script src="guide.js"></script></body></html>
 """
 open(os.path.join(HERE, 'index.html'), 'w').write(page)
-used = {p.split('img/')[1].split('"')[0] for p in page.split('src="')[1:]}
+used = {p.split('"')[0] for p in page.split('src="img/')[1:]}
 have = set(os.listdir(os.path.join(HERE, 'img')))
 print('built index.html:', len(used), 'pictures;', 'missing:', sorted(used - have) or 'none', '; not used:', sorted(have - used) or 'none')

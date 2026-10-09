@@ -747,6 +747,13 @@ videos), how proposals are written (signals, writing guide, types, rules, gate i
   two sign-ins made for the checks.
 - Two pictures were taken before the marker style was tidied (the "waiting" and "decide" ones); they are readable but denser.
 
+### R35. The guide is served with the app (done)
+The team guide is at `/guide/` on the same address as Upwork Pro, with a **Guide** link in the sidebar (it opens in its own tab).
+Signed-in people only (`server.ts`: `/guide` goes through `attachUser`; anyone else is sent to the sign-in page), because its
+pictures show our jobs and profiles. It is served from the `guide` folder at the top of the repository, so a `git pull` updates
+it and the server needs nothing extra. Checked: signed out, the page and a picture redirect to sign-in; signed in, both load.
+The sidebar link itself was not looked at in a browser. `SERVER-SETUP.md` (new) is the step by step for putting it all on a server.
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.
