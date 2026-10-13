@@ -42,27 +42,39 @@ A project's platform comes from its links and tags: a Landing Page or System lin
 
 Excluded projects are never recommended and never appear in the top five. If the filter leaves fewer than two qualifying projects, say so plainly, recommend what qualifies, and flag the gap under "Needs your eye". Never fill the gap with a wrong platform project.
 
-## Step 2. Industry
+## Step 2. The work first
 
-1. Take the job industry from the `job-signals` reading (the Job industry signal). It is the industry of the client's business or of the end users the product serves, not the client's own trade as a software buyer.
+The same rule as Upwork Pro (`get_library` returns it under `matching`; follow that text if it differs from this file).
+
+Name the job's **core work**: one to three specific tags from the job's tags, the main work first (for a scraping job "Web scraping /
+data pipelines"; for a voice receptionist "AI voice agent"). Never broad tags such as Workflow automation, AI automation, AI powered or
+Ongoing maintenance / support. Show it in the "Job needs" line.
+
+A project **proves the job** only if it shares a core work tag. Projects that prove the work always rank above those that do not,
+whatever their industry, and only they are recommended. Among them, projects that did the main work come first. A same industry
+project that did none of the work is never recommended.
+
+## Step 3. Industry, within the projects that prove the work
+
+1. Take the job industry from the `job-signals` reading (the Job industry signal). It is **one** industry: the client's own business, or the users of what is built. Never the industries of data to be collected, leads or contacts to be found, or markets to be reached (a recruitment company scraping real estate contacts is Recruitment / HR, not Real estate).
 2. **If the job names or clearly implies an industry,** sort every project into three pools. A project's industries come from `get_library`; related industries from `references/industry-map.md` (the same list is on Upwork Pro's Industries page):
     * **Same industry:** the project carries the job's industry tag, or its overview clearly places it in that industry.
     * **Related industry:** the project's industry is listed as related in the industry map (for example a Healthcare project for a Dental job).
     * **Other:** everything else.
-3. **If the job does not name or imply an industry** (for example "automate our email inbox" with no business described), skip this step: all platform qualified projects form one pool and Step 3 decides alone. Say "No industry stated, matched on tags only."
+3. **If the job does not name or imply an industry** (for example "automate our email inbox" with no business described), skip this step: all platform qualified projects form one pool and Step 4 decides alone. Say "No industry stated, matched on tags only."
 
-## Step 3. Tags within the pool
+## Step 4. Tags within the pool
 
-1. Score each project on the job's tags using each tag's `weight` from `get_library` (fallback: `references/tag-weights.md`). Industry tags are excluded from this score; industry was already handled in Step 2.
+1. Score each project on the job's tags using each tag's `weight` from `get_library` (fallback: `references/tag-weights.md`). Industry tags are excluded from this score; industry was already handled in Step 3.
 2. A project scores the weight of every tag it shares with the job's tags. "AI powered" scores 0.
-3. Minimum useful tag score: 6. Below it, a project does not prove the work.
+3. Minimum tag score: `matching.min_score` from `get_library` (the app's setting). Below it, a project is not shown.
 4. **Core workflow check.** A project only counts as a strong match if it delivered the job's core workflow from Step 0, not just shared generic tags (Admin dashboard, Role based access, Reporting). When two projects have similar scores, the one that did the core workflow ranks higher.
 
 ## Build the shortlist
 
-1. Rank Same industry projects first, by tag score. Then Related industry, by tag score. Then Other, by tag score.
-2. Take the top five from that order. If the Same industry pool has five or more projects, the shortlist is all Same industry.
-3. **Recommend two from the Same industry pool** whenever it has projects that clear the minimum tag score. If only one does, recommend it plus the best Related or Other project. If none does, recommend from Related, then Other, and say plainly that no project in the job's industry proves this work.
+1. Projects that did the main work first, then those that did other core work (Step 2). Within each, Same industry first, then Related, then Other; then the number of core work tags shared; then the tag score. Projects that do not prove the work come after all of them.
+2. Take the top `matching.shown` (usually five) from that order. Offer to show the next ten if the person wants more.
+3. **Recommend the first two that prove the work** in that order. If no project in the job's industry proves the work, say so plainly.
 4. **Better fit from another industry.** If a project outside the job's industry has a tag score at least 1.5 times the best Same industry score, and matches the job's core workflow or AI capability, show it below the five as **"Alternative from another industry"** with two or three lines explaining why it may be the stronger proof. Never let it replace a Same industry recommendation on its own; the person decides.
 5. If the job has a compliance tag, at least one recommended project must share it. If none in the industry pool does, say so and name the best project outside the pool that does.
 6. Keep the two recommended projects distinct: they should prove different parts of the job, not repeat the same match.

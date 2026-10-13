@@ -45,6 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.4.2)
+
+v0.4.2: one matching rule with the app (13 October). The work first: the job's core work is named (one to three tags, the main
+work first) and only projects that did it are recommended. Then ONE job industry, the client's own business (never the industries of data or leads the job is about). The
+minimum score and tag weights come from Upwork Pro (`get_library`, `matching`); the plugin's own "6" and "Project stage 0" are gone.
+
 ## Status (v0.4.1)
 
 v0.4.1: the Loom video. After the proposal type (step 8), `/proposal` now asks which of the sending profile's Loom videos to send, or

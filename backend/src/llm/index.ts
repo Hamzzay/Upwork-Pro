@@ -9,7 +9,8 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
   const names: string[] | undefined = (o.schema as any)?.properties?.tags?.items?.properties?.tag?.enum;
   if (names) { // the tagging call: a fixed spread of dictionary tags, so matching has something to score
     const pick = [1, 12, 25, 40, 55, 70, 85].map((i) => names[i % names.length]);
-    const data = { tags: [...new Set(pick)].map((tag) => ({ tag, reason: 'Mock reason: no real tagging was done.' })) };
+    const inds: string[] = (o.schema as any)?.properties?.industry?.enum ?? [];
+    const data = { industry: inds[0] ?? 'None stated', industry_reason: 'Mock reason.', core_work: [pick[2]], tags: [...new Set(pick)].map((tag) => ({ tag, reason: 'Mock reason: no real tagging was done.' })) };
     return { text: JSON.stringify(data), data, raw: {} };
   }
   const props: any = (o.schema as any)?.properties ?? {};

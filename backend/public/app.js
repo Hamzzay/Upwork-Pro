@@ -1028,7 +1028,7 @@ function matchingSection(s, initial) {
   const owner = s.user_id === me.id;
   const setActions = actionsFor();
   const box = h('div', {});
-  let m = initial, timer = null, picked = null;
+  let m = initial, timer = null, picked = null, showMore = false;
   const busy = () => m.status === 'queued' || m.status === 'running';
   const dateTxt = (d) => full(d);
 
@@ -1050,7 +1050,7 @@ function matchingSection(s, initial) {
       h('summary', {}, `Why these projects: the job's ${m.tags.length} tags`),
       h('div', { class: 'tagsgrid' }, cats.map((c) => h('div', { class: 'tg' }, h('div', { class: 'tc-title' }, c),
         m.tags.filter((t) => t.category === c).map((t) => h('div', { class: 'trow' },
-          h('div', { class: 'tname' }, h('strong', {}, t.name), h('span', { class: 'wt', title: 'Match weight' }, '×' + t.weight)), h('div', { class: 'treason' }, t.reason)))))));
+          h('div', { class: 'tname' }, h('strong', {}, t.name), h('span', { class: 'wt', title: 'Match weight' }, '×' + t.weight), t.core_rank ? h('span', { class: 'chip brand' }, t.core_rank === 1 ? 'Main work' : 'Core work') : null), h('div', { class: 'treason' }, t.reason)))))));
   }
 
   function matchesBlock() {
@@ -1082,7 +1082,8 @@ function matchingSection(s, initial) {
     if (owner) setActions(
       !isRec && recIds.length >= pmin && recIds.length <= pmax ? actBtn('Use recommended', () => { picked = new Set(recIds); draw(); }) : null,
       changed ? actBtn(confirmLabel, (e) => save([...picked], e.currentTarget, confirmLabel), true) : null);
-    const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended && !r.alternative), alt = rows.filter((r) => r.alternative);
+    const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended && !r.alternative && !r.extra), alt = rows.filter((r) => r.alternative);
+    const extra = rows.filter((r) => r.extra), moreOpen = showMore || extra.some((r) => picked.has(r.project_id));
     const POOL = { same: 'Same industry', related: 'Related industry', other: 'Other industry' };
     const card = (r) => {
       const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= pmax && !on);
@@ -1093,6 +1094,8 @@ function matchingSection(s, initial) {
         h('div', { class: 'mtop' }, owner ? cb : null, h('span', { class: 'rank' }, '#' + r.rank),
           h('div', { class: 'mname' }, r.project_id ? h('a', { href: '#/p/' + r.project_id }, r.project_name) : h('span', {}, r.project_name, h('span', { class: 'faint small' }, ' (removed from library)'))),
           r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip' }, r.alternative ? 'Alternative' : 'Match')),
+        r.named_in_screening ? h('div', { class: 'jp-label' }, icon('check'), ' Named in screening') : null,
+        r.proves_work === false ? h('div', { class: 'cgap' }, icon('warn'), 'Shares none of the job\'s core work (workflow or AI capability)') : null,
         POOL[r.pool] || r.platform ? h('div', { class: 'jp-label' }, [POOL[r.pool], r.platform && r.platform !== 'not known' ? 'Runs on ' + r.platform : null].filter(Boolean).join(' · ')) : null,
         h('div', { class: 'mscore' }, h('div', { class: 'bar', role: 'img', 'aria-label': `Score ${r.score} of ${r.max_score}` }, h('i', { style: `width:${Math.max(3, r.percent)}%` })),
           h('span', { class: 'sc' }, h('strong', {}, r.score), ` of ${r.max_score} · ${r.percent}%`)),
@@ -1110,8 +1113,11 @@ function matchingSection(s, initial) {
         alt.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'jp-sec' }, 'Alternative from another industry'),
           h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'It shares much more with this job than the best project from the same industry. Use it when the work matters more than the industry.'),
           h('div', { class: 'mgrid' }, alt.map(card))) : null,
+        extra.length && moreOpen ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'jp-sec' }, 'More projects'),
+          h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'The next best matches, in the same order.'), h('div', { class: 'mgrid' }, extra.map(card))) : null,
+        extra.length && !moreOpen ? h('div', { style: 'margin-top:14px' }, h('button', { class: 'btn', type: 'button', onclick: () => { showMore = true; draw(); } }, `Show ${extra.length} more project${extra.length === 1 ? '' : 's'}`)) : null,
         owner && picked.size >= pmax ? h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Untick one to choose a different project.') : null,
-        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Score: the weights of the tags a project shares with this job (industry not counted). Projects from the job\'s industry come first, then related industries. Projects that do not run on what the job builds are left out.')));
+        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Order: projects that share the job\'s core work (a workflow or AI capability tag) come first; among them, the job\'s industry first, then related industries, then the rest; then the score. Score: the weights of the tags a project shares with this job, industry not counted (workflow 3, AI capability up to 3, stage, product, automation and compliance 2, tools, models and stack 1). Projects that do not run on what the job builds are left out.')));
   }
 
 

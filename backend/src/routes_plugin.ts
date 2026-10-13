@@ -284,8 +284,13 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
   const links = await query<any>(`SELECT pt.project_id, t.name, c.name AS category FROM project_tags pt JOIN tags t ON t.id=pt.tag_id AND t.active=1 JOIN tag_categories c ON c.id=t.category_id`);
   const inds = await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id');
   const clean = (o: any) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== '' && !(Array.isArray(v) && !v.length)));
+  const cfg = await getSettings();
   res.json({
-    note: 'Industry is matched first (industries), then tags by their weight. Tags with weight 0 carry no matching weight. Case studies are left out: ask for them by project name once the projects are chosen.',
+    note: 'Match exactly as "matching" says (the same rule as the app). Tags with weight 0 carry no matching weight. Case studies are left out: ask for them by project name once the projects are chosen.',
+    matching: {
+      rule: 'Platform filter first. Then the work: name the job\'s core work, one to three specific tags, the main work first (for a scraping job Web scraping / data pipelines; never broad tags like Workflow automation, AI automation, AI powered, Ongoing maintenance). A project proves the job only if it shares a core work tag; only those are recommended, and those that did the main work come first. Then industry: the job has ONE industry, the client\'s own business (never the industries of data, leads or markets the job is about); same industry first, then related, then the rest. Then how many core work tags a project shares. Then the tag score: the weights of the shared tags, industry not counted.',
+      min_score: cfg['matching.min_score'], shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], more: 10,
+    },
     tag_dictionary: cats.map((c) => ({ category: c.name, compliance: !!c.is_compliance,
       tags: tags.filter((t) => t.category_id === c.id).map((t) => clean({ name: t.name, weight: Number(t.weight), description: t.description })) })).filter((c) => c.tags.length),
     projects: projects.map((p) => clean({ name: p.name, proposal_link: p.live_link, landing_link: p.landing_link, system_link: p.system_link, mobile_link: p.mobile_link,

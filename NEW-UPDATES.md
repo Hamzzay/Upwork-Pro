@@ -828,6 +828,29 @@ without errors, passes `claude plugin validate` and is identical to the `plugin`
   passwords refused; the change works; this session stays and another is signed out; the old password stops working), and in the
   browser as a second admin. The Claude sign-in page's Show button was not seen in a browser (it needs a live request from Claude).
 
+### R41. Matching, one workflow for screening and the project step (done, 13 October)
+What went wrong (live jobs #19 and #29): a recruitment company wanted contact data scraped for real estate, trades and medical
+centres. The tagger gave the job four industries, so Healthcare counted as "same industry" and Doctoria, Navience and
+DentalMasteryDynamics were shown above the projects that did scraping. And screening picked its own sample projects in a separate
+reading, so the screening notes and the project step disagreed.
+- **One job industry**: the tagger now gives exactly one (or "None stated"), the client's own business or the users of what is built,
+  never the industries of data, leads or markets the job is about, with a reason. It can no longer return several.
+- **The work first**: the tagger names the job's core work, one to three specific tags, the main work first (never broad ones like
+  Workflow automation or AI powered). Only projects that did the core work are recommended; those that did the main work come first.
+  Then the job's industry, then related industries, then the rest; then how much core work is shared; then the score.
+- **One list**: the projects screening named are always on the project step, marked "Named in screening". Screening now picks them
+  by the same rule.
+- **Show 10 more projects** (task 22): ten more matches behind a button on the project step; any of them can be chosen.
+- The project step marks the core work ("Main work", "Core work") in the tag list, shows it in the "Job needs" line, warns on a card
+  that shares none of it, and explains the order and the tag weights.
+- The Claude plugin follows the same rule (v0.4.2): `get_library` returns it with the minimum score under `matching`; the plugin's own
+  minimum of 6 and its "Project stage counts 0" are gone, so the Tag dictionary weights and the Settings minimum apply to both.
+- Migration `027_matching_one_workflow.sql`. Jobs keep their old matches until they are matched again ("Find matching projects").
+- `npx ts-node scripts/try-matching.ts <job text file>` shows the industry, core work and ranking for a job without saving anything.
+- Checked: tests (the 13 October job, one industry, core work order, screening's projects, the extra ten); the real model on the
+  scraping job (industry Recruitment / HR, core work scraping then lead generation, Breesy and Bitrix24 recommended, no healthcare),
+  job #50 (real estate lead response), a dental voice job and a legal RAG job; job #50 on the page with "Show 10 more projects".
+
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
 screen.

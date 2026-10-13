@@ -56,14 +56,14 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 
 | # | Task | Status |
 | --- | --- | --- |
-| 15 | Matching, the heart of the app: one workflow for screening and the project step (see "Matching: the proposal" below). Needs Hamza's yes first | to do |
+| 15 | Matching, the heart of the app: one workflow for screening and the project step (R41) | done |
 | 16 | Skipping a job after its flags or fails asks for a reason: four or five quick picks plus a text field, saved and logged | to do |
 | 17 | Screening questions: when the client lists them in Upwork's separate questions section, the signals and the proposal type come from the job alone, and the answers are written and shown separately, each easy to copy. Questions inside the description are handled as now (the recommended type) | to do |
 | 18 | The first two lines: in the writing guide, each proposal type gets its own instructions for the opening two lines, strictly followed and checked | to do |
 | 19 | Pakistan time (UTC+5) everywhere: the live server runs in UTC, so a new proposal shows "5 hours ago" | to do |
 | 20 | Active and inactive straight from every list (rules, projects, profiles, tags, industries, Loom videos, types): click the status, confirm in a popup, done | to do |
 | 21 | Projects get two mobile links, Android and iOS. Existing links are split by store, nothing lost | to do |
-| 22 | Project step: "Show 10 more projects", like the proposals list | to do |
+| 22 | Project step: "Show 10 more projects" (R41) | done |
 | 23 | Change the proposal type after a proposal is written, from the proposal screen, and rewrite | to do |
 | 24 | No Tracking tab: the proposal screen has Copy, Save, and "Save and mark sent", which asks for Connects, boost, Loom video, status, when, notes. Tracking details show on the Overview tab | to do |
 | 25 | A loader while a proposal is rewritten from the chat box | to do |
@@ -80,7 +80,7 @@ projects that prove scraping. Separately, screening picks its own "sample projec
 and the project step disagree (job #50: screening named Seller Genius AI, Rock County Sealcoat, Apex; the project step recommended
 Seller Genius AI and Breesy).
 
-### Matching: the proposal (waiting for Hamza's yes)
+### Matching: the proposal (approved 13 October, built in R41 with core work named by the tagger)
 
 1. One job industry: the client's business, or the users of what is built. Never the industries of data to be collected, leads to be
    found or markets to be reached. None when unclear.
@@ -92,7 +92,6 @@ Seller Genius AI and Breesy).
 
 ## Later
 
-- Plugin and app matching differ on two points (minimum tag score 6, Project stage weight 0 in the plugin): decide one rule for both.
 
 - Loom: Hamza to choose 5 to 7 video topics per profile and which one to three proposal types link a video; then add a "uses Loom" switch on types and the writer line.
 

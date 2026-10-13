@@ -5,7 +5,7 @@
 | Workflow type | 3 | Clients buy the shape of the work |
 | AI capability | 3 | Except "AI powered", which is 0 |
 | Product type | 2 | |
-| Project stage | 0 (interim; normally 2) | Set to 0 until the tagging cleanup is finished |
+| Project stage | 2 | The weights in Upwork Pro's Tag dictionary (`get_library`) win over this backup |
 | Industry | Not scored here | Industry is matched first, as its own step, in `industry-map.md` |
 | Automation | 2 | |
 | Compliance / sensitive data | 2, and required | Jobs with a compliance tag push projects without it below those with it |

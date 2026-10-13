@@ -8,7 +8,7 @@ import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, gatePrompt, norma
 import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
-import { jobNeeds, jobPlatform, pickLoom, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
+import { coreWork, jobNeeds, jobPlatform, pickLoom, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
@@ -104,8 +104,11 @@ const ctx = { rules, projects };
   m = rankProjects([wf1, ind], many);
   assert.equal(m.length, 5); assert.deepEqual(m.map((x) => x.rank), [1, 2, 3, 4, 5]); assert.deepEqual(m.map((x) => x.recommended), [true, true, false, false, false]);
   // compliance: projects missing a required compliance tag go below those that have it, even with a higher score
-  m = rankProjects([wf1, ind, hipaa], [P(40, 'HighNoHipaa', 1, 2), P(41, 'LowWithHipaa', 5)]);
+  m = rankProjects([wf1, ind, tool, hipaa], [P(40, 'HighNoHipaa', 1, 3), P(41, 'LowWithHipaa', 1, 5)]);
   assert.deepEqual(m.map((x) => [x.project_name, x.compliance_gap]), [['LowWithHipaa', 0], ['HighNoHipaa', 1]]);
+  // ...but the work comes first: a project with only the compliance tag does not prove the job, and is never recommended
+  m = rankProjects([wf1, ind, hipaa], [P(42, 'WorkNoHipaa', 1), P(43, 'OnlyHipaa', 5)]);
+  assert.deepEqual(m.map((x) => [x.project_name, x.proves_work, x.recommended]), [['WorkNoHipaa', true, true], ['OnlyHipaa', false, false]]);
   // no compliance tag in the job: no gap anywhere
   assert.ok(rankProjects([wf1], [P(50, 'X', 1)]).every((x) => x.compliance_gap === 0));
   // fewer than 2 matches, and none
@@ -134,12 +137,13 @@ const ctx = { rules, projects };
   assert.equal(rankProjects([web, mob, wf1], [PP(105, 'MobOnly', ['mobile'], [], 1)]).length, 1, 'a web and mobile job is not filtered');
   // industry pools: same, then related, then the rest, whatever the score; the related list comes from the industry
   const rel = new Map([['dental', ['Healthcare']]]);
-  m = rankProjects([ind, wf1, tool], [PP(110, 'OtherBig', [], ['Logistics'], 1, 3), PP(111, 'Health', [], ['Healthcare'], 1), PP(112, 'DentalSmall', [], ['Dental'], 3)],
+  m = rankProjects([ind, wf1, tool], [PP(110, 'OtherBig', [], ['Logistics'], 1, 3), PP(111, 'Health', [], ['Healthcare'], 1), PP(112, 'DentalSmall', [], ['Dental'], 1)],
     { shown: 5, recommended: 2, minScore: 1, related: rel });
   assert.deepEqual(m.map((x) => [x.project_name, x.pool]), [['DentalSmall', 'same'], ['Health', 'related'], ['OtherBig', 'other']]);
   assert.ok(m.every((x) => !x.alternative), 'nothing is an alternative when every match is already shown');
   // an alternative: outside the shown list, from another industry, at least 1.5 times the best same-industry score; never recommended
-  m = rankProjects([ind, wf1, tool], [PP(120, 'D1', [], ['Dental'], 3), PP(121, 'D2', [], ['Dental'], 3), PP(122, 'Big', [], ['Logistics'], 1, 3)],
+  const agentT = T(12, 'AI agent', 'AI capability', 3);
+  m = rankProjects([ind, wf1, tool, agentT], [PP(120, 'D1', [], ['Dental'], 1), PP(121, 'D2', [], ['Dental'], 1), PP(122, 'Big', [], ['Logistics'], 1, 12)],
     { shown: 2, recommended: 2, minScore: 1 });
   assert.deepEqual(m.map((x) => [x.project_name, x.recommended, x.alternative]), [['D1', true, false], ['D2', true, false], ['Big', false, true]]);
   m = rankProjects([ind, wf1, tool], [PP(130, 'D1', [], ['Dental'], 1), PP(131, 'D2', [], ['Dental'], 1), PP(132, 'Big', [], ['Logistics'], 1, 3)], { shown: 2, recommended: 2, minScore: 1 });
@@ -149,6 +153,31 @@ const ctx = { rules, projects };
   // no industry on the job: one pool, no alternative
   assert.ok(rankProjects([wf1], [PP(140, 'X', [], ['Dental'], 1)]).every((x) => x.pool === 'none' && !x.alternative));
   assert.equal(jobNeeds([web, wf1, ind, tool]), 'Web · Web app · Lead generation · Dental');
+  // 13 October, the real estate job that got healthcare projects: one job industry, the work first, screening's projects kept
+  const scrape = T(9, 'Web scraping / data pipelines', 'Workflow type', 3), re = T(10, 'Real estate', 'Industry', 2), pii = T(11, 'Confidential / PII data', 'Compliance / sensitive data', 2, true);
+  const lib13 = [PP(200, 'Breesy', ['web'], ['Real estate'], 9, 3), PP(201, 'Doctoria', ['web'], ['Healthcare'], 11, 3), PP(202, 'Orionlease', ['web'], ['Real estate'], 9),
+    PP(203, 'Seller Genius AI', ['web'], ['Real estate'], 3), PP(204, 'ShipperScout', ['web'], ['Logistics'], 9, 11, 3)];
+  m = rankProjects([re, scrape, tool, pii], lib13, { shown: 3, recommended: 2, minScore: 1, related: new Map([['real estate', ['Construction']]]), named: ['Seller Genius AI', 'Navience'], more: 10 });
+  const view = m.map((x) => [x.project_name, x.recommended, x.proves_work, x.extra, x.named_in_screening]);
+  assert.deepEqual(view.slice(0, 2), [['Breesy', true, true, false, false], ['Orionlease', true, true, false, false]], 'real estate projects that did the scraping are recommended');
+  assert.ok(!m.find((x) => x.project_name === 'Doctoria')?.recommended, 'a healthcare project that did none of the work is never recommended');
+  const sg = m.find((x) => x.project_name === 'Seller Genius AI')!;
+  assert.ok(sg && sg.named_in_screening && !sg.recommended, 'a project named in screening is always in the list, marked');
+  assert.ok(!m.some((x) => x.project_name === 'Navience'), 'a name not in the library is ignored');
+  assert.ok(m.filter((x) => x.extra).length >= 1 && m.filter((x) => !x.extra).every((x, i, arr) => i === 0 || !arr[i - 1].extra), 'the extra projects come last');
+  assert.equal(new Set(m.map((x) => x.project_id)).size, m.length, 'no project twice');
+  // core work named by the tagger: the main work first, even over the industry and the score
+  const lead = T(13, 'Lead generation / enrichment', 'Workflow type', 3, false), wfAuto = T(14, 'Workflow automation', 'Automation', 2);
+  const scrapeMain = { ...T(15, 'Web scraping / data pipelines', 'Automation', 2), core: 1 }, leadCore = { ...lead, core: 2 };
+  m = rankProjects([T(16, 'Recruitment / HR', 'Industry', 2), scrapeMain, leadCore, wfAuto, pii], [
+    PP(300, 'Doctoria', [], ['Healthcare'], 13, 14, 11), PP(301, 'Orionlease', [], ['Real estate'], 15, 14, 11), PP(302, 'Breesy', [], ['Real estate'], 15, 13, 14),
+    PP(303, 'Taleroo', [], ['Recruitment / HR'], 14)], { shown: 5, recommended: 2, minScore: 1 });
+  assert.deepEqual(m.map((x) => [x.project_name, x.recommended]), [['Breesy', true], ['Orionlease', true], ['Doctoria', false], ['Taleroo', false]],
+    'scraping first (Breesy also does lead generation), then lead generation only; same industry without the work last');
+  assert.ok(!m.find((x) => x.project_name === 'Taleroo')!.proves_work);
+  // no core named (older jobs): the work tags stand in, without the broad ones
+  assert.deepEqual(coreWork([lead, wfAuto, T(17, 'AI powered', 'AI capability', 0), tool]).map((t) => t.name), ['Lead generation / enrichment']);
+  assert.equal(jobNeeds([scrapeMain, leadCore, wfAuto, T(16, 'Recruitment / HR', 'Industry', 2)]), 'Web scraping / data pipelines, Lead generation / enrichment · Recruitment / HR');
   // Loom videos: the most shared weight wins (industry counts), then more shared tags, then order; none when nothing is shared
   const V = (id: number, title: string, tags: string[], sort_order = 0) => ({ id, title, url: 'https://www.loom.com/share/' + id, tags, sort_order });
   const jt = [{ name: 'Lead generation', weight: 3 }, { name: 'Dental', weight: 2 }, { name: 'HubSpot', weight: 1 }, { name: 'AI powered', weight: 0 }];
@@ -160,8 +189,9 @@ const ctx = { rules, projects };
 
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));
-  const tschema: any = buildTagSchema(dict.map((t: any) => t.name));
-  assert.equal('$schema' in tschema, false); assert.equal(tschema.properties.tags.items.properties.tag.enum.length, 105);
+  const tschema: any = buildTagSchema(dict.filter((t: any) => t.category !== 'Industry').map((t: any) => t.name), dict.filter((t: any) => t.category === 'Industry').map((t: any) => t.name));
+  assert.equal('$schema' in tschema, false); assert.equal(tschema.properties.tags.items.properties.tag.enum.length + tschema.properties.industry.enum.length - 1, 105);
+  assert.ok(tschema.properties.industry.enum.includes('None stated') && tschema.required.includes('industry'), 'one industry, or none');
   const sys = tagSystemPrompt(dict);
   assert.ok(!sys.includes('COMPLIANCE') || true);
   const flagged = tagSystemPrompt([{ id: 1, name: 'HIPAA', category: 'Legal bits', weight: 2, description: null, compliance: true }, { id: 2, name: 'MVP', category: 'Stage', weight: 2, description: null }]);

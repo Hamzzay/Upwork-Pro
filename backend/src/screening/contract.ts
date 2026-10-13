@@ -38,7 +38,7 @@ export const COLUMN_HELP: Record<ColumnKey, string> = {
   interviewing: 'number interviewing',
   invites_sent: 'number of invites sent',
   connects_cost: 'Connects needed to apply',
-  sample_match: 'names of 1 to 3 Stackup projects from the PROJECT LIBRARY that best prove the same kind of work, separated by semicolons, or "none"',
+  sample_match: 'names of 1 to 3 Stackup projects from the PROJECT LIBRARY that best prove the same kind of work, separated by semicolons, or "none". Choose as the project step does: first projects that did the same core work (the same workflow or AI capability), then among those the client\'s own industry (the client\'s business, never the industries of data, leads or markets the job is about), then the most shared tags',
 };
 
 const columns = z.object(Object.fromEntries(COLUMN_KEYS.map((k) => [k, z.string()])) as Record<ColumnKey, z.ZodString>);

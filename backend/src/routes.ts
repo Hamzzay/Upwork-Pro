@@ -342,13 +342,14 @@ async function matchingFor(id: number) {
     profiles: [] as any[], job_needs: s.job_needs as string | null };
   if (s.tagging_status !== 'done') return base;
   base.tags = await query(
-    `SELECT jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
+    `SELECT jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
      WHERE jt.screening_id=? ORDER BY COALESCE(c.sort_order, 999), jt.weight DESC, jt.tag_name`, [id]);
-  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
+  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   base.matches = rows.map((r) => ({
     project_id: r.project_id, project_name: r.project_name, rank: r.rank_no, score: r.score, max_score: r.max_score,
     percent: r.max_score ? Math.round((r.score / r.max_score) * 100) : 0, compliance_gap: r.compliance_gap,
     recommended: !!r.recommended, selected: !!r.selected, shared: JSON.parse(r.shared_tags), pool: r.pool, alternative: !!r.alternative, platform: r.platform,
+    proves_work: !!r.proves_work, named_in_screening: !!r.named_in_screening, extra: !!r.extra,
   }));
   if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
     base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, github_url, profile_url, services, notes, active FROM upwork_profiles ORDER BY active DESC, name');

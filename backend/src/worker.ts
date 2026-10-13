@@ -7,7 +7,7 @@ import { providerName } from './llm';
 import { lastUsed } from './llm/context';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects, loadRelatedIndustries } from './screening/context';
-import { jobNeeds, rankProjects, type JobTag } from './screening/matching';
+import { jobNeeds, MORE_PROJECTS, rankProjects, type JobTag } from './screening/matching';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
@@ -81,7 +81,7 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
  *  The proposal's signals depend only on the job text, so they are read at the same time; the proposal reuses them. */
 async function processTagging(id: number) {
   try {
-    const s = (await query<any>('SELECT job_text, raw_input FROM screenings WHERE id=?', [id]))[0];
+    const s = (await query<any>('SELECT job_text, raw_input, sample_match FROM screenings WHERE id=?', [id]))[0];
     const jobText: string = s.job_text ?? s.raw_input;
     // not awaited: the projects show as soon as tagging is done, and a proposal started meanwhile waits for these signals
     if (!(await query<any>('SELECT 1 FROM job_signals WHERE screening_id=? LIMIT 1', [id])).length) {
@@ -89,9 +89,10 @@ async function processTagging(id: number) {
     }
     const dict = await loadDictionary();
     const tagged = await tagJob(jobText, dict);
-    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance }));
+    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance, core: x.core }));
     const cfg = await getSettings();
-    const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'], related: await loadRelatedIndustries() });
+    const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'], related: await loadRelatedIndustries(),
+      named: String(s.sample_match ?? '').split(';').map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== 'none'), more: MORE_PROJECTS });
     await withRetry(async () => {
     const conn = await pool.getConnection();
     try {
@@ -99,13 +100,14 @@ async function processTagging(id: number) {
       await conn.query('DELETE FROM job_matches WHERE screening_id=?', [id]); // a retry replaces the old result
       await conn.query('DELETE FROM job_tags WHERE screening_id=?', [id]);
       for (const x of tagged) {
-        await conn.query('INSERT INTO job_tags (screening_id, tag_id, tag_name, category_name, weight, reason) VALUES (?,?,?,?,?,?)',
-          [id, x.tag.id, x.tag.name, x.tag.category, x.tag.weight, x.reason]);
+        await conn.query('INSERT INTO job_tags (screening_id, tag_id, tag_name, category_name, weight, reason, core_rank) VALUES (?,?,?,?,?,?,?)',
+          [id, x.tag.id, x.tag.name, x.tag.category, x.tag.weight, x.reason, x.core]);
       }
       for (const m of matches) {
         await conn.query(
-          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, pool, alternative, platform) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared), m.pool, m.alternative ? 1 : 0, m.platform]);
+          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, pool, alternative, platform, proves_work, named_in_screening, extra) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared), m.pool, m.alternative ? 1 : 0, m.platform,
+            m.proves_work ? 1 : 0, m.named_in_screening ? 1 : 0, m.extra ? 1 : 0]);
       }
       await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=?, tagged_at=NOW(),
         selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=? WHERE id=?`, [lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, id]);

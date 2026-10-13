@@ -49,4 +49,4 @@ Every job and proposal is saved in **Upwork Pro** through its MCP server (`upwor
 ## Interim settings
 
 * Every project in the library is publicly showable. The "Showable publicly" field is ignored.
-* Project stage tags count 0 until the tagging cleanup is finished, whatever weight the library shows. Remove this line when done.
+* Tag weights are the ones `get_library` returns (Upwork Pro's Tag dictionary), the same the app uses. To count a category less, change it there.
