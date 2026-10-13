@@ -17,6 +17,7 @@ import { writing } from './routes_writing';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { buildReport, packRows } from './reports';
+import { ChangedSince, KINDS, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
 import { testCall } from './llm';
@@ -24,6 +25,7 @@ import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, t
 
 export const api = Router();
 api.use(attachUser);
+api.use(recordSetupChanges); // every change to the setup is kept as a change set (changesets.ts)
 api.use(library);
 api.use(proposals);
 api.use(imports);
@@ -866,6 +868,56 @@ api.patch('/admin/users/:id', admin, async (req, res) => {
   if (b.data.active === false || b.data.password) await exec('DELETE FROM sessions WHERE user_id=?', [id]);
   { const after = await snapshot('users', id); await audit(req.user!.id, 'user_update', `${after?.name ?? ''} (id ${id})`, diff(before, after)); }
   res.json({ ok: true });
+});
+
+// ---------- admin: changes to the setup, to review and put back ----------
+// Every admin sees the list. Only the main admin marks a change as seen or puts one back.
+api.get('/admin/changes', admin, async (req, res) => {
+  const f = z.object({ kind: z.string().max(40).optional(), user: z.coerce.number().int().positive().optional(), source: z.enum(['app', 'claude_plugin']).optional(),
+    status: z.enum(['review', 'applied', 'reverted']).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    q: z.string().trim().max(100).optional(), entity_id: z.string().max(80).optional(), page: z.coerce.number().int().min(1).default(1) }).safeParse(req.query);
+  if (!f.success) return void res.status(400).json({ error: f.error.issues[0].message });
+  const d = f.data, where: string[] = [], p: any[] = [];
+  if (d.kind) { where.push('c.entity=?'); p.push(d.kind); } if (d.entity_id) { where.push('c.entity_id=?'); p.push(d.entity_id); }
+  if (d.user) { where.push('c.user_id=?'); p.push(d.user); } if (d.source) { where.push('c.source=?'); p.push(d.source); }
+  if (d.status === 'review') where.push(`c.needs_review=1 AND c.status='applied'`); else if (d.status) { where.push('c.status=?'); p.push(d.status); }
+  if (d.from) { where.push('c.created_at >= ?'); p.push(d.from + ' 00:00:00'); } if (d.to) { where.push('c.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(d.to); }
+  if (d.q) { where.push('(c.entity_name LIKE ? OR c.reason LIKE ?)'); p.push(`%${likeEsc(d.q)}%`, `%${likeEsc(d.q)}%`); }
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets c ${w}`, p))[0].n);
+  const rows = await query<any>(`SELECT c.id, c.user_id, u.name AS user_name, c.source, c.entity, c.entity_id, c.entity_name, c.action, c.changes_json, c.reason, c.status, c.needs_review, c.reviewed_at, ru.name AS reviewed_by_name,
+      c.reverted_at, vu.name AS reverted_by_name, c.reverted_by_set, c.reverts_set, c.created_at
+    FROM change_sets c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN users ru ON ru.id=c.reviewed_by LEFT JOIN users vu ON vu.id=c.reverted_by ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, PAGE_SIZE, (d.page - 1) * PAGE_SIZE]);
+  const main = await mainAdminId();
+  res.json({ total, page: d.page, i_am_main: main === req.user!.id, to_review: Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets WHERE needs_review=1 AND status='applied'`))[0].n),
+    kinds: Object.entries(KINDS).map(([k, v]) => ({ key: k, label: v.label })), people: await query('SELECT DISTINCT u.id, u.name FROM change_sets c JOIN users u ON u.id=c.user_id ORDER BY u.name'),
+    changes: rows.map((r) => ({ ...r, kind_label: KINDS[r.entity]?.label ?? r.entity, changes: r.changes_json ? JSON.parse(r.changes_json) : [], changes_json: undefined })) });
+});
+/** How many changes wait for the main admin's look: the number beside "Changes" in the sidebar. */
+api.get('/admin/changes/count', admin, async (req, res) => {
+  const main = (await mainAdminId()) === req.user!.id;
+  res.json({ to_review: main ? Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets WHERE needs_review=1 AND status='applied'`))[0].n) : 0 });
+});
+const mainOnly = async (req: any, res: any) => { if ((await mainAdminId()) === req.user.id) return true; res.status(403).json({ error: 'Only the main admin can review changes and put them back' }); return false; };
+api.post('/admin/changes/:id/seen', admin, async (req, res) => {
+  if (!(await mainOnly(req, res))) return;
+  const r = await exec('UPDATE change_sets SET needs_review=0, reviewed_by=?, reviewed_at=NOW() WHERE id=? AND needs_review=1', [req.user!.id, Number(req.params.id)]);
+  res.json({ ok: true, changed: r.affectedRows > 0 });
+});
+api.post('/admin/changes/seen-all', admin, async (req, res) => {
+  if (!(await mainOnly(req, res))) return;
+  const r = await exec(`UPDATE change_sets SET needs_review=0, reviewed_by=?, reviewed_at=NOW() WHERE needs_review=1`, [req.user!.id]);
+  res.json({ ok: true, marked: r.affectedRows });
+});
+api.post('/admin/changes/:id/revert', admin, async (req, res) => {
+  if (!(await mainOnly(req, res))) return;
+  const b = z.object({ force: z.boolean().optional() }).safeParse(req.body ?? {});
+  try { const r = await revert(Number(req.params.id), req.user!.id, !!b.data?.force); res.json({ ok: true, change_set: r.id, entity: r.entity, name: r.name }); }
+  catch (e: any) {
+    if (e instanceof ChangedSince) return void res.status(409).json({ error: 'This item was changed again after that change. Putting it back would also undo what came later.', changed_since: e.changes, can_force: true });
+    if (e?.status) return void res.status(e.status).json({ error: e.message });
+    throw e;
+  }
 });
 
 // ---------- admin: skill ----------

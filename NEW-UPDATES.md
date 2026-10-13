@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 033: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
+npm run migrate        # applies 008 to 034: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
 npm run seed:writing   # the shared writing rules (rules, banned phrases, modules, screening answers, checklist), insert-if-missing
 npm run seed:proposals # the 3 new signals and the 6 proposal types (R21)
 npm run merge:writing  # once: retires the 3 SOP templates, moves their samples to Type 1, drops the duplicate type documents (R21)
@@ -881,6 +881,30 @@ left at step 7 showed in Upwork Pro as decided with nothing after it.
 - **Not checked**: a real `/proposal` run inside Claude with v0.5.0 (the plan's "two real jobs"). The skill text is new and only
   a run in Claude shows whether it saves at every step and resumes as written.
 - **Live**: pull, `npm run migrate` (033), `cd mcp && npm run build`, restart; download the plugin again (v0.5.0), restart Claude.
+
+### R53. Changes: every change to the setup is kept, reviewed and can be put back (done, 14 October; Part B, phase B1)
+- **Change sets** (`backend/src/changesets.ts`, table `change_sets`, migration `034_change_sets.sql`; run `npm run migrate`): each
+  change to a project, industry, tag, tag category, Upwork profile, Loom video, rule, signal, signal value, proposal type (with its
+  signal mapping), sample proposal, writing guide document, setting, or the active gate instructions is kept with who made it, from
+  the app or from Claude, the item in full before and after (the row, its linked lists such as a project's tags, its child rows),
+  the list of what changed, and a reason when one was given.
+- **How it is caught**: one middleware (`recordSetupChanges`) in front of the setup routes reads the item before the route runs and
+  after it answered. No route was changed. A new setup route needs one line in `ROUTES` in that file. A save that changes nothing
+  leaves no change set.
+- **Review**: a change by anyone but the main admin is marked "To review". It is already applied (Hamza's choice); the main admin
+  marks it seen or puts it back. Other admins see the list but cannot do either (the server refuses).
+- **Put back**: the item returns to how it was before that change, linked lists included. It is recorded as a change of its own, so
+  a put back can be put back too. If the item was changed again since, it refuses and shows what changed since, with "Put it back
+  anyway". Putting back an "added" item switches it off; nothing is deleted. A writing guide text put back becomes a new version.
+- **Changes page** (Admin, sidebar): when, who, from the app or from Claude, what, the change itself (the same display as Logs),
+  status (To review, Applied, Seen, Put back), with the shared filter bar (search, status, kind, person, source, dates), "Mark all
+  as seen", Seen and Put back.
+- Checked: 34 calls against the running app as a second admin over eight kinds (tag, project, rule, writing guide document, setting,
+  industry, profile, and a tag's linked projects): each change recorded with the right action and put back exactly, the refusal when
+  changed since, a put back of a put back, the permissions, the filters. The page was opened as a second admin (rows, filters, no
+  console errors). Not seen in a browser: the main admin's Seen and Put back buttons (they need the main admin's sign-in; the
+  endpoints behind them are tested). Not exercised: signals, proposal types and their mapping, samples, Loom videos, gate
+  activation (the same generic code path; a mistake there would show as a put back that does not match).
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"

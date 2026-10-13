@@ -269,6 +269,31 @@ did Daniel make", "undo that change". It holds the conversation:
 
 ---
 
+## Added by Hamza on 14 October, while Part B was being built
+
+### C. Nothing raw goes into the setup from Claude (a rule for B3, the `setup-admin` skill)
+
+Different people will add projects and other setup through Claude, and the library is being standardized. So for every item, and
+for a project above all, the skill must work in this order and never skip a step:
+
+1. **Show how a good one looks first**: two or three real items of the same kind from the library (for a project: its overview, its
+   case study in the team's format, its links and tags), so the person sees what is wanted and in what shape.
+2. **Ask for all the information**, one topic at a time.
+3. **Check what is complete and what is missing**, and say so. Ask again for what is missing; never fill a gap with a guess.
+4. **Verify** what can be verified (a link opens, a tag exists in the dictionary, the industry exists, the name is not already there).
+5. **Rewrite it in the standard format yourself**: the team's case study headings, plain sentences, the same style as the examples.
+   Never paste the person's raw text into a field.
+6. **Show the final version** exactly as it will be saved, and what changed from what they gave.
+7. **Get a clear yes**, then add it. Without a yes nothing is saved.
+
+### D. An independent reviewer for every proposal (built after B1, in the app first)
+
+Once a proposal is written, a separate agent reviews it before anyone copies it. It reads the job, the profile, the projects, the
+proposal type's rules and the writing guide, and returns: a score out of 10, a short verdict, the key points, and two or three
+concrete suggestions. The person can apply a suggestion (it goes to the chat, which revises the proposal), ask for a new review
+after a change, or copy the proposal as it is. The reviewer never changes the proposal itself. It must be independent: its own
+prompt, not the writer's, so it does not grade its own work kindly.
+
 ## Hamza's answers (14 October)
 
 1. Second admins' changes **apply at once**; the main admin reviews them later and can put any back. So phase B4 (approval first) is

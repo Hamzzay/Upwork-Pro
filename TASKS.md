@@ -77,7 +77,9 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | # | Task | Status |
 | --- | --- | --- |
 | 30 | Part A: the Claude plugin saves every step in Upwork Pro (gate, decision, read, profile, projects, type, video, drafts, final) and can resume a job left halfway (R52, plugin v0.5.0, migration 033) | done on the server and the skill; a real `/proposal` run in Claude with v0.5.0 still to do (stop after the projects, continue in a new chat) |
-| 31 | Part B: admins run the setup from Claude (projects, industries, tags, profiles, videos, rules, signals, types, writing guide, gate instructions, settings), every change a change set that can be reviewed and put back; second admins' changes reviewed by the main admin, optional approval first. Phases B1 to B3 (B4, approval first, is not wanted: Hamza chose apply at once). His answers are in the plan | to do, next |
+| 31 | Part B: admins run the setup from Claude (projects, industries, tags, profiles, videos, rules, signals, types, writing guide, gate instructions, settings), every change a change set that can be reviewed and put back; second admins' changes reviewed by the main admin, optional approval first. Phases B1 to B3 (B4, approval first, is not wanted: Hamza chose apply at once). His answers are in the plan | B1 done (R53: change sets and the Changes page). Next: B2 the setup tools for Claude, B3 the admin skill |
+| 32 | An independent proposal reviewer: after a proposal is written, a separate agent scores it out of 10, gives key points and two or three suggestions; the person applies one, reviews again, or copies as is (plan, section D) | to do, after B1 |
+| 33 | Setup through Claude never saves raw input: examples first, ask, check, verify, rewrite in the standard format, show, approve, then add (plan, section C; part of B3) | to do, with B3 |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

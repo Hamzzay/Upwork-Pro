@@ -55,7 +55,7 @@ async function api(method, path, body) {
   const json = method !== 'GET';
   const r = await fetch('/api' + path, { method, headers: json ? { 'Content-Type': 'application/json' } : {}, body: json ? JSON.stringify(body || {}) : undefined });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || 'Something went wrong. Try again.'); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(data.error || 'Something went wrong. Try again.'); e.status = r.status; e.data = data; throw e; }
   return data;
 }
 /** First letter up: model-written values often start lower case ("not shown"). */
@@ -357,6 +357,7 @@ const NAV = [
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
+    { key: 'changes', icon: 'back', label: 'Changes', roles: ADMIN },
     { key: 'audit', icon: 'audit', label: 'Logs', roles: ADMIN }] },
 ];
 function shell(active, content, wide) {
@@ -2146,6 +2147,61 @@ async function skillView() {
       versionsCard(versions, vitem, (v) => `version ${v.version} ${v.change_note || ''}`))], true);
 }
 
+// ---------- changes (admin): every change to the setup, to review and put back ----------
+const CHANGE_ACTION = { create: 'Added', update: 'Changed', switch_off: 'Switched off', switch_on: 'Switched on', delete: 'Deleted', revert: 'Put back' };
+/** Where an item of each kind is opened in the app, when it has a page of its own. */
+const CHANGE_LINK = { project: (id) => '#/p/' + id, industry: (id) => '#/i/' + id, signal: (id) => '#/sig/' + id, template: (id) => '#/t/' + id, writing_doc: (id) => '#/wg/' + id, rule: () => '#/rules', tag: () => '#/dictionary',
+  tag_category: () => '#/dictionary?tab=categories', profile: () => '#/profiles', loom_video: () => '#/looms', setting: () => '#/settings', gate_instructions: () => '#/skill' };
+async function changesView() {
+  const hp = hashParams();
+  const st = { kind: hp.kind || '', user: hp.user || '', source: hp.source || '', status: hp.status || '', from: hp.from || '', to: hp.to || '', q: hp.q || '', page: Math.max(1, Number(hp.page) || 1) };
+  const holder = h('div', {}), head = h('div', {});
+  let first = null, fbar = null;
+  const putBack = (c, force) => modal({ title: force ? 'Put it back anyway?' : `Put back this change?`, confirm: force ? 'Put it back anyway' : 'Put it back', danger: true,
+    body: h('div', {}, h('p', { class: 'muted', style: 'margin-top:0' }, force
+      ? `${c.kind_label} "${c.entity_name || ''}" was changed again after this change. Putting it back returns the item to how it was before change ${c.id}, which also undoes what came later:`
+      : `${c.kind_label} "${c.entity_name || ''}" returns to how it was before this change. This is recorded as a change of its own, so it can be put back too.`),
+      force ? changesList(JSON.stringify(force)) : changesList(JSON.stringify(c.changes))),
+    onConfirm: async () => {
+      try { await api('POST', `/admin/changes/${c.id}/revert`, force ? { force: true } : {}); toast('Put back'); await load(); }
+      catch (x) { if (x.status === 409 && x.data && x.data.can_force) { setTimeout(() => putBack(c, x.data.changed_since || []), 0); return; } throw x; }
+    } });
+  async function load() {
+    const q = new URLSearchParams({ page: st.page }); for (const k of ['kind', 'user', 'source', 'status', 'from', 'to', 'q']) if (st[k]) q.set(k, st[k]);
+    setHashParams({ ...Object.fromEntries(['kind', 'user', 'source', 'status', 'from', 'to', 'q'].map((k) => [k, st[k]])), page: st.page });
+    const d = await api('GET', '/admin/changes?' + q);
+    if (!first) { first = d;
+      const sel = (key, label, options) => fSelect(label, options, st[key], (v) => { st[key] = v; st.page = 1; load(); });
+      fbar = filterBar([fSearch('Search by name or reason', st.q, (v) => { st.q = v; st.page = 1; load(); }),
+        sel('status', 'Any status', [['review', 'To review'], ['applied', 'Applied'], ['reverted', 'Put back']]), sel('kind', 'Anything', d.kinds.map((k) => [k.key, k.label])),
+        sel('user', 'Anyone', d.people.map((u) => [u.id, u.name])), sel('source', 'App and Claude', [['app', 'Made in the app'], ['claude_plugin', 'Made from Claude']]),
+        dateField('From', st.from, (v) => { st.from = v; st.page = 1; load(); }), dateField('To', st.to, (v) => { st.to = v; st.page = 1; load(); })],
+        { onClear: () => { location.hash = '#/changes'; route(); } });
+    }
+    fbar.setActive(['kind', 'user', 'source', 'status', 'from', 'to', 'q'].some((k) => st[k]));
+    head.replaceChildren(d.to_review ? h('div', { class: 'notice' }, icon('info'), h('span', { style: 'flex:1' }, d.i_am_main
+        ? `${d.to_review} change${d.to_review === 1 ? '' : 's'} by other people to look at. Each is already applied; mark it seen, or put it back.`
+        : `${d.to_review} change${d.to_review === 1 ? ' is' : 's are'} waiting for the main admin to look at. They are already applied.`),
+      d.i_am_main ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { await api('POST', '/admin/changes/seen-all', {}); toast('All marked as seen'); load(); } }, 'Mark all as seen') : null) : '');
+    const badge = (c) => (c.status === 'reverted' ? h('span', { class: 'pill wait', title: c.reverted_at ? `Put back ${full(c.reverted_at)}${c.reverted_by_name ? ' by ' + c.reverted_by_name : ''}` : '' }, 'Put back')
+      : c.needs_review ? h('span', { class: 'pill FLAG' }, 'To review') : h('span', { class: 'pill PASS', title: c.reviewed_at ? `Seen ${full(c.reviewed_at)}${c.reviewed_by_name ? ' by ' + c.reviewed_by_name : ''}` : '' }, c.reviewed_at ? 'Seen' : 'Applied'));
+    const link = (c) => { const f = CHANGE_LINK[c.entity]; return f && c.action !== 'delete' ? h('a', { href: f(c.entity_id) }, c.entity_name || c.kind_label) : h('span', {}, c.entity_name || c.kind_label); };
+    holder.replaceChildren(...[d.changes.length ? dataTable(['When', 'Who', 'What', 'Change', 'Status', ''], d.changes.map((c) => h('tr', {},
+      h('td', { class: 'muted nowrap', title: full(c.created_at) }, ago(c.created_at), h('div', { class: 'meta' }, '#' + c.id)),
+      h('td', { class: 'nowrap' }, c.user_name || 'System', h('div', { class: 'meta' }, c.source === 'claude_plugin' ? 'From Claude' : 'In the app')),
+      h('td', { style: 'min-width:180px' }, h('strong', {}, link(c)), h('div', { class: 'meta' }, `${c.kind_label} · ${CHANGE_ACTION[c.action] || c.action}${c.reverts_set ? ' (change #' + c.reverts_set + ')' : ''}`)),
+      h('td', { style: 'overflow-wrap:anywhere;min-width:300px' }, c.reason ? h('div', { class: 'muted', style: 'margin-bottom:4px' }, c.reason) : null, changesList(JSON.stringify(c.changes)) || h('span', { class: 'faint' }, 'No field changed')),
+      h('td', {}, badge(c)),
+      acts(d.i_am_main && c.needs_review && c.status === 'applied' ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { await api('POST', `/admin/changes/${c.id}/seen`, {}); load(); } }, 'Seen') : null,
+        d.i_am_main && c.status === 'applied' ? h('button', { class: 'btn sm', type: 'button', onclick: () => putBack(c) }, 'Put back') : null))))
+      : emptyState('back', ['kind', 'user', 'source', 'status', 'from', 'to', 'q'].some((k) => st[k]) ? 'No matches' : 'No changes yet', 'Every change to projects, tags, profiles, rules, the writing guide and the rest of the setup shows here, from the app and from Claude.'),
+      pager(d.total, d.page, (n) => { st.page = n; load(); })].filter(Boolean));
+    if (!holder.parentNode) return;
+  }
+  await load();
+  shell('changes', [pageHead('Changes', 'Every change to the setup, from the app and from Claude: who made it, what changed and why. The main admin can put any change back.'), head, h('div', { class: 'card' }, fbar, holder)]);
+}
+
 // ---------- logs (admin): activity and AI calls ----------
 /** What a log entry changed: each field with its old and new value, the lines removed and added, the names removed and added. */
 function changesList(json) {
@@ -2481,6 +2537,7 @@ async function route() {
     if (a === 'rules' && me.role === 'admin') return await rulesView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();
     if (a === 'connect') return await connectView();
+    if (a === 'changes' && me.role === 'admin') return await changesView();
     if (a === 'audit' && me.role === 'admin') return await auditView();
     return newView();
   } catch (e) {
