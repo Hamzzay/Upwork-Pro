@@ -216,7 +216,7 @@ const stepBody = z.discriminatedUnion('step', [
   z.object({ step: z.literal('profile'), data: z.object({ profile: z.union([z.number().int().positive(), z.string().trim().min(1).max(190)]), rate: z.number().min(0).max(100000).nullable().optional() }) }),
   z.object({ step: z.literal('projects'), data: z.object({
     shortlist: z.array(z.object({ name: z.string().trim().min(1).max(190), reason: z.string().trim().max(300).optional(), recommended: z.boolean().optional() })).max(20).default([]),
-    picked: z.array(z.string().trim().min(1).max(190)).max(6) }) }),
+    picked: z.array(z.string().trim().min(1).max(190)).max(6), skip_tech_stack: z.boolean().optional() }) }),
   z.object({ step: z.literal('type'), data: z.object({ type: z.string().trim().min(1).max(160), ranking: z.array(z.object({ type: z.string().trim().max(160), why: z.string().trim().max(400).optional() })).max(12).optional() }) }),
   z.object({ step: z.literal('loom'), data: z.object({ video: z.string().trim().min(1).max(200).nullable() }) }),
 ]);
@@ -297,6 +297,7 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
     if (unknown.length) return void res.status(400).json({ error: `Not in the project library: ${unknown.join(', ')}. Add each with add_project first (name, links, overview, tags), then save this step again. Nothing was saved.`, projects_not_in_library: unknown, field: 'projects' });
     const picked = [...new Set(d.picked.map((n) => inLib(n)!.id))];
     if (picked.length < cfg['selection.min'] || picked.length > cfg['selection.max']) return void res.status(400).json({ error: `Pick ${cfg['selection.min'] === cfg['selection.max'] ? cfg['selection.max'] : cfg['selection.min'] + ' to ' + cfg['selection.max']} project${cfg['selection.max'] === 1 ? '' : 's'} (the setting in Upwork Pro). ${picked.length} were sent.`, field: 'picked' });
+    const beforeSkip = !!(await query<any>('SELECT skip_tech_stack FROM screenings WHERE id=?', [id]))[0]?.skip_tech_stack;
     const beforePicked = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null;
     const beforeList = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null;
     // the shortlist in the order shown, then any picked project that was not on it
@@ -318,11 +319,13 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
         else await conn.query(`INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, ai_reason) VALUES (?,?,?,?,0,0,0,?,'[]',?,?)`,
           [id, x.p.id, x.p.name, ++rank, x.rec ? 1 : 0, sel, x.reason]);
       }
-      await conn.query(`UPDATE screenings SET tagging_status='done', tagged_at=COALESCE(tagged_at, NOW()), selection_confirmed_at=NOW(), selection_confirmed_by=? WHERE id=?`, [userId, id]);
+      await conn.query(`UPDATE screenings SET tagging_status='done', tagged_at=COALESCE(tagged_at, NOW()), selection_confirmed_at=NOW(), selection_confirmed_by=?,
+        skip_tech_stack=COALESCE(?, skip_tech_stack), rematch_only=0 WHERE id=?`, [userId, d.skip_tech_stack == null ? null : d.skip_tech_stack ? 1 : 0, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     note('projects shown', beforeList, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null);
     note('projects picked', beforePicked, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null);
+    if (d.skip_tech_stack != null) note('skip tech stack', beforeSkip ? 'yes' : 'no', d.skip_tech_stack ? 'yes' : 'no');
     Object.assign(extra, { picked: order.filter((x) => picked.includes(x.p.id)).map((x) => x.p.name), shown: order.length });
   }
 
@@ -481,7 +484,7 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
   res.json({
     note: 'Match exactly as "matching" says (the same rule as the app). Tags with weight 0 carry no matching weight. Case studies are left out: ask for them by project name once the projects are chosen.',
     matching: {
-      rule: 'Platform filter first. Then the work: name the job\'s core work, one to three specific tags, the main work first (for a scraping job Web scraping / data pipelines; never broad tags like Workflow automation, AI automation, AI powered, Ongoing maintenance). A project proves the job only if it shares a core work tag; only those are recommended, and those that did the main work come first. Then industry: the job has ONE industry, the client\'s own business (never the industries of data, leads or markets the job is about); same industry first, then related, then the rest. Then how many core work tags a project shares. Then the tag score: the weights of the shared tags, industry not counted. Last, read the overview and case study of the top 12 or so and put them in order by how well each proves this exact job (the same core work, input, output and users first), with one line on why; drop any that do not really prove it. Core work is only workflow, AI capability, automation or product type tags, never a project stage, tool, model or stack.',
+      rule: 'Platform filter first. Then the work: name the job\'s core work, one to three specific tags, the main work first (for a scraping job Web scraping / data pipelines; never broad tags like Workflow automation, AI automation, AI powered, Ongoing maintenance). A project proves the job only if it shares a core work tag; only those are recommended, and those that did the main work come first. Then industry: the job has ONE industry, the client\'s own business (never the industries of data, leads or markets the job is about); same industry first, then related, then the rest. Then how many core work tags a project shares. Then the tag score: the weights of the shared tags, industry not counted. Last, read the overview and case study of the top 12 or so and put them in order by how well each proves this exact job (the same core work, input, output and users first), with one line on why; drop any that do not really prove it. Core work is only workflow, AI capability, automation or product type tags, never a project stage, tool, model or stack. When the person asks to skip tech stack tags (saved on the job as skip_tech_stack), leave every tag of the Tech stack category out of the score, the matched tags and the most a project can score; everything else stays the same.',
       min_score: cfg['matching.min_score'], shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], more: 10,
     },
     tag_dictionary: cats.map((c) => ({ category: c.name, compliance: !!c.is_compliance,

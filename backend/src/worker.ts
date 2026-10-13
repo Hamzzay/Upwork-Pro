@@ -7,7 +7,7 @@ import { providerName } from './llm';
 import { lastUsed } from './llm/context';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects, loadRelatedIndustries } from './screening/context';
-import { coreWork, jobNeeds, MORE_PROJECTS, rankProjects, type JobTag } from './screening/matching';
+import { coreWork, jobNeeds, MORE_PROJECTS, rankProjects, TECH_STACK, type JobTag } from './screening/matching';
 import { applyJudgement, judgeProjects } from './screening/judge';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
@@ -82,18 +82,23 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
  *  The proposal's signals depend only on the job text, so they are read at the same time; the proposal reuses them. */
 async function processTagging(id: number) {
   try {
-    const s = (await query<any>('SELECT job_text, raw_input, sample_match FROM screenings WHERE id=?', [id]))[0];
+    const s = (await query<any>('SELECT job_text, raw_input, sample_match, skip_tech_stack, rematch_only FROM screenings WHERE id=?', [id]))[0];
     const jobText: string = s.job_text ?? s.raw_input;
+    // "Skip tech stack tags" was switched: score the tags this job already has again, without reading it a second time
+    const saved = s.rematch_only ? await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.reason, jt.core_rank, c.is_compliance FROM job_tags jt
+      LEFT JOIN tag_categories c ON c.name=jt.category_name WHERE jt.screening_id=? AND jt.tag_id IS NOT NULL`, [id]) : [];
+    const rematch = saved.length > 0;
     // not awaited: the projects show as soon as tagging is done, and a proposal started meanwhile waits for these signals
     if (!(await query<any>('SELECT 1 FROM job_signals WHERE screening_id=? LIMIT 1', [id])).length) {
       detectSignals(id, jobText, () => !stopping).catch((e) => console.error('signals failed, the proposal will read them itself:', (e as Error).message));
     }
-    const dict = await loadDictionary();
-    const tagged = await tagJob(jobText, dict);
+    const tagged = rematch
+      ? saved.map((r) => ({ tag: { id: r.tag_id, name: r.tag_name, category: r.category_name, weight: Number(r.weight), compliance: !!r.is_compliance }, reason: r.reason, core: r.core_rank ?? null }))
+      : await tagJob(jobText, await loadDictionary());
     const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance, core: x.core }));
     const cfg = await getSettings();
     const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'], related: await loadRelatedIndustries(),
-      named: String(s.sample_match ?? '').split(';').map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== 'none'), more: MORE_PROJECTS });
+      named: String(s.sample_match ?? '').split(';').map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== 'none'), more: MORE_PROJECTS, skip: s.skip_tech_stack ? [TECH_STACK] : [] });
     // the last step: the AI reads the shortlisted projects' overviews and case studies and orders them for this job, with a reason
     let final: (typeof matches[number] & { ai_reason?: string | null; ai_fits?: boolean | null })[] = matches, order: 'ai' | 'tags' = 'tags';
     if (cfg['matching.ai_order'] && matches.length > 1) {
@@ -122,8 +127,8 @@ async function processTagging(id: number) {
           [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared), m.pool, m.alternative ? 1 : 0, m.platform,
             m.proves_work ? 1 : 0, m.named_in_screening ? 1 : 0, m.extra ? 1 : 0, m.ai_reason ?? null, m.ai_fits == null ? null : m.ai_fits ? 1 : 0]);
       }
-      await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=?, tagged_at=NOW(),
-        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=?, matching_order=? WHERE id=?`, [lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, order, id]);
+      await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=IF(?, tagging_model, ?), tagged_at=NOW(),
+        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=?, matching_order=?, rematch_only=0 WHERE id=?`, [rematch ? 1 : 0, lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, order, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });

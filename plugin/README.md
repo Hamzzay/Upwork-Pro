@@ -45,7 +45,10 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.7.0)
+## Status (v0.8.0)
+
+v0.8.0: "Skip tech stack tags" at the projects step. The person can match the projects again without the job's Tech stack tags;
+everything else in the matching stays the same, and the choice is saved on the job (`save_step` projects, `skip_tech_stack`).
 
 v0.7.0: the setup from Claude, for admins and managers (skill `setup-admin`). Projects, industries, tags, profiles, Loom videos,
 rules, signals, proposal types and samples, the writing guide, the gate instructions and settings can be added and changed by

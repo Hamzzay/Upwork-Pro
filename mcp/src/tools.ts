@@ -73,7 +73,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
     { url: z.string().optional(), job_id: z.string().optional(), q: z.string().optional(), phase: z.enum(['in_progress', 'submitted', 'closed', 'not_pursued']).optional(), limit: z.number().int().min(1).max(50).optional() },
     { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/jobs?' + new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))));
 
-  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, its latest proposal text, and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
+  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, its latest proposal text, and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, whether tech stack tags were skipped, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
 
   // ---------- analysis: many jobs at once, and the trend numbers ----------
   const jobFilters = {
@@ -122,7 +122,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
   T('save_step', `Save one step of a job as soon as the person answers it, so Upwork Pro always shows where the job stands and it can be continued later. Call it after each of these, never all at the end:
 - read: the job tags (with a reason each, and core_rank 1 to 3 on the core work tags), the one job industry, and the signals with the words from the post that show each.
 - profile: the profile the person picked and the rate.
-- projects: the shortlist you showed (with the reason for each, recommended ones marked) and the projects the person picked. Every project must be in the library: add a missing one with add_project first.
+- projects: the shortlist you showed (with the reason for each, recommended ones marked) and the projects the person picked, and skip_tech_stack true when the person chose to match without the Tech stack tags. Every project must be in the library: add a missing one with add_project first.
 - type: the proposal type the person picked.
 - loom: the Loom video the person picked (its title, from get_library for that profile), or null for none.
 Saving a step again replaces what that step saved; other steps stay. The answer gives the job's stage in Upwork Pro after the save. If it is refused, show the message, fix only what the person confirms, and save again; never go on as if it was saved.`,
@@ -134,6 +134,7 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
         profile: z.string().optional().describe('profile: the Upwork profile name'), rate: z.number().nullable().optional().describe('profile: the hourly rate chosen'),
         shortlist: z.array(z.object({ name: z.string(), reason: z.string().optional(), recommended: z.boolean().optional() })).optional().describe('projects: the projects shown, in order'),
         picked: z.array(z.string()).optional().describe('projects: the names the person picked'),
+        skip_tech_stack: z.boolean().optional().describe('projects: true when the projects were matched without the Tech stack tags, false when with them'),
         type: z.string().optional().describe('type: the proposal type name, e.g. "Type 7. Problem first"'),
         video: z.string().nullable().optional().describe('loom: the video title, or null for none'),
       }) },

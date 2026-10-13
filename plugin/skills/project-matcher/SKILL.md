@@ -67,6 +67,7 @@ project that did none of the work is never recommended.
 
 1. Score each project on the job's tags using each tag's `weight` from `get_library` (fallback: `references/tag-weights.md`). Industry tags are excluded from this score; industry was already handled in Step 3.
 2. A project scores the weight of every tag it shares with the job's tags. "AI powered" scores 0.
+   **Skip tech stack tags.** When the person asks to skip the tech stack (or the job saved in Upwork Pro has `skip_tech_stack` true), leave every tag of the **Tech stack** category out: out of the score, out of the matched tags and out of the most a project can score. Everything else (platform, core work, industry, compliance, the other tags, the order) stays exactly the same. Say it in one line above the shortlist: "Matched without the tech stack tags."
 3. Minimum tag score: `matching.min_score` from `get_library` (the app's setting). Below it, a project is not shown.
 4. **Core workflow check.** A project only counts as a strong match if it delivered the job's core workflow from Step 0, not just shared generic tags (Admin dashboard, Role based access, Reporting). When two projects have similar scores, the one that did the core workflow ranks higher.
 

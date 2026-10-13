@@ -82,6 +82,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 33 | Setup through Claude never saves raw input: examples first, ask, check, verify, rewrite in the standard format, show, approve, then add (plan, section C; part of B3) | done (R56: the seven steps in the `setup-admin` skill) |
 | 34 | Live data of 13 October brought back: setup backup refreshed with live's project, tag and rule updates; matching and every job page checked on the live copy (R55) | done |
 | 35 | Team guide: new screenshots (no Tracking tab, skip popup, project step, review panel, Changes), and a section on running the setup from Claude (R57) | done |
+| 36 | Skip tech stack tags: a per job switch on the Projects step (and in the plugin, v0.8.0) that matches the projects without the Tech stack tags, the rest unchanged (R58, migration 037) | done in code; to check in the browser on job #60 or #62, and in Claude |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

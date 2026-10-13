@@ -1120,11 +1120,27 @@ function matchingSection(s, initial) {
     catch (x) { toast(x.message, true); btn.disabled = false; btn.replaceChildren('Try again'); }
   };
 
+  // "Skip tech stack tags": the same matching without the job's Tech stack tags (Node.js, React and so on); flipping it matches again
+  function stackSwitch() {
+    const on = !!m.skip_tech_stack, can = owner && !m.has_proposal;
+    const sw = h('button', { type: 'button', role: 'switch', class: 'switch' + (on ? ' on' : ''), 'aria-checked': on, 'aria-label': 'Skip tech stack tags', disabled: !can }, h('span', { class: 'knob' }));
+    sw.onclick = async () => {
+      sw.disabled = true;
+      try { await api('PUT', `/screenings/${s.id}/skip-tech-stack`, { skip: !on }); picked = null; m = { ...m, status: 'queued', error: null, skip_tech_stack: !on }; toast(`Skip tech stack tags: ${on ? 'off' : 'on'}`); draw(); timer = setTimeout(poll, 2500); }
+      catch (x) { toast(x.message, true); sw.disabled = false; }
+    };
+    const help = m.has_proposal ? 'A proposal is already written with the projects picked, so this can no longer change.'
+      : on ? 'The projects are matched without the job\'s Tech stack tags. Everything else counts as usual.'
+      : 'Match the projects without the job\'s Tech stack tags (languages, frameworks, databases). Everything else counts as usual. The projects are matched again and you confirm them again.';
+    return h('div', { class: 'card card-pad' }, h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, 'Skip tech stack tags'), h('div', { class: 'jp-label' }, help)),
+      h('div', { class: 'setin switchin' }, h('span', { class: 'switchlbl' }, on ? 'On' : 'Off'), sw)));
+  }
+
   function tagsBlock() {
     const cats = [...new Set(m.tags.map((t) => t.category))];
     return h('details', { class: 'card fold' },
       h('summary', {}, `Why these projects: the job's ${m.tags.length} tags`),
-      h('div', { class: 'tagsgrid' }, cats.map((c) => h('div', { class: 'tg' }, h('div', { class: 'tc-title' }, c),
+      h('div', { class: 'tagsgrid' }, cats.map((c) => h('div', { class: 'tg' }, h('div', { class: 'tc-title' }, c, m.skip_tech_stack && c === 'Tech stack' ? h('span', { class: 'faint' }, ' (skipped in matching)') : null),
         m.tags.filter((t) => t.category === c).map((t) => h('div', { class: 'trow' },
           h('div', { class: 'tname' }, h('strong', {}, t.name), h('span', { class: 'wt', title: 'Match weight' }, '×' + t.weight), t.core_rank ? h('span', { class: 'chip brand' }, t.core_rank === 1 ? 'Main work' : 'Core work') : null), h('div', { class: 'treason' }, t.reason)))))));
   }
@@ -1204,13 +1220,14 @@ function matchingSection(s, initial) {
     let body;
     if (busy()) {
       body = h('div', { class: 'progress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }),
-        h('strong', { style: 'font-size:17px' }, m.status === 'running' ? 'Reading the job and choosing tags' : 'Waiting for a free slot'),
+        h('strong', { style: 'font-size:17px' }, m.status !== 'running' ? 'Waiting for a free slot' : m.tags && m.tags.length ? 'Matching the projects again' : 'Reading the job and choosing tags'),
         h('p', { class: 'muted', style: 'margin-top:4px' }, 'Then the tags are matched with the project library. This usually takes a minute or two. You can leave this page.'));
     } else if (m.status === 'error') {
       if (owner) setActions(actBtn('Try again', (e) => start(e.currentTarget), true));
-      body = h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Project matching did not finish'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, m.error || 'Something went wrong.'));
+      body = h('div', { class: 'stack' }, h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Project matching did not finish'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, m.error || 'Something went wrong.')),
+        m.tags && m.tags.length ? stackSwitch() : null);
     } else if (m.status === 'done') {
-      body = h('div', { class: 'stack' }, matchesBlock(), m.tags && m.tags.length ? tagsBlock() : null);
+      body = h('div', { class: 'stack' }, stackSwitch(), matchesBlock(), m.tags && m.tags.length ? tagsBlock() : null);
     } else { // continued before this step existed
       if (owner) setActions(actBtn('Find matching projects', (e) => start(e.currentTarget), true));
       body = h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Match this job with projects'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, 'The job is tagged and compared with the project library.'));

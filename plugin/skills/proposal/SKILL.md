@@ -129,9 +129,9 @@ Apply the `profiles` skill to suggest a profile and rate. Show the suggestion an
 
 Apply the `project-matcher` skill with the job tags and the chosen profile. The library comes from Upwork Pro (`get_library`); never ask for it. Matching runs platform first, then industry, then tags. Show the "Job needs" line, then the five shortlisted projects as a visible table (name, platform and link, industry match, tag score, matched tags, one line on why it fits), two marked recommended, plus any "Alternative from another industry" with its explanation, before asking.
 
-**Decision 3.** Ask the person to pick one or two (multi select).
+**Decision 3.** Ask the person to pick one or two (multi select). Offer one more choice with it: **Match again without the tech stack tags** (or with them again, when they were skipped). It leaves the job's Tech stack tags (languages, frameworks, databases) out of the matching and changes nothing else (see `project-matcher`). If the person chooses it, match again, show the new shortlist, and ask Decision 3 again. When continuing a job, use `skip_tech_stack` from `get_job` under `saved`.
 
-**Save it:** `save_step` with `step: "projects"` and `data`: `shortlist` (every project you showed, in the order shown, each with its one line `reason`, `recommended: true` on the recommended ones) and `picked` (the names the person chose). Every name must be in the library: if Upwork Pro answers that one is missing, add it with `add_project` (see step 10), then save this step again.
+**Save it:** `save_step` with `step: "projects"` and `data`: `shortlist` (every project you showed, in the order shown, each with its one line `reason`, `recommended: true` on the recommended ones), `picked` (the names the person chose) and `skip_tech_stack` (true when the shortlist was matched without the tech stack tags, false otherwise). Every name must be in the library: if Upwork Pro answers that one is missing, add it with `add_project` (see step 10), then save this step again.
 
 If no project clears the minimum score, say so and offer: continue with none, or pick manually from the library.
 

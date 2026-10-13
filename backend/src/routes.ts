@@ -339,10 +339,27 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
 });
 
 
+/** Switch "Skip tech stack tags" for one job and queue the matching again. Refused while matching runs or once a proposal exists
+ *  (its projects would change under it). Used by the Projects step and by the Claude plugin. */
+export async function setSkipTechStack(id: number, skip: boolean, source: string, userId: number): Promise<{ error?: string; changed: boolean }> {
+  const s = (await query<any>('SELECT skip_tech_stack, tagging_status FROM screenings WHERE id=?', [id]))[0];
+  if (!s) return { error: 'Not found', changed: false };
+  if (!!s.skip_tech_stack === skip) return { changed: false };
+  if (s.tagging_status !== 'done' && s.tagging_status !== 'error') return { error: 'Wait until project matching has finished', changed: false };
+  if ((await query<any>('SELECT 1 FROM proposals WHERE screening_id=? LIMIT 1', [id])).length) return { error: 'A proposal is already written with the projects picked, so the matching can no longer change', changed: false };
+  const r = await exec(`UPDATE screenings SET skip_tech_stack=?, rematch_only=1, tagging_status='queued', tagging_error_code=NULL, tagging_error_message=NULL
+    WHERE id=? AND tagging_status IN ('done', 'error')`, [skip ? 1 : 0, id]);
+  if (!r.affectedRows) return { error: 'Wait until project matching has finished', changed: false };
+  await exec('INSERT INTO field_changes (screening_id, field, old_value, new_value, source, user_id) VALUES (?,?,?,?,?,?)', [id, 'skip tech stack', skip ? 'no' : 'yes', skip ? 'yes' : 'no', source, userId]);
+  await audit(userId, 'skip_tech_stack', `screening=${id} skip=${skip ? 'yes' : 'no'} from ${source}`);
+  return { changed: true };
+}
+
 /** Everything the page needs for step 2: tags with reasons, the 5 matches with scores, and the confirmed selection. */
 async function matchingFor(id: number) {
   const s = (await query<any>(
-    `SELECT s.verdict, s.status, s.continued_at, s.tagging_status, s.tagging_error_message, s.tagged_at, s.selection_confirmed_at, s.job_needs, s.matching_order, u.name AS confirmed_by
+    `SELECT s.verdict, s.status, s.continued_at, s.tagging_status, s.tagging_error_message, s.tagged_at, s.selection_confirmed_at, s.job_needs, s.matching_order, s.skip_tech_stack, u.name AS confirmed_by,
+       EXISTS(SELECT 1 FROM proposals p WHERE p.screening_id=s.id) AS has_proposal
      FROM screenings s LEFT JOIN users u ON u.id=s.selection_confirmed_by WHERE s.id=?`, [id]))[0];
   if (!s) return null;
   const pp = (await query<any>(
@@ -351,7 +368,8 @@ async function matchingFor(id: number) {
   const base = { continued: !!s.continued_at, continued_at: s.continued_at, status: s.tagging_status as string | null, error: s.tagging_error_message as string | null,
     tags: [] as any[], matches: [] as any[], confirmed_at: s.selection_confirmed_at as string | null, confirmed_by: s.confirmed_by as string | null,
     proposal_profile: pp && pp.id ? { id: pp.id, name: pp.name, tagline: pp.tagline, price: pp.price, gitlab_account: pp.gitlab_account, profile_url: pp.profile_url, confirmed_at: pp.confirmed_at, confirmed_by: pp.confirmed_by } : null,
-    profiles: [] as any[], job_needs: s.job_needs as string | null, order: s.matching_order as string | null };
+    profiles: [] as any[], job_needs: s.job_needs as string | null, order: s.matching_order as string | null,
+    skip_tech_stack: !!s.skip_tech_stack, has_proposal: !!s.has_proposal };
   if (s.tagging_status !== 'done') return base;
   base.tags = await query(
     `SELECT jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
@@ -530,7 +548,7 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const cur = (await query<any>('SELECT v.version_no, v.content_html FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
   const events = await query('SELECT status, happened_at, reason, note FROM status_events WHERE screening_id=? ORDER BY happened_at, id', [id]);
   // everything each step saved, so a job left halfway can be continued from where it stopped (in Claude or in the app)
-  const s2 = (await query<any>(`SELECT s.proceeded, s.continued_at, s.skip_note, s.proposal_rate, s.chosen_template_name, s.loom_video_title, s.selection_confirmed_at, s.proposal_profile_confirmed_at, s.connects_spent, s.boost_connects, s.notes,
+  const s2 = (await query<any>(`SELECT s.proceeded, s.continued_at, s.skip_note, s.skip_tech_stack, s.proposal_rate, s.chosen_template_name, s.loom_video_title, s.selection_confirmed_at, s.proposal_profile_confirmed_at, s.connects_spent, s.boost_connects, s.notes,
       o.reason AS continue_reason, p.template_name, p.finalized_at, (SELECT COUNT(*) FROM proposal_versions v WHERE v.proposal_id=p.id) AS versions
     FROM screenings s LEFT JOIN overrides o ON o.screening_id=s.id LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
   const tags = await query<any>('SELECT tag_name, category_name, reason, core_rank FROM job_tags WHERE screening_id=? ORDER BY core_rank IS NULL, core_rank, category_name, tag_name', [id]);
@@ -548,7 +566,7 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
       tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
       signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),
       profile: s2.proposal_profile_confirmed_at ? r.profile_name : null, rate: s2.proposal_rate == null ? null : Number(s2.proposal_rate),
-      shortlist: matches.map((m) => ({ name: m.project_name, reason: m.ai_reason || undefined, recommended: !!m.recommended, picked: !!m.selected })), picked: s2.selection_confirmed_at ? matches.filter((m) => m.selected).map((m) => m.project_name) : [],
+      shortlist: matches.map((m) => ({ name: m.project_name, reason: m.ai_reason || undefined, recommended: !!m.recommended, picked: !!m.selected })), picked: s2.selection_confirmed_at ? matches.filter((m) => m.selected).map((m) => m.project_name) : [], skip_tech_stack: !!s2.skip_tech_stack,
       type: s2.template_name ?? s2.chosen_template_name ?? null, loom_video: s2.loom_video_title ?? null, drafts: Number(s2.versions), finished: !!s2.finalized_at,
       connects: s2.connects_spent, boost: s2.boost_connects, notes: s2.notes },
     steps_done: done, continue_from: next ? next[1] : s2.proceeded === 'no' ? 'nothing: this job was skipped' : 'nothing: the proposal is finished. Record what happens on Upwork with update_status.' } });
@@ -748,6 +766,17 @@ api.post('/screenings/:id/matching/start', requireRole(), async (req, res) => {
   if (!r.affectedRows) return void res.status(409).json({ error: s.continued_at ? 'Matching is already running or finished' : 'Continue with this job first' });
   await audit(req.user!.id, 'matching_start', `screening=${s.id}`);
   res.json({ ok: true });
+});
+
+// "Skip tech stack tags": match this job's projects again without its Tech stack tags (or with them again). The tags stay as they
+// are; the worker only scores them again (and the AI orders the new shortlist), so the person confirms the projects again.
+api.put('/screenings/:id/skip-tech-stack', requireRole(), async (req, res) => {
+  const b = z.object({ skip: z.boolean() }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: 'Say whether to skip the tech stack tags' });
+  const s = await ownedDone(req, res); if (!s) return;
+  const r = await setSkipTechStack(s.id, b.data.skip, 'projects step', req.user!.id);
+  if (r.error) return void res.status(409).json({ error: r.error });
+  res.json({ ok: true, changed: r.changed });
 });
 
 // Small and cheap, so the page can poll it without rebuilding itself.

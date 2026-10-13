@@ -9,7 +9,7 @@ import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
 import { jobQuestions, separateQuestions, splitAnswers } from '../src/screening/questions';
-import { coreWork, jobNeeds, jobPlatform, pickLoom, projectPlatforms, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
+import { coreWork, DEFAULT_MATCH, jobNeeds, jobPlatform, pickLoom, projectPlatforms, rankProjects, TECH_STACK, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
@@ -118,6 +118,13 @@ const ctx = { rules, projects };
   // fewer than 2 matches, and none
   assert.equal(rankProjects([wf1], [P(60, 'Only', 1), P(61, 'Nope', 2)]).length, 1);
   assert.equal(rankProjects([], [P(70, 'X', 1)]).length, 0);
+  // skip tech stack: its tags score nothing and are not shared; the rest of the rules stay the same
+  const node = T(6, 'Node.js', 'Tech stack', 1);
+  m = rankProjects([wf1, ind, tool, node], [P(85, 'StackOnly', 6), P(86, 'Work', 1, 6), P(87, 'WorkTool', 1, 3)]);
+  assert.deepEqual(m.map((x) => [x.project_name, x.score]), [['Work', 4], ['WorkTool', 4], ['StackOnly', 1]], 'with the stack: Node.js counts');
+  m = rankProjects([wf1, ind, tool, node], [P(85, 'StackOnly', 6), P(86, 'Work', 1, 6), P(87, 'WorkTool', 1, 3)], { ...DEFAULT_MATCH, skip: [TECH_STACK] });
+  assert.deepEqual(m.map((x) => [x.project_name, x.score]), [['WorkTool', 4], ['Work', 3]], 'skipped: a project sharing only the stack drops out');
+  assert.equal(m[0].max_score, 4); assert.ok(m.every((x) => x.shared.every((t) => t.category !== TECH_STACK)), 'no stack tag listed as shared');
   // duplicate job tags count once
   assert.equal(rankProjects([wf1, wf1], [P(80, 'X', 1)])[0].score, 3);
   // selection rule: exactly 2 distinct, from the matches shown

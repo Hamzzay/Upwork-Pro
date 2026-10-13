@@ -1003,6 +1003,26 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R58. Skip tech stack tags: match a job's projects without its Tech stack tags (done in code, 14 October)
+
+- **What it is.** On the Projects step a switch, **Skip tech stack tags**. On: the projects are matched again without the job's
+  Tech stack tags (Node.js, Python, React / Next.js, PHP / Laravel, Supabase / Firebase, PostgreSQL, MongoDB, No code / low code,
+  AI coding tools). Everything else stays the same: the platform filter, the core work, industry, compliance, the other tags and
+  the AI's order. It is per job and off by default (Hamza's choice: Tech stack only, matching only, the app and the plugin).
+- **How.** `rankProjects` takes `skip` (categories to leave out of the score, the shared tags and the most a project can score;
+  `TECH_STACK` in `matching.ts`). `PUT /screenings/:id/skip-tech-stack` saves the switch on the job and queues the matching again
+  with `rematch_only`, so the worker scores the tags the job already has instead of reading the job again (no tagging call; the
+  AI order still runs). The projects are confirmed again after. Refused while matching runs and once a proposal exists. Every flip
+  is in the job's history (field "skip tech stack") and the activity log. The tags panel marks the Tech stack group as skipped.
+- **The plugin (v0.8.0).** `project-matcher` leaves the Tech stack category out when the person asks; Decision 3 in `/proposal`
+  offers "Match again without the tech stack tags"; `save_step` projects takes `skip_tech_stack`, and `get_job` returns it under
+  `saved`, so a job continued in Claude or the app keeps the choice. `get_library`'s matching rule says the same.
+- Migration `037_skip_tech_stack.sql` (`screenings.skip_tech_stack`, `screenings.rematch_only`).
+- Checked: a unit test (a project sharing only a stack tag drops out, no stack tag listed as shared, the most a project can score
+  is without them); `tsc` for the backend and the MCP; `node --check` on `app.js`; the migration applied locally; the route answers.
+- Not checked yet: flipping the switch in the browser on a real job (#60 and #62 have a Tech stack tag and no proposal), and the
+  plugin in a real Claude conversation (zip v0.8.0, rebuild the MCP, restart Claude).
+
 ### R42. Skipping a job asks why (done, 13 October)
 - Skip (on the Screening tab) opens "Why skip this job?": five quick reasons (Budget or rate too low, Client history or hire rate,
   Outside our services, Scope unclear, Too much competition) and a note. A reason, a note, or both; the server refuses a skip without

@@ -6,7 +6,7 @@
  * - the top N are shown and the best few recommended; N, the recommended count and the minimum score are admin settings
  * Pure functions: no database, no model.
  */
-export interface MatchOptions { shown: number; recommended: number; minScore: number; related?: Map<string, string[]>; named?: string[]; more?: number }
+export interface MatchOptions { shown: number; recommended: number; minScore: number; related?: Map<string, string[]>; named?: string[]; more?: number; skip?: string[] }
 export const DEFAULT_MATCH: MatchOptions = { shown: 5, recommended: 2, minScore: 1 };
 
 export type Platform = 'web' | 'mobile' | 'desktop';
@@ -52,6 +52,8 @@ export function coreWork(tags: JobTag[]): JobTag[] {
   return named.length ? named : tags.filter((t) => CORE_CATEGORIES.includes(t.category) && t.weight > 0 && !BROAD.has(t.name.toLowerCase()));
 }
 export const MORE_PROJECTS = 10; // kept behind "Show 10 more projects"
+/** The tag category a person can leave out of matching for one job ("Skip tech stack tags" on the Projects step and in the plugin). */
+export const TECH_STACK = 'Tech stack';
 
 /**
  * The shortlist, one rule for the app and the plugin (agreed with Hamza on 13 October):
@@ -66,9 +68,11 @@ export const MORE_PROJECTS = 10; // kept behind "Show 10 more projects"
  * The top N are shown and the first few recommended; the next MORE_PROJECTS are kept for "Show more". A project from another industry
  * scoring at least 1.5 times the best same-industry project is added as an "alternative from another industry" (never recommended).
  * Projects named in screening (`named`) are always in the list, marked, so screening and this step never disagree.
+ * Tags of a category in `skip` (the job's "Skip tech stack tags" switch) are left out of everything: score, shared tags, the most a project can score.
  */
 export function rankProjects(jobTags: JobTag[], projects: LibProject[], o: MatchOptions = DEFAULT_MATCH): Match[] {
-  const unique = [...new Map(jobTags.map((t) => [t.id, t])).values()];
+  const skip = new Set(o.skip ?? []);
+  const unique = [...new Map(jobTags.filter((t) => !skip.has(t.category)).map((t) => [t.id, t])).values()];
   const industries = unique.filter((t) => t.category === 'Industry').map((t) => t.name.toLowerCase());
   const scored = unique.filter((t) => t.category !== 'Industry');
   const max = scored.reduce((n, t) => n + t.weight, 0);
