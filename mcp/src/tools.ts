@@ -116,7 +116,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
       force_new: z.boolean().optional(),
     }, { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => api.call('POST', '/plugin/jobs', a));
 
-  T('record_decision', 'Record the person\'s decision on a saved job: continue (a FLAG or FAIL needs their reason) or skip.',
+  T('record_decision', 'Record the person\'s decision on a saved job: continue (a FLAG or FAIL needs their reason) or skip (give the reason they skip, too).',
     { id: z.number().int(), continue: z.boolean(), reason: z.string().optional() }, { readOnlyHint: false, destructiveHint: false }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/decision`, { continue: a.continue, reason: a.reason }));
 
   T('save_proposal', 'Save the proposal the plugin wrote for a saved job, with the profile (name), the project names it used and the Loom video sent with it, if any. Saving again adds a new version. finished=true (default) means ready to send.',

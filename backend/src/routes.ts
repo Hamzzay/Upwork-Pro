@@ -120,7 +120,7 @@ const statusAtSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome_at WHEN s.in
   WHEN s.client_viewed='yes' THEN s.client_viewed_at ELSE COALESCE(s.proposal_sent_at, s.proposal_sent_date) END`;
 export const listFrom = `FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN overrides o ON o.screening_id=s.id
   LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id`;
-const listSelect = `SELECT s.id, s.user_id, s.notes, s.source, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
+const listSelect = `SELECT s.id, s.user_id, s.notes, s.skip_reason, s.skip_note, s.source, s.input_type, s.source_url, s.title, s.status, s.verdict, s.error_code, s.error_message, s.created_at,
   s.rule_codes, s.proceeded, s.outcome, s.tagging_status, s.selection_confirmed_at, s.continued_at IS NOT NULL AS continued,
   s.client_country, s.budget, s.job_type, s.hire_rate, s.connects_spent, s.boost_connects, s.client_viewed, s.client_replied, s.interviewed, s.proposal_sent_date, s.discarded_at, s.discard_reason,
   u.name AS user_name, pr.name AS profile_name, o.id IS NOT NULL AS overridden,
@@ -423,8 +423,10 @@ const trackBody = z.object({
   outcome_reason: z.string().trim().max(120).nullable().optional(),
   outcome_note: z.string().trim().max(2000).nullable().optional(),
   loom_video_id: z.number().int().positive().nullable().optional(),
+  skip_reason: z.string().trim().max(120).nullable().optional(),
+  skip_note: z.string().trim().max(2000).nullable().optional(),
 });
-const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id'] as const;
+const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id', 'skip_reason', 'skip_note'] as const;
 /** Every tracked field, so a change can be stored as old value -> new value. */
 const TRACKED = [...TRACK_KEYS, 'proposal_sent_at', 'client_viewed_at', 'client_replied_at', 'interviewed_at', 'outcome_at'];
 const show = (v: any) => (v == null ? null : v instanceof Date ? v.toISOString().replace('T', ' ').slice(0, 19) : String(v));
@@ -454,6 +456,11 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
     if (!reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
     if (!cfg['tracking.loss_reasons'].includes(reason)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
   } else if (b.data.outcome !== undefined) { b.data.outcome_reason = null; } // not lost: no loss reason
+  // skipping says why: a quick reason from the list, a note, or both
+  if (b.data.proceeded === 'no') {
+    if (!b.data.skip_reason && !b.data.skip_note) return void res.status(400).json({ error: 'Say why you skip this job: pick a reason or write a note' });
+    if (b.data.skip_reason && !cfg['skip.reasons'].includes(b.data.skip_reason)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
+  }
   // the same order as the status button: sent only once the proposal is finished; viewed, chat, interview and outcomes only once it is sent
   const changed = <K extends keyof typeof before>(k: K, v: any) => v !== undefined && (v === '' ? null : v) !== before[k];
   const becomesSent = changed('proposal_sent_date', b.data.proposal_sent_date) && b.data.proposal_sent_date;

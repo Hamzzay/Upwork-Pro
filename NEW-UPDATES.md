@@ -862,3 +862,13 @@ screen.
 3. Rules: done in R15 (the rules now come only from the Rules page; gate version 2 is superseded by version 3).
 4. UI polish still open: the Proposal step itself, and phone widths for the new tables and dashboard.
 5. Profiles: all seven exist now (R17), but most fields are empty. Fill them under Upwork profiles.
+### R42. Skipping a job asks why (done, 13 October)
+- Skip (on the Screening tab) opens "Why skip this job?": five quick reasons (Budget or rate too low, Client history or hire rate,
+  Outside our services, Scope unclear, Too much competition) and a note. A reason, a note, or both; the server refuses a skip without
+  one, or with a reason not on the list. The quick reasons are editable in Settings ("Quick reasons to skip a job").
+- Saved on the job (`skip_reason`, `skip_note`, migration `028_skip_reason.sql`), with the old and new values in the job's change
+  record. Shown on the Screening tab ("Skipped because: ..."), the Overview, and the "Why" column of Jobs, Not pursued.
+- The Claude plugin asks the reason when the person stops after the gate and saves it with the skip (`record_decision`, `save_job`).
+- Checked in the browser on job #49: no reason is refused; a quick reason alone and a note alone both save; the reason shows on the
+  page; the server refuses a skip without a reason and a reason not on the list. Job #49 is back at its decide step.
+

@@ -74,12 +74,12 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
     await conn.beginTransaction();
     const [r]: any = await conn.query(
       `INSERT INTO screenings (user_id, input_type, source, source_url, upwork_job_id, raw_input, job_text, status, title, verdict, report_json, rule_codes, fail_reasons, flag_reasons,
-         client_country, budget, hire_rate, job_type, model, provider, started_at, finished_at, posting_json, posting_status, proceeded, continued_at)
-       VALUES (?, 'text', ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude-plugin', 'plugin', NOW(), NOW(), ?, ?, ?, ?)`,
+         client_country, budget, hire_rate, job_type, model, provider, started_at, finished_at, posting_json, posting_status, proceeded, continued_at, skip_note)
+       VALUES (?, 'text', ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude-plugin', 'plugin', NOW(), NOW(), ?, ?, ?, ?, ?)`,
       [user.id, SOURCE, d.job_url ?? null, jobId, d.job_text, d.job_text, d.title, d.verdict, JSON.stringify(report), codes.join(', ') || null,
         fails.map((x) => `${x.rule}${x.value ? ': ' + x.value : ''}`).join(' | ') || null, flags.map((x) => `${x.rule}${x.value ? ': ' + x.value : ''}`).join(' | ') || null,
         d.client_country ?? null, d.budget ?? null, d.hire_rate ?? null, d.job_type ?? null, post ? JSON.stringify(post) : null, post ? 'done' : null,
-        cont === undefined ? null : cont ? 'yes' : 'no', cont ? new Date() : null]);
+        cont === undefined ? null : cont ? 'yes' : 'no', cont ? new Date() : null, cont === false ? d.decision?.reason ?? null : null]);
     id = Number(r.insertId);
     if (cont && d.verdict !== 'PASS') await conn.query('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason) VALUES (?,?,?,?)', [id, user.id, d.verdict, d.decision!.reason]);
     await conn.commit();
@@ -108,7 +108,7 @@ async function ownJob(req: any, res: any) {
 }
 async function decide(s: any, cont: boolean, reason: string | undefined, userId: number) {
   if (cont && s.verdict !== 'PASS') await exec('INSERT IGNORE INTO overrides (screening_id, user_id, verdict_at_time, reason) VALUES (?,?,?,?)', [s.id, userId, s.verdict, reason]);
-  await exec(`UPDATE screenings SET proceeded=?, continued_at=${cont ? 'COALESCE(continued_at, NOW())' : 'continued_at'} WHERE id=?`, [cont ? 'yes' : 'no', s.id]);
+  await exec(`UPDATE screenings SET proceeded=?, continued_at=${cont ? 'COALESCE(continued_at, NOW())' : 'continued_at'}, skip_note=? WHERE id=?`, [cont ? 'yes' : 'no', cont ? null : reason ?? null, s.id]);
   await audit(userId, cont ? 'plugin_continue' : 'plugin_skip', `screening=${s.id}`);
 }
 

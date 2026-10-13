@@ -56,7 +56,7 @@ Apply the `job-gate` skill to the job data. Then show the person, as one visible
 
 **Decision 1.** Only after that message is visible, ask: **Continue** or **Stop**. Put the verdict and the main flags in the question text, for example "FLAG (G3 avg hourly $8, G14 20 Connects). Continue?"
 * On Continue after a Flag or Fail, ask for the override reason with the quick picks: Invite, Strong client history, Strong project fit, Low workload, Other.
-* On Stop, go to step 4, save the job with the decision skip, and end.
+* On Stop, ask why in one line (budget or rate too low, client history or hire rate, outside our services, scope unclear, too much competition, or their own words), then go to step 4, save the job with the decision skip and that reason, and end.
 
 ## Step 4. Save the job
 
@@ -67,7 +67,7 @@ Call `save_job` once, with exactly what the gate produced (Upwork Pro does not s
 * `job`, `client`, `competition`: the label and value pairs from the gate's Job, Client and Competition sections. `fit` and `proposal_notes`.
 * `client_country`, `budget`, `hire_rate`, `job_type` as shown.
 * `posting` when you have read the post in fields: `description` word for word, `skills`, `terms`, `screening_questions`, `activity`, `client`, `client_history`.
-* `decision`: `{ continue: true }` for a PASS; for a FLAG or FAIL `{ continue: true, reason }` where reason is the person's quick pick and note, written as "Quick pick: Invite. <their note>". Never invent a note. On Stop, `{ continue: false }`.
+* `decision`: `{ continue: true }` for a PASS; for a FLAG or FAIL `{ continue: true, reason }` where reason is the person's quick pick and note, written as "Quick pick: Invite. <their note>". Never invent a note. On Stop, `{ continue: false, reason }` with the reason the person gave for skipping.
 
 If it is refused as a duplicate, go back to Decision 0. Confirm in one line: "Saved to Upwork Pro as job #N." Keep N for step 10.
 

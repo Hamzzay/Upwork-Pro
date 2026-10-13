@@ -791,7 +791,9 @@ function outcomeCell(r) {
   const won = !cfg('tracking.loss_outcomes', []).includes(r.outcome);
   return h('div', { class: 'outc' }, h('span', { class: 'obadge ' + (won ? 'won' : 'lost') }, r.outcome), r.outcome_reason ? h('div', { class: 'small muted' }, r.outcome_reason) : null);
 }
-const whyNot = (r) => (r.stage === 'failed' ? cap(r.error_message || 'The screening did not finish') : r.stage === 'skipped' ? cap(r.notes || 'Skipped after screening') : '');
+const whyNot = (r) => (r.stage === 'failed' ? cap(r.error_message || 'The screening did not finish') : r.stage === 'skipped' ? skipWhy(r) : '');
+/** Why a job was skipped: the quick reason and the note, or the older free notes. */
+function skipWhy(r) { return [r.skip_reason, r.skip_note].filter(Boolean).join('. ') || cap(r.notes || 'Skipped after screening'); }
 
 /** Every column the Jobs list can show, and which ones each tab starts with. */
 const JOB_COLS = [
@@ -1405,7 +1407,7 @@ async function jobPage(id, want) {
       ready: ['Ready to send', 'Send it on Upwork, then mark it as sent.'],
       submitted: ['Waiting on the client', 'Record what happens: viewed, chat, interview, outcome.'],
       closed: [`Closed: ${s.outcome || 'done'}`, s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : ''],
-      skipped: ['Skipped', s.notes || 'Not pursued.'],
+      skipped: ['Skipped', skipWhy(s)],
     }[stage] || ['', ''];
     const go = (k, label) => actBtn(label, () => setTab(k), true);
     const discard = me.role !== 'admin' ? null : s.discarded_at ? actBtn('Restore job', () => restoreJob(id, async () => { await refresh(); route(); }), true)
@@ -1420,7 +1422,7 @@ async function jobPage(id, want) {
     const status = s.outcome && s.outcome !== 'Pending' ? s.outcome : s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : s.proposal_sent_at || s.proposal_sent_date ? 'Sent' : null;
     const facts = [
       ['Verdict', s.verdict ? `${VERDICT_WORD[s.verdict]}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : null],
-      ['Decision', override ? `Continued past the ${vword(override.verdict_at_time)}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped' : null],
+      ['Decision', override ? `Continued past the ${vword(override.verdict_at_time)}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped: ' + skipWhy(s) : null],
       ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
       ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
       ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
@@ -1457,7 +1459,7 @@ async function jobPage(id, want) {
         override ? h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, override.reason) : null,
         h('div', { class: 'jp-label' }, override ? `${override.user_name} · ${full(override.created_at)}` : 'Taken forward to the projects.')));
     } else if (!owner) {
-      parts.push(h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body', style: 'margin:0' }, s.proceeded === 'no' ? 'Skipped.' : `No decision yet. Only ${s.user_name} can continue with this job.`)));
+      parts.push(h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body', style: 'margin:0' }, s.proceeded === 'no' ? 'Skipped: ' + skipWhy(s) : `No decision yet. Only ${s.user_name} can continue with this job.`)));
     } else {
       const needReason = j.verdict !== 'PASS', minLen = cfg('override.min_reason', 15);
       const ta = needReason ? h('textarea', { id: 'why', style: 'min-height:84px', placeholder: 'For example: the client has a strong history with us, and the scope was clarified on a call.' }) : null;
@@ -1471,14 +1473,29 @@ async function jobPage(id, want) {
         try { await api('POST', `/screenings/${s.id}/${needReason ? 'override' : 'continue'}`, needReason ? { reason } : {}); await stepCtx.advanceTo(1); }
         catch (x) { fail(x.message); b.disabled = false; b.replaceChildren('Continue'); }
       }, true);
-      const skip = actBtn('Skip', async (e) => {
-        const b = e.currentTarget; btnBusy(b, 'Skipping');
-        try { await api('PATCH', `/screenings/${s.id}/tracking`, { proceeded: 'no', ...(ta && ta.value.trim() ? { notes: ta.value.trim() } : {}) }); toast('Skipped. It is under Not pursued.'); await refresh(); drawContent(); }
-        catch (x) { fail(x.message); b.disabled = false; b.replaceChildren('Skip'); }
+      // skipping asks why: a quick reason, a note, or both, kept with the job for reports
+      const skip = actBtn('Skip', () => {
+        let pick = '';
+        const chips = h('div', { class: 'chips' }, cfg('skip.reasons', []).map((r) => {
+          const b = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, r);
+          b.onclick = () => { pick = pick === r ? '' : r; chips.querySelectorAll('.tagbtn').forEach((x) => { const on = x.textContent === pick; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); }); };
+          return b;
+        }));
+        const note = h('textarea', { id: 'skipnote', maxlength: 2000, style: 'min-height:72px', placeholder: 'Anything else worth knowing (optional when a reason is picked)' });
+        modal({ title: 'Why skip this job?', confirm: 'Skip job', body: h('div', {},
+          h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Quick reason'), chips),
+          h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'skipnote' }, 'Note'), note),
+          h('div', { class: 'hint' }, 'Kept with the job, so skipped jobs can be reported on.')),
+          onConfirm: async () => {
+            if (!pick && !note.value.trim()) throw new Error('Pick a reason or write a note.');
+            await api('PATCH', `/screenings/${s.id}/tracking`, { proceeded: 'no', skip_reason: pick || null, skip_note: note.value.trim() || null });
+            toast('Skipped. It is under Not pursued.'); await refresh(); drawContent();
+          } });
       });
       setActions(s.proceeded === 'no' ? null : skip, cont);
       parts.push(h('div', { class: 'card card-pad' },
         h('div', { class: 'jp-sec' }, s.proceeded === 'no' ? 'You skipped this job. Continue anyway?' : needReason ? `Continue despite the ${vword(j.verdict)}?` : 'Continue with this job?'),
+        s.proceeded === 'no' ? h('p', { class: 'jp-body', style: 'margin:4px 0 6px' }, 'Skipped because: ' + skipWhy(s)) : null,
         h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, needReason ? 'Write why. The reason stays on record, visible to managers and admins. Continue and Skip are at the top right.' : 'Continue to match it with projects, or skip it. The buttons are at the top right.'),
         ta, err));
     }
@@ -2251,7 +2268,7 @@ async function settingsView() {
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     group('Project matching', [num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
-    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), num('tracking.quiet_days')]),
+    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
 }
