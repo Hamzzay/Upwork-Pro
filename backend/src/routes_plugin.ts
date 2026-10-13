@@ -307,16 +307,17 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
  *  writing rules, banned phrases, modules, screening answer rules and the checklist. `type` returns that type's full text; `all=1` every type's. */
 plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
   const docs = await query<any>("SELECT kind, content, updated_at FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
-  const types = await query<any>('SELECT id, name, body_html, prompt, priority, updated_at FROM templates WHERE active=1 ORDER BY priority, name');
+  const types = await query<any>('SELECT id, name, body_html, prompt, priority, updated_at, opening_rules, opening_no_us, opening_starts FROM templates WHERE active=1 ORDER BY priority, name');
   const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content).join('\n\n') || null;
   const want = String(req.query.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const all = req.query.all === '1';
   const key = (name: string) => name.toLowerCase().replace(/^type\s+/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   res.json({
     types: types.map((t) => {
-      const text = htmlToPlain(t.body_html) + (t.prompt ? '\n\nInstructions: ' + t.prompt : '');
+      const text = htmlToPlain(t.body_html) + (t.prompt ? '\n\nInstructions: ' + t.prompt : '')
+        + (t.opening_rules ? `\n\nFIRST TWO LINES (strict; Upwork shows them in the preview)\n${t.opening_rules}${t.opening_starts ? '\nMust start with: ' + t.opening_starts.split('|').join(' or ') : ''}${t.opening_no_us ? '\nNo talk about us, no project names, no stats in the first two lines.' : ''}` : '');
       const match = all || (want && (t.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').includes(want) || key(t.name).replace(/-/g, ' ').includes(want)));
-      return { key: key(t.name), title: t.name, ...typeFacts(text), content: match ? text : undefined };
+      return { key: key(t.name), title: t.name, ...typeFacts(text), first_two_lines: t.opening_rules || undefined, content: match ? text : undefined };
     }),
     type_selection: one('selection'), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
     updated_at: [...docs, ...types].reduce((m: any, d: any) => (m && m > d.updated_at ? m : d.updated_at), null),

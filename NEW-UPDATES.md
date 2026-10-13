@@ -888,3 +888,19 @@ screen.
   splits that text into the letter and four answers. Not checked: the answers card on screen (the browser was signed out by a
   server restart, and I do not sign in with a saved password).
 - `npx ts-node scripts/try-writing.ts <job id>` writes a job's proposal with its chosen projects and profile without saving it.
+
+### R44. The first two lines: their own strict rules per proposal type (done, 13 October)
+- Each proposal type has a "First two lines" section (Writing guide, open a type): the rules for the two lines Upwork shows in the
+  preview, written from each type's own guidance (pain first, a detail only this client wrote, no talk about us, no project names, no
+  stats, no greeting; Type 7 starts "Understood.", Type 8 "For your platform," or "For you,"; an invite may greet by name). Plus two
+  settings per type: "Must start with" and "No talk about us in the first two lines".
+- The writer gets them as strict rules. After writing, the app checks the two lines (greeting, introducing us, a project name, stats,
+  talk about us, the required start; a client's own required opening wins). A draft that fails is rewritten once, only those two
+  lines; anything still failing is the first warning on the proposal ("First two lines: ...").
+- The Claude plugin gets them too (`get_writing_guide`, `first_two_lines`) and checks the two lines before showing a draft.
+- Migration `029_opening_lines.sql`. **On the live server run `npm run upgrade:openings` once**: it fills the rules only where a type
+  has none, so nothing the team wrote is overwritten (do not run `upgrade:guide` on live: it rewrites the types' text).
+- `scripts/try-writing.ts <job id> [type id]` now takes a type.
+- Checked: tests (clean openings pass; greeting, introduction, project, stats and talk about us are caught; "Understood."; an invite's
+  greeting; a client's own opening; "US" is not "us"); job #50 written by the real model as Type 7 and as Type 1, both openings
+  following the rules with no warning. Setup backup re-exported.

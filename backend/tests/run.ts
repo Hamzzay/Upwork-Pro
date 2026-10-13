@@ -14,7 +14,7 @@ import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/taggin
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
 import { rankTemplates } from '../src/proposal/rank';
-import { checkProposal } from '../src/proposal/checks';
+import { checkOpening, checkProposal } from '../src/proposal/checks';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
 import { settingsConflict } from '../src/settings';
@@ -192,6 +192,15 @@ const ctx = { rules, projects };
   const own = checkProposal({ text: 'Best regards,\nHamza Yaseen', selectedProjects: [], otherProjectNames: [], foreignNames: ['Hamza', 'Ali Khan'], sender: { name: 'Hamza Yaseen', gitlab_link: null }, banned: [] } as any);
   assert.ok(!own.some((w) => w.includes('"Hamza"')), 'Hamza is the sender');
   assert.ok(checkProposal({ text: 'Thanks, Ali Khan', selectedProjects: [], otherProjectNames: [], foreignNames: ['Ali Khan'], sender: { name: 'Hamza Yaseen', gitlab_link: null }, banned: [] } as any).some((w) => w.includes('Ali Khan')));
+  // the first two lines, checked against the type's opening rules
+  const op = (t: string, o: Partial<Parameters<typeof checkOpening>[1]> = {}) => checkOpening(t, { noUs: true, starts: null, projectNames: ['Breesy', 'Orionlease'], invite: false, clientOpening: false, ...o });
+  assert.deepEqual(op('Leads that wait hours for a reply book a showing elsewhere. The delay comes from answers no one wrote down.\n\nI built Breesy.'), [], 'a clean opening; what comes after is not checked');
+  assert.ok(op('Hi John, I am a senior developer. I built Breesy with 100% success.').length >= 4, 'greeting, introduction, project, stats, talk about us');
+  assert.deepEqual(op('Understood. Your leasing team answers the same five questions all day and leads go cold.', { starts: 'Understood.' }), [], 'Type 7: "Understood." then the problem');
+  assert.ok(op('Your leasing team is swamped. Leads go cold.', { starts: 'Understood.' }).some((x) => x.includes('"Understood."')));
+  assert.deepEqual(op('Hi Sara, thanks for the invite.\nYour booking flow loses people at payment. We would fix the checkout first.', { invite: true, noUs: false }), [], 'an invite may greet, and its greeting line is not one of the two');
+  assert.deepEqual(op('Per your request: BANANA. Leads go cold.', { starts: 'Understood.', clientOpening: true }), [], 'a client\'s required opening wins');
+  assert.deepEqual(op('Your US clinics lose calls after hours. Missed calls become lost patients.'), [], '"US" is not talk about us');
   // ---- screening questions: Upwork's own section, apart from the job ----
   const page50 = 'We need an AI agent for leasing leads.\nProject Type:Ongoing project\nYou will be asked to answer the following questions when submitting a proposal:\n\nWhat similar AI lead-response agents have you built?\nWhat tools would you likely use for a project like this?\nSkills and Expertise\nai project management\nAbout the client\nPayment method verified';
   const sq = separateQuestions(page50);

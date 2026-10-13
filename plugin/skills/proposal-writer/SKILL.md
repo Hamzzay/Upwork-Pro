@@ -44,6 +44,11 @@ Score every type with the type selection rules (`references/type-selection.md`) 
 
 1. Read `references/writing-rules.md` and `references/banned-phrases.md`.
 2. Read only the chosen type file. **The type file overrides the general writing rules wherever they differ** (opening words, questions, project count, length).
+   **The first two lines are strict.** Each type has its own FIRST TWO LINES rules (in `get_writing_guide`, `first_two_lines`, and at the end
+   of the type's text). Upwork shows those lines in the preview. Follow every rule exactly: no greeting (except an invite's "Hi [name]"),
+   no project names, no stats, no talk about us where the type says so, and the required first word (Type 7 "Understood.", Type 8 "For
+   your platform," or "For you,") unless the client asked for their own. Check the two lines before showing the draft and rewrite them if
+   any rule fails.
 3. Add every module the signals call for, from `references/modules.md`.
 4. Apply the profile record: voice, signature, allowed stats, and profile rules. Profile rules override general rules.
 5. Use the client's required words or format exactly, if any.

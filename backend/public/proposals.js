@@ -362,14 +362,18 @@ async function templateView(idStr) {
   const f = { name: h('input', { type: 'text', id: 'tn', maxlength: 160, value: t ? t.name : '' }), desc: h('textarea', { id: 'td', maxlength: 1000, style: 'min-height:70px' }),
     priority: h('input', { type: 'number', id: 'tp', min: 0, step: 1, value: t ? t.priority : 100 }), active: h('input', { type: 'checkbox', id: 'ta', checked: t ? !!Number(t.active) : true }),
     isDefault: h('input', { type: 'checkbox', id: 'tdf', checked: t ? !!Number(t.is_default) : false }),
-    prompt: h('textarea', { id: 'tpr', style: 'min-height:140px', maxlength: 20000, placeholder: 'Extra instructions for the AI when it writes with this type. Optional.' }) };
-  f.desc.value = t && t.description ? t.description : ''; f.prompt.value = t && t.prompt ? t.prompt : '';
+    prompt: h('textarea', { id: 'tpr', style: 'min-height:140px', maxlength: 20000, placeholder: 'Extra instructions for the AI when it writes with this type. Optional.' }),
+    opening: h('textarea', { id: 'top', style: 'min-height:140px', maxlength: 4000, placeholder: '1. Line one names the pain...\n2. Line two shows what causes it...' }),
+    starts: h('input', { type: 'text', id: 'tos', maxlength: 200, value: t && t.opening_starts ? t.opening_starts : '', placeholder: 'For example: Understood.' }),
+    noUs: h('input', { type: 'checkbox', id: 'tnu', checked: t ? !!Number(t.opening_no_us ?? 1) : true }) };
+  f.desc.value = t && t.description ? t.description : ''; f.prompt.value = t && t.prompt ? t.prompt : ''; f.opening.value = t && t.opening_rules ? t.opening_rules : '';
   const fmt = richEditor(t ? t.body_html : '<p></p>', { label: 'Proposal type format' });
   const err = h('div', { class: 'err', hidden: true });
   const saveBtn = h('button', { class: 'btn primary', type: 'button' }, isNew ? 'Create type' : 'Save type');
   saveBtn.onclick = async () => {
     err.hidden = true; btnBusy(saveBtn, 'Saving');
-    const body = { name: f.name.value, description: f.desc.value.trim() || null, body_html: fmt.getHtml(), prompt: f.prompt.value.trim() || null, priority: Number(f.priority.value), active: f.active.checked, is_default: f.isDefault.checked };
+    const body = { name: f.name.value, description: f.desc.value.trim() || null, body_html: fmt.getHtml(), prompt: f.prompt.value.trim() || null, priority: Number(f.priority.value), active: f.active.checked, is_default: f.isDefault.checked,
+      opening_rules: f.opening.value.trim() || null, opening_starts: f.starts.value.trim() || null, opening_no_us: f.noUs.checked };
     try { const r = await api(isNew ? 'POST' : 'PATCH', isNew ? '/templates' : '/templates/' + t.id, body); toast(isNew ? 'Proposal type created' : 'Proposal type saved'); if (isNew) location.hash = '#/t/' + r.id; else route(); }
     catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; saveBtn.disabled = false; saveBtn.replaceChildren(isNew ? 'Create type' : 'Save type'); }
   };
@@ -387,6 +391,11 @@ async function templateView(idStr) {
       h('div', { class: 'field row', style: 'margin-top:12px' }, f.active, h('label', { for: 'ta', style: 'font-weight:600' }, 'Active (can be chosen for proposals)')),
       h('div', { class: 'field row', style: 'margin-top:8px' }, f.isDefault, h('label', { for: 'tdf', style: 'font-weight:600' }, 'Default type (used when no type qualifies)'))),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Format'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'The structure and rules the proposal must follow. The AI reads this as written.'), fmt.el),
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'First two lines'),
+      h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Upwork shows the first two lines in the preview, before the client opens the proposal. The writer follows these rules strictly; a draft that breaks the checks below is rewritten once, and anything left is shown as a warning.'),
+      f.opening,
+      h('div', { class: 'grid2', style: 'margin-top:12px' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tos' }, 'Must start with (optional)'), f.starts, h('div', { class: 'hint' }, 'Separate choices with |, for example For your platform,|For you,. A start the client asks for always wins.')),
+        h('div', { class: 'field row', style: 'align-self:end;padding-bottom:8px' }, f.noUs, h('label', { for: 'tnu', style: 'font-weight:600' }, 'No talk about us in the first two lines')))),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Prompt'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Extra instructions used with this type. Safety rules (no invented facts, links or numbers) always apply on top.'), f.prompt),
     err,
   ];

@@ -143,7 +143,7 @@ proposals.get('/templates', editor, async (req, res) => {
   res.json({ templates: rows, total, page: pg, pages, page_size: PAGE_SIZE });
 });
 async function templateDetail(id: number) {
-  const t = (await query<any>('SELECT id, name, description, body_html, prompt, priority, active, is_default, created_at, updated_at FROM templates WHERE id=?', [id]))[0];
+  const t = (await query<any>('SELECT id, name, description, body_html, prompt, priority, active, is_default, opening_rules, opening_no_us, opening_starts, created_at, updated_at FROM templates WHERE id=?', [id]))[0];
   if (!t) return null;
   const mappings = await query(
     `SELECT ts.id, ts.signal_id, ts.value_id, ts.weight, ts.role, ts.req_group, ts.source, s.number AS signal_number, s.name AS signal_name, v.name AS value_name
@@ -158,6 +158,7 @@ proposals.get('/templates/:id', editor, async (req, res) => {
 const templateBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(160), description: optText(1000), body_html: z.string().max(200_000), prompt: optText(20_000),
   priority: z.number().int().min(0).max(100000).optional(), active: z.boolean().optional(), is_default: z.boolean().optional(),
+  opening_rules: optText(4000), opening_no_us: z.boolean().optional(), opening_starts: optText(200),
 });
 proposals.post('/templates', editor, async (req, res) => {
   const b = templateBody.safeParse(req.body);
@@ -165,7 +166,7 @@ proposals.post('/templates', editor, async (req, res) => {
   const html = sanitizeRich(b.data.body_html);
   if (!htmlToPlain(html)) return void res.status(400).json({ error: 'The template format cannot be empty' });
   try {
-    const r = await exec('INSERT INTO templates (name, description, body_html, prompt, priority, active) VALUES (?,?,?,?,?,?)', [b.data.name, b.data.description, html, b.data.prompt, b.data.priority ?? 100, b.data.active === false ? 0 : 1]);
+    const r = await exec('INSERT INTO templates (name, description, body_html, prompt, priority, active, opening_rules, opening_no_us, opening_starts) VALUES (?,?,?,?,?,?,?,?,?)', [b.data.name, b.data.description, html, b.data.prompt, b.data.priority ?? 100, b.data.active === false ? 0 : 1, b.data.opening_rules ?? null, b.data.opening_no_us === false ? 0 : 1, b.data.opening_starts ?? null]);
     await audit(req.user!.id, 'template_create', `id=${r.insertId}`);
     res.status(201).json({ id: r.insertId });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A template with that name already exists' }); throw e; }
@@ -176,7 +177,8 @@ proposals.patch('/templates/:id', editor, async (req, res) => {
   const d: any = { ...b.data };
   if (d.body_html !== undefined) { d.body_html = sanitizeRich(d.body_html); if (!htmlToPlain(d.body_html)) return void res.status(400).json({ error: 'The template format cannot be empty' }); }
   const sets: string[] = []; const p: any[] = [];
-  for (const k of ['name', 'description', 'body_html', 'prompt', 'priority']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+  for (const k of ['name', 'description', 'body_html', 'prompt', 'priority', 'opening_rules', 'opening_starts']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+  if (d.opening_no_us !== undefined) { sets.push('opening_no_us=?'); p.push(d.opening_no_us ? 1 : 0); }
   if (d.active !== undefined) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
   if (d.is_default !== undefined) { sets.push('is_default=?'); p.push(d.is_default ? 1 : 0); if (d.is_default) await exec('UPDATE templates SET is_default=0 WHERE id<>?', [num(req.params.id)]); } // one default type
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });

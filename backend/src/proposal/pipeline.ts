@@ -5,7 +5,7 @@ import { exec, pool, query, withRetry } from '../db';
 import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
 import { lastUsed } from '../llm/context';
-import { checkProposal } from './checks';
+import { checkOpening, checkProposal } from './checks';
 import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
 import { pickLoom } from '../screening/matching';
@@ -63,8 +63,8 @@ async function loadFacts(screeningId: number, basis?: Basis) {
 }
 
 async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
-  const t = (await query<any>('SELECT id, name, body_html, prompt FROM templates WHERE id=?', [id]))[0];
-  return t ? { id: t.id, name: t.name, body_html: t.body_html, prompt: t.prompt } : null;
+  const t = (await query<any>('SELECT id, name, body_html, prompt, opening_rules, opening_no_us, opening_starts FROM templates WHERE id=?', [id]))[0];
+  return t ? { id: t.id, name: t.name, body_html: t.body_html, prompt: t.prompt, opening_rules: t.opening_rules, opening_no_us: !!t.opening_no_us, opening_starts: t.opening_starts } : null;
 }
 
 /** Names that come from samples and templates (their signatures): they must never appear in a new proposal. */
@@ -250,11 +250,30 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const parsed = writerOut.safeParse(w.data);
   if (!parsed.success) throw new Error('invalid_output');
   if (f.questions.length) parsed.data.proposal = withAnswers(parsed.data.proposal.split(/\n\s*Screening answers\s*:?\s*\n/i)[0], f.questions, parsed.data.screening_answers ?? []);
+
+  // 3b. the first two lines, strictly: a draft that breaks the type's opening rules is rewritten once, then anything left is a warning
+  const clientOpening = requirements.some((r) => /\b(open(ing)?|start|begin)\w*\b.*\b(with|word|phrase|line)\b/i.test(r));
+  const allNames = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
+  const opening = (text: string) => template.opening_rules ? checkOpening(text, { noUs: !!template.opening_no_us, starts: template.opening_starts ?? null,
+    projectNames: allNames, invite: /invite/i.test(template.name), clientOpening }) : [];
+  let openingIssues = opening(parsed.data.proposal);
+  if (openingIssues.length && opts.stillWanted()) {
+    await stage('writing');
+    const fix = await run({ label: 'writing: first two lines', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide }),
+      prompt: `${f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}` : `<job_page>\n${f.jobText}\n</job_page>`}\n\nYOUR DRAFT\n${parsed.data.proposal.split(/\n\s*Screening answers\s*:?\s*\n/i)[0]}\n\nThe first two lines of your draft break the FIRST TWO LINES rules: they ${openingIssues.join('; ')}. Return the whole proposal again with only the first two lines rewritten to follow every FIRST TWO LINES rule. Keep everything after them word for word.${f.questions.length ? ' Return the same screening answers.' : ''}`,
+      schema: f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
+    const again = writerOut.safeParse(fix.data);
+    if (again.success) {
+      const text = f.questions.length ? withAnswers(again.data.proposal.split(/\n\s*Screening answers\s*:?\s*\n/i)[0], f.questions, again.data.screening_answers ?? parsed.data.screening_answers ?? []) : again.data.proposal;
+      const left = opening(text);
+      if (left.length < openingIssues.length) { parsed.data.proposal = text; openingIssues = left; }
+    }
+  }
   if (!opts.stillWanted()) return null;
 
   // 4. check what the writer cannot be trusted to check
   const library = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
-  const warnings = [...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
+  const warnings = [...openingIssues.map((x) => ({ source: 'check', text: `First two lines: ${x}. Rewrite them before sending; Upwork shows them in the preview.` })), ...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
     ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
       sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: wordRange(htmlToPlain(template.body_html)) }).map((t) => ({ source: 'check', text: t }))];
   return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, warnings, model: lastUsed()?.model ?? config.llm.model };
@@ -379,6 +398,6 @@ export async function runChat(messageId: number) {
 }
 
 /** Writes a proposal for a job with its confirmed projects and profile and returns it, saving nothing (for checking a change to the Writing guide). */
-export async function draftPreview(screeningId: number) {
-  return compose(screeningId, await loadFacts(screeningId), { stillWanted: () => true });
+export async function draftPreview(screeningId: number, templateId?: number | null) {
+  return compose(screeningId, await loadFacts(screeningId), { stillWanted: () => true, templateId: templateId ?? null });
 }

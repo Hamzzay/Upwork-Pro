@@ -48,3 +48,29 @@ export function checkProposal(i: CheckInput): string[] {
   }
   return w;
 }
+
+/**
+ * The first two lines (what Upwork shows in the preview), checked against the type's opening rules where a machine can: no greeting
+ * (except an invite's "Hi [name]"), no project name, no stats, no talk about us when the type forbids it, and the required start.
+ * A client's own required opening (`clientOpening`) switches off the start and greeting checks.
+ */
+export function checkOpening(text: string, o: { noUs: boolean; starts: string | null; projectNames: string[]; invite: boolean; clientOpening: boolean }): string[] {
+  const letter = String(text ?? '').split(/\n\s*Screening answers\s*:?\s*\n/i)[0].trim();
+  const lines = letter.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  // an invite's greeting line does not count as one of the two lines
+  const body = o.invite && lines[0] && /^(hi|hello|hey)\b/i.test(lines[0]) && lines[0].length < 80 ? lines.slice(1) : lines;
+  const sentences = body.join(' ').match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) ?? [];
+  const first = sentences.slice(0, 2).join(' ').trim();
+  const out: string[] = [];
+  if (!first) return out;
+  if (!o.clientOpening && !o.invite && /^(hi|hello|hey|dear|greetings|good (morning|afternoon|evening))\b/i.test(first)) out.push('starts with a greeting');
+  if (/\b(my name is|i am a|i'm a|as a (senior|full|certified|top))\b/i.test(first)) out.push('introduces us instead of the client\'s problem');
+  for (const n of o.projectNames) if (n && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(first)) out.push(`names a project (${n})`);
+  if (/\b\d+(\.\d+)?\s*%|\btop rated\b|\bjob success\b|\b\d+\+?\s*(years|projects|clients)\b/i.test(first)) out.push('gives stats or ratings');
+  if (o.noUs && /\b(i|i'm|i've|i'd|i'll|we|we're|we've|we'd|we'll|our|my)\b/i.test(first.replace(/^understood\.?\s*/i, ''))) out.push('talks about us');
+  if (o.starts && !o.clientOpening) {
+    const ok = o.starts.split('|').map((x) => x.trim()).filter(Boolean).some((x) => letter.toLowerCase().startsWith(x.toLowerCase()));
+    if (!ok) out.push(`does not start with ${o.starts.split('|').map((x) => '"' + x.trim() + '"').join(' or ')}`);
+  }
+  return out;
+}

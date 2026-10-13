@@ -29,7 +29,7 @@ const load = (f: string) => JSON.parse(readFileSync(join(appRoot, 'seed', f), 'u
   }
 
   for (const t of tpl.templates) {
-    const r = await exec('INSERT IGNORE INTO templates (name, description, body_html, prompt, priority, is_default) VALUES (?,?,?,?,?,?)', [t.name, t.description, sanitizeRich(t.body_html), t.prompt || null, t.priority, t.is_default ? 1 : 0]);
+    const r = await exec('INSERT IGNORE INTO templates (name, description, body_html, prompt, priority, is_default, opening_rules, opening_no_us, opening_starts) VALUES (?,?,?,?,?,?,?,?,?)', [t.name, t.description, sanitizeRich(t.body_html), t.prompt || null, t.priority, t.is_default ? 1 : 0, t.opening_rules ?? null, t.opening_no_us === 0 ? 0 : 1, t.opening_starts ?? null]);
     if (!r.affectedRows) continue; // already there: keep its edits and its mapping
     n.templates++;
     for (const [code, valueName, weight, role = 'weight', group = null] of t.signals) {

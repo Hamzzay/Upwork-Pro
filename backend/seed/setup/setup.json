@@ -1,5 +1,5 @@
 {
- "exported_at": "2026-10-08T23:07:36.750Z",
+ "exported_at": "2026-10-13T18:38:06.795Z",
  "note": "Upwork Pro setup data: no jobs, users or tokens. Restore with npm run setup:import -- --apply",
  "tables": {
   "signal_layers": [
@@ -4505,7 +4505,10 @@
     "prompt": null,
     "priority": 10,
     "active": 0,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": null,
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Stackup Proposal Writing Framework SOP",
@@ -4514,7 +4517,10 @@
     "prompt": null,
     "priority": 20,
     "active": 0,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": null,
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Upwork Proposal Writing System",
@@ -4523,7 +4529,10 @@
     "prompt": null,
     "priority": 30,
     "active": 0,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": null,
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Type 1. Standard build",
@@ -4532,7 +4541,10 @@
     "prompt": null,
     "priority": 41,
     "active": 1,
-    "is_default": 1
+    "is_default": 1,
+    "opening_rules": "1. Line one names the pain that is costing this client money, time or customers right now, using a detail only this client wrote.\n2. Line two shows what causes that pain or how to avoid it. It must earn the click.\n3. No talk about us: no \"I\", \"we\", \"our\" or \"my\", no project names, no stats or ratings, no \"I can build\".\n4. No greeting, no name, no thanks. Sound like a person talking, not a lecture, slogan or sales line.\n5. If the client set a required opening word or phrase, start with it exactly.",
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Type 2. Structured submission",
@@ -4541,7 +4553,10 @@
     "prompt": null,
     "priority": 10,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Line one names the pain behind the client's most important requirement, using a detail only this client wrote.\n2. Line two shows what causes that pain or how to avoid it.\n3. No talk about us: no \"I\", \"we\", \"our\" or \"my\", no project names, no stats or ratings, no \"I can build\".\n4. No greeting, no name, no thanks. Sound like a person talking.\n5. If the client set a required opening, use it exactly, then continue.",
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Type 3. Invite",
@@ -4550,7 +4565,10 @@
     "prompt": null,
     "priority": 20,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Start with \"Hi [name], thanks for the invite.\" only when the client's name is given; otherwise no greeting at all.\n2. The next sentence makes the client feel understood: their main pain from the post, in their own terms.\n3. No project names, no stats, no pitch about us, and no second thanks in the first two lines.",
+    "opening_no_us": 0,
+    "opening_starts": null
    },
    {
     "name": "Type 4. Rescue or takeover",
@@ -4559,7 +4577,10 @@
     "prompt": null,
     "priority": 31,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Line one names the likely cause or biggest risk in the client's current system, using a detail only this client wrote.\n2. Line two explains what is probably causing it. State it calmly; never blame the previous developer.\n3. No talk about us: no \"I\", \"we\", \"our\" or \"my\", no project names, no stats or ratings, no \"I can fix\".\n4. No greeting, no name, no thanks.",
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Type 5. Architecture or consulting",
@@ -4568,7 +4589,10 @@
     "prompt": null,
     "priority": 32,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Line one challenges or reframes a common assumption about the key decision the client faces, using a detail only this client wrote.\n2. Line two names the decision that actually matters.\n3. No talk about us: no \"I\", \"we\", \"our\" or \"my\", no project names, no stats or ratings, no \"I can build\".\n4. No greeting. Sound like an experienced person talking, not a lecture, slogan or sales line.",
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Type 6. Small fix or quick task",
@@ -4577,7 +4601,10 @@
     "prompt": null,
     "priority": 33,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Sentence one names the likely cause of the problem, using a detail only this client wrote, so it proves we already understand it.\n2. Sentence two says the fix in plain words, in the client's own stack.\n3. No talk about us: no \"I\", \"we\", \"our\" or \"my\", no project names, no stats or ratings, no \"I can build\".\n4. No greeting, no name, no thanks.",
+    "opening_no_us": 1,
+    "opening_starts": null
    },
    {
     "name": "Type 7. Problem first",
@@ -4586,7 +4613,10 @@
     "prompt": null,
     "priority": 42,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Line one is exactly \"Understood.\" (or the starting word the client asked for).\n2. Line two is the problem statement, 20 to 30 words: the system's complexity and the client's pain, using details only this client wrote, implying we can deliver the exact solution.\n3. No talk about us: no \"I\", \"we\", \"our\" or \"my\", no project names, no stats or ratings, no \"I can build\".",
+    "opening_no_us": 1,
+    "opening_starts": "Understood."
    },
    {
     "name": "Type 8. Approach first with questions",
@@ -4595,7 +4625,10 @@
     "prompt": null,
     "priority": 43,
     "active": 1,
-    "is_default": 0
+    "is_default": 0,
+    "opening_rules": "1. Start with \"For your platform,\" or \"For you,\" (or the keyword the client asked for).\n2. The first two sentences say how we would start: the first concrete step, in the client's stack, with the APIs, workflows or integrations it needs.\n3. No project names, no stats, no greeting.",
+    "opening_no_us": 0,
+    "opening_starts": "For your platform,|For you,"
    }
   ],
   "template_signals": [
