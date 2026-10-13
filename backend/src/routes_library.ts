@@ -62,7 +62,7 @@ library.patch('/profiles/:id', admin, async (req, res) => {
     const r = await exec(`UPDATE upwork_profiles SET ${sets.join(',')} WHERE id=?`, [...p, id(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A profile with that name already exists' }); throw e; }
-  { const after = await snapshot('upwork_profiles', id(req.params.id)); await audit(req.user!.id, 'profile_update', `${label(after ?? before) ?? ''} (${id(req.params.id)})`, diff(before, after)); }
+  { const after = await snapshot('upwork_profiles', id(req.params.id)); await audit(req.user!.id, 'profile_update', `${label(after ?? before) ?? ''} (id ${id(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 library.delete('/profiles/:id', admin, async (req, res) => {
@@ -74,7 +74,7 @@ library.delete('/profiles/:id', admin, async (req, res) => {
     if (inUse(e)) return void res.status(409).json({ error: 'This profile has screenings. Disable it instead of deleting it.' });
     throw e;
   }
-  await audit(req.user!.id, 'profile_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'profile_delete', `${label(before) ?? ''} (id ${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -114,7 +114,7 @@ library.patch('/admin/categories/:id', admin, async (req, res) => {
     const r = await exec(`UPDATE tag_categories SET ${sets.join(',')} WHERE id=?`, [...p, id(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A category with that name already exists' }); throw e; }
-  { const after = await snapshot('tag_categories', id(req.params.id)); await audit(req.user!.id, 'category_update', `${label(after ?? before) ?? ''} (${id(req.params.id)})`, diff(before, after)); }
+  { const after = await snapshot('tag_categories', id(req.params.id)); await audit(req.user!.id, 'category_update', `${label(after ?? before) ?? ''} (id ${id(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 library.delete('/admin/categories/:id', admin, async (req, res) => {
@@ -126,7 +126,7 @@ library.delete('/admin/categories/:id', admin, async (req, res) => {
     if (inUse(e)) return void res.status(409).json({ error: 'This category still has tags. Move or delete its tags first.' });
     throw e;
   }
-  await audit(req.user!.id, 'category_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'category_delete', `${label(before) ?? ''} (id ${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -135,13 +135,31 @@ const tagBody = z.object({
   category_id: z.number().int().positive(), name: z.string().trim().min(1, 'Name is required').max(120),
   weight: z.number().int('The score must be a whole number').min(0, 'The score cannot be negative').max(10, 'The score can be at most 10'),
   description: optText(500), active: z.boolean().optional(),
+  project_ids: z.array(z.number().int().positive()).max(1000).optional(), // the projects that have this tag (replaces the list)
 });
+/** Sets the projects that have a tag. For an Industry tag the projects' industry follows, so the Industries page agrees. */
+async function setTagProjects(tagId: number, ids: number[]) {
+  const t = (await query<any>('SELECT t.name, c.name AS category FROM tags t JOIN tag_categories c ON c.id=t.category_id WHERE t.id=?', [tagId]))[0];
+  if (!t) return;
+  const want = [...new Set(ids)];
+  const had = (await query<any>('SELECT project_id FROM project_tags WHERE tag_id=?', [tagId])).map((r) => r.project_id as number);
+  if (want.length && (await query<any>('SELECT COUNT(*) AS n FROM projects WHERE id IN (?)', [want]))[0].n !== want.length) throw Object.assign(new Error('unknown project'), { status: 400 });
+  const removed = had.filter((x) => !want.includes(x)), added = want.filter((x) => !had.includes(x));
+  if (removed.length) await exec('DELETE FROM project_tags WHERE tag_id=? AND project_id IN (?)', [tagId, removed]);
+  if (added.length) await exec('INSERT IGNORE INTO project_tags (project_id, tag_id) VALUES ?', [added.map((pid) => [pid, tagId])]);
+  const ind = t.category === 'Industry' ? (await query<any>('SELECT id FROM industries WHERE name=?', [t.name]))[0] : null;
+  if (ind) {
+    if (removed.length) await exec('DELETE FROM project_industries WHERE industry_id=? AND project_id IN (?)', [ind.id, removed]);
+    if (added.length) await exec('INSERT IGNORE INTO project_industries (project_id, industry_id) VALUES ?', [added.map((pid) => [pid, ind.id])]);
+  }
+}
 library.post('/admin/tags', admin, async (req, res) => {
   const b = tagBody.safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   try {
     const r = await exec('INSERT INTO tags (category_id, name, weight, description, active, sort_order) VALUES (?,?,?,?,?, (SELECT COALESCE(MAX(t.sort_order),0)+1 FROM tags t))',
       [b.data.category_id, b.data.name, b.data.weight, b.data.description, b.data.active === false ? 0 : 1]);
+    if (b.data.project_ids) await setTagProjects(r.insertId, b.data.project_ids);
     { const after = await snapshot('tags', r.insertId); await audit(req.user!.id, 'tag_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
   } catch (e: any) {
@@ -157,16 +175,18 @@ library.patch('/admin/tags/:id', admin, async (req, res) => {
   const sets: string[] = []; const p: any[] = [];
   for (const k of ['category_id', 'name', 'weight', 'description'] as const) if (k in b.data) { sets.push(`${k}=?`); p.push((b.data as any)[k]); }
   if (b.data.active !== undefined) { sets.push('active=?'); p.push(b.data.active ? 1 : 0); }
-  if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
+  if (!sets.length && !b.data.project_ids) return void res.status(400).json({ error: 'Nothing to change' });
+  if (!before) return void res.status(404).json({ error: 'Not found' });
   try {
-    const r = await exec(`UPDATE tags SET ${sets.join(',')} WHERE id=?`, [...p, id(req.params.id)]);
-    if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
+    if (sets.length) await exec(`UPDATE tags SET ${sets.join(',')} WHERE id=?`, [...p, id(req.params.id)]);
+    if (b.data.project_ids) await setTagProjects(id(req.params.id), b.data.project_ids);
   } catch (e: any) {
+    if (e?.status === 400) return void res.status(400).json({ error: 'A project in the list does not exist' });
     if (dup(e)) return void res.status(409).json({ error: 'That tag already exists in this category' });
     if (e?.code === 'ER_NO_REFERENCED_ROW_2') return void res.status(400).json({ error: 'Unknown category' });
     throw e;
   }
-  { const after = await snapshot('tags', id(req.params.id)); await audit(req.user!.id, 'tag_update', `${label(after ?? before) ?? ''} (${id(req.params.id)})`, diff(before, after)); }
+  { const after = await snapshot('tags', id(req.params.id)); await audit(req.user!.id, 'tag_update', `${label(after ?? before) ?? ''} (id ${id(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 library.delete('/admin/tags/:id', admin, async (req, res) => {
@@ -178,7 +198,7 @@ library.delete('/admin/tags/:id', admin, async (req, res) => {
     if (inUse(e)) return void res.status(409).json({ error: 'Projects use this tag. Remove it from them first, or disable it instead.' });
     throw e;
   }
-  await audit(req.user!.id, 'tag_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'tag_delete', `${label(before) ?? ''} (id ${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -237,7 +257,7 @@ library.delete('/looms/:id', admin, async (req, res) => {
   const before = await snapshot('loom_videos', id(req.params.id));
   const r = await exec('DELETE FROM loom_videos WHERE id=?', [id(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit((req as any).user.id, 'loom_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
+  await audit((req as any).user.id, 'loom_delete', `${label(before) ?? ''} (id ${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -308,7 +328,7 @@ library.delete('/industries/:id', editor, async (req, res) => {
   const before = await snapshot('industries', id(req.params.id));
   const r = await exec('DELETE FROM industries WHERE id=?', [id(req.params.id)]); // its project links go with it
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'industry_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'industry_delete', `${label(before) ?? ''} (id ${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -402,6 +422,6 @@ library.delete('/projects/:id', editor, async (req, res) => {
   const before = await snapshot('projects', id(req.params.id));
   const r = await exec('DELETE FROM projects WHERE id=?', [id(req.params.id)]); // its tag links go with it
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'project_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'project_delete', `${label(before) ?? ''} (id ${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });

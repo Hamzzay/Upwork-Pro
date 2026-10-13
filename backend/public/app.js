@@ -1684,7 +1684,10 @@ async function dictionaryView() {
   const tabsEl = h('div', { class: 'tabs', role: 'tablist' });
   const actionsEl = h('div', {});
 
-  function tagDialog(t) {
+  async function tagDialog(t) {
+    // the projects that have this tag, picked with a search, as on the Industries page
+    const { projects } = await api('GET', '/projects');
+    const picked = new Set(t ? projects.filter((p) => p.tags.some((x) => x.id === t.id)).map((p) => p.id) : []);
     const f = { name: h('input', { type: 'text', id: 'tn1', maxlength: 120, value: t ? t.name : '' }),
       cat: h('select', { id: 'tc1', style: 'width:100%' }, categories.map((c) => h('option', { value: c.id, selected: t ? c.id === t.category_id : c.id === (Number(hashParams().cat) || categories[0].id) }, c.name))),
       score: h('input', { type: 'number', id: 'ts1', min: 0, max: 10, step: 1, value: t ? t.weight : 1 }), desc: h('input', { type: 'text', id: 'td1', maxlength: 500, value: t && t.description ? t.description : '' }),
@@ -1694,12 +1697,14 @@ async function dictionaryView() {
         h('div', { class: 'grid2', style: 'margin-top:16px' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ts1' }, 'Score (match weight, 0 to 10)'), f.score,
           h('div', { class: 'hint' }, 'What a shared tag is worth when jobs are matched to projects. 0 means the tag is ignored.')),
           h('div', { class: 'field row', style: 'align-self:start;padding-top:28px' }, f.active, h('label', { for: 'ta1', style: 'font-weight:600' }, 'Active (used for tagging jobs)'))),
-        h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td1' }, 'What it means (shown to the model when it tags jobs)'), f.desc)),
+        h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td1' }, 'What it means (shown to the model when it tags jobs)'), f.desc),
+        h('div', { style: 'margin-top:16px' }, multiPick('Projects with this tag', projects.filter((p) => Number(p.active) || picked.has(p.id)), picked, 'Find a project'),
+          h('div', { class: 'hint' }, 'Tick every project that did this kind of work. For an Industry tag, the project\'s industry follows on the Industries page.'))),
       extra: t ? () => h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + t.name + '?', confirm: 'Delete tag', danger: true,
         body: h('p', { class: 'muted' }, t.project_count ? `${t.project_count} project${t.project_count === 1 ? ' uses' : 's use'} this tag, so it cannot be deleted. Remove it from them, or disable it instead.` : 'This removes the tag. Past job results keep its name. It cannot be undone.'),
         onConfirm: async () => { await api('DELETE', '/admin/tags/' + t.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Tag deleted'); route(); } }) }, 'Delete') : null,
       onConfirm: async () => {
-        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, active: f.active.checked };
+        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, active: f.active.checked, project_ids: [...picked] };
         await api(t ? 'PATCH' : 'POST', t ? '/admin/tags/' + t.id : '/admin/tags', body); toast(t ? 'Tag saved' : 'Tag added'); route();
       } });
   }
@@ -1748,7 +1753,15 @@ async function dictionaryView() {
     actionsEl.replaceChildren(st.tab === 'tags' ? h('button', { class: 'btn primary', onclick: () => tagDialog(null) }, icon('screen'), 'Add tag') : h('button', { class: 'btn primary', onclick: () => categoryDialog(null) }, icon('screen'), 'Add category'));
   }
   function drawAll() { drawTabs(); bodyEl.replaceChildren(st.tab === 'tags' ? tagsList() : categoriesList()); }
-  shell('dictionary', [pageHead('Tag dictionary', 'The tags jobs and projects are described with. The score is what a shared tag is worth when a job is matched to projects.', actionsEl), tabsEl, bodyEl], true);
+  // how the scores are used, in one place (Hamza asked on 13 October)
+  const howScores = h('details', { class: 'card fold' }, h('summary', {}, 'How the scores work'),
+    h('div', { class: 'card-pad', style: 'padding-top:0' }, h('ul', { class: 'jp-list' },
+      h('li', {}, 'Each tag has a score from 0 to 10: what it is worth when a job shares it with a project. 0 means it is ignored.'),
+      h('li', {}, 'A project\'s match score is the total score of the tags it shares with the job. Industry tags are not counted: the industry decides the order instead.'),
+      h('li', {}, '"27 of 42" on the Projects step means the project shares 27 of the 42 points the job\'s tags could give.'),
+      h('li', {}, 'The order on the Projects step: projects that did the job\'s core work come first (the tagger names it, the main work first); then the job\'s industry, then related industries, then the rest; then the score.'),
+      h('li', {}, 'The usual scores: Workflow type 3, AI capability up to 3 (AI powered 0), Project stage, Product type, Automation, Compliance and Industry 2, tools, AI models and tech stack 1. Change a score here and the next matching uses it.'))));
+  shell('dictionary', [pageHead('Tag dictionary', 'The tags jobs and projects are described with. The score is what a shared tag is worth when a job is matched to projects.', actionsEl), howScores, tabsEl, bodyEl], true);
   drawAll();
 }
 

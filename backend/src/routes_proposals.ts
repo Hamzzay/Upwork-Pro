@@ -72,14 +72,14 @@ proposals.patch('/signals/:id', admin, async (req, res) => {
     if (e?.code === 'ER_NO_REFERENCED_ROW_2') return void res.status(400).json({ error: 'Unknown layer' });
     throw e;
   }
-  { const after = await snapshot('signals', num(req.params.id)); await audit(req.user!.id, 'signal_update', `${label(after ?? before) ?? ''} (${num(req.params.id)})`, diff(before, after)); }
+  { const after = await snapshot('signals', num(req.params.id)); await audit(req.user!.id, 'signal_update', `${label(after ?? before) ?? ''} (id ${num(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 proposals.delete('/signals/:id', admin, async (req, res) => {
   const before = await snapshot('signals', num(req.params.id));
   const r = await exec('DELETE FROM signals WHERE id=?', [num(req.params.id)]); // its values and template mappings go with it; saved job signals keep their copied names
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'signal_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'signal_delete', `${label(before) ?? ''} (id ${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -131,7 +131,7 @@ proposals.delete('/signal-values/:id', admin, async (req, res) => {
   const before = await snapshot('signal_values', num(req.params.id));
   const r = await exec('DELETE FROM signal_values WHERE id=?', [num(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'signal_value_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'signal_value_delete', `${label(before) ?? ''} (id ${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -193,14 +193,14 @@ proposals.patch('/templates/:id', editor, async (req, res) => {
     const r = await exec(`UPDATE templates SET ${sets.join(',')} WHERE id=?`, [...p, num(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A template with that name already exists' }); throw e; }
-  { const after = await snapshot('templates', num(req.params.id)); await audit(req.user!.id, 'template_update', `${label(after ?? before) ?? ''} (${num(req.params.id)})`, diff(before, after)); }
+  { const after = await snapshot('templates', num(req.params.id)); await audit(req.user!.id, 'template_update', `${label(after ?? before) ?? ''} (id ${num(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 proposals.delete('/templates/:id', editor, async (req, res) => {
   const before = await snapshot('templates', num(req.params.id));
   const r = await exec('DELETE FROM templates WHERE id=?', [num(req.params.id)]); // its mapping and samples go with it; written proposals keep the template name
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'template_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'template_delete', `${label(before) ?? ''} (id ${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -272,14 +272,14 @@ proposals.patch('/template-samples/:id', editor, async (req, res) => {
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   const r = await exec(`UPDATE template_samples SET ${sets.join(',')} WHERE id=?`, [...p, num(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  { const after = await snapshot('template_samples', num(req.params.id)); await audit(req.user!.id, 'sample_update', `${label(after ?? before) ?? ''} (${num(req.params.id)})`, diff(before, after)); }
+  { const after = await snapshot('template_samples', num(req.params.id)); await audit(req.user!.id, 'sample_update', `${label(after ?? before) ?? ''} (id ${num(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 proposals.delete('/template-samples/:id', editor, async (req, res) => {
   const before = await snapshot('template_samples', num(req.params.id));
   const r = await exec('DELETE FROM template_samples WHERE id=?', [num(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'sample_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
+  await audit(req.user!.id, 'sample_delete', `${label(before) ?? ''} (id ${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 

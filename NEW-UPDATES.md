@@ -973,3 +973,13 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
 - Migration `031_audit_changes.sql` (`audit_log.changes`). Older entries have no change list.
 - Checked: tests (values, lists, lines, a new row, nothing changed); a project's overview and tags edited and put back, and a setting
   changed and put back, through the app: both directions show on the Logs page.
+
+### R50. Tags: pick their projects; the scores explained (done, 13 October)
+- **Tag editor** (task 27): "Projects with this tag" with a search, as on the Industries page: tick every project that did that kind
+  of work, and the tag is added to or removed from them on Save. For an Industry tag the project's industry follows (Industries page),
+  so the two never disagree. The log names the projects added and removed.
+- **How the scores work** (task 28): a section at the top of the Tag dictionary: what a score is, how a project's match score adds up
+  (industry not counted), what "27 of 42" means, the order on the Projects step (core work, then industry, then score), and the usual
+  score per category. The Projects step's note says the same in short.
+- Checked in the browser: a project ticked on a tag and saved (the project has the tag, the log says "projects: added Lucid
+  Vision"); an Industry tag given a project and taken away again (the project's industry follows both ways); everything put back.
