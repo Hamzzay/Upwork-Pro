@@ -2112,6 +2112,19 @@ async function skillView() {
 }
 
 // ---------- logs (admin): activity and AI calls ----------
+/** What a log entry changed: each field with its old and new value, the lines removed and added, the names removed and added. */
+function changesList(json) {
+  let list; try { list = JSON.parse(json || '[]'); } catch { list = []; }
+  if (!list.length) return null;
+  const name = (f) => cap(String(f).replace(/_html$/, '').replace(/[._]/g, ' '));
+  const val = (v) => (v == null || v === '' ? h('span', { class: 'faint' }, 'empty') : h('span', {}, v));
+  const rows = list.map((c) => h('li', {}, h('strong', {}, name(c.field) + ': '),
+    c.removed || c.added ? h('div', { class: 'chglines' }, ...(c.removed || []).map((l) => h('div', { class: 'del' }, '− ' + l)), ...(c.added || []).map((l) => h('div', { class: 'add' }, '+ ' + l)),
+      !(c.removed || []).length && !(c.added || []).length ? h('span', { class: 'faint' }, 'only spacing changed') : null)
+      : h('span', {}, val(c.from), ' → ', val(c.to))));
+  const ul = h('ul', { class: 'chglist' }, rows);
+  return list.length <= 3 ? ul : h('details', { class: 'chgfold' }, h('summary', {}, `What changed (${list.length})`), ul);
+}
 async function auditView() {
   const hp = hashParams();
   const st = { tab: hp.tab === 'calls' ? 'calls' : 'activity', page: Math.max(1, Number(hp.page) || 1), action: hp.action || '', user: hp.user || '', from: hp.from || '', to: hp.to || '', kind: hp.kind || '', ok: hp.ok || '', model: hp.model || '', job: hp.job || '' };
@@ -2135,7 +2148,7 @@ async function auditView() {
       holder.replaceChildren(bar([sel('action', 'Any action', d.actions.map((a) => [a, cap(a.replace(/_/g, ' '))])), sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])), dateIn('from', 'From'), dateIn('to', 'To')], ['action', 'user', 'from', 'to']),
         d.log.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Who', 'Action', 'Detail'].map((t) => h('th', {}, t)))),
           h('tbody', {}, d.log.map((l) => h('tr', {}, h('td', { class: 'muted nowrap', title: full(l.created_at) }, ago(l.created_at)), h('td', { class: 'nowrap' }, l.user_name || 'System'),
-            h('td', { class: 'nowrap' }, cap(l.action.replace(/_/g, ' '))), h('td', { class: 'mono muted', style: 'overflow-wrap:anywhere' }, l.detail || '')))))) : emptyState('audit', 'Nothing here', 'No activity matches these filters.'),
+            h('td', { class: 'nowrap' }, cap(l.action.replace(/_/g, ' '))), h('td', { style: 'overflow-wrap:anywhere;min-width:280px' }, h('div', { class: 'muted' }, l.detail || ''), changesList(l.changes))))))) : emptyState('audit', 'Nothing here', 'No activity matches these filters.'),
         pager(d.total, d.page, (n) => { st.page = n; load(); }));
     } else {
       const d = await api('GET', '/admin/calls?' + q);

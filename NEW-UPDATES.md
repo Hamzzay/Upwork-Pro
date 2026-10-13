@@ -959,3 +959,17 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
   rewrite loaded as version 2 and the buttons came back; Change type lists the eight types; Save and mark sent saved Sent with the time,
   16 Connects and a note and opened the Overview with the Tracking card; Edit details shows the saved values; no console errors.
 - The team guide's pictures of the Tracking tab are now out of date.
+
+### R49. Logs say what changed (done, 13 October)
+- Every change to the setup is logged with what changed, not only that it changed: each field's old and new value; for long texts
+  (overviews, case studies, a type's text, the writing guide, the gate instructions, profile rules) the lines removed and added; for
+  lists (a project's tags and industries, an industry's projects, a video's tags, a type's signal mapping) the names removed and added.
+  Entries name the item ("Lucid Vision (id 72)") instead of only its id.
+- Covered: projects, industries, tags, tag categories, Upwork profiles, Loom videos, rules, signals and their values, proposal types,
+  their signal mapping and samples, writing guide documents, gate instruction versions (and which version is active), settings,
+  users (never passwords), and what the Claude plugin adds. Creating shows the values set; deleting shows what was there.
+- The Logs page shows the changes under each entry (up to three inline, more folded under "What changed"). Job tracking changes were
+  already kept with old and new values (the job's History).
+- Migration `031_audit_changes.sql` (`audit_log.changes`). Older entries have no change list.
+- Checked: tests (values, lists, lines, a new row, nothing changed); a project's overview and tags edited and put back, and a setting
+  changed and put back, through the app: both directions show on the Logs page.

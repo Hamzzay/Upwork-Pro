@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { diff, snapshot } from './changes';
 import { audit, exec, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain } from './html';
@@ -35,9 +36,10 @@ writing.put('/writing-docs/:id', editor, async (req, res) => {
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const d = (await query<any>('SELECT id, content FROM writing_docs WHERE id=?', [Number(req.params.id)]))[0];
   if (!d) return void res.status(404).json({ error: 'Not found' });
+  const before = await snapshot('writing_docs', d.id);
   await exec('UPDATE writing_docs SET content=?, title=COALESCE(?, title), active=COALESCE(?, active), updated_by=? WHERE id=?',
     [b.data.content, b.data.title ?? null, b.data.active === undefined ? null : b.data.active ? 1 : 0, req.user!.id, d.id]);
   if (b.data.content !== d.content) await exec('INSERT INTO writing_doc_versions (doc_id, content, note, created_by) VALUES (?,?,?,?)', [d.id, b.data.content, b.data.note || null, req.user!.id]);
-  await audit(req.user!.id, 'writing_doc_save', `id=${d.id}`);
+  { const after = await snapshot('writing_docs', d.id); await audit(req.user!.id, 'writing_doc_save', `${after?.title ?? ''}${b.data.note ? ': ' + b.data.note : ''}`, diff(before, after)); }
   res.json({ ok: true });
 });

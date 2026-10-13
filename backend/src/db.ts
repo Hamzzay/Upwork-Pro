@@ -21,11 +21,13 @@ export async function exec(sql: string, params: any[] = []): Promise<mysql.Resul
   return res as mysql.ResultSetHeader;
 }
 
-export async function audit(userId: number | null, action: string, detail?: string) {
-  await exec('INSERT INTO audit_log (user_id, action, detail) VALUES (?,?,?)', [
+/** Who did what. `changes` (from src/changes.ts) says what changed: old and new values, lines, names added and removed. */
+export async function audit(userId: number | null, action: string, detail?: string, changes?: { field: string }[] | null) {
+  await exec('INSERT INTO audit_log (user_id, action, detail, changes) VALUES (?,?,?,?)', [
     userId,
     action,
     detail?.slice(0, 500) ?? null,
+    changes && changes.length ? JSON.stringify(changes) : null,
   ]);
 }
 

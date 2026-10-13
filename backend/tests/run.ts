@@ -16,6 +16,7 @@ import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, typ
 import { rankTemplates } from '../src/proposal/rank';
 import { checkOpening, checkProposal } from '../src/proposal/checks';
 import { splitMobile } from '../src/library/mobile';
+import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
 import { settingsConflict } from '../src/settings';
@@ -209,6 +210,15 @@ const ctx = { rules, projects };
   assert.deepEqual(splitMobile('https://apps.apple.com/app/id9 https://testflight.apple.com/join/abc'), { android: null, ios: 'https://apps.apple.com/app/id9', other: 'https://testflight.apple.com/join/abc' }, 'anything else is kept');
   assert.deepEqual(splitMobile(''), { android: null, ios: null, other: null });
   assert.deepEqual([...projectPlatforms({ android_link: 'https://play.google.com/x' }, [])], ['mobile']); assert.deepEqual([...projectPlatforms({ ios_link: 'https://apps.apple.com/x', landing_link: 'https://x.io' }, [])].sort(), ['mobile', 'web']);
+  // the Logs page: what changed
+  assert.deepEqual(changeDiff({ name: 'A', weight: '2' }, { name: 'A', weight: '3' }), [{ field: 'weight', from: '2', to: '3' }]);
+  const L = (x: string[]) => '\u0000list\u0000' + JSON.stringify(x);
+  assert.deepEqual(changeDiff({ tags: L(['AI agent', 'MVP']) }, { tags: L(['MVP', 'RAG']) }), [{ field: 'tags', added: ['RAG'], removed: ['AI agent'] }]);
+  assert.deepEqual(lineDiff('one\ntwo\nthree', 'one\n2\nthree\nfour'), { removed: ['two'], added: ['2', 'four'] });
+  const longA = 'x'.repeat(400) + '\nkeep', longB = 'x'.repeat(400) + '\nchanged';
+  assert.deepEqual(changeDiff({ overview: longA }, { overview: longB }), [{ field: 'overview', removed: ['keep'], added: ['changed'] }]);
+  assert.ok(changeDiff(null, { name: 'New', notes: null }).every((c) => c.field !== 'notes'), 'a new row lists only the fields with a value');
+  assert.deepEqual(changeDiff({ a: '1' }, { a: '1' }), [], 'nothing changed');
   // ---- screening questions: Upwork's own section, apart from the job ----
   const page50 = 'We need an AI agent for leasing leads.\nProject Type:Ongoing project\nYou will be asked to answer the following questions when submitting a proposal:\n\nWhat similar AI lead-response agents have you built?\nWhat tools would you likely use for a project like this?\nSkills and Expertise\nai project management\nAbout the client\nPayment method verified';
   const sq = separateQuestions(page50);

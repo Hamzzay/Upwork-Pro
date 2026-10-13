@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { diff, label, snapshot } from './changes';
 import { z } from 'zod';
 import { pool, audit, exec, query } from './db';
 import { requireRole } from './auth';
@@ -45,11 +46,12 @@ library.post('/profiles', admin, async (req, res) => {
   try {
     const r = await exec(`INSERT INTO upwork_profiles (name, ${PROFILE_FIELDS.join(', ')}, active) VALUES (?)`,
       [[b.data.name, ...PROFILE_FIELDS.map((k) => (b.data as any)[k] ?? null), b.data.active === false ? 0 : 1]]);
-    await audit(req.user!.id, 'profile_create', `id=${r.insertId}`);
+    { const after = await snapshot('upwork_profiles', r.insertId); await audit(req.user!.id, 'profile_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A profile with that name already exists' }); throw e; }
 });
 library.patch('/profiles/:id', admin, async (req, res) => {
+  const before = await snapshot('upwork_profiles', id(req.params.id));
   const b = profileBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const sets: string[] = []; const p: any[] = [];
@@ -60,10 +62,11 @@ library.patch('/profiles/:id', admin, async (req, res) => {
     const r = await exec(`UPDATE upwork_profiles SET ${sets.join(',')} WHERE id=?`, [...p, id(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A profile with that name already exists' }); throw e; }
-  await audit(req.user!.id, 'profile_update', `id=${req.params.id}`);
+  { const after = await snapshot('upwork_profiles', id(req.params.id)); await audit(req.user!.id, 'profile_update', `${label(after ?? before) ?? ''} (${id(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 library.delete('/profiles/:id', admin, async (req, res) => {
+  const before = await snapshot('upwork_profiles', id(req.params.id));
   try {
     const r = await exec('DELETE FROM upwork_profiles WHERE id=?', [id(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
@@ -71,7 +74,7 @@ library.delete('/profiles/:id', admin, async (req, res) => {
     if (inUse(e)) return void res.status(409).json({ error: 'This profile has screenings. Disable it instead of deleting it.' });
     throw e;
   }
-  await audit(req.user!.id, 'profile_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'profile_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -94,11 +97,12 @@ library.post('/admin/categories', admin, async (req, res) => {
   try {
     const r = await exec('INSERT INTO tag_categories (name, sort_order, is_compliance) VALUES (?, COALESCE(?, (SELECT COALESCE(MAX(c.sort_order),0)+1 FROM tag_categories c)), ?)',
       [b.data.name, b.data.sort_order ?? null, b.data.is_compliance ? 1 : 0]);
-    await audit(req.user!.id, 'category_create', `id=${r.insertId}`);
+    { const after = await snapshot('tag_categories', r.insertId); await audit(req.user!.id, 'category_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A category with that name already exists' }); throw e; }
 });
 library.patch('/admin/categories/:id', admin, async (req, res) => {
+  const before = await snapshot('tag_categories', id(req.params.id));
   const b = categoryBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const sets: string[] = []; const p: any[] = [];
@@ -110,10 +114,11 @@ library.patch('/admin/categories/:id', admin, async (req, res) => {
     const r = await exec(`UPDATE tag_categories SET ${sets.join(',')} WHERE id=?`, [...p, id(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A category with that name already exists' }); throw e; }
-  await audit(req.user!.id, 'category_update', `id=${req.params.id}`);
+  { const after = await snapshot('tag_categories', id(req.params.id)); await audit(req.user!.id, 'category_update', `${label(after ?? before) ?? ''} (${id(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 library.delete('/admin/categories/:id', admin, async (req, res) => {
+  const before = await snapshot('tag_categories', id(req.params.id));
   try {
     const r = await exec('DELETE FROM tag_categories WHERE id=?', [id(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
@@ -121,7 +126,7 @@ library.delete('/admin/categories/:id', admin, async (req, res) => {
     if (inUse(e)) return void res.status(409).json({ error: 'This category still has tags. Move or delete its tags first.' });
     throw e;
   }
-  await audit(req.user!.id, 'category_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'category_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -137,7 +142,7 @@ library.post('/admin/tags', admin, async (req, res) => {
   try {
     const r = await exec('INSERT INTO tags (category_id, name, weight, description, active, sort_order) VALUES (?,?,?,?,?, (SELECT COALESCE(MAX(t.sort_order),0)+1 FROM tags t))',
       [b.data.category_id, b.data.name, b.data.weight, b.data.description, b.data.active === false ? 0 : 1]);
-    await audit(req.user!.id, 'tag_create', `id=${r.insertId}`);
+    { const after = await snapshot('tags', r.insertId); await audit(req.user!.id, 'tag_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
   } catch (e: any) {
     if (dup(e)) return void res.status(409).json({ error: 'That tag already exists in this category' });
@@ -146,6 +151,7 @@ library.post('/admin/tags', admin, async (req, res) => {
   }
 });
 library.patch('/admin/tags/:id', admin, async (req, res) => {
+  const before = await snapshot('tags', id(req.params.id));
   const b = tagBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const sets: string[] = []; const p: any[] = [];
@@ -160,10 +166,11 @@ library.patch('/admin/tags/:id', admin, async (req, res) => {
     if (e?.code === 'ER_NO_REFERENCED_ROW_2') return void res.status(400).json({ error: 'Unknown category' });
     throw e;
   }
-  await audit(req.user!.id, 'tag_update', `id=${req.params.id} fields=${Object.keys(b.data).join(',')}`);
+  { const after = await snapshot('tags', id(req.params.id)); await audit(req.user!.id, 'tag_update', `${label(after ?? before) ?? ''} (${id(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 library.delete('/admin/tags/:id', admin, async (req, res) => {
+  const before = await snapshot('tags', id(req.params.id));
   try {
     const r = await exec('DELETE FROM tags WHERE id=?', [id(req.params.id)]); // saved job tags keep their copied name
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
@@ -171,7 +178,7 @@ library.delete('/admin/tags/:id', admin, async (req, res) => {
     if (inUse(e)) return void res.status(409).json({ error: 'Projects use this tag. Remove it from them first, or disable it instead.' });
     throw e;
   }
-  await audit(req.user!.id, 'tag_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'tag_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -190,6 +197,7 @@ const loomBody = z.object({
   tag_ids: z.array(z.number().int().positive()).max(200).optional(),
 });
 async function saveLoom(req: any, res: any, vid: number | null) {
+  const before = vid ? await snapshot('loom_videos', vid) : null;
   const b = (vid ? loomBody.partial() : loomBody).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const d: any = b.data;
@@ -213,7 +221,8 @@ async function saveLoom(req: any, res: any, vid: number | null) {
       if (ids.length) await conn.query('INSERT INTO loom_video_tags (video_id, tag_id) SELECT ?, id FROM tags WHERE id IN (?)', [vidId, ids]);
     }
     await conn.commit();
-    await audit(req.user.id, vid ? 'loom_update' : 'loom_create', `loom=${vidId}`);
+    const after = await snapshot('loom_videos', vidId);
+    await audit(req.user.id, vid ? 'loom_update' : 'loom_create', `${label(after) ?? ''} (id ${vidId})`, diff(before, after));
     res.status(vid ? 200 : 201).json({ ok: true, id: vidId });
   } catch (e: any) {
     await conn.rollback();
@@ -225,9 +234,10 @@ async function saveLoom(req: any, res: any, vid: number | null) {
 library.post('/looms', admin, (req, res) => saveLoom(req, res, null));
 library.patch('/looms/:id', admin, (req, res) => saveLoom(req, res, id(req.params.id)));
 library.delete('/looms/:id', admin, async (req, res) => {
+  const before = await snapshot('loom_videos', id(req.params.id));
   const r = await exec('DELETE FROM loom_videos WHERE id=?', [id(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit((req as any).user.id, 'loom_delete', `loom=${req.params.id}`);
+  await audit((req as any).user.id, 'loom_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -252,6 +262,7 @@ const industryBody = z.object({
   project_ids: z.array(z.number().int().positive()).max(1000).optional(),
 });
 async function saveIndustry(req: any, res: any, industryId: number | null) {
+  const before = industryId ? await snapshot('industries', industryId) : null;
   const b = (industryId ? industryBody.partial() : industryBody).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const d: any = b.data;
@@ -281,7 +292,8 @@ async function saveIndustry(req: any, res: any, industryId: number | null) {
       }
     }
     await conn.commit();
-    await audit(req.user.id, industryId ? 'industry_update' : 'industry_create', `id=${iid}`);
+    const after = await snapshot('industries', iid);
+    await audit(req.user.id, industryId ? 'industry_update' : 'industry_create', `${label(after) ?? ''} (id ${iid})`, diff(before, after));
     res.status(industryId ? 200 : 201).json({ id: iid });
   } catch (e: any) {
     await conn.rollback();
@@ -293,9 +305,10 @@ async function saveIndustry(req: any, res: any, industryId: number | null) {
 library.post('/industries', editor, (req, res) => saveIndustry(req, res, null));
 library.patch('/industries/:id', editor, (req, res) => saveIndustry(req, res, id(req.params.id)));
 library.delete('/industries/:id', editor, async (req, res) => {
+  const before = await snapshot('industries', id(req.params.id));
   const r = await exec('DELETE FROM industries WHERE id=?', [id(req.params.id)]); // its project links go with it
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'industry_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'industry_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -348,6 +361,7 @@ async function setIndustries(conn: any, projectId: number, industryIds: number[]
   }
 }
 async function saveProject(req: any, res: any, projectId: number | null) {
+  const before = projectId ? await snapshot('projects', projectId) : null;
   const b = (projectId ? projectBody.partial() : projectBody).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const d: any = b.data;
@@ -371,7 +385,8 @@ async function saveProject(req: any, res: any, projectId: number | null) {
     if (d.tag_ids) await setTags(conn, pid!, d.tag_ids);
     if (d.industry_ids) await setIndustries(conn, pid!, d.industry_ids);
     await conn.commit();
-    await audit(req.user.id, projectId ? 'project_update' : 'project_create', `id=${pid}`);
+    const after = await snapshot('projects', pid);
+    await audit(req.user.id, projectId ? 'project_update' : 'project_create', `${label(after) ?? ''} (id ${pid})`, diff(before, after));
     res.status(projectId ? 200 : 201).json({ id: pid });
   } catch (e: any) {
     await conn.rollback();
@@ -384,8 +399,9 @@ async function saveProject(req: any, res: any, projectId: number | null) {
 library.post('/projects', editor, (req, res) => saveProject(req, res, null));
 library.patch('/projects/:id', editor, (req, res) => saveProject(req, res, id(req.params.id)));
 library.delete('/projects/:id', editor, async (req, res) => {
+  const before = await snapshot('projects', id(req.params.id));
   const r = await exec('DELETE FROM projects WHERE id=?', [id(req.params.id)]); // its tag links go with it
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'project_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'project_delete', `${label(before) ?? ''} (${id(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });

@@ -683,3 +683,10 @@ details.timeline > summary { cursor: pointer; }
 .busycover { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center;
   background: color-mix(in srgb, var(--surface, #fff) 82%, transparent); border-radius: 10px; backdrop-filter: blur(1px); }
 .busycover[hidden] { display: none; }
+
+/* the Logs page: what an entry changed */
+.chglist { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 4px; font-size: 13px; }
+.chglines { margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap; }
+.chglines .del { color: var(--fail); }
+.chglines .add { color: var(--pass); }
+.chgfold summary { cursor: pointer; font-size: 13px; color: var(--brand); margin-top: 4px; }

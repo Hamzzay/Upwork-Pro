@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { diff, label, snapshot } from './changes';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
@@ -46,7 +47,7 @@ proposals.post('/signals', admin, async (req, res) => {
   try {
     const r = await exec('INSERT INTO signals (number, layer_id, name, decides, multi_select, notes, active) VALUES (?,?,?,?,?,?,?)',
       [b.data.number, b.data.layer_id, b.data.name, b.data.decides, b.data.multi_select ? 1 : 0, b.data.notes, b.data.active === false ? 0 : 1]);
-    await audit(req.user!.id, 'signal_create', `id=${r.insertId}`);
+    { const after = await snapshot('signals', r.insertId); await audit(req.user!.id, 'signal_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
   } catch (e: any) {
     if (dup(e)) return void res.status(409).json({ error: /number/.test(e.sqlMessage ?? '') ? 'A signal with that number already exists' : 'A signal with that name already exists' });
@@ -55,6 +56,7 @@ proposals.post('/signals', admin, async (req, res) => {
   }
 });
 proposals.patch('/signals/:id', admin, async (req, res) => {
+  const before = await snapshot('signals', num(req.params.id));
   const b = signalBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const sets: string[] = []; const p: any[] = [];
@@ -70,13 +72,14 @@ proposals.patch('/signals/:id', admin, async (req, res) => {
     if (e?.code === 'ER_NO_REFERENCED_ROW_2') return void res.status(400).json({ error: 'Unknown layer' });
     throw e;
   }
-  await audit(req.user!.id, 'signal_update', `id=${req.params.id}`);
+  { const after = await snapshot('signals', num(req.params.id)); await audit(req.user!.id, 'signal_update', `${label(after ?? before) ?? ''} (${num(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 proposals.delete('/signals/:id', admin, async (req, res) => {
+  const before = await snapshot('signals', num(req.params.id));
   const r = await exec('DELETE FROM signals WHERE id=?', [num(req.params.id)]); // its values and template mappings go with it; saved job signals keep their copied names
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'signal_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'signal_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -85,6 +88,7 @@ const valueBody = z.object({
   is_fallback: z.boolean().optional(), sort_order: z.number().int().min(0).max(9999).optional(), active: z.boolean().optional(),
 });
 async function saveValue(req: any, res: any, signalId: number | null, valueId: number | null) {
+  const before = valueId ? await snapshot('signal_values', valueId) : null;
   const b = (valueId ? valueBody.partial() : valueBody).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const d: any = b.data;
@@ -112,7 +116,8 @@ async function saveValue(req: any, res: any, signalId: number | null, valueId: n
       await conn.query(`UPDATE signal_values SET ${sets.join(',')} WHERE id=?`, [...p, valueId]);
     }
     await conn.commit();
-    await audit(req.user.id, signalId ? 'signal_value_create' : 'signal_value_update', `id=${valueId}`);
+    const after = await snapshot('signal_values', valueId);
+    await audit(req.user.id, signalId ? 'signal_value_create' : 'signal_value_update', `${label(after) ?? ''} (id ${valueId})`, diff(before, after));
     res.status(signalId ? 201 : 200).json({ id: valueId });
   } catch (e: any) {
     await conn.rollback();
@@ -123,9 +128,10 @@ async function saveValue(req: any, res: any, signalId: number | null, valueId: n
 proposals.post('/signals/:id/values', admin, (req, res) => saveValue(req, res, num(req.params.id), null));
 proposals.patch('/signal-values/:id', admin, (req, res) => saveValue(req, res, null, num(req.params.id)));
 proposals.delete('/signal-values/:id', admin, async (req, res) => {
+  const before = await snapshot('signal_values', num(req.params.id));
   const r = await exec('DELETE FROM signal_values WHERE id=?', [num(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'signal_value_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'signal_value_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
@@ -167,11 +173,12 @@ proposals.post('/templates', editor, async (req, res) => {
   if (!htmlToPlain(html)) return void res.status(400).json({ error: 'The template format cannot be empty' });
   try {
     const r = await exec('INSERT INTO templates (name, description, body_html, prompt, priority, active, opening_rules, opening_no_us, opening_starts) VALUES (?,?,?,?,?,?,?,?,?)', [b.data.name, b.data.description, html, b.data.prompt, b.data.priority ?? 100, b.data.active === false ? 0 : 1, b.data.opening_rules ?? null, b.data.opening_no_us === false ? 0 : 1, b.data.opening_starts ?? null]);
-    await audit(req.user!.id, 'template_create', `id=${r.insertId}`);
+    { const after = await snapshot('templates', r.insertId); await audit(req.user!.id, 'template_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A template with that name already exists' }); throw e; }
 });
 proposals.patch('/templates/:id', editor, async (req, res) => {
+  const before = await snapshot('templates', num(req.params.id));
   const b = templateBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const d: any = { ...b.data };
@@ -186,23 +193,31 @@ proposals.patch('/templates/:id', editor, async (req, res) => {
     const r = await exec(`UPDATE templates SET ${sets.join(',')} WHERE id=?`, [...p, num(req.params.id)]);
     if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'A template with that name already exists' }); throw e; }
-  await audit(req.user!.id, 'template_update', `id=${req.params.id} fields=${Object.keys(b.data).join(',')}`);
+  { const after = await snapshot('templates', num(req.params.id)); await audit(req.user!.id, 'template_update', `${label(after ?? before) ?? ''} (${num(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 proposals.delete('/templates/:id', editor, async (req, res) => {
+  const before = await snapshot('templates', num(req.params.id));
   const r = await exec('DELETE FROM templates WHERE id=?', [num(req.params.id)]); // its mapping and samples go with it; written proposals keep the template name
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'template_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'template_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 
 // the signals a template is suited for: replaced as a whole
+/** A type's signal mapping as one line per row ("S3 Greenfield / MVP: required, group 1"), so a change shows the rows removed and added. */
+async function mappingText(tid: number): Promise<string> {
+  const rows = await query<any>(`SELECT s.number, s.name AS sname, v.name AS vname, ts.role, ts.weight, ts.req_group FROM template_signals ts JOIN signals s ON s.id=ts.signal_id
+    LEFT JOIN signal_values v ON v.id=ts.value_id WHERE ts.template_id=? ORDER BY s.number, v.name`, [tid]);
+  return rows.map((r) => `S${r.number} ${r.sname}: ${r.vname ?? 'any value'}, ${r.role === 'weight' ? 'weight ' + r.weight : r.role}${r.req_group ? ', group ' + r.req_group : ''}`).join('\n');
+}
 proposals.put('/templates/:id/signals', editor, async (req, res) => {
   const b = z.object({ mappings: z.array(z.object({ signal_id: z.number().int().positive(), value_id: z.number().int().positive().nullable(),
     weight: z.number().int().min(0).max(10, 'Weight must be 0 to 10').default(0), role: z.enum(['weight', 'required', 'supporting', 'exclude']).default('weight'),
     req_group: z.number().int().min(1).max(20).nullable().optional() })).max(200) }).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const tid = num(req.params.id);
+  const before = await mappingText(tid);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -224,7 +239,8 @@ proposals.put('/templates/:id/signals', editor, async (req, res) => {
     }
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
-  await audit(req.user!.id, 'template_signals', `id=${tid} rows=${b.data.mappings.length}`);
+  const tname = (await query<any>('SELECT name FROM templates WHERE id=?', [tid]))[0]?.name ?? '';
+  await audit(req.user!.id, 'template_signals', `${tname} (id ${tid}), ${b.data.mappings.length} rows`, diff({ mapping: before }, { mapping: await mappingText(tid) }));
   res.json({ ok: true });
 });
 
@@ -243,10 +259,11 @@ proposals.post('/templates/:id/samples', editor, async (req, res) => {
   const tid = num(req.params.id);
   if (!(await query('SELECT id FROM templates WHERE id=?', [tid])).length) return void res.status(404).json({ error: 'Not found' });
   const r = await exec('INSERT INTO template_samples (template_id, title, author, job_url, job_keywords, content, active) VALUES (?,?,?,?,?,?,?)', [tid, b.data.title, b.data.author, b.data.job_url, b.data.job_keywords, b.data.content, b.data.active === false ? 0 : 1]);
-  await audit(req.user!.id, 'sample_create', `id=${r.insertId} template=${tid}`);
+  { const after = await snapshot('template_samples', r.insertId); await audit(req.user!.id, 'sample_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
   res.status(201).json({ id: r.insertId });
 });
 proposals.patch('/template-samples/:id', editor, async (req, res) => {
+  const before = await snapshot('template_samples', num(req.params.id));
   const b = sampleBody.partial().safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const sets: string[] = []; const p: any[] = [];
@@ -255,13 +272,14 @@ proposals.patch('/template-samples/:id', editor, async (req, res) => {
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   const r = await exec(`UPDATE template_samples SET ${sets.join(',')} WHERE id=?`, [...p, num(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'sample_update', `id=${req.params.id}`);
+  { const after = await snapshot('template_samples', num(req.params.id)); await audit(req.user!.id, 'sample_update', `${label(after ?? before) ?? ''} (${num(req.params.id)})`, diff(before, after)); }
   res.json({ ok: true });
 });
 proposals.delete('/template-samples/:id', editor, async (req, res) => {
+  const before = await snapshot('template_samples', num(req.params.id));
   const r = await exec('DELETE FROM template_samples WHERE id=?', [num(req.params.id)]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
-  await audit(req.user!.id, 'sample_delete', `id=${req.params.id}`);
+  await audit(req.user!.id, 'sample_delete', `${label(before) ?? ''} (${num(req.params.id)})`, diff(before, null));
   res.json({ ok: true });
 });
 

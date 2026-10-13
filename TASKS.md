@@ -67,7 +67,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 23 | Change the proposal type after writing, from the tab row (R48) | done |
 | 24 | No Tracking tab: Save and mark sent with one popup; tracking on the Overview (R48) | done |
 | 25 | A loader while the AI works on a chat request (R48) | done |
-| 26 | Logs show what changed (old value and new value), not only "updated" | to do |
+| 26 | Logs show what changed: old and new values, lines, names added and removed (R49) | done |
 | 27 | Tag editor: pick the projects that have the tag, with a search (like industries and projects) | to do |
 | 28 | Explain the tag scores in the app, next to the tags | to do |
 

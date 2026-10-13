@@ -18,6 +18,7 @@ import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { buildReport, packRows } from './reports';
 import { withCallContext } from './llm/context';
+import { diff, snapshot } from './changes';
 import { testCall } from './llm';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
 
@@ -802,7 +803,7 @@ api.post('/admin/users', admin, async (req, res) => {
   try {
     const r = await exec('INSERT INTO users (name,email,password_hash,role) VALUES (?,?,?,?)',
       [b.data.name, b.data.email.toLowerCase(), await hashPassword(b.data.password), b.data.role]);
-    await audit(req.user!.id, 'user_create', `id=${r.insertId} role=${b.data.role}`);
+    await audit(req.user!.id, 'user_create', `${b.data.name ?? ''} (id ${r.insertId})`, diff(null, await snapshot('users', r.insertId)));
     res.status(201).json({ id: r.insertId });
   } catch (e: any) {
     if (e?.code === 'ER_DUP_ENTRY') return void res.status(409).json({ error: 'Email already exists' });
@@ -811,6 +812,7 @@ api.post('/admin/users', admin, async (req, res) => {
 });
 api.patch('/admin/users/:id', admin, async (req, res) => {
   const id = Number(req.params.id);
+  const before = await snapshot('users', id);
   const b = z.object({
     role: z.enum(['admin', 'manager', 'employee']).optional(), active: z.boolean().optional(),
     password: z.string().min(10).max(200).optional(),
@@ -830,7 +832,7 @@ api.patch('/admin/users/:id', admin, async (req, res) => {
   const r = await exec(`UPDATE users SET ${sets.join(',')} WHERE id=?`, [...p, id]);
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
   if (b.data.active === false || b.data.password) await exec('DELETE FROM sessions WHERE user_id=?', [id]);
-  await audit(req.user!.id, 'user_update', `id=${id} fields=${Object.keys(b.data).join(',')}`);
+  { const after = await snapshot('users', id); await audit(req.user!.id, 'user_update', `${after?.name ?? ''} (id ${id})`, diff(before, after)); }
   res.json({ ok: true });
 });
 
@@ -856,14 +858,17 @@ api.post('/admin/skill', admin, async (req, res) => {
   const next = (await query<any>('SELECT COALESCE(MAX(version),0)+1 AS v FROM skill_versions'))[0].v;
   const r = await exec('INSERT INTO skill_versions (version, content, change_note, created_by) VALUES (?,?,?,?)',
     [next, b.data.content, b.data.change_note ?? null, req.user!.id]);
-  await audit(req.user!.id, 'skill_save', `version=${next}`);
+  const prev = (await query<any>('SELECT content FROM skill_versions WHERE version<? ORDER BY version DESC LIMIT 1', [next]))[0]?.content ?? null;
+  await audit(req.user!.id, 'skill_save', `version ${next}${b.data.change_note ? ': ' + b.data.change_note : ''}`, diff({ instructions: prev }, { instructions: b.data.content }));
   res.status(201).json({ id: r.insertId, version: Number(next) });
 });
 api.post('/admin/skill/:id/activate', admin, async (req, res) => {
   const id = Number(req.params.id);
   if (!(await query('SELECT id FROM skill_versions WHERE id=?', [id])).length) return void res.status(404).json({ error: 'Not found' });
+  const was = (await query<any>('SELECT version FROM skill_versions WHERE is_active=1'))[0]?.version ?? null;
   await exec('UPDATE skill_versions SET is_active = (id=?)', [id]);
-  await audit(req.user!.id, 'skill_activate', `id=${id}`);
+  const now = (await query<any>('SELECT version FROM skill_versions WHERE id=?', [id]))[0]?.version ?? null;
+  await audit(req.user!.id, 'skill_activate', `version ${now}`, diff({ active_version: was == null ? null : String(was) }, { active_version: now == null ? null : String(now) }));
   res.json({ ok: true });
 });
 // The full text the model gets for a job: these instructions, the active rules and the fixed output format.
@@ -902,7 +907,7 @@ api.get('/admin/audit', admin, async (req, res) => {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(f.page, pages);
   const log = await query(
-    `SELECT a.id, a.action, a.detail, a.created_at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ${w} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
+    `SELECT a.id, a.action, a.detail, a.changes, a.created_at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ${w} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
     [...p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
   const actions = (await query<any>('SELECT DISTINCT action FROM audit_log ORDER BY action')).map((r) => r.action);
   res.json({ log, total, page, pages, page_size: PAGE_SIZE, actions });
@@ -1000,8 +1005,10 @@ api.put('/admin/settings/:key', admin, async (req, res) => {
     const cur = await getSettings(); const value = SETTINGS[key].schema.parse(req.body?.value);
     const conflict = settingsConflict({ ...cur, [key]: value } as any);
     if (conflict) return void res.status(400).json({ error: conflict });
+    const old = (cur as any)[key];
     const v = await setSetting(key, value, req.user!.id);
-    await audit(req.user!.id, 'setting_change', `${key}=${JSON.stringify(v).slice(0, 300)}`);
+    const show = (x: any) => (Array.isArray(x) ? x.join('\n') : x == null ? null : String(x));
+    await audit(req.user!.id, 'setting_change', `${SETTINGS[key].label ?? key}`, diff({ [key]: show(old) }, { [key]: show(v) }));
     res.json({ ok: true, value: v });
   } catch (e) {
     if (e instanceof z.ZodError) return void res.status(400).json({ error: 'Not a valid value: ' + e.issues[0].message });
@@ -1029,7 +1036,7 @@ api.post('/admin/rules', admin, async (req, res) => {
   const last = (await query<any>('SELECT MAX(CAST(SUBSTRING(code, 2) AS UNSIGNED)) AS n FROM rules WHERE code LIKE ?', [prefix + '%']))[0].n;
   const code = prefix + (Number(last || 0) + 1);
   await exec('INSERT INTO rules (code, type, rule, details, active) VALUES (?,?,?,?,1)', [code, b.data.type, b.data.rule, b.data.details || null]);
-  await audit(req.user!.id, 'rule_add', `${code} ${b.data.rule.slice(0, 200)}`);
+  await audit(req.user!.id, 'rule_add', `${code} ${b.data.rule.slice(0, 200)}`, diff(null, await snapshot('rules', code, 'code')));
   res.status(201).json({ code });
 });
 api.patch('/admin/rules/:code', admin, async (req, res) => {
@@ -1037,9 +1044,10 @@ api.patch('/admin/rules/:code', admin, async (req, res) => {
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const r = (await query<any>('SELECT code FROM rules WHERE code=?', [req.params.code]))[0];
   if (!r) return void res.status(404).json({ error: 'Not found' });
+  const before = await snapshot('rules', r.code, 'code');
   if (b.data.rule !== undefined) await exec('UPDATE rules SET rule=? WHERE code=?', [b.data.rule, r.code]);
   if (b.data.details !== undefined) await exec('UPDATE rules SET details=? WHERE code=?', [b.data.details || null, r.code]);
   if (b.data.active !== undefined) await exec('UPDATE rules SET active=? WHERE code=?', [b.data.active ? 1 : 0, r.code]);
-  await audit(req.user!.id, 'rule_change', `${r.code}${b.data.rule !== undefined ? ' reworded' : ''}${b.data.details !== undefined ? ' details' : ''}${b.data.active !== undefined ? (b.data.active ? ' restored' : ' retired') : ''}`);
+  await audit(req.user!.id, 'rule_change', `${r.code}${b.data.rule !== undefined ? ' reworded' : ''}${b.data.details !== undefined ? ' details' : ''}${b.data.active !== undefined ? (b.data.active ? ' restored' : ' retired') : ''}`, diff(before, await snapshot('rules', r.code, 'code')));
   res.json({ ok: true });
 });
