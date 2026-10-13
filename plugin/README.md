@@ -45,6 +45,14 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.5.0)
+
+v0.5.0: every step is saved in Upwork Pro as it happens. `/proposal` saves the job right after the gate, then the decision, the tags
+and signals, the profile and rate, the shortlist and the projects picked, the type, the Loom video, every draft and revision, and the
+final text (`save_step`, and `save_proposal` with `finished: false` for drafts). The app shows the job at the step the person reached.
+A job left halfway is continued from where it stopped, as the same job: Claude finds it, says what is saved, and carries on.
+Connects, boost and notes are sent with the status. Needs the MCP from the same commit (`cd mcp && npm run build`) and migration 033.
+
 ## Status (v0.4.3)
 
 v0.4.3: the shortlist is put in order by reading each project's overview and case study, with a reason per project, as the app does

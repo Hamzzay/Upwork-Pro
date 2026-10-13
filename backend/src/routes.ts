@@ -113,6 +113,13 @@ const stageSql = `CASE
     WHEN p.status IN ('queued','running') THEN 'writing'
     WHEN p.finalized_at IS NULL THEN 'review'
     ELSE 'ready' END`;
+/** Where one job stands, with the words the Jobs list uses. For the plugin's saves, so Claude can say what the app now shows. */
+const STAGE_LABEL: Record<string, string> = { screening: 'Screening', failed: 'Screening failed', skipped: 'Skipped', closed: 'Closed', submitted: 'Submitted', decide: 'Decision pending', projects: 'Projects pending',
+  profile: 'Profile pending', type: 'Proposal type pending', writing: 'Writing', review: 'Review pending', ready: 'Ready to send' };
+export async function jobStage(id: number): Promise<{ stage: string; label: string } | null> {
+  const r = (await query<any>(`SELECT (${stageSql}) AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
+  return r ? { stage: r.stage, label: STAGE_LABEL[r.stage] ?? r.stage } : null;
+}
 const phaseSql = `CASE WHEN (${stageSql}) IN ('skipped','failed') THEN 'not_pursued' WHEN (${stageSql}) IN ('submitted','closed') THEN (${stageSql}) ELSE 'in_progress' END`;
 /** The latest thing that happened on Upwork after the proposal: outcome, then interview, replied, viewed, sent. */
 const statusSql = `CASE WHEN s.outcome IS NOT NULL THEN s.outcome WHEN s.interviewed='yes' THEN 'Interview' WHEN s.client_replied='yes' THEN 'Chat opened'
@@ -518,7 +525,28 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   if (!r || (!canSeeAll(req.user!.role) && r.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const cur = (await query<any>('SELECT v.version_no, v.content_html FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
   const events = await query('SELECT status, happened_at, reason, note FROM status_events WHERE screening_id=? ORDER BY happened_at, id', [id]);
-  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html) } : null, status_history: events } });
+  // everything each step saved, so a job left halfway can be continued from where it stopped (in Claude or in the app)
+  const s2 = (await query<any>(`SELECT s.proceeded, s.continued_at, s.skip_note, s.proposal_rate, s.chosen_template_name, s.loom_video_title, s.selection_confirmed_at, s.proposal_profile_confirmed_at, s.connects_spent, s.boost_connects, s.notes,
+      o.reason AS continue_reason, p.template_name, p.finalized_at, (SELECT COUNT(*) FROM proposal_versions v WHERE v.proposal_id=p.id) AS versions
+    FROM screenings s LEFT JOIN overrides o ON o.screening_id=s.id LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
+  const tags = await query<any>('SELECT tag_name, category_name, reason, core_rank FROM job_tags WHERE screening_id=? ORDER BY core_rank IS NULL, core_rank, category_name, tag_name', [id]);
+  const signals = await query<any>('SELECT signal_number, signal_name, value_name, evidence FROM job_signals WHERE screening_id=? AND is_fallback=0 ORDER BY signal_number', [id]);
+  const matches = await query<any>('SELECT project_name, recommended, selected, ai_reason FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
+  const done = { decision: !!(s2.continued_at || s2.proceeded), read: tags.length > 0, profile: !!s2.proposal_profile_confirmed_at, projects: !!s2.selection_confirmed_at, type: !!(s2.template_name || s2.chosen_template_name),
+    draft: Number(s2.versions) > 0, final: !!s2.finalized_at };
+  // the plugin's own order of steps: the first one not done yet is where to continue
+  const order: [keyof typeof done, string][] = [['decision', 'the decision (continue or skip)'], ['read', 'reading the job (tags and signals)'], ['profile', 'the profile and rate'], ['projects', 'the projects'],
+    ['type', 'the proposal type'], ['draft', 'the Loom video, then the first draft'], ['final', 'the approval of the draft']];
+  const next = s2.proceeded === 'no' ? null : order.find(([k]) => !done[k]);
+  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html), finished: !!s2.finalized_at } : null, status_history: events,
+    saved: { decision: s2.proceeded === 'no' ? { continue: false, reason: s2.skip_note } : s2.continued_at ? { continue: true, reason: s2.continue_reason ?? null } : null,
+      tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
+      signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),
+      profile: s2.proposal_profile_confirmed_at ? r.profile_name : null, rate: s2.proposal_rate == null ? null : Number(s2.proposal_rate),
+      shortlist: matches.map((m) => ({ name: m.project_name, reason: m.ai_reason || undefined, recommended: !!m.recommended, picked: !!m.selected })), picked: s2.selection_confirmed_at ? matches.filter((m) => m.selected).map((m) => m.project_name) : [],
+      type: s2.template_name ?? s2.chosen_template_name ?? null, loom_video: s2.loom_video_title ?? null, drafts: Number(s2.versions), finished: !!s2.finalized_at,
+      connects: s2.connects_spent, boost: s2.boost_connects, notes: s2.notes },
+    steps_done: done, continue_from: next ? next[1] : s2.proceeded === 'no' ? 'nothing: this job was skipped' : 'nothing: the proposal is finished. Record what happens on Upwork with update_status.' } });
 });
 
 // ---------- bulk reads for analysis in Claude: many jobs at once, and the trend numbers ----------
@@ -642,7 +670,8 @@ api.post('/screenings/:id/posting', requireRole(), async (req, res) => {
 const postStatus = async (req: any, res: any) => {
   const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
   const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time'),
-    reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish() }).safeParse(req.body);
+    reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish(),
+    connects: z.number().int().min(0).max(1000).nullish(), boost: z.number().int().min(0).max(1000).nullish(), notes: z.string().trim().max(4000).nullish() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status, at = b.data.at.replace('T', ' ').slice(0, 16) + ':00';
   const lost = cfg['tracking.loss_outcomes'].includes(st);
@@ -665,6 +694,9 @@ const postStatus = async (req: any, res: any) => {
   const before = await trackSnapshot(id);
   if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
   else await exec('UPDATE screenings SET outcome=?, outcome_at=?, outcome_reason=?, outcome_note=?, tracking_updated_at=NOW() WHERE id=?', [st, at, lost ? b.data.reason : null, b.data.note || null, id]);
+  // what it cost and any note, when sent along (the plugin records them with the status)
+  const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes]].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
+  if (more.length) await exec(`UPDATE screenings SET ${more.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...more.map(([, v]) => v), id]);
   await recordChanges(id, before, await trackSnapshot(id), 'status', req.user!.id);
   await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, req.user!.id, lost ? b.data.reason : null, b.data.note || null]);
   await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}`);

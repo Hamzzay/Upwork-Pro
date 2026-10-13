@@ -214,7 +214,7 @@ function proposalSection(s, initial, matching) {
     const draw = () => {
       if (!owner) { el.replaceChildren(h('div', { class: 'jp-sec' }, 'Waiting for the proposal type'), h('p', { class: 'jp-label' }, `${s.user_name || 'The person who submitted this job'} chooses how the proposal is written.`)); return; }
       if (!choices) { el.replaceChildren(h('div', { class: 'skel', style: 'width:50%' })); return; }
-      if (picked === null) picked = (choices.types.find((t) => t.suggested) || choices.types[0] || {}).id ?? null;
+      if (picked === null) picked = (choices.types.find((t) => t.id === choices.chosen_type_id) || choices.types.find((t) => t.suggested) || choices.types[0] || {}).id ?? null; // the type picked in Claude, else the suggestion
       // the Loom video: the one already chosen; else, when the post asks for a video, the one that fits best; else none
       const lm = choices.loom || { asked: false, chosen: null, videos: [] };
       if (loomPick === undefined) loomPick = lm.chosen ?? (lm.asked && lm.videos.length ? (lm.videos.find((v) => v.best) || lm.videos[0]).id : null);
@@ -233,7 +233,7 @@ function proposalSection(s, initial, matching) {
       setActions(picked ? actBtn('Write the proposal', write, true) : null);
       const card = (t) => h('button', { type: 'button', class: 'pcard2 typecard' + (picked === t.id ? ' on' : ''), role: 'radio', 'aria-checked': picked === t.id, onclick: () => { picked = t.id; byHand = true; draw(); } },
         h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('span', { class: 'jp-sec', style: 'min-width:0' }, t.name),
-          t.suggested ? h('span', { class: 'tagpill' }, 'Suggested') : choices.ready && t.qualified ? h('span', { class: 'pill PASS' }, 'Also fits') : t.ruled_out ? h('span', { class: 'pill wait' }, 'Ruled out') : picked === t.id ? icon('check') : null),
+          t.id === choices.chosen_type_id ? h('span', { class: 'tagpill' }, 'Picked in Claude') : t.suggested ? h('span', { class: 'tagpill' }, 'Suggested') : choices.ready && t.qualified ? h('span', { class: 'pill PASS' }, 'Also fits') : t.ruled_out ? h('span', { class: 'pill wait' }, 'Ruled out') : picked === t.id ? icon('check') : null),
         t.chosen_when ? h('div', { class: 'jp-label' }, 'For when ' + t.chosen_when) : null,
         choices.ready && why(t) ? h('div', { class: 'jp-label' }, why(t) + '.') : null,
         h('div', { class: 'jp-label faint' }, [t.length, `${t.samples} sample${t.samples === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));

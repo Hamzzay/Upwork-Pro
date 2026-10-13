@@ -118,8 +118,8 @@ async function decide(s: any, cont: boolean, reason: string | undefined, userId:
 plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
   const b = z.object({
     text: z.string().trim().min(30, 'Send the proposal text').max(30_000),
-    profile: z.union([z.number().int().positive(), z.string().trim().min(1).max(190)]),
-    projects: z.array(z.string().trim().min(1).max(190)).max(6).default([]),
+    profile: z.union([z.number().int().positive(), z.string().trim().min(1).max(190)]).optional(), // left out: the profile saved at the profile step
+    projects: z.array(z.string().trim().min(1).max(190)).max(6).optional(), // left out: the projects saved at the projects step stay as they are
     template: z.string().trim().max(160).optional(),
     finished: z.boolean().default(true),
     continue_reason: z.string().trim().max(2000).optional(),
@@ -135,8 +135,14 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     await decide(s, true, d.continue_reason, userId);
   }
   const profs = await query<any>('SELECT id, name FROM upwork_profiles WHERE active=1');
-  const prof = typeof d.profile === 'number' ? profs.find((p) => p.id === d.profile) : profs.find((p) => p.name.toLowerCase() === String(d.profile).toLowerCase());
+  const saved = (await query<any>('SELECT proposal_profile_id, chosen_template_id, chosen_template_name FROM screenings WHERE id=?', [s.id]))[0];
+  if (d.profile === undefined && !saved.proposal_profile_id) return void res.status(400).json({ error: 'Send the profile: none was saved for this job yet', field: 'profile' });
+  const prof = d.profile === undefined ? (await query<any>('SELECT id, name FROM upwork_profiles WHERE id=?', [saved.proposal_profile_id]))[0]
+    : typeof d.profile === 'number' ? profs.find((p) => p.id === d.profile) : profs.find((p) => p.name.toLowerCase() === String(d.profile).toLowerCase());
   if (!prof) return void res.status(400).json({ error: `No active Upwork profile called "${d.profile}". Active profiles: ${profs.map((p) => p.name).join(', ') || 'none'}. Add it with add_profile, then save again.`, field: 'profile' });
+  // the proposal type: the one sent, else the one chosen at the type step
+  const tplName = d.template ?? saved.chosen_template_name ?? null;
+  const tplId = d.template ? (await findTemplate(d.template))?.id ?? null : saved.chosen_template_id ?? null;
   // the Loom video sent with it: one of the sending profile's videos, by its title; null records that none was sent
   let loom: { id: number; title: string } | null | undefined;
   if (d.loom_video === null) loom = null;
@@ -146,7 +152,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     if (!loom) return void res.status(400).json({ error: `${prof.name} has no Loom video called "${d.loom_video}". Its videos: ${vids.map((v) => v.title).join('; ') || 'none'}. Use a title from get_library (loom_videos), or leave loom_video out.`, field: 'loom_video' });
   }
   const lib = await query<any>('SELECT id, name FROM projects');
-  const picked = d.projects.map((n) => ({ name: n, p: lib.find((x) => x.name.toLowerCase() === n.toLowerCase()) ?? null }));
+  const picked = (d.projects ?? []).map((n) => ({ name: n, p: lib.find((x) => x.name.toLowerCase() === n.toLowerCase()) ?? null }));
   const unknown = picked.filter((x) => !x.p).map((x) => x.name);
 
   const conn = await pool.getConnection();
@@ -155,7 +161,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     await conn.beginTransaction();
     // the projects it used: mark them chosen among any matches the app already has, add the rest
     const [have]: any = await conn.query('SELECT id, project_id, project_name, rank_no FROM job_matches WHERE screening_id=?', [s.id]);
-    await conn.query('UPDATE job_matches SET selected=0 WHERE screening_id=?', [s.id]);
+    if (d.projects) await conn.query('UPDATE job_matches SET selected=0 WHERE screening_id=?', [s.id]);
     let rank = have.reduce((m: number, r: any) => Math.max(m, r.rank_no), 0);
     for (const x of picked) {
       const row = have.find((r: any) => (x.p && r.project_id === x.p.id) || r.project_name.toLowerCase() === x.name.toLowerCase());
@@ -171,12 +177,12 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
       proposalId = pr[0].id;
       const [n]: any = await conn.query('SELECT COALESCE(MAX(version_no),0)+1 AS n FROM proposal_versions WHERE proposal_id=? FOR UPDATE', [proposalId]);
       version = Number(n[0].n);
-      await conn.query(`UPDATE proposals SET status='done', stage=NULL, profile_id=?, template_name=COALESCE(?, template_name), finished_at=COALESCE(finished_at, NOW()),
+      await conn.query(`UPDATE proposals SET status='done', stage=NULL, profile_id=?, template_name=COALESCE(?, template_name), template_id=COALESCE(?, template_id), finished_at=COALESCE(finished_at, NOW()),
         finalized_at=${d.finished ? 'COALESCE(finalized_at, NOW())' : 'finalized_at'}, finalized_by=${d.finished ? 'COALESCE(finalized_by, ?)' : 'finalized_by'} WHERE id=?`,
-        d.finished ? [prof.id, d.template ?? null, userId, proposalId] : [prof.id, d.template ?? null, proposalId]);
+        d.finished ? [prof.id, tplName, tplId, userId, proposalId] : [prof.id, tplName, tplId, proposalId]);
     } else {
-      const [ins]: any = await conn.query(`INSERT INTO proposals (screening_id, status, template_choice, template_name, created_by, finished_at, profile_id, finalized_at, finalized_by, model, warnings)
-        VALUES (?, 'done', 'manual', ?, ?, NOW(), ?, ?, ?, 'claude-plugin', '[]')`, [s.id, d.template ?? 'Claude plugin', userId, prof.id, d.finished ? new Date() : null, d.finished ? userId : null]);
+      const [ins]: any = await conn.query(`INSERT INTO proposals (screening_id, status, template_choice, template_id, template_name, created_by, finished_at, profile_id, finalized_at, finalized_by, model, warnings)
+        VALUES (?, 'done', 'manual', ?, ?, ?, NOW(), ?, ?, ?, 'claude-plugin', '[]')`, [s.id, tplId, tplName ?? 'Claude plugin', userId, prof.id, d.finished ? new Date() : null, d.finished ? userId : null]);
       proposalId = Number(ins.insertId);
     }
     await conn.query(`INSERT INTO proposal_versions (proposal_id, version_no, content_html, source, note, created_by) VALUES (?,?,?,'plugin','From the Claude plugin',?)`, [proposalId, version, textToHtml(d.text), userId]);
@@ -184,9 +190,170 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(userId, 'plugin_proposal_save', `screening=${s.id} version=${version} profile=${prof.id}${d.finished ? ' finished' : ''}`);
-  res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, loom_video: loom ? loom.title : loom === null ? 'none' : undefined, projects_not_in_library: unknown,
+  res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, stage: await stageAfter(s.id), loom_video: loom ? loom.title : loom === null ? 'none' : undefined, projects_not_in_library: unknown,
     add_missing: unknown.length ? 'Add each of these with add_project (name, links, overview, tags from the project sheet), then save again so they link to the library.' : undefined,
     next: d.finished ? 'Ready to send: once it is submitted on Upwork, set the status to Sent.' : 'Saved as a draft. Save again with finished=true when it is final.' });
+});
+
+// ---------- every step saved as it happens: read, profile, projects, type, Loom video ----------
+// The plugin calls this as soon as the person answers each step, so Upwork Pro always shows where a plugin job stands and
+// anyone can pick it up halfway. Each step fills the same fields the app's own steps fill, so the stage follows by itself.
+// A step saved again replaces what that step saved before; a later step never erases an earlier one. Every save is kept in
+// the job's History (field_changes) with the old and the new value, source "Claude plugin".
+const STEP_SOURCE = 'Claude plugin';
+const stageAfter = async (id: number): Promise<{ stage: string; label: string } | null> => (await import('./routes')).jobStage(id); // routes.ts loads this file, so it is fetched when first needed
+/** A proposal type by its name, or by its number alone ("Type 7", "7"). */
+async function findTemplate(name: string): Promise<{ id: number; name: string } | null> {
+  const all = await query<any>('SELECT id, name FROM templates WHERE active=1');
+  const want = name.trim().toLowerCase(), num = /^(?:type\s*)?(\d+)\b/i.exec(name.trim())?.[1];
+  return all.find((t) => t.name.toLowerCase() === want) ?? (num ? all.find((t) => new RegExp(`^type\\s*${num}\\b`, 'i').test(t.name)) : null) ?? all.find((t) => t.name.toLowerCase().includes(want) && want.length > 4) ?? null;
+}
+const stepBody = z.discriminatedUnion('step', [
+  z.object({ step: z.literal('read'), data: z.object({
+    tags: z.array(z.object({ name: z.string().trim().min(1).max(120), reason: z.string().trim().max(600).optional(), core_rank: z.number().int().min(1).max(3).optional() })).max(60).default([]),
+    industry: z.object({ name: z.string().trim().min(1).max(120), reason: z.string().trim().max(600).optional() }).nullable().optional(),
+    signals: z.array(z.object({ signal: z.union([z.number().int().positive(), z.string().trim().min(1).max(160)]), value: z.string().trim().min(1).max(200), evidence: z.string().trim().max(700).optional() })).max(80).default([]) }) }),
+  z.object({ step: z.literal('profile'), data: z.object({ profile: z.union([z.number().int().positive(), z.string().trim().min(1).max(190)]), rate: z.number().min(0).max(100000).nullable().optional() }) }),
+  z.object({ step: z.literal('projects'), data: z.object({
+    shortlist: z.array(z.object({ name: z.string().trim().min(1).max(190), reason: z.string().trim().max(300).optional(), recommended: z.boolean().optional() })).max(20).default([]),
+    picked: z.array(z.string().trim().min(1).max(190)).max(6) }) }),
+  z.object({ step: z.literal('type'), data: z.object({ type: z.string().trim().min(1).max(160), ranking: z.array(z.object({ type: z.string().trim().max(160), why: z.string().trim().max(400).optional() })).max(12).optional() }) }),
+  z.object({ step: z.literal('loom'), data: z.object({ video: z.string().trim().min(1).max(200).nullable() }) }),
+]);
+plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
+  const b = stepBody.safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
+  const s = await ownJob(req, res); if (!s) return;
+  if (s.proceeded === 'no') return void res.status(409).json({ error: 'This job was skipped. Record a decision to continue first.' });
+  if (!s.continued_at) return void res.status(409).json({ error: 'Record the decision on this job first (record_decision), then save its steps.' });
+  const userId = req.user!.id, id = s.id as number, step = b.data.step;
+  const changes: [string, string | null, string | null][] = [];
+  const note = (field: string, before: string | null, after: string | null) => { if ((before ?? null) !== (after ?? null)) changes.push([field, before, after]); };
+  const extra: Record<string, unknown> = {};
+  const lower = (x: string) => x.trim().toLowerCase();
+
+  if (b.data.step === 'read') {
+    const d = b.data.data;
+    const dict = await query<any>('SELECT t.id, t.name, t.weight, c.name AS category FROM tags t JOIN tag_categories c ON c.id=t.category_id WHERE t.active=1');
+    const find = (name: string, industry = false) => dict.find((t) => lower(t.name) === lower(name) && (!industry || /^industry$/i.test(t.category))) ?? (industry ? undefined : dict.find((t) => lower(t.name) === lower(name)));
+    const rows: { tag: any; reason: string; core: number | null }[] = []; const unknownTags: string[] = [];
+    for (const t of d.tags) { const tag = find(t.name); if (!tag) { unknownTags.push(t.name); continue; } if (!rows.some((r) => r.tag.id === tag.id)) rows.push({ tag, reason: t.reason ?? '', core: t.core_rank ?? null }); }
+    if (d.industry) { const tag = find(d.industry.name, true); if (!tag) unknownTags.push(d.industry.name + ' (industry)'); else if (!rows.some((r) => r.tag.id === tag.id)) rows.push({ tag, reason: d.industry.reason ?? '', core: null }); }
+    const sigs = await query<any>('SELECT id, number, name FROM signals WHERE active=1'), vals = await query<any>('SELECT id, signal_id, name, move, is_fallback FROM signal_values WHERE active=1');
+    const sigRows: any[] = []; const unknownSignals: string[] = [];
+    for (const x of d.signals) {
+      const sig = typeof x.signal === 'number' ? sigs.find((g) => g.number === x.signal) : sigs.find((g) => lower(g.name) === lower(String(x.signal))) ?? sigs.find((g) => String(g.number) === String(x.signal).replace(/\D/g, ''));
+      const val = sig ? vals.find((v) => v.signal_id === sig.id && lower(v.name) === lower(x.value)) : null;
+      if (!sig || !val) { unknownSignals.push(`${x.signal}: ${x.value}`); continue; }
+      sigRows.push({ sig, val, evidence: x.evidence ?? null });
+    }
+    const beforeTags = (await query<any>('SELECT tag_name FROM job_tags WHERE screening_id=? ORDER BY category_name, tag_name', [id])).map((x) => x.tag_name).join(', ') || null;
+    const beforeSigs = (await query<any>('SELECT signal_name, value_name FROM job_signals WHERE screening_id=? AND is_fallback=0 ORDER BY signal_number', [id])).map((x) => `${x.signal_name}: ${x.value_name}`).join('; ') || null;
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query('DELETE FROM job_tags WHERE screening_id=?', [id]);
+      for (const x of rows) await conn.query('INSERT INTO job_tags (screening_id, tag_id, tag_name, category_name, weight, reason, core_rank) VALUES (?,?,?,?,?,?,?)', [id, x.tag.id, x.tag.name, x.tag.category, x.tag.weight, x.reason, x.core]);
+      if (d.signals.length) {
+        await conn.query('DELETE FROM job_signals WHERE screening_id=?', [id]);
+        const seen = new Set<number>();
+        for (const x of sigRows) {
+          await conn.query(`INSERT INTO job_signals (screening_id, signal_id, signal_number, signal_name, value_id, value_name, is_fallback, is_primary, confidence, evidence, reason, move_text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [id, x.sig.id, x.sig.number, x.sig.name, x.val.id, x.val.name, x.val.is_fallback ? 1 : 0, seen.has(x.sig.id) ? 0 : 1, 'medium', x.evidence, null, x.val.move ?? null]);
+          seen.add(x.sig.id);
+        }
+      }
+      await conn.query(`UPDATE screenings SET tagging_status='done', tagged_at=COALESCE(tagged_at, NOW()) WHERE id=?`, [id]);
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    note('job tags', beforeTags, [...rows].sort((a, b) => a.tag.category.localeCompare(b.tag.category) || a.tag.name.localeCompare(b.tag.name)).map((x) => x.tag.name).join(', ') || null);
+    if (d.signals.length) note('signals', beforeSigs, [...sigRows].sort((a, b) => a.sig.number - b.sig.number).filter((x) => !x.val.is_fallback).map((x) => `${x.sig.name}: ${x.val.name}`).join('; ') || null);
+    Object.assign(extra, { tags_saved: rows.length, signals_saved: sigRows.length, tags_not_in_dictionary: unknownTags.length ? unknownTags : undefined, signals_not_found: unknownSignals.length ? unknownSignals : undefined,
+      left_out: unknownTags.length || unknownSignals.length ? 'These were left out because Upwork Pro does not have them. Use the names from get_library (tags) and the signal names and values from get_writing_guide.' : undefined });
+  }
+
+  if (b.data.step === 'profile') {
+    const d = b.data.data;
+    const profs = await query<any>('SELECT id, name, price FROM upwork_profiles WHERE active=1');
+    const prof = typeof d.profile === 'number' ? profs.find((p) => p.id === d.profile) : profs.find((p) => lower(p.name) === lower(String(d.profile)));
+    if (!prof) return void res.status(400).json({ error: `No active Upwork profile called "${d.profile}". Active profiles: ${profs.map((p) => p.name).join(', ') || 'none'}. Add it with add_profile, then save again.`, field: 'profile' });
+    const was = (await query<any>('SELECT pr.name, s.proposal_rate FROM screenings s LEFT JOIN upwork_profiles pr ON pr.id=s.proposal_profile_id WHERE s.id=?', [id]))[0];
+    await exec(`UPDATE screenings SET proposal_profile_id=?, upwork_profile_id=?, proposal_profile_confirmed_at=NOW(), proposal_profile_confirmed_by=?${d.rate !== undefined ? ', proposal_rate=?' : ''} WHERE id=?`,
+      d.rate !== undefined ? [prof.id, prof.id, userId, d.rate, id] : [prof.id, prof.id, userId, id]);
+    note('profile', was?.name ?? null, prof.name);
+    if (d.rate !== undefined) note('rate', was?.proposal_rate == null ? null : String(Number(was.proposal_rate)), d.rate == null ? null : String(d.rate));
+    // a video belongs to a profile: one chosen for another profile no longer applies
+    const lv = (await query<any>('SELECT s.loom_video_title, v.profile_id FROM screenings s LEFT JOIN loom_videos v ON v.id=s.loom_video_id WHERE s.id=?', [id]))[0];
+    if (lv?.loom_video_title && lv.profile_id !== prof.id) { await exec('UPDATE screenings SET loom_video_id=NULL, loom_video_title=NULL WHERE id=?', [id]); note('loom video', lv.loom_video_title, null); extra.loom_video_cleared = 'The Loom video chosen before belonged to the other profile. Save the video step again.'; }
+    Object.assign(extra, { profile: prof.name, rate: d.rate ?? undefined });
+  }
+
+  if (b.data.step === 'projects') {
+    const d = b.data.data, cfg = await getSettings();
+    const lib = await query<any>('SELECT id, name FROM projects');
+    const inLib = (n: string) => lib.find((x) => lower(x.name) === lower(n)) ?? null;
+    const names = [...new Set([...d.shortlist.map((x) => x.name), ...d.picked].map((n) => n.trim()))];
+    const unknown = names.filter((n) => !inLib(n));
+    if (unknown.length) return void res.status(400).json({ error: `Not in the project library: ${unknown.join(', ')}. Add each with add_project first (name, links, overview, tags), then save this step again. Nothing was saved.`, projects_not_in_library: unknown, field: 'projects' });
+    const picked = [...new Set(d.picked.map((n) => inLib(n)!.id))];
+    if (picked.length < cfg['selection.min'] || picked.length > cfg['selection.max']) return void res.status(400).json({ error: `Pick ${cfg['selection.min'] === cfg['selection.max'] ? cfg['selection.max'] : cfg['selection.min'] + ' to ' + cfg['selection.max']} project${cfg['selection.max'] === 1 ? '' : 's'} (the setting in Upwork Pro). ${picked.length} were sent.`, field: 'picked' });
+    const beforePicked = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null;
+    const beforeList = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null;
+    // the shortlist in the order shown, then any picked project that was not on it
+    const order = [...d.shortlist.map((x) => ({ p: inLib(x.name)!, reason: x.reason ?? null, rec: !!x.recommended })), ...d.picked.map((n) => inLib(n)!).filter((p) => !d.shortlist.some((x) => lower(x.name) === lower(p.name))).map((p) => ({ p, reason: null as string | null, rec: false }))]
+      .filter((x, i, a) => a.findIndex((y) => y.p.id === x.p.id) === i);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [have]: any = await conn.query('SELECT id, project_id, rank_no FROM job_matches WHERE screening_id=? FOR UPDATE', [id]);
+      // rows the app matched keep their scores; the plugin's own earlier rows that are no longer shown go
+      const keep = new Set(order.map((x) => x.p.id));
+      await conn.query('UPDATE job_matches SET selected=0 WHERE screening_id=?', [id]);
+      for (const h of have) if (!keep.has(h.project_id)) await conn.query('DELETE FROM job_matches WHERE id=? AND max_score=0', [h.id]);
+      const [left]: any = await conn.query('SELECT id, project_id, rank_no FROM job_matches WHERE screening_id=?', [id]);
+      let rank = left.reduce((m: number, r: any) => Math.max(m, r.rank_no), 0);
+      for (const x of order) {
+        const row = left.find((r: any) => r.project_id === x.p.id), sel = picked.includes(x.p.id) ? 1 : 0;
+        if (row) await conn.query('UPDATE job_matches SET selected=?, recommended=IF(?, 1, recommended), ai_reason=COALESCE(?, ai_reason) WHERE id=?', [sel, x.rec ? 1 : 0, x.reason, row.id]);
+        else await conn.query(`INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, ai_reason) VALUES (?,?,?,?,0,0,0,?,'[]',?,?)`,
+          [id, x.p.id, x.p.name, ++rank, x.rec ? 1 : 0, sel, x.reason]);
+      }
+      await conn.query(`UPDATE screenings SET tagging_status='done', tagged_at=COALESCE(tagged_at, NOW()), selection_confirmed_at=NOW(), selection_confirmed_by=? WHERE id=?`, [userId, id]);
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    note('projects shown', beforeList, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null);
+    note('projects picked', beforePicked, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null);
+    Object.assign(extra, { picked: order.filter((x) => picked.includes(x.p.id)).map((x) => x.p.name), shown: order.length });
+  }
+
+  if (b.data.step === 'type') {
+    const d = b.data.data;
+    const t = await findTemplate(d.type);
+    if (!t) return void res.status(400).json({ error: `No active proposal type called "${d.type}". The types: ${(await query<any>('SELECT name FROM templates WHERE active=1 ORDER BY name')).map((x) => x.name).join('; ')}.`, field: 'type' });
+    const was = (await query<any>('SELECT s.chosen_template_name, p.id AS pid, p.template_name FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?', [id]))[0];
+    await exec('UPDATE screenings SET chosen_template_id=?, chosen_template_name=? WHERE id=?', [t.id, t.name, id]);
+    if (was?.pid) await exec(`UPDATE proposals SET template_id=?, template_name=?, template_choice='manual' WHERE id=?`, [t.id, t.name, was.pid]); // drafts exist: later drafts are of this type
+    note('proposal type', was?.template_name ?? was?.chosen_template_name ?? null, t.name);
+    Object.assign(extra, { type: t.name });
+  }
+
+  if (b.data.step === 'loom') {
+    const d = b.data.data;
+    const cur = (await query<any>('SELECT s.proposal_profile_id, s.loom_video_title, pr.name FROM screenings s LEFT JOIN upwork_profiles pr ON pr.id=s.proposal_profile_id WHERE s.id=?', [id]))[0];
+    if (d.video === null) { await exec('UPDATE screenings SET loom_video_id=NULL, loom_video_title=NULL WHERE id=?', [id]); note('loom video', cur?.loom_video_title ?? null, null); extra.loom_video = 'none'; }
+    else {
+      if (!cur?.proposal_profile_id) return void res.status(409).json({ error: 'Save the profile step first: a Loom video belongs to the sending profile.' });
+      const vids = await query<any>('SELECT id, title FROM loom_videos WHERE profile_id=?', [cur.proposal_profile_id]);
+      const v = vids.find((x) => lower(x.title) === lower(d.video!));
+      if (!v) return void res.status(400).json({ error: `${cur.name} has no Loom video called "${d.video}". Its videos: ${vids.map((x) => x.title).join('; ') || 'none'}. Use a title from get_library (loom_videos), or send null for no video.`, field: 'video' });
+      await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, id]);
+      note('loom video', cur.loom_video_title ?? null, v.title); extra.loom_video = v.title;
+    }
+  }
+
+  for (const [field, before, after] of changes) await exec('INSERT INTO field_changes (screening_id, field, old_value, new_value, source, user_id) VALUES (?,?,?,?,?,?)', [id, field, before, after, STEP_SOURCE, userId]);
+  await audit(userId, 'plugin_step_save', `screening=${id} step=${step}${changes.length ? '' : ' unchanged'}`);
+  res.json({ ok: true, step, changed: changes.length > 0, ...extra, stage: await stageAfter(id) });
 });
 
 /** The values the plugin may use: active profiles, project names, rule codes, statuses, outcomes and loss reasons. */

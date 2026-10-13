@@ -73,7 +73,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
     { url: z.string().optional(), job_id: z.string().optional(), q: z.string().optional(), phase: z.enum(['in_progress', 'submitted', 'closed', 'not_pursued']).optional(), limit: z.number().int().min(1).max(50).optional() },
     { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/jobs?' + new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))));
 
-  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, and its latest proposal text.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
+  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, its latest proposal text, and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
 
   // ---------- analysis: many jobs at once, and the trend numbers ----------
   const jobFilters = {
@@ -101,7 +101,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
 
   const pairs = z.array(z.object({ label: z.string(), value: z.string() }));
   const rules = z.array(z.object({ code: z.string().describe('e.g. F2 or G14'), rule: z.string().optional(), value: z.string().optional().describe('The actual value behind it, e.g. "Hire rate 32%"') }));
-  T('save_job', 'Save a job the plugin screened. Stored as sent (the app does not screen it again) and marked as coming from the Claude plugin. Refused if the same Upwork job is already saved (use find_jobs), unless force_new.',
+  T('save_job', 'Save a job the plugin screened, right after the gate and before the person decides (leave decision out; record it with record_decision when they answer). Stored as sent (the app does not screen it again) and marked as coming from the Claude plugin. Refused if the same Upwork job is already saved (use find_jobs), unless force_new.',
     {
       job_text: z.string().describe('The job page text exactly as pasted'), job_url: z.string().optional(), title: z.string(),
       verdict: z.enum(['PASS', 'FLAG', 'FAIL']), fails: rules.optional(), flags: rules.optional(),
@@ -119,8 +119,28 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
   T('record_decision', 'Record the person\'s decision on a saved job: continue (a FLAG or FAIL needs their reason) or skip (give the reason they skip, too).',
     { id: z.number().int(), continue: z.boolean(), reason: z.string().optional() }, { readOnlyHint: false, destructiveHint: false }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/decision`, { continue: a.continue, reason: a.reason }));
 
-  T('save_proposal', 'Save the proposal the plugin wrote for a saved job, with the profile (name), the project names it used and the Loom video sent with it, if any. Saving again adds a new version. finished=true (default) means ready to send.',
-    { id: z.number().int(), text: z.string().describe('The proposal exactly as written'), profile: z.string().describe('Upwork profile name, see plugin_options'), projects: z.array(z.string()).optional(),
+  T('save_step', `Save one step of a job as soon as the person answers it, so Upwork Pro always shows where the job stands and it can be continued later. Call it after each of these, never all at the end:
+- read: the job tags (with a reason each, and core_rank 1 to 3 on the core work tags), the one job industry, and the signals with the words from the post that show each.
+- profile: the profile the person picked and the rate.
+- projects: the shortlist you showed (with the reason for each, recommended ones marked) and the projects the person picked. Every project must be in the library: add a missing one with add_project first.
+- type: the proposal type the person picked.
+- loom: the Loom video the person picked (its title, from get_library for that profile), or null for none.
+Saving a step again replaces what that step saved; other steps stay. The answer gives the job's stage in Upwork Pro after the save. If it is refused, show the message, fix only what the person confirms, and save again; never go on as if it was saved.`,
+    { id: z.number().int(), step: z.enum(['read', 'profile', 'projects', 'type', 'loom']),
+      data: z.object({
+        tags: z.array(z.object({ name: z.string(), reason: z.string().optional(), core_rank: z.number().int().min(1).max(3).optional() })).optional().describe('read: tag names exactly as in get_library'),
+        industry: z.object({ name: z.string(), reason: z.string().optional() }).nullable().optional().describe('read: the one job industry, or null'),
+        signals: z.array(z.object({ signal: z.union([z.number(), z.string()]).describe('Signal number or name'), value: z.string(), evidence: z.string().optional() })).optional().describe('read: stated values only'),
+        profile: z.string().optional().describe('profile: the Upwork profile name'), rate: z.number().nullable().optional().describe('profile: the hourly rate chosen'),
+        shortlist: z.array(z.object({ name: z.string(), reason: z.string().optional(), recommended: z.boolean().optional() })).optional().describe('projects: the projects shown, in order'),
+        picked: z.array(z.string()).optional().describe('projects: the names the person picked'),
+        type: z.string().optional().describe('type: the proposal type name, e.g. "Type 7. Problem first"'),
+        video: z.string().nullable().optional().describe('loom: the video title, or null for none'),
+      }) },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/step`, { step: a.step, data: a.data }));
+
+  T('save_proposal', 'Save a draft or the final proposal for a saved job. Every draft and every revision is saved with finished=false as soon as it is shown (each call adds a version); the approved text with finished=true (ready to send). The profile, projects, type and Loom video saved with save_step are used when left out here; sending projects replaces the ones picked.',
+    { id: z.number().int(), text: z.string().describe('The proposal exactly as written'), profile: z.string().optional().describe('Upwork profile name, see plugin_options. Leave out when the profile step is saved'), projects: z.array(z.string()).optional().describe('Leave out when the projects step is saved'),
       template: z.string().optional().describe('Proposal type or template used'), finished: z.boolean().optional(), loom_video: z.string().nullable().optional().describe('Title of the Loom video sent with it, exactly as in get_library loom_videos for this profile; null when the person chose none; leave out if it was not discussed'), continue_reason: z.string().optional().describe('Only for a FLAG or FAIL job with no decision yet') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => { const { id, ...body } = a; return api.call('POST', `/plugin/jobs/${id}/proposal`, body); });
 
@@ -148,11 +168,12 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
 
   T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now.',
     { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
-      reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional() },
+      reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional().describe('A note about this status, e.g. what the client said'),
+      connects: z.number().int().optional().describe('Connects the proposal cost (with Sent)'), boost: z.number().int().optional().describe('Extra Connects spent on a boost'), notes: z.string().optional().describe('The job\'s own notes (replaces them)') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async (a) => {
       const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      return api.call('POST', `/plugin/jobs/${a.id}/status`, { status: a.status, at: a.at || local, reason: a.reason, note: a.note });
+      return api.call('POST', `/plugin/jobs/${a.id}/status`, { status: a.status, at: a.at || local, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes });
     });
 
   if (opts.importDir) {

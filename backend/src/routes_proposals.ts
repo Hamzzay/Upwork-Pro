@@ -326,7 +326,9 @@ proposals.get('/screenings/:id/proposal', anyone, async (req, res) => {
 // The proposal types to choose from before writing: every active type, best fit for the job's signals first.
 proposals.get('/screenings/:id/proposal/types', anyone, async (req, res) => {
   const s = await visibleScreening(req, res); if (!s) return;
-  res.json({ ...(await typeChoices(s.id)), loom: await loomChoices(s.id) });
+  // a type already picked in Claude (the plugin's type step) is the one selected here
+  const chosen = (await query<any>('SELECT chosen_template_id FROM screenings WHERE id=?', [s.id]))[0]?.chosen_template_id ?? null;
+  res.json({ ...(await typeChoices(s.id)), chosen_type_id: chosen, loom: await loomChoices(s.id) });
 });
 
 proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {

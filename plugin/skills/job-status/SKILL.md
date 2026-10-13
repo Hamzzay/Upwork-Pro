@@ -30,7 +30,8 @@ Call `update_status` with the job number and one status:
 * **Lost outcomes** (the `loss_outcomes` in `plugin_options`) need a `reason` from the loss reasons in `plugin_options`
   (for example "Budget too low", "Hired someone else", "Went quiet after chat"). Ask the person which one if it is not clear.
   Put their own words in `note`. Never invent a reason.
-* Connects spent and boost: put them in `note` when the person mentions them ("16 Connects, boosted 4").
+* Connects spent and boost: send them as `connects` and `boost` (numbers) with the status when the person mentions them ("16 Connects, boosted 4"). With Sent, ask for the Connects once if they did not say. The job's own notes go in `notes`; `note` is for what happened at this status (what the client said).
+* A job that is not finished yet (`get_job` shows `continue_from`): do not record a status. Offer to continue it with the proposal skill.
 
 Confirm in one line: "Job #N: Viewed, today 14:05."
 

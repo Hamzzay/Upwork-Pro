@@ -228,6 +228,13 @@ did Daniel make", "undo that change". It holds the conversation:
 - On each item's own page (a project, a tag, a type, a document), a small "Changes" link to its history.
 - Settings: "Second admins' changes wait for approval" (on / off switch like R51's), main admin only.
 
+### Built so far
+
+- **A1 and A2 are done (R52, 14 October).** One thing differs from the table above: the type picked at the type step is kept on the
+  job (`screenings.chosen_template_id`, `chosen_template_name`, with the rate in `proposal_rate`, migration 033), not on a proposal
+  row, because a proposal row without text would be picked up by the worker and written by the AI. The app's stage therefore reads
+  "Proposal type pending" until the first draft is saved, and its type chooser shows the type as "Picked in Claude", already selected.
+
 ### Phases (build and ship in this order)
 
 1. **A1** `save_step` and the server side for steps 5 to 8b, `get_job` with everything saved, early `save_job`. Tests.
@@ -262,7 +269,16 @@ did Daniel make", "undo that change". It holds the conversation:
 
 ---
 
-## Questions for Hamza (ask before B1; build with the defaults if he says "your call")
+## Hamza's answers (14 October)
+
+1. Second admins' changes **apply at once**; the main admin reviews them later and can put any back. So phase B4 (approval first) is
+   not built unless he asks for it.
+2. The main admin is **only the first admin account** (Hamza).
+3. Managers may change projects, industries and tags from Claude, as in the app (the default; not asked again).
+4. **Any admin** may change the gate instructions and settings, marked for the main admin's review like every other change.
+5. Part A saves **the result of each step only**, not the chat.
+
+## Questions for Hamza (answered above)
 
 1. Second admins: apply at once and the main admin reviews later (default), or wait for approval first?
 2. Is "main admin" only the first admin account (Hamza), or should the main admin be able to name more than one?

@@ -9,7 +9,7 @@ on GLM 5.3 (same job, same steps). Screens are unchanged; all changes are in the
 ```
 cd backend
 npm install            # exceljs is now a runtime dependency (export)
-npm run migrate        # applies 008 to 026: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
+npm run migrate        # applies 008 to 033: early drafts, tracking, settings, AI calls, status dates, posting and history, imports, plugin source, gate split, library fields, sheet sync (and its removal), writing guide, sign-in from Claude
 npm run seed:writing   # the shared writing rules (rules, banned phrases, modules, screening answers, checklist), insert-if-missing
 npm run seed:proposals # the 3 new signals and the 6 proposal types (R21)
 npm run merge:writing  # once: retires the 3 SOP templates, moves their samples to Type 1, drops the duplicate type documents (R21)
@@ -850,6 +850,37 @@ reading, so the screening notes and the project step disagreed.
 - Checked: tests (the 13 October job, one industry, core work order, screening's projects, the extra ten); the real model on the
   scraping job (industry Recruitment / HR, core work scraping then lead generation, Breesy and Bitrix24 recommended, no healthcare),
   job #50 (real estate lead response), a dental voice job and a legal RAG job; job #50 on the page with "Show 10 more projects".
+
+### R52. The Claude plugin saves every step, and continues a job left halfway (done, 14 October; Part A of `PLAN-PLUGIN.md`)
+Before, the plugin saved twice (the job after the decision, the final proposal). Everything between lived only in the chat, so a job
+left at step 7 showed in Upwork Pro as decided with nothing after it.
+- **New MCP tool `save_step`** (`POST /plugin/jobs/:id/step`, in `routes_plugin.ts`), called as soon as the person answers each step:
+  `read` (job tags with reasons and core work, the one industry, the signals with their evidence), `profile` (profile and rate),
+  `projects` (the shortlist shown with a reason each, and the projects picked), `type`, `loom` (a video or none). Each fills the
+  fields the app's own steps fill, so the Jobs list, the job page and the dashboard show the right step with no extra work.
+- **Rules**: the owner, or a manager or admin; the decision must be recorded first; a profile, project, type or video that Upwork
+  Pro does not have is refused with what to do (a missing project: "add it with add_project first", and nothing is half saved);
+  the number of projects follows the Settings; a tag or signal that is not in the dictionary is named and left out. Saving a step
+  again replaces what that step saved; other steps stay. Each save is in the job's History with the old and the new value, source
+  "Claude plugin", and the answer carries the job's stage after it.
+- **The job is saved right after the gate**, before the decision (`save_job` without `decision`), so a job the person walks away
+  from is there as "Decision pending". `record_decision` records the answer.
+- **Drafts**: every draft and revision is a version (`save_proposal` with `finished: false`). `save_proposal` no longer needs the
+  profile or the projects repeated, and leaving the projects out no longer clears the ones picked (it did before).
+- **Resume**: `get_job` returns `saved` (everything each step saved), `steps_done` and `continue_from`. The proposal skill looks
+  the job up first; for the person's own unfinished job it says what is saved and continues it as the same job.
+- **`update_status`** takes `connects`, `boost` and `notes` with the status (they went into the note text before).
+- **The app**: a type picked in Claude shows in the type chooser as "Picked in Claude", already selected. The type and the rate
+  are kept on the job until the first draft exists (migration `033_plugin_steps.sql`; run `npm run migrate`).
+- **Plugin v0.5.0**: the proposal skill saves at every step and says so in one line each time, stops when a save is refused, and
+  has a "Continuing a job left halfway" section; the job-status skill sends Connects and boost as numbers.
+- **Checked**: 27 calls through the MCP against the running app as an employee, a second employee and a manager, covering the six
+  acceptance points of the plan (stop after the projects and see them in the app; continue as one job; three versions then
+  finished; a missing project refused with nothing half saved; someone else's job refused for an employee and allowed for a
+  manager; every step in the History). The temporary job and accounts were removed. `npm test`, type check and `node --check` pass.
+- **Not checked**: a real `/proposal` run inside Claude with v0.5.0 (the plan's "two real jobs"). The skill text is new and only
+  a run in Claude shows whether it saves at every step and resumes as written.
+- **Live**: pull, `npm run migrate` (033), `cd mcp && npm run build`, restart; download the plugin again (v0.5.0), restart Claude.
 
 ## Feedback from Hamza's testing
 Both items are done in R2: the whole project card is clickable, and Save tracking ends on a "Job complete"
