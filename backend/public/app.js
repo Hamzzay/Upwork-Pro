@@ -2310,6 +2310,8 @@ async function settingsView() {
     return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'jp-label' }, meta[key].help) : null), h('div', { class: 'setin' }, input, btn));
   };
   const num = (key) => { const el = h('input', { type: 'number', min: 0, step: 1, value: settings[key], style: 'width:110px' }); return row(key, el, () => Number(el.value)); };
+  // an on / off setting: a select reads more plainly than a lone checkbox next to a Save button
+  const onoff = (key) => { const el = h('select', { 'aria-label': meta[key].label }, h('option', { value: '1', selected: !!settings[key] }, 'On'), h('option', { value: '0', selected: !settings[key] }, 'Off')); return row(key, el, () => el.value === '1'); };
   const list = (key, ph) => { const el = h('input', { type: 'text', value: settings[key].join(', '), placeholder: ph, style: 'min-width:320px' }); return row(key, el, () => el.value.split(',').map((x) => x.trim()).filter(Boolean)); };
   // which AI does the work: checked on the server (key present) before it is saved
   const ai = await api('GET', '/admin/ai');
@@ -2360,7 +2362,7 @@ async function settingsView() {
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
-    group('Project matching', [num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
+    group('Project matching', [onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
