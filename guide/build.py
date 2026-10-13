@@ -29,7 +29,7 @@ SECTIONS = [
   note('Three things are the same on every list: a <b>search box</b> and <b>filters</b> on top (they apply as you type, and <b>Clear filters</b> appears once something is filtered), a row opens when you click it, and a row\'s buttons are at its right end. Deleting is always inside the Edit window, never in the row.'),
 ]),
 ('daily', 'The daily job, without Claude', [
-  '<p>One job, five steps: decide, projects, profile, proposal (choose its type, then review it), and tracking. The job page shows the step you are on and the button for it is always at the top right of the tab row.</p>',
+  '<p>One job, four steps: decide, projects, profile and proposal (choose its type, then review it). After it is sent, you keep its status up to date on the Overview tab. The job page shows the step you are on and the button for it is always at the top right of the tab row.</p>',
   shot('screen-1-paste.jpg', '1. Screen a job', 'Open <b>Screen a job</b> in the sidebar.', [
     'On Upwork, select the whole job page (Cmd + A, Cmd + C) and paste it here. Include the "About the client" part: the screening depends on it.',
     'Paste the job\'s link too. It is saved with the job and stops the same job being screened twice.',
@@ -43,9 +43,15 @@ SECTIONS = [
     'Under it you find how well the job fits us and notes for the proposal.'),
   shot('screen-4-flag.jpg', 'When the gate says Flag or Fail', 'You can still continue, but you must write why. The reason stays on the record, where managers can read it.', [
     'The result.', 'The reason someone gave for continuing.', 'Each rule that fired, with the value behind it (for example the client\'s real hire rate).']),
-  shot('job-projects.jpg', '3. Pick the projects', 'The job is tagged, and the projects that share the most with it are listed: same industry first.', [
-    'The two recommended projects are already ticked.', 'Click a card to tick or untick it. To swap, untick one first.',
-    'Press <b>Confirm and continue</b>.', 'How many you have picked, out of how many you may.']),
+  shot('job-skip.jpg', 'Skipping a job: say why', 'Press <b>Skip</b> and a small window asks for the reason. It takes two seconds and it is what lets us report on the jobs we pass on.', [
+    'Pick the quick reason that fits.', 'Add a note if there is more to say.', '<b>Skip job</b>. The job moves to Not pursued, with your reason on it.']),
+  shot('job-projects.jpg', '3. Pick the projects', 'The job is read for the work it needs, and the projects that prove that work are listed. A project is only recommended when it shows the same kind of work; among those, the same industry comes first.', [
+    'A recommended project, already ticked. Under its name: why it fits, whether it is the same industry, and the tags it shares with the job.',
+    'The other matches. Click a card to tick or untick it. To swap, untick one first.',
+    'Press <b>Confirm and continue</b>.', 'What the job needs, and how many you have picked out of how many you may.'],
+    'The list is the same one the Screening tab shows under "Projects that fit", so the two never disagree.'),
+  shot('job-projects-more.jpg', 'Not there? Show more', 'Scroll to the end of the list.', [
+    '<b>Show 10 more projects</b> lists the next best matches.', 'Open this to see the tags the job was given, and so why these projects came up.']),
   shot('job-profile.jpg', '4. Pick the profile', 'Which Upwork profile sends this proposal. The proposal is written in that profile\'s voice, with its rate, links and rules.', [
     'Click the profile.', 'Press <b>Confirm and continue</b>.']),
   shot('job-type.jpg', 'Choose the type of proposal', 'Nothing is written until you choose. The types that suit this job come first, each with the reason it fits.', [
@@ -62,21 +68,30 @@ SECTIONS = [
     'The proposal. Edit it like any document.',
     'Every save, chat change and restore is kept as a version. Pick an older one here to see it or bring it back.',
     '<b>Chat with the AI</b> to change it: "make it shorter", "add a question about their calendar". Each answer is saved as a new version.',
-    '<b>Copy</b> puts the text on your clipboard, ready to paste into Upwork. <b>Finish proposal</b> when you are happy with it.',
-    'Open this to see the signals it read and how every type ranked. You can write it again with another type.'],
+    'The <b>independent review</b>: a second reader scores the proposal out of 10. See the next picture.',
+    '<b>Copy</b> puts the text on your clipboard. <b>Change type</b> writes it again as another proposal type. <b>Save and mark sent</b> when it is submitted on Upwork.'],
     'Above the text, a yellow line lists things to check before sending (for example a figure the writer could not find in our facts).'),
-  shot('job-tracking.jpg', 'Send it on Upwork, then mark it as sent', 'Paste the proposal into Upwork and submit it there. Then come back to the <b>Tracking</b> tab.', [
-    '<b>Mark as sent</b> (later this button says <b>Update status</b>). <b>Edit details</b> is for Connects, boost, the Loom video and notes.',
-    'Where the proposal stands now.', 'Everything that happened, with its date.', 'Connects, boost, the Loom video and your notes.']),
+  shot('job-review.jpg', 'The independent review', 'As soon as a proposal is written, a separate reader checks it against the job, the profile, the projects and our writing rules. It did not write the proposal, so it does not go easy on it. It is advice: you can always copy the proposal as it is.', [
+    'The score out of 10, and which version it is for.',
+    'The verdict in a few lines: send it or not, and why.',
+    'A suggestion: what to change, in words the AI can act on. There are up to three.',
+    '<b>Apply this</b> sends that suggestion to the chat. The AI revises the proposal and saves it as a new version.',
+    '<b>Review again</b> scores the newest version. After a change, the panel tells you the review is of an older version.'],
+    'Further down, <b>What hurts it</b> and <b>What works</b> open to show each point. A low score most often means the proposal claims something our project facts do not say: fix that first.'),
+  shot('job-sent.jpg', 'Send it on Upwork, then mark it as sent', 'Copy the proposal, paste it into Upwork and submit it there. Then press <b>Save and mark sent</b>. One window records everything.', [
+    'The status: Sent.', 'The Connects it cost, and any boost.', 'The Loom video you sent with it, if any. This is how we learn whether videos help.', '<b>Save</b>.'],
+    'There is no Tracking tab any more. After this, the job\'s status lives on its Overview tab.'),
   shot('job-status-sent.jpg', 'Updating the status takes one click', 'Do this every time something happens on Upwork. It is what the reports are built from.', [
     'Pick what happened: Sent, Viewed, Chat opened, Interview, or how it ended. The next likely one is already chosen.',
     'It is set to now. Change it only if it happened earlier.', 'Save.']),
   shot('job-status-lost.jpg', 'When a proposal is lost, say why', 'Not hired, No response, Withdrawn and Job closed all need a reason, so we can learn from them.', [
     'The outcome.', 'The reason, from the list.', 'Anything the client said, in your own words.']),
-  shot('job-details.jpg', 'Record what it cost', 'On the Tracking tab, press <b>Edit details</b>.', [
+  shot('job-details.jpg', 'Change what it cost', 'On the Overview tab, press <b>Edit details</b>.', [
     'The Connects the proposal cost.', 'Extra Connects if you boosted it.', 'The Loom video you sent with it, if any. This is how we learn whether videos help.', 'Notes.']),
-  shot('job-overview.jpg', 'The rest of the job page', '', [
-    'The title, the gate result and the step.', 'Overview, the job post as fields, the five steps, and History.', 'What is next.', 'The button for it.']),
+  shot('job-overview.jpg', 'Overview: where the job stands', 'The first tab of every job. After a proposal is sent, this is where you follow it.', [
+    'The title, the gate result and where the job stands.', 'Overview, the job post as fields, the four steps, and History.', 'What is next.',
+    '<b>Update status</b> each time something happens on Upwork (viewed, chat, interview, the outcome). <b>Edit details</b> for Connects, boost, the Loom video and notes. Admins also see <b>Discard job</b>.',
+    'Tracking: the status now, everything that happened with its date, and what it cost.']),
   shot('job-post.jpg', 'Job post: the posting as fields', 'The whole post, read into fields at the same time as the screening: terms, skills, description, screening questions, the client and their history.', ['The full pasted text is one click away at the bottom.']),
   shot('job-history.jpg', 'History: every step and who did it', 'When something looks wrong, look here first.', ['Each step with how long after the paste it happened, who did it, and each AI call.']),
 ]),
@@ -112,7 +127,8 @@ SECTIONS = [
     'Add it in Claude: open Plugins, add a plugin from a file, choose the file, then restart Claude.'],
     'When this card shows a newer version than the one you installed, download it again and add it the same way.'),
   '<h3>What to say to Claude</h3><table><tr><th>You want to</th><th>Say</th><th>What happens</th></tr>'
-  '<tr><td>Write a proposal</td><td><code>/proposal</code> and paste the job page text and link</td><td>Claude screens the job, asks you to decide on a flag or fail, then asks for the profile, the projects, the proposal type and the Loom video, writes the proposal, and saves the job and the proposal in Upwork Pro.</td></tr>'
+  '<tr><td>Write a proposal</td><td><code>/proposal</code> and paste the job page text and link</td><td>Claude screens the job, asks you to decide on a flag or fail, then asks for the profile, the projects, the proposal type and the Loom video, writes the proposal, shows the independent review of it, and saves every step in Upwork Pro as it happens. Stop halfway and say "continue the dental clinic job" in a new chat: it carries on from where you stopped.</td></tr>'
+  '<tr><td>Improve a draft</td><td>"Apply suggestion 1", "Review it again"</td><td>Claude revises the draft the way the review suggested, saves it as a new version and gets a fresh score. You can also approve the proposal as it is at any score.</td></tr>'
   '<tr><td>Check a job only</td><td>"Is this job worth applying to?" and paste it</td><td>Pass, Flag or Fail with the rules and reasons.</td></tr>'
   '<tr><td>Record what happened</td><td>"Mark the dental clinic job as sent", "The client viewed it", "We lost it, they hired someone else"</td><td>The status is saved in Upwork Pro with its time. A loss needs a reason; Claude asks if you did not give one.</td></tr>'
   '<tr><td>See what is waiting</td><td>"Which of my proposals are waiting on the client?"</td><td>The list from Upwork Pro.</td></tr>'
@@ -127,8 +143,9 @@ SECTIONS = [
     'Search, and filter by industry, tag, content (for example "No case study") or status.', 'Click a row to see the whole project.', '<b>Edit</b>.', '<b>Add project</b>.']),
   shot('project-add.jpg', 'Add or edit a project', '', [
     'The name, as we call it.', 'The link a proposal shows: usually the landing page, or the store or live system link.',
-    'What we built. The writer describes the project from this, so write it plainly and truthfully.', '<b>Add project</b>. The head and the buttons stay in view while you scroll.'],
-    'The case study summary is where results and figures go. Only figures written there may appear in a proposal.'),
+    'The Android link (Google Play).', 'The iOS link (App Store). Mobile apps have one box per store, so the writer can show the right one.',
+    'What we built. The writer describes the project from this, so write it plainly and truthfully.'],
+    'The case study summary is where results and figures go. Only figures written there may appear in a proposal. The head and the buttons stay in view while you scroll.'),
   shot('project-add-tags.jpg', 'Industries and tags decide when a project is suggested', 'Scroll down in the same window.', [
     'The industries the project belongs to. Projects from the job\'s own industry are suggested first.', 'The tags. A job is matched to the projects that share its tags, so tag honestly: only what the project really did.', 'Save.'],
     'To stop using a project without losing it, untick <b>Active</b>. Delete is in this window too, for mistakes only.'),
@@ -136,15 +153,19 @@ SECTIONS = [
   shot('industries.jpg', 'Industries', '', ['Search and status.', '<b>Edit</b>.', '<b>Add industry</b>.']),
   shot('industry-edit.jpg', 'Edit an industry', '', ['The name.', 'Related industries, separated by commas. For a job in this industry, projects from these come right after projects from the same one.', 'The projects in it.']),
   shot('tags.jpg', 'Tag dictionary (admin)', 'The words jobs and projects are described with.', [
-    'Tags and their categories.', 'Search, category and status.', 'The score: what a shared tag is worth when matching. Type a new number and it is saved. 0 means ignored.', '<b>Edit</b>, and <b>Disable</b> to stop using a tag without deleting it.', '<b>Add tag</b>.']),
-  shot('tag-edit.jpg', 'Edit a tag', '', ['The name.', 'The score, 0 to 10.', 'What it means. The AI reads this when it tags a job, so one clear sentence matters.']),
+    '<b>How the scores work</b>: open it to read what a score does in matching, with an example.',
+    'Tags and their categories.', 'The score: what a shared tag is worth when matching. Type a new number and it is saved. 0 means ignored.',
+    'How many projects have the tag. A tag no project has does nothing for matching.',
+    'Click <b>Active</b> to switch a tag off (or back on) straight from the list. It asks you to confirm first. Every list works this way.', '<b>Add tag</b>.']),
+  shot('tag-edit.jpg', 'Edit a tag', '', ['The name.', 'The score, 0 to 10.', 'What it means. The AI reads this when it tags a job, so one clear sentence matters.',
+    'The projects that have this tag. Search, and tick or untick them here, without opening each project.']),
   shot('profiles.jpg', 'Upwork profiles (admin)', 'The profiles we apply from.', ['Search, status, and "Needs filling in" to find profiles without a rate or headline.', '<b>Edit</b> and <b>Disable</b>.', '<b>Add profile</b>.']),
   shot('profile-edit.jpg', 'Edit a profile', 'Every field here is used by the writer. An empty field means the writer has nothing to say about it.', [
     'The name, exactly as on Upwork.', 'The default hourly rate, and the lowest rate.', 'What this profile sells. Used to suggest a profile for a job.', 'Delete is here, for mistakes only. Disable a profile instead if it has ever been used.'],
     'Further down: voice, signature, the Upwork stats allowed in proposals, profile rules, and certifications (used only when a client requires one).'),
   shot('looms.jpg', 'Loom videos (admin)', 'Short videos per profile. On a job\'s Profile step, each profile shows the video that fits the job best.', ['Search, profile, status and "Not tagged".', '<b>Add video</b> for that profile.', '<b>Add video</b>.']),
   shot('loom-add.jpg', 'Add a Loom video', '', ['A title that says what the video shows.', 'The Loom link.', 'The job tags it suits. A video with no tags is never suggested.'],
-    'When you send a video with a proposal, record it on the job (Tracking, Edit details). That is what lets Reports compare proposals with a video against those without.'),
+    'When you send a video with a proposal, record it on the job (the mark as sent window, or Overview, Edit details). That is what lets Reports compare proposals with a video against those without.'),
 ]),
 ('setup', 'How proposals are written (setup)', [
   shot('signals.jpg', 'Signals', 'What the AI looks for in a job post: who the client wants, how technical they are, whether they asked for a structure, and so on.', ['Search, layer, kind and status.', 'Click a signal to see its values.']),
@@ -164,8 +185,39 @@ SECTIONS = [
     'The instructions.', 'Say what you changed and why.', '<b>Save as new version</b>. Saving never overwrites.', 'The versions. <b>Activate</b> the one new screenings should use.'],
     'Further down you can paste a sample job and test your draft before you activate it.'),
   shot('settings.jpg', 'Settings (admin)', '', ['Which AI does the work. <b>Test connection</b> before <b>Use this AI</b>.', 'A number or list the app runs on.', 'Each has its own <b>Save</b>. A change applies to the next job.']),
+  shot('settings-matching.jpg', 'Settings: project matching', 'Further down the same page.', [
+    '<b>AI orders the matched projects</b>: when on, the AI reads the best matches and puts them in order with a reason each. It saves when you flip it.', 'The numbers: how many projects are shown, recommended and may be picked.']),
   shot('users.jpg', 'Users (admin)', '', ['Search, role and status.', 'The <b>main admin</b>: the first admin account. Only that person can change it; other admins cannot change its role, disable it or reset its password.', 'Change a role here.', 'Your own row: <b>Change password</b>. Other rows: <b>Reset password</b>, and <b>Disable</b> when someone leaves (their jobs stay).', '<b>Add user</b>.']),
   shot('user-add.jpg', 'Add a user', '', ['Their name and email.', 'A temporary password of at least 10 characters. Give it to them privately.', 'Their role.']),
+]),
+('claude-setup', 'Changing the setup from Claude (admins and managers)', [
+  '<p>Admins can add and change the setup by talking to Claude instead of filling in the windows above: projects, industries, tags, Upwork profiles, Loom videos, rules, signals, proposal types and their samples, the writing guide, the gate instructions and settings. Managers can do from Claude what they can do in the app: projects, industries, proposal types, samples and the writing guide. Employees cannot change the setup.</p>',
+  '<p>You need the plugin, version 0.7.0 or newer (Connect Claude, Download the plugin), and your Claude connected with your own sign-in.</p>',
+  '<h3>Nothing raw goes in</h3><p>The setup is read by the AI on every job, so one careless project or tag hurts every proposal after it. Claude therefore always works in the same seven steps, and you should expect each of them:</p>'
+  '<ol class="habits"><li><b>It looks at what exists</b>, so nothing is added twice. If the thing is already there, it offers to update it.</li>'
+  '<li><b>It shows you two or three good examples</b> of the same kind from our own library, so you see the shape we keep them in.</li>'
+  '<li><b>It asks for the information</b>, one topic at a time. Give it in any form: notes, a pasted document, a link.</li>'
+  '<li><b>It tells you what is complete and what is missing.</b> It never fills a gap with a guess: no invented results, numbers, clients, rates or links. What you do not know stays empty.</li>'
+  '<li><b>It verifies</b> what it can: that the tags, industries and names exist, that the name is free, that the links are the ones you gave.</li>'
+  '<li><b>It rewrites everything in our standard format</b> and shows you the final version exactly as it will be saved, with a short list of what it changed from what you gave.</li>'
+  '<li><b>It shows the change as before and after, says what it affects, and asks "Save this?"</b> Only your clear yes saves it.</li></ol>',
+  '<h3>What to say to Claude</h3><table><tr><th>You want to</th><th>Say</th><th>What happens</th></tr>'
+  '<tr><td>Add a project</td><td>"Add a project: Kruzee" and give what you have (what it is, the case study, links)</td><td>The seven steps. Claude writes the overview and the case study in the team format (Project, Problem, Solution, Key features, Technology, Results), suggests tags from the dictionary with a reason each, and saves after your yes.</td></tr>'
+  '<tr><td>Change a project</td><td>"Update Breesy: the live link is now ..." or "Add the tag Twilio to Apex"</td><td>Claude shows the current value and the new one, then asks. Only what you changed is touched.</td></tr>'
+  '<tr><td>Add or change a tag</td><td>"Add a tag for Lawmatics under CRM tools", "Raise the score of AI voice agent to 5"</td><td>Claude explains what the score does and how many projects have the tag before it asks.</td></tr>'
+  '<tr><td>Add a profile, a Loom video, a rule</td><td>"Add a Loom video for Hamza\'s profile", "Add a flag rule for jobs that ask for free samples"</td><td>The same steps. A new rule gets the next free code; a code is never reused.</td></tr>'
+  '<tr><td>Change the writing guide or a setting</td><td>"Add this phrase to the banned phrases", "Show 7 projects per job instead of 5"</td><td>Long texts are shown as the lines removed and added. The earlier text is kept as a version.</td></tr>'
+  '<tr><td>Change the gate instructions</td><td>"Change the gate instructions so that ..."</td><td>Two separate steps, on purpose. First the new text is saved as a version that is <b>not active</b>: test it on a past job in the app (Gate instructions). Then say "activate version 5" and confirm again.</td></tr>'
+  '<tr><td>Stop using something</td><td>"Switch off the project Tolba"</td><td>Nothing is ever deleted from Claude. The item is switched off and can be switched on again.</td></tr>'
+  '<tr><td>See what changed</td><td>"What changed in the setup this week?", "What did Daniel change?", "What is waiting for review?"</td><td>The list of changes: who, when, from the app or from Claude, what, and the reason.</td></tr>'
+  '<tr><td>Undo a change (main admin)</td><td>"Put back change 75"</td><td>The item returns to exactly how it was before that change. If it was changed again later, Claude says what else would be undone and asks a second time.</td></tr></table>',
+  note('<b>Claude cannot</b> add or change users, reset passwords, change the AI provider or its keys, or delete anything. Do those in the app. Never paste a password or a key into the chat.', 'warn'),
+  shot('changes.jpg', 'Changes: every change is kept, and can be put back', 'Open <b>Changes</b> in the sidebar (admins). Every change to the setup is here, whether it was made in the app or from Claude.', [
+    'How many changes by other admins the main admin has not looked at yet. They are already applied.',
+    'Search and filters: status, what was changed, who, the app or Claude, and dates.',
+    'One change: when, who, what, and each field as before and after. A change from Claude also shows the reason given in the chat.',
+    '<b>To review</b>: made by an admin other than the main admin. The main admin sees <b>Seen</b> and <b>Put back</b> on each row.'],
+    'The main admin is the first admin account. A change by any other admin applies at once and waits here, marked To review, until the main admin marks it seen or puts it back. <b>Put back</b> returns the item to exactly how it was; that is itself kept as a change.'),
 ]),
 ('numbers', 'Reading the numbers', [
   shot('dashboard.jpg', 'Dashboard', 'How the team is doing right now.', [
@@ -217,7 +269,7 @@ page = f"""<!doctype html>
 <h1>Upwork Pro: the team guide</h1>
 <p class="lead">How to do the daily work, with Claude and without it, how to add and manage everything proposals are built from, and how to read the numbers. Each picture has numbers on it; the list under the picture says what each one is. Click a picture to see it full size.</p>
 {body}
-<p class="after" style="margin-top:48px">Pictures show Upwork Pro as of 9 October 2026. To update this guide, edit <code>guide/build.py</code> and run it.</p>
+<p class="after" style="margin-top:48px">Pictures show Upwork Pro as of 9 to 14 October 2026. To update this guide, edit <code>guide/build.py</code> and run it.</p>
 </main></div><script src="guide.js"></script></body></html>
 """
 open(os.path.join(HERE, 'index.html'), 'w').write(page)

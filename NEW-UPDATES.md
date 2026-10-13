@@ -986,6 +986,23 @@ screen.
 - Not checked: the skill itself in a real Claude conversation (needs the plugin installed again and the MCP rebuilt), and the
   proposal type's signal mapping, which is still changed in the app only.
 
+### R57. The team guide brought up to date, with a section on the setup from Claude (done, 14 October)
+
+- **New section:** "Changing the setup from Claude (admins and managers)": who can do what, the seven steps Claude always follows
+  (nothing raw goes in), a table of what to say (add or change a project, a tag, a profile, a video, a rule, the writing guide, a
+  setting, the gate instructions in two steps, switch off, see what changed, put a change back), what Claude cannot do, and the
+  Changes page with a picture.
+- **Pictures retaken or added (16)** for what changed since 9 October: the decision step, the skip popup (new), the project step and
+  "Show 10 more" (new), the proposal page (no Tracking tab, Change type, Save and mark sent), the independent review (new), the
+  mark as sent window (new), the Overview with tracking on it, the layout, the tag list and tag window, the project window (Android
+  and iOS links), Settings: project matching (new), the plugin card (v0.7.0), Changes (new). The old Tracking picture is removed.
+  65 pictures in all; the text for each changed screen is rewritten. Built with `python3 guide/build.py`.
+- **The review panel, two changes found while taking the pictures:** the chat now sits above the review (a long review pushed the
+  chat far down the page), and "What hurts it" and "What works" are folded, so the score, the verdict and the suggestions come first.
+- The pictures were taken with a temporary account and one made up job, both removed afterwards.
+- Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
+  no pictures of Claude itself.
+
 ### R42. Skipping a job asks why (done, 13 October)
 - Skip (on the Screening tab) opens "Why skip this job?": five quick reasons (Budget or rate too low, Client history or hire rate,
   Outside our services, Scope unclear, Too much competition) and a note. A reason, a note, or both; the server refuses a skip without

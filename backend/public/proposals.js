@@ -320,15 +320,16 @@ function proposalSection(s, initial, matching) {
         try { await api('POST', `/proposals/${data.id}/messages`, { content: sg.instruction }); const stt = (await api('GET', `/screenings/${s.id}/proposal/state`)).state; data.messages = stt.messages; drawChat(); drawReview(); startPolling(); toast('Sent to the AI. The revised proposal is saved as a new version.'); }
         catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren('Apply this'); } };
       return b; };
-    const listOf = (title, items) => (items && items.length ? h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:2px' }, title), h('ul', { class: 'jp-list', style: 'margin:0' }, items.map((x) => h('li', {}, x)))) : null);
+    // the points are folded: the score, the verdict and the suggestions are what a person acts on, and the chat must stay in reach below
+    const listOf = (title, items) => (items && items.length ? h('details', { class: 'reviewfold' }, h('summary', {}, `${title} (${items.length})`), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, items.map((x) => h('li', {}, x)))) : null);
     el.replaceChildren(...[
       head(canAsk ? ask(stale ? 'Review this version' : 'Review again', !!stale) : null),
       h('div', { class: 'reviewscore ' + tone }, h('span', { class: 'num' }, String(rv.score)), h('span', { class: 'of' }, 'out of 10'), h('span', { class: 'ver' }, `Version ${rv.version || ''}${rv.at ? ' · ' + ago(rv.at) : ''}`)),
       stale ? h('div', { class: 'notice' }, icon('info'), `This review is of version ${rv.version}. You are on version ${loaded}: review it again to score the change.`) : null,
       h('p', { class: 'jp-body', style: 'margin:0' }, rv.verdict),
-      listOf('What works', rv.strengths), listOf('What hurts it', rv.problems),
       rv.suggestions && rv.suggestions.length ? h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, owner ? 'Suggestions. Apply the ones you agree with; each is sent to the AI and saved as a new version.' : 'Suggestions'),
         h('div', { class: 'stack', style: 'gap:8px' }, rv.suggestions.map((sg) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, sg.title), h('div', { class: 'jp-label' }, sg.instruction)), owner ? apply(sg) : null)))) : null,
+      listOf('What hurts it', rv.problems), listOf('What works', rv.strengths),
       rv.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The newest review could not be made' + (rv.error ? ': ' + rv.error : '.')) : null,
     ].filter(Boolean));
   }
@@ -401,7 +402,7 @@ function proposalSection(s, initial, matching) {
         h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px' }, vsel, dirtyChip),
         viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader), counter, answersBox,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
-      h('div', { class: 'propside' }, h('div', { class: 'reviewpanel' }), h('div', { class: 'chatpanel' }), explain()));
+      h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), h('div', { class: 'reviewpanel' }), explain())); // the chat first: it is short and used most; the review's score shows right under it
   }
 
   function drawAll() {

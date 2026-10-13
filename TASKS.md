@@ -81,7 +81,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 32 | An independent proposal reviewer: after a proposal is written, a separate agent scores it out of 10, gives key points and two or three suggestions; the person applies one, reviews again, or copies as is (plan, section D) | done (R54, plugin v0.6.0, migration 035). A real `/proposal` run in Claude still to do |
 | 33 | Setup through Claude never saves raw input: examples first, ask, check, verify, rewrite in the standard format, show, approve, then add (plan, section C; part of B3) | done (R56: the seven steps in the `setup-admin` skill) |
 | 34 | Live data of 13 October brought back: setup backup refreshed with live's project, tag and rule updates; matching and every job page checked on the live copy (R55) | done |
-| 35 | Team guide: new screenshots (no Tracking tab, skip popup, project step, review panel, Changes), and a section on running the setup from Claude (after B2 and B3) | to do |
+| 35 | Team guide: new screenshots (no Tracking tab, skip popup, project step, review panel, Changes), and a section on running the setup from Claude (R57) | done |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 
@@ -116,7 +116,6 @@ Seller Genius AI and Breesy).
 
 ## Later
 
-- The team guide (`/guide`): retake the pictures of the proposal step and Overview (no Tracking tab since R48), the skip popup and the project step.
 - A local test admin `claude.test@localhost.test` exists on Hamza's Mac for checking screens (not on live).
 
 

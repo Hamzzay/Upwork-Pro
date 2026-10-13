@@ -468,6 +468,7 @@ ul.plain li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; 
 .reviewscore .num { font-size: 28px; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
 .reviewscore.PASS .num { color: var(--pass); } .reviewscore.FLAG .num { color: var(--flag); } .reviewscore.FAIL .num { color: var(--fail); }
 .reviewscore .of { font-size: 13px; color: var(--muted); } .reviewscore .ver { margin-left: auto; font-size: 12px; color: var(--faint); }
+.reviewfold > summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text); padding: 2px 0; }
 .suggestion { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
 .suggestion .btn { flex: none; }
 .chatpanel { border-top: 1px solid var(--line); padding-top: 16px; }
