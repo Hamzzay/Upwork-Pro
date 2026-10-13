@@ -40,6 +40,12 @@ function icon(name) {
   s.innerHTML = ICONS[name] || '';
   return s;
 }
+// The browser prints a missing piece as the word "null" when it is handed to append, prepend or replaceChildren. Nothing in
+// this app means that, so a missing piece is left out, everywhere, the same way h() leaves it out.
+for (const m of ['append', 'prepend', 'replaceChildren']) {
+  const native = Element.prototype[m];
+  Element.prototype[m] = function (...kids) { return native.apply(this, kids.filter((k) => k != null && k !== false)); };
+}
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {

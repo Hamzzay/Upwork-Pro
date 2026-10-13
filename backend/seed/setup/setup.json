@@ -1,5 +1,5 @@
 {
- "exported_at": "2026-10-13T18:47:21.573Z",
+ "exported_at": "2026-10-13T19:59:47.750Z",
  "note": "Upwork Pro setup data: no jobs, users or tokens. Restore with npm run setup:import -- --apply",
  "tables": {
   "signal_layers": [
@@ -1794,6 +1794,22 @@
     "description": null,
     "sort_order": 74,
     "active": 1
+   },
+   {
+    "category_id": "CRM and business tools",
+    "name": "Lawmatics",
+    "weight": 1,
+    "description": "When Client asks law industry automation projects",
+    "sort_order": 102,
+    "active": 1
+   },
+   {
+    "category_id": "CRM and business tools",
+    "name": "Lawcus",
+    "weight": 2,
+    "description": null,
+    "sort_order": 103,
+    "active": 1
    }
   ],
   "industries": [
@@ -2650,7 +2666,7 @@
     "notes": null,
     "overview": "Holadoc (MiDocRD) is a two sided healthcare marketplace for the Dominican Republic that connects patients with verified doctors. Patients search doctors by specialty, price and insurance, send appointment requests and chat in real time, while doctors are verified and manage requests from their dashboard.",
     "case_study_summary": "Took Holadoc (MiDocRD) from idea to a live two sided healthcare marketplace for the Dominican Republic that connects patients with verified doctors. Patients browse and filter doctors by specialty, price, availability and accepted insurance without signing up, then register at the point of intent to send appointment requests and chat in real time over Socket.IO with PDF and image sharing. Doctors go through a document based verification pipeline before becoming discoverable, manage availability and appointments, and convert from a freemium tier to unlimited Stripe subscriptions, with usage limits enforced in the workflow and reset monthly. Reviews come only from real appointments and pass admin moderation, and a Super Admin layer governs verification, subscriptions, appointments and ratings. Bilingual English and Spanish, built with React, Node.js, PostgreSQL, Socket.IO and Stripe.",
-    "active": 0,
+    "active": 1,
     "added_via": null,
     "android_link": null,
     "ios_link": null,
@@ -2750,7 +2766,7 @@
    },
    {
     "name": "Fierana (Women Learning Platform)",
-    "live_link": null,
+    "live_link": "https://fierana.stackupsolutions.co/",
     "landing_link": null,
     "system_link": null,
     "mobile_link": null,
@@ -2814,7 +2830,7 @@
     "notes": null,
     "overview": "A privacy first, women only matchmaking app for serious marriage in the Middle East, built in Flutter for iOS and Android with a React admin portal. Every member is ID verified, applications stay anonymous until a mutual identity reveal, and real time chats are time bound and automatically moderated in Arabic and English.",
     "case_study_summary": "Project: Tolba, a privacy first, women only matchmaking app for serious marriage in the Middle East (Social).\nProblem: The region lacked a culturally aligned, verification first platform where compatibility could be judged before appearance and conversations stayed safe.\nSolution: We built bilingual mobile apps, an admin portal and a backend where every member is ID verified, applications stay anonymous and identities are revealed only by mutual agreement.\nKey features: Admin reviewed ID and selfie verification; anonymous applications with 14 preference dimensions; real time time bound chat; automatic moderation of phone numbers and offensive words; mutual identity reveal.\nTechnology: Flutter, React, Node.js, Express, Socket.IO, PostgreSQL, AWS S3, Firebase Cloud Messaging.\nResults: A fully verified community, anonymity enforced server side, safer conversations through automatic pause and reporting, and a native Arabic experience.",
-    "active": 1,
+    "active": 0,
     "added_via": null,
     "android_link": null,
     "ios_link": null,
@@ -2900,7 +2916,7 @@
    },
    {
     "name": "AI heritage fence voice agent",
-    "live_link": null,
+    "live_link": "https://dashboard-fence.stackup.solutions",
     "landing_link": null,
     "system_link": null,
     "mobile_link": null,
@@ -2950,7 +2966,7 @@
    },
    {
     "name": "Verify Script",
-    "live_link": null,
+    "live_link": "https://verifyscript.stackup.solutions/",
     "landing_link": null,
     "system_link": null,
     "mobile_link": null,
@@ -2993,7 +3009,7 @@
    },
    {
     "name": "Image Summary App",
-    "live_link": null,
+    "live_link": "https://stackupsolutions.com/projects/image-summary",
     "landing_link": null,
     "system_link": null,
     "mobile_link": null,
@@ -3284,11 +3300,11 @@
    },
    {
     "name": "Bitrix24",
-    "live_link": null,
+    "live_link": "https://bitrix24.stackup.solutions/signin",
     "landing_link": null,
     "system_link": null,
     "mobile_link": null,
-    "staging_link": null,
+    "staging_link": "https://bitrix24.stackup.solutions/signin",
     "case_study_link": "https://stackupsolutions.com/projects/bitrix24",
     "showable_publicly": null,
     "notes": null,
@@ -3402,7 +3418,7 @@
    },
    {
     "name": "DocTrace.ai",
-    "live_link": null,
+    "live_link": "https://doctrace.stackup.solutions/",
     "landing_link": null,
     "system_link": null,
     "mobile_link": null,
@@ -3649,8 +3665,8 @@
    },
    {
     "name": "ZD Law Firm Automation",
-    "live_link": null,
-    "landing_link": null,
+    "live_link": "https://attorneydebtfighters.com/",
+    "landing_link": "https://attorneydebtfighters.com/",
     "system_link": null,
     "mobile_link": null,
     "staging_link": null,
@@ -3688,6 +3704,8 @@
      "GoHighLevel",
      "Google Workspace",
      "Internal tool",
+     "Lawcus",
+     "Lawmatics",
      "Legal",
      "Make.com",
      "MVP",
@@ -3947,7 +3965,7 @@
     "notes": null,
     "overview": "An end to end clinic management platform for an eye clinic, made up of a React Native patient app and a web based clinician CRM on a shared backend. Patients book, pay, upload documents and manage appointments, while clinicians manage schedules, patients and services.",
     "case_study_summary": "Project: Clinic management platform for an eye clinic (Healthcare).\nProblem: Booking, patient records, payments and invoicing ran on separate manual processes, with no self service for patients.\nSolution: We built a patient mobile app and a clinician CRM on one shared backend covering booking through billing.\nKey features: Real time booking, rescheduling and cancellation; medical document upload; tokenized payments; clinician calendars and patient directory; automatic PDF invoices and receipts.\nTechnology: React Native, web CRM, Node.js, JWT, tokenized payment gateway.\nResults: One operational system from booking to billing with 24/7 patient self service.",
-    "active": 1,
+    "active": 0,
     "added_via": null,
     "android_link": null,
     "ios_link": null,
@@ -4038,7 +4056,7 @@
     "notes": null,
     "overview": "A cross platform mobile app that generates personalized meditation sessions in real time from each user's mood, goals and own words. It uses AI prompts per theme and memory across sessions so every session feels personal rather than scripted.",
     "case_study_summary": "Project: Lucid Vision, a personalized AI meditation app (Wellness).\nProblem: Static meditation scripts felt generic and did not respond to each user's mood and goals.\nSolution: We built a cross platform app that generates a personalized meditation session in real time from each user's input.\nKey features: Category specific AI prompts; memory across sessions; immersive background audio; saved sessions for reflection; calm, ritual first UX.\nTechnology: React Native, Redux, Supabase, OpenAI gpt-4o-mini, ffmpeg, PostHog.\nResults: A launch ready app delivering sessions that feel personal rather than scripted, with analytics to keep refining the experience.",
-    "active": 1,
+    "active": 0,
     "added_via": null,
     "android_link": null,
     "ios_link": null,
@@ -4344,7 +4362,82 @@
     "added_via": null
    }
   ],
-  "loom_videos": [],
+  "loom_videos": [
+   {
+    "profile_id": "Hamza Yaseen",
+    "title": "Test video: AI voice agents",
+    "url": "https://www.loom.com/share/test123",
+    "topic": "qwertyjkl",
+    "active": 1,
+    "sort_order": 1,
+    "tags": [
+     "AI agent",
+     "AI automation",
+     "AI integration into existing product",
+     "AI voice agent",
+     "Automotive",
+     "Beauty / salon",
+     "Bug fixing / debugging",
+     "Claims / approvals / exceptions",
+     "Construction",
+     "Content generation",
+     "Dental",
+     "Desktop app",
+     "Discovery / scoping / consulting",
+     "Document processing / OCR",
+     "E-commerce / retail",
+     "Education",
+     "Email automation",
+     "Event management",
+     "Extend existing product",
+     "Finance / accounting",
+     "Full time / contract to hire",
+     "Healthcare",
+     "Home services",
+     "Hospitality",
+     "Insurance",
+     "Internal knowledge search",
+     "Internal tool",
+     "Legal",
+     "LLM fine tuning / evaluation",
+     "Logistics",
+     "Marketing / agency",
+     "Marketplace",
+     "Mobile app",
+     "MVP",
+     "New build (from scratch)",
+     "Ongoing maintenance / support",
+     "Prototype / proof of concept",
+     "RAG / knowledge base",
+     "Real estate",
+     "Rebuild / migration",
+     "Recruitment / HR",
+     "SaaS platform",
+     "Social",
+     "Sports",
+     "User onboarding / verification",
+     "Web app",
+     "Website / landing page",
+     "Workflow automation"
+    ]
+   },
+   {
+    "profile_id": "Ahmad Imran",
+    "title": "Test video: AI voice agents",
+    "url": "https://www.loom.com/share/test123",
+    "topic": "WHY DIVERSE\nInc. 5000 growth means real projects, real users and real revenue from day one. People here catch the Diverse bug and stay. Our core values are Speed Wins, All In All Areas, Team Over Me, and Find a Way. The right builder will find a home here: full-time, long-term, owning work that matters.\n\nHOW TO APPLY\nStart your proposal with the word SHIPPED so we know you read this far. Proposals without links and a case study won't be considered.",
+    "active": 1,
+    "sort_order": 0,
+    "tags": [
+     "Discovery / scoping / consulting",
+     "Lead generation / enrichment",
+     "Marketplace",
+     "MVP",
+     "SMS / WhatsApp messaging",
+     "Web scraping / data pipelines"
+    ]
+   }
+  ],
   "rules": [
    {
     "code": "F1",
@@ -4389,10 +4482,17 @@
     "active": 1
    },
    {
+    "code": "F7",
+    "type": "fail",
+    "rule": "If a client is not looking for development, and only asking to use your own existing system to generate leads it should be fail.",
+    "details": "This is NOT a manual lead research, virtual assistant or custom software development role.\n\nWe require an experienced contractor who can use their existing automated scraping infrastructure to extract, process and deliver large volumes of business contact data.",
+    "active": 1
+   },
+   {
     "code": "G1",
     "type": "flag",
     "rule": "Core work outside services, or standalone UI/UX or DevOps",
-    "details": "Judge the work from the description, not the skill tags. UI/UX design and DevOps are fine only as part of a from scratch build.",
+    "details": "Judge the work from the description also, not only the skill tags. UI/UX design and DevOps are fine only as part of a from scratch build.",
     "active": 1
    },
    {
@@ -4426,8 +4526,8 @@
    {
     "code": "G14",
     "type": "flag",
-    "rule": "50+ proposals, or 16 or more Connects",
-    "details": "Proposals shows 50+, or \"Send a proposal for\" costs 16 or more Connects.",
+    "rule": "50+ proposals",
+    "details": "Proposals shows 50+",
     "active": 1
    },
    {
@@ -5486,6 +5586,10 @@
    {
     "k": "ai.provider",
     "v": "\"claude\""
+   },
+   {
+    "k": "matching.ai_order",
+    "v": "true"
    },
    {
     "k": "matching.min_score",

@@ -78,8 +78,10 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | --- | --- | --- |
 | 30 | Part A: the Claude plugin saves every step in Upwork Pro (gate, decision, read, profile, projects, type, video, drafts, final) and can resume a job left halfway (R52, plugin v0.5.0, migration 033) | done on the server and the skill; a real `/proposal` run in Claude with v0.5.0 still to do (stop after the projects, continue in a new chat) |
 | 31 | Part B: admins run the setup from Claude (projects, industries, tags, profiles, videos, rules, signals, types, writing guide, gate instructions, settings), every change a change set that can be reviewed and put back; second admins' changes reviewed by the main admin, optional approval first. Phases B1 to B3 (B4, approval first, is not wanted: Hamza chose apply at once). His answers are in the plan | B1 done (R53: change sets and the Changes page). Next: B2 the setup tools for Claude, B3 the admin skill |
-| 32 | An independent proposal reviewer: after a proposal is written, a separate agent scores it out of 10, gives key points and two or three suggestions; the person applies one, reviews again, or copies as is (plan, section D) | to do, after B1 |
+| 32 | An independent proposal reviewer: after a proposal is written, a separate agent scores it out of 10, gives key points and two or three suggestions; the person applies one, reviews again, or copies as is (plan, section D) | done (R54, plugin v0.6.0, migration 035). A real `/proposal` run in Claude still to do |
 | 33 | Setup through Claude never saves raw input: examples first, ask, check, verify, rewrite in the standard format, show, approve, then add (plan, section C; part of B3) | to do, with B3 |
+| 34 | Live data of 13 October brought back: setup backup refreshed with live's project, tag and rule updates; matching and every job page checked on the live copy (R55) | done |
+| 35 | Team guide: new screenshots (no Tracking tab, skip popup, project step, review panel, Changes), and a section on running the setup from Claude (after B2 and B3) | to do |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 
@@ -100,16 +102,16 @@ Seller Genius AI and Breesy).
 4. One list: the projects screening named are always in the project step, marked "Named in screening", so the two never disagree.
 5. One minimum score for the app and the plugin.
 
-## Deploying R41 to R51 on the live server (in this order)
+## Deploying R41 to R55 on the live server (in this order)
 
 1. `pm2 stop all` (nobody should be saving while the times move).
 2. `git pull` on branch `hamza`, then in `backend/`: `npm install` (no new packages, but cheap) and `npm run migrate`
-   (migrations 027 to 032, and the one-time split of mobile links into Android and iOS).
+   (migrations 027 to 035, and the one-time split of mobile links into Android and iOS).
 3. `npm run fix:timezone` (dry run: read what it will move), then `npm run fix:timezone -- --apply` (once; R45).
 4. `npm run upgrade:openings` (fills each proposal type's first two lines where empty; R44). Do not run `upgrade:guide` on live.
 5. In `mcp/`: `npm run build` (the add_project and record_decision tools changed).
 6. `pm2 start all`. Check: `npx ts-node scripts/check-time.ts` shows session_zone +05:00 and Pakistan time.
-7. In Claude: download the plugin again from Connect Claude (v0.4.3) and restart Claude.
+7. In Claude: download the plugin again from Connect Claude (v0.6.0) and restart Claude.
 8. Jobs matched before R41 keep their old project lists until matched again (Projects step, "Find matching projects" or a new job).
 
 ## Later

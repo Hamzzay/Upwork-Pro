@@ -917,6 +917,45 @@ screen.
 3. Rules: done in R15 (the rules now come only from the Rules page; gate version 2 is superseded by version 3).
 4. UI polish still open: the Proposal step itself, and phone widths for the new tables and dashboard.
 5. Profiles: all seven exist now (R17), but most fields are empty. Fill them under Upwork profiles.
+
+### R54. An independent reviewer scores every proposal (done, 14 October; `PLAN-PLUGIN.md` section D)
+
+- **What it is.** Once a proposal is written, a second reader scores it out of 10. It gets the same facts the writer had (the job, the
+  profile, the chosen projects, the proposal type's rules, the writing guide, what the automatic check found) but its own
+  instructions (`src/proposal/reviewer.ts`), and it is told the proposal is somebody else's. It never rewrites anything.
+- **What it returns:** the score, a one line verdict, up to three things that work, up to four that hurt it, and up to three
+  suggestions, each with a short title and an instruction ready to send to the writer.
+- **In the app** (job page, Proposal tab, beside the text): the "Independent review" panel. "Apply this" on a suggestion sends its
+  instruction to the chat, so the AI revises the proposal as a new version. The panel then says the review is of an earlier version
+  and offers "Review this version". "Review again" asks for a fresh one. The review is advice: Copy and Save and mark sent never wait for it.
+- **In Claude** (plugin v0.6.0): after every saved draft the `/proposal` skill calls `review_proposal` and shows the review unchanged;
+  the person approves as it is, applies a suggestion by number, edits, or asks for another review.
+- **How it runs.** The worker picks it up (`review_status` on the proposal: queued, running, done, error), one AI call logged as
+  kind `review`. A written proposal is queued for review by itself. Migration `035_proposal_review.sql`.
+- Checked with the real model on a made up job (removed again): the first draft scored 5, and the review caught a tool claimed on a
+  project that the project's facts do not name, security claims not in the facts, and the length; one suggestion applied made
+  version 2; the second review was of version 2 and scored higher; Claude's route returned the same review; the panel seen in
+  the browser at desktop and phone width. Unit tests for the instructions and the answer's shape.
+- Not checked: a real `/proposal` run inside Claude with v0.6.0; `npm run test:read` in `mcp/` (it needs a personal token).
+
+### R55. Live data brought back, the setup backup refreshed, and a stray "null" fixed (done, 14 October)
+
+- Hamza's dump of the live database (13 October night) was loaded into a separate local database, `upwork_live`, never over the
+  local one. **Migrations 027 to 035 ran on it without a fault**: a rehearsal of the next deploy on the real data.
+- **What live had that the repo did not:** 12 projects changed (links, active or inactive, tags), 2 new tags (Lawmatics, Lawcus),
+  the new rule F7, edits to G1 and G14, and two test Loom videos. These were restored into the local database with
+  `setup:import -- --apply` (adds and updates, deletes nothing) and **`seed/setup/setup.json` is exported again**, so the backup we
+  go live with now holds them. The proposal types' first two lines (R44) and the setting "AI orders the matched projects" are
+  kept from local, because live does not have them until it is deployed. No key, token or password is in the file.
+- **Matching run again on nine real live jobs** (today's rules, nothing saved): jobs #19 and #29 (the scraping job that went wrong)
+  now get one industry, Recruitment / HR, and no healthcare project; no job had a project recommended that does not prove the work.
+  To look at: the hotel voice agent jobs (#39, #40) no longer recommend Innspeed and Bitrix24, they recommend Chairboss and Apex,
+  because the first two do not carry a tag for the job's core work. If Innspeed has that work, it needs the tag.
+- **Every page of every live job opened in the new code** (304 pages: 17 lists and seven tabs of 41 jobs): no console error.
+  It found the word "null" printed on 24 pages (Overview, Screening, Job post). Cause: the browser prints a missing piece as "null"
+  when it is handed to `append` or `replaceChildren`. Fixed once, at the top of `app.js`: a missing piece is left out everywhere.
+- On live after the deploy: nothing to import (live already has this content). Run `npm run upgrade:openings` as planned.
+
 ### R42. Skipping a job asks why (done, 13 October)
 - Skip (on the Screening tab) opens "Why skip this job?": five quick reasons (Budget or rate too low, Client history or hire rate,
   Outside our services, Scope unclear, Too much competition) and a note. A reason, a note, or both; the server refuses a skip without
