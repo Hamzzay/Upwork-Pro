@@ -45,6 +45,13 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.6.0)
+
+v0.6.0: the independent review. After every saved draft, `/proposal` asks Upwork Pro's reviewer (`review_proposal`) to score that
+version out of 10 and shows the review unchanged: the verdict, what works, what hurts it, and up to three suggestions. The person
+approves the proposal as it is, applies a suggestion by number, edits, or asks for another review. The same review shows on the job
+page in the app. Needs the MCP from the same commit (`cd mcp && npm run build`) and migration 035.
+
 ## Status (v0.5.0)
 
 v0.5.0: every step is saved in Upwork Pro as it happens. `/proposal` saves the job right after the gate, then the decision, the tags

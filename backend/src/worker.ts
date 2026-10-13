@@ -12,7 +12,7 @@ import { applyJudgement, judgeProjects } from './screening/judge';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
-import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runProposal } from './proposal/pipeline';
+import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runProposal, runReview } from './proposal/pipeline';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
 import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
@@ -228,6 +228,17 @@ async function tick() {
         .then((x) => withCallContext({ kind: 'proposal', proposalId: pr[0].id, screeningId: x[0]?.screening_id ?? null }, () => processProposal(pr[0].id))).catch((e) => console.error('proposal failed', (e as Error).message)).finally(() => { inFlight--; });
       continue;
     }
+    // the independent review of a written proposal: after the writing, before chat requests
+    const rv = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE review_status='queued' AND status='done' ORDER BY id LIMIT 1`);
+    if (rv.length) {
+      const res = await exec(`UPDATE proposals SET review_status='running' WHERE id=? AND review_status='queued'`, [rv[0].id]);
+      if (!res.affectedRows) continue;
+      inFlight++;
+      withCallContext({ kind: 'review', proposalId: rv[0].id, screeningId: rv[0].screening_id }, () => runReview(rv[0].id))
+        .catch(async (e) => { console.error('review failed', (e as Error).message); await exec(`UPDATE proposals SET review_status=?, review_error=? WHERE id=?`, [stopping ? 'queued' : 'error', String((e as Error).message).slice(0, 300), rv[0].id]).catch(() => undefined); })
+        .finally(() => { inFlight--; });
+      continue;
+    }
     const ch = await query<{ id: number }>(`SELECT id FROM proposal_messages WHERE role='user' AND status='queued' ORDER BY id LIMIT 1`);
     if (ch.length) {
       const res = await exec(`UPDATE proposal_messages SET status='running' WHERE id=? AND status='queued'`, [ch[0].id]);
@@ -257,6 +268,7 @@ async function shutdown() {
   await exec(`UPDATE screenings SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET tagging_status='queued' WHERE tagging_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE proposals SET review_status='queued' WHERE review_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
@@ -271,6 +283,7 @@ async function main() {
   await exec(`UPDATE screenings SET status='queued' WHERE status='running'`); // a crashed worker left these
   await exec(`UPDATE screenings SET tagging_status='queued' WHERE tagging_status='running'`);
   await exec(`UPDATE proposals SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE proposals SET review_status='queued' WHERE review_status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);

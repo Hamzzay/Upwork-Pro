@@ -284,9 +284,15 @@ proposals.delete('/template-samples/:id', editor, async (req, res) => {
 });
 
 // =================== the proposal of a screening ===================
+/** The independent review as the screens and the plugin read it: its state, the version it is about, and the review itself. */
+export function reviewOf(p: any) {
+  if (!p.review_status) return null;
+  let body: any = null; try { body = p.review_json ? JSON.parse(p.review_json) : null; } catch { body = null; }
+  return { status: p.review_status, version: p.review_version, error: p.review_error, at: p.reviewed_at, ...(body ?? {}) };
+}
 export async function proposalFor(screeningId: number) {
   const p = (await query<any>(
-    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, u.name AS created_by_name
+    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, u.name AS created_by_name
      FROM proposals p JOIN users u ON u.id=p.created_by WHERE p.screening_id=?`, [screeningId]))[0];
   if (!p) return null;
   const versions = await query('SELECT v.version_no, v.source, v.note, v.based_on_version, v.created_at, u.name AS user_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no DESC', [p.id]);
@@ -297,6 +303,7 @@ export async function proposalFor(screeningId: number) {
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
     ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
     current: cur ? { version_no: cur.version_no, html: cur.content_html } : null, versions, signals, messages,
+    review: reviewOf(p),
   };
 }
 async function ownedScreening(req: any, res: any) {
@@ -378,13 +385,31 @@ proposals.post('/screenings/:id/proposal/done', anyone, async (req, res) => {
 });
 
 // A cheap read for polling: state, newest version number, and the chat.
+// Ask the independent reviewer to look at the newest version (again). Anyone who can see the job may ask.
+proposals.post('/screenings/:id/proposal/review', anyone, async (req, res) => {
+  const s = await visibleScreening(req, res); if (!s) return;
+  const r = await queueReview(s.id);
+  if (r.error) return void res.status(r.status).json({ error: r.error });
+  await audit(req.user!.id, 'proposal_review', `screening=${s.id}`);
+  res.status(202).json({ ok: true });
+});
+/** Queue a review of a job's newest proposal version. Shared with the plugin. */
+export async function queueReview(screeningId: number): Promise<{ status: number; error?: string }> {
+  const p = (await query<any>(`SELECT p.id, p.status, p.review_status, (SELECT COUNT(*) FROM proposal_versions v WHERE v.proposal_id=p.id) AS n FROM proposals p WHERE p.screening_id=?`, [screeningId]))[0];
+  if (!p || !Number(p.n)) return { status: 409, error: 'There is no proposal to review yet' };
+  if (p.status !== 'done') return { status: 409, error: 'Wait until the proposal is written' };
+  if (p.review_status === 'queued' || p.review_status === 'running') return { status: 202 };
+  await exec(`UPDATE proposals SET review_status='queued', review_error=NULL WHERE id=?`, [p.id]);
+  return { status: 202 };
+}
+
 proposals.get('/screenings/:id/proposal/state', anyone, async (req, res) => {
   const s = await visibleScreening(req, res); if (!s) return;
-  const p = (await query<any>('SELECT id, status, stage, error_message FROM proposals WHERE screening_id=?', [s.id]))[0];
+  const p = (await query<any>('SELECT id, status, stage, error_message, review_status, review_version FROM proposals WHERE screening_id=?', [s.id]))[0];
   if (!p) return void res.json({ state: null });
   const latest = (await query<any>('SELECT MAX(version_no) AS n FROM proposal_versions WHERE proposal_id=?', [p.id]))[0].n;
   const messages = await query('SELECT m.id, m.role, m.content, m.status, m.error_message, m.based_on_version, m.result_version, m.created_at, u.name AS user_name FROM proposal_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? ORDER BY m.id', [p.id]);
-  res.json({ state: { status: p.status, stage: p.stage, error: p.error_message, latest_version: latest ? Number(latest) : null, messages } });
+  res.json({ state: { status: p.status, stage: p.stage, error: p.error_message, latest_version: latest ? Number(latest) : null, messages, review_status: p.review_status, review_version: p.review_version } });
 });
 
 proposals.get('/proposals/:id/versions/:no', anyone, async (req, res) => {

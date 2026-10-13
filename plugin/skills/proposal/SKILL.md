@@ -23,6 +23,7 @@ This is the rule the rest of the workflow hangs on. Upwork Pro must show the job
 | Decision 4, the type | `save_step` `type` | the proposal type |
 | Decision 4b, the video | `save_step` `loom` | the Loom video, or none |
 | Every draft and every revision | `save_proposal` with `finished: false` | the text as a new version |
+| Right after each saved draft | `review_proposal` | the independent review of that version: score, key points, suggestions |
 | Decision 5, approved | `save_proposal` with `finished: true` | the final text |
 
 * Save right after the person answers, before you start the next step. Never collect the saves for the end.
@@ -167,8 +168,16 @@ Apply the `proposal-writer` skill with: job data, signals, profile record, chose
 3. Show the cover letter, the screening answers, and "Needs your eye" items, each in its own code block so it copies cleanly.
 4. **Save the draft:** `save_proposal` for job #N with `text` (the cover letter, then any screening answers under a line "Screening answers") and `finished: false`. Leave `profile`, `projects`, `template` and `loom_video` out: the steps already saved them.
 
-**Decision 5.** Ask: **Approve**, **Edit** (person says what to change), or **Switch type**. Loop until approved.
-* On Edit: revise, show it, and save it again with `finished: false`. Each save is a new version in Upwork Pro, so nothing the person liked is lost.
+5. **Get the independent review:** call `review_proposal` for job #N. A separate reviewer in Upwork Pro reads the saved draft against the job, the profile, the chosen projects and the proposal type. It is not you, and it does not see this chat. Show what it returns under the heading "Independent review", unchanged:
+   * the score out of 10 and the one line verdict,
+   * "What works" and "What hurts it" as short lists,
+   * the suggestions, numbered, each with its title and its instruction.
+   Never change the score, soften a point, drop a point or add points of your own. If the review does not come back (it can take a minute), say so in one line and go on: the review is advice, the proposal does not wait for it.
+
+**Decision 5.** Ask: **Approve** (copy it as it is; the review is advice and can be ignored at any score), **Apply a suggestion** (by number, one or more), **Edit** (person says what to change), **Review again**, or **Switch type**. Loop until approved.
+* On Apply a suggestion: revise the proposal by following that suggestion's instruction and nothing else, show it, save it with `finished: false`, and get a new review of the new version.
+* On Edit: revise, show it, and save it again with `finished: false`. Each save is a new version in Upwork Pro, so nothing the person liked is lost. Then get a new review.
+* On Review again: call `review_proposal` again and show the result.
 * On Switch type: save the new type with `save_step` `type`, write again, and save the draft.
 
 ## Step 10. Save the final proposal

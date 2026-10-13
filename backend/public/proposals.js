@@ -91,6 +91,7 @@ function proposalSection(s, initial, matching) {
   let data = initial; let timer = null; let editor = null; let chatLoader = null; let loaded = null; let newer = null; let dismissedFor = null;
   const busy = () => data && (data.status === 'queued' || data.status === 'running');
   const chatBusy = () => data && data.messages.some((m) => m.role === 'user' && (m.status === 'queued' || m.status === 'running'));
+  const reviewBusy = () => !!(data && data.review && (data.review.status === 'queued' || data.review.status === 'running'));
   let templates = [];
   // the stepper asks these before it leaves the step or finishes it
   box.__dirty = () => !!(editor && editor.isDirty());
@@ -125,8 +126,12 @@ function proposalSection(s, initial, matching) {
         if (editor && !editor.isDirty()) { await reload(); drawAll(); }
         else if (dismissedFor !== st.latest_version) { newer = st.latest_version; drawBanner(); }
       }
+      // the independent review arrived (or started): fetch it and redraw only its panel
+      if ((st.review_status || null) !== ((data.review && data.review.status) || null) || (st.review_version || null) !== ((data.review && data.review.version) || null)) {
+        data.review = (await api('GET', `/screenings/${s.id}/proposal`)).proposal.review; drawReview();
+      }
     } catch (e) { /* try again next time */ }
-    if (busy() || chatBusy()) timer = setTimeout(poll, 2500);
+    if (busy() || chatBusy() || reviewBusy()) timer = setTimeout(poll, 2500);
   }
   const startPolling = () => { clearTimeout(timer); timer = setTimeout(poll, 2500); };
 
@@ -290,6 +295,45 @@ function proposalSection(s, initial, matching) {
         h('div', { style: 'margin-top:18px' }, h('h3', { class: 'section-title' }, `Signals detected (${new Set(data.signals.map((x) => x.signal_number)).size})`), sigTable)));
   }
 
+  // ----- the independent review: a score, why, and two or three suggestions the person can apply through the chat
+  function drawReview() {
+    const el = box.querySelector('.reviewpanel'); if (!el) return;
+    const rv = data.review, canAsk = !busy();
+    const ask = (label, primary) => { const b = h('button', { class: 'btn sm' + (primary ? ' primary' : ''), type: 'button' }, label);
+      b.onclick = async () => { btnBusy(b, 'Asking');
+        try { await api('POST', `/screenings/${s.id}/proposal/review`, {}); data.review = { ...(data.review || {}), status: 'queued' }; drawReview(); startPolling(); }
+        catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren(label); } };
+      return b; };
+    const head = (right) => h('div', { class: 'row spread', style: 'flex-wrap:nowrap' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Independent review'), right || null);
+    if (!rv || (!rv.score && rv.status !== 'queued' && rv.status !== 'running' && rv.status !== 'error')) {
+      el.replaceChildren(head(canAsk ? ask('Review this proposal', true) : null), h('p', { class: 'jp-label', style: 'margin:6px 0 0' }, 'A separate reader scores the proposal out of 10 and suggests two or three changes, before you copy it.')); return; }
+    if (rv.status === 'queued' || rv.status === 'running') {
+      el.replaceChildren(head(), h('div', { class: 'row muted small', style: 'margin-top:8px' }, h('span', { class: 'spin' }), 'An independent reviewer is reading the proposal. This takes about a minute.')); return; }
+    if (rv.status === 'error' && !rv.score) {
+      el.replaceChildren(head(canAsk ? ask('Try again', true) : null), h('p', { class: 'err' }, icon('x'), 'The review could not be made' + (rv.error ? ': ' + rv.error : '.'))); return; }
+    const tone = rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL';
+    const stale = loaded && rv.version && rv.version < loaded;
+    const apply = (sg) => { const b = h('button', { class: 'btn sm', type: 'button', disabled: chatBusy() || null }, 'Apply this');
+      b.onclick = async () => {
+        if (editor && editor.isDirty() && !(await ask2('Apply the suggestion?', 'You have unsaved changes. The AI revises the last saved version, so save yours first if you want to keep them.', 'Apply anyway'))) return;
+        btnBusy(b, 'Sending');
+        try { await api('POST', `/proposals/${data.id}/messages`, { content: sg.instruction }); const stt = (await api('GET', `/screenings/${s.id}/proposal/state`)).state; data.messages = stt.messages; drawChat(); drawReview(); startPolling(); toast('Sent to the AI. The revised proposal is saved as a new version.'); }
+        catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren('Apply this'); } };
+      return b; };
+    const listOf = (title, items) => (items && items.length ? h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:2px' }, title), h('ul', { class: 'jp-list', style: 'margin:0' }, items.map((x) => h('li', {}, x)))) : null);
+    el.replaceChildren(...[
+      head(canAsk ? ask(stale ? 'Review this version' : 'Review again', !!stale) : null),
+      h('div', { class: 'reviewscore ' + tone }, h('span', { class: 'num' }, String(rv.score)), h('span', { class: 'of' }, 'out of 10'), h('span', { class: 'ver' }, `Version ${rv.version || ''}${rv.at ? ' · ' + ago(rv.at) : ''}`)),
+      stale ? h('div', { class: 'notice' }, icon('info'), `This review is of version ${rv.version}. You are on version ${loaded}: review it again to score the change.`) : null,
+      h('p', { class: 'jp-body', style: 'margin:0' }, rv.verdict),
+      listOf('What works', rv.strengths), listOf('What hurts it', rv.problems),
+      rv.suggestions && rv.suggestions.length ? h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, owner ? 'Suggestions. Apply the ones you agree with; each is sent to the AI and saved as a new version.' : 'Suggestions'),
+        h('div', { class: 'stack', style: 'gap:8px' }, rv.suggestions.map((sg) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, sg.title), h('div', { class: 'jp-label' }, sg.instruction)), owner ? apply(sg) : null)))) : null,
+      rv.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The newest review could not be made' + (rv.error ? ': ' + rv.error : '.')) : null,
+    ].filter(Boolean));
+  }
+  const ask2 = (title, text, confirm) => (typeof ask === 'function' ? ask(title, text, confirm) : Promise.resolve(true));
+
   function drawChat() {
     if (chatLoader) chatLoader.hidden = !chatBusy();
     drawActions();
@@ -357,7 +401,7 @@ function proposalSection(s, initial, matching) {
         h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px' }, vsel, dirtyChip),
         viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader), counter, answersBox,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
-      h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), explain()));
+      h('div', { class: 'propside' }, h('div', { class: 'reviewpanel' }), h('div', { class: 'chatpanel' }), explain()));
   }
 
   function drawAll() {
@@ -376,10 +420,10 @@ function proposalSection(s, initial, matching) {
     }
     box.replaceChildren(...[data && data.status === 'error' && data.current ? h('div', { class: 'err', style: 'margin:0 0 10px' }, icon('x'), 'The last attempt failed: ' + (data.error || '')) : null, body].filter(Boolean)); // replaceChildren prints a null as the word
     drawActions();
-    if (data && data.current && !busy()) { drawChat(); drawBanner(); }
+    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); }
   }
   box.replaceChildren(h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' }));
-  reload().then(() => { drawAll(); if (busy() || chatBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
+  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
   return box;
 }
 

@@ -505,5 +505,20 @@ const ctx = { rules, projects };
     assert.ok(!chk('Here is a short video: https://www.loom.com/share/abc\nJane Doe').some((x) => /Loom video you chose|not one of the provided/.test(x)), 'the Loom link is an allowed link');
   }
 
+  // ---------- the independent reviewer ----------
+  {
+    const { reviewerSystem, reviewOut } = await import('../src/proposal/reviewer');
+    const sys = reviewerSystem({ template: { name: 'Standard build', body_html: '<p>Open with the problem.</p>', prompt: null }, signals: ['Wants similar work'], sender: { name: 'Jane Doe', gitlab_link: null, tagline: null },
+      projects: [], clientRequirements: ['Share two similar projects'], checkWarnings: ['The first line could open any proposal'] });
+    assert.ok(sys.includes('You did not write it'), 'the reviewer is told the proposal is somebody else\'s');
+    assert.ok(sys.includes('Share two similar projects'), 'it is given what the client asked for');
+    assert.ok(sys.includes('The first line could open any proposal'), 'and what the automatic check already found');
+    const good = { score: 7, verdict: 'Solid, the opening is generic.', strengths: ['Right projects'], problems: ['Generic first line'], suggestions: [{ title: 'Sharper opening', instruction: 'Rewrite the first two lines around the missed after hours calls.' }] };
+    assert.equal(reviewOut.parse(good).score, 7);
+    assert.equal(reviewOut.parse({ ...good, score: '8' }).score, 8, 'a score sent as text is read as a number');
+    for (const bad of [{ ...good, score: 0 }, { ...good, score: 11 }, { ...good, score: 7.5 }, { ...good, suggestions: Array(4).fill(good.suggestions[0]) }, { ...good, suggestions: [{ title: 'No instruction' }] }])
+      assert.ok(!reviewOut.safeParse(bad).success, 'refused: ' + JSON.stringify(bad).slice(0, 80));
+  }
+
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

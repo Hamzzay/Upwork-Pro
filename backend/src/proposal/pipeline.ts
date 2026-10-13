@@ -8,6 +8,7 @@ import { lastUsed } from '../llm/context';
 import { checkOpening, checkProposal } from './checks';
 import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
+import { reviewOut, reviewSchema, reviewerSystem } from './reviewer';
 import { pickLoom } from '../screening/matching';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, writerOut, writerSchemaWithAnswers, questionsPrompt, withAnswers, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
@@ -362,7 +363,25 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
   if (!d || !stillWanted()) return;
   if (early) await saveTemplate(d.template);
   await addVersion(proposalId, textToHtml(d.text), 'ai', null, `Written with "${d.template.name}"${early ? ' (drafted early)' : ''}`, null);
-  await exec(`UPDATE proposals SET status='done', stage=NULL, warnings=?, model=?, error_code=NULL, error_message=NULL, finished_at=NOW() WHERE id=?`, [JSON.stringify(d.warnings), d.model, proposalId]);
+  // the independent review follows every written proposal by itself (worker.ts picks it up)
+  await exec(`UPDATE proposals SET status='done', stage=NULL, warnings=?, model=?, error_code=NULL, error_message=NULL, finished_at=NOW(), review_status='queued', review_error=NULL WHERE id=?`, [JSON.stringify(d.warnings), d.model, proposalId]);
+}
+
+/** The independent review of the newest version: a score out of 10, why, and two or three suggestions. Stored with the proposal. */
+export async function runReview(proposalId: number) {
+  const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
+  const cur = (await query<any>('SELECT version_no, content_html FROM proposal_versions WHERE proposal_id=? ORDER BY version_no DESC LIMIT 1', [proposalId]))[0];
+  if (!p || !cur) throw new Error('no_version');
+  const f = await loadFacts(p.screening_id);
+  const template = p.template_id ? await loadTemplate(p.template_id) : null;
+  const detected = await storedSignals(p.screening_id);
+  let warns: string[] = []; try { warns = (JSON.parse(p.warnings || '[]') as { source: string; text: string }[]).filter((w) => w.source === 'check').map((w) => w.text); } catch { /* none */ }
+  const r = await run({ label: 'review', system: reviewerSystem({ template, signals: detected.filter((d) => !d.is_fallback).map((d) => `${d.signal_name}: ${d.value_name}`), sender: f.sender, projects: f.projects,
+      clientRequirements: f.requirements, guide: await loadGuide(), checkWarnings: warns }),
+    prompt: `<job_page>\n${f.jobText}\n</job_page>\n\n<proposal>\n${htmlToPlain(cur.content_html)}\n</proposal>\n\nReview the proposal now.`, schema: reviewSchema, timeoutMs: config.llm.timeoutMs });
+  const parsed = reviewOut.safeParse(r.data);
+  if (!parsed.success) throw new Error('invalid_output');
+  await exec(`UPDATE proposals SET review_status='done', review_json=?, review_version=?, review_error=NULL, reviewed_at=NOW() WHERE id=?`, [JSON.stringify({ ...parsed.data, model: lastUsed()?.model ?? config.llm.model }), cur.version_no, proposalId]);
 }
 
 /** One chat turn: answer, and revise the proposal when asked. The revision becomes a new version and never replaces the person's own text silently. */

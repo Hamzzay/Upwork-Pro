@@ -7,7 +7,7 @@ import { loadContext } from './screening/context';
 import { gatePrompt, normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
 import { library, loomVideos } from './routes_library';
-import { proposals, proposalFor } from './routes_proposals';
+import { proposals, proposalFor, reviewOf } from './routes_proposals';
 import { imports } from './routes_import';
 import { pickLoom, validSelection } from './screening/matching';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
@@ -540,7 +540,8 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const order: [keyof typeof done, string][] = [['decision', 'the decision (continue or skip)'], ['read', 'reading the job (tags and signals)'], ['profile', 'the profile and rate'], ['projects', 'the projects'],
     ['type', 'the proposal type'], ['draft', 'the Loom video, then the first draft'], ['final', 'the approval of the draft']];
   const next = s2.proceeded === 'no' ? null : order.find(([k]) => !done[k]);
-  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html), finished: !!s2.finalized_at } : null, status_history: events,
+  const rvw = (await query<any>('SELECT review_status, review_json, review_version, review_error, reviewed_at FROM proposals WHERE screening_id=?', [id]))[0];
+  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html), finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
     saved: { decision: s2.proceeded === 'no' ? { continue: false, reason: s2.skip_note } : s2.continued_at ? { continue: true, reason: s2.continue_reason ?? null } : null,
       tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
       signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),

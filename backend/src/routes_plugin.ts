@@ -356,6 +356,25 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
   res.json({ ok: true, step, changed: changes.length > 0, ...extra, stage: await stageAfter(id) });
 });
 
+/**
+ * The independent review of a job's newest draft, for the plugin: the same reviewer the app uses, so a proposal gets the same
+ * score wherever it was written. Queues it and waits for the result (the worker writes it), up to about a minute and a half.
+ */
+plugin.post('/plugin/jobs/:id/review', anyone, async (req, res) => {
+  const s = await ownJob(req, res); if (!s) return;
+  const { queueReview, reviewOf } = await import('./routes_proposals');
+  const q = await queueReview(s.id);
+  if (q.error) return void res.status(q.status).json({ error: q.error });
+  const read = async () => (await query<any>('SELECT review_status, review_json, review_version, review_error, reviewed_at FROM proposals WHERE screening_id=?', [s.id]))[0];
+  for (let i = 0; i < 25; i++) { // under the connector's own one minute limit
+    const p = await read();
+    if (p.review_status === 'done') return void res.json({ review: reviewOf(p), how_to_use: 'Show the score, the verdict, the problems and the suggestions as they are. Ask the person which suggestions to apply, or none. Apply only the ones they pick, save the new draft, and offer to review again. Never change the score or soften the review.' });
+    if (p.review_status === 'error') return void res.status(502).json({ error: 'The review could not be made: ' + (p.review_error || 'the reviewer failed') + '. Try again.' });
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  res.status(202).json({ pending: true, note: 'The review is still being written. Call review_proposal again in a moment, or read it with get_job (review).' });
+});
+
 /** The values the plugin may use: active profiles, project names, rule codes, statuses, outcomes and loss reasons. */
 plugin.get('/plugin/options', anyone, async (_req, res) => {
   const cfg = await getSettings();
