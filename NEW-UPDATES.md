@@ -872,3 +872,19 @@ screen.
 - Checked in the browser on job #49: no reason is refused; a quick reason alone and a note alone both save; the reason shows on the
   page; the server refuses a skip without a reason and a reason not on the list. Job #49 is back at its decide step.
 
+### R43. Screening questions in Upwork's own section: the job decides the type, the answers stand apart (done, 13 October)
+- When the client used Upwork's questions section ("You will be asked to answer the following questions when submitting a proposal"),
+  the questions are taken from that section (`src/screening/questions.ts`). The signals, and so the proposal type, are read from the
+  job without them. Questions written inside the description are part of the job, as before.
+- The writer writes the cover letter for the job alone and answers each question separately; the app adds them after the letter
+  under "Screening answers", each with its question. Chat revisions keep that section.
+- The proposal screen shows a "Screening answers" card under the editor: each question, its answer and its own Copy button. The tab
+  row's Copy becomes "Copy cover letter" (the letter only). The word count is the letter's.
+- The posting reader lists only that section's questions as screening questions. The Claude plugin follows the same rule.
+- Fixed on the way: the check "contains the name ... from a sample" fired on the sender's own first name (Hamza for Hamza Yaseen).
+- Checked: tests (the section is found and taken out, questions inside a description are not, the split of letter and answers, the
+  sender's own name); job #50 written with the real model: with the questions taken out the type changed from Structured
+  submission to Problem first, the letter does not answer them, and the four answers came back each under its question; the page
+  splits that text into the letter and four answers. Not checked: the answers card on screen (the browser was signed out by a
+  server restart, and I do not sign in with a saved password).
+- `npx ts-node scripts/try-writing.ts <job id>` writes a job's proposal with its chosen projects and profile without saving it.

@@ -58,7 +58,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | --- | --- | --- |
 | 15 | Matching, the heart of the app: one workflow for screening and the project step (R41) | done |
 | 16 | Skipping a job asks for a reason: five quick picks plus a note, saved and logged (R42) | done |
-| 17 | Screening questions: when the client lists them in Upwork's separate questions section, the signals and the proposal type come from the job alone, and the answers are written and shown separately, each easy to copy. Questions inside the description are handled as now (the recommended type) | to do |
+| 17 | Screening questions in Upwork's own section: signals and type from the job alone, answers apart with a Copy each (R43). The answers card still to be seen on screen | done |
 | 18 | The first two lines: in the writing guide, each proposal type gets its own instructions for the opening two lines, strictly followed and checked | to do |
 | 19 | Pakistan time (UTC+5) everywhere: the live server runs in UTC, so a new proposal shows "5 hours ago" | to do |
 | 20 | Active and inactive straight from every list (rules, projects, profiles, tags, industries, Loom videos, types): click the status, confirm in a popup, done | to do |

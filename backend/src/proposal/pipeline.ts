@@ -1,3 +1,4 @@
+import { separateQuestions, jobQuestions } from '../screening/questions';
 import { config } from '../config';
 import { getSettings } from '../settings';
 import { exec, pool, query, withRetry } from '../db';
@@ -9,7 +10,7 @@ import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
 import { pickLoom } from '../screening/matching';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
-import { chatOut, chatSchema, chatSystem, writerOut, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
+import { chatOut, chatSchema, chatSystem, writerOut, writerSchemaWithAnswers, questionsPrompt, withAnswers, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 
 
 export async function loadSignalDefs(): Promise<{ defs: SignalDef[]; layers: { code: string; intro: string | null; rule: string | null }[] }> {
@@ -32,7 +33,7 @@ export interface Basis { projectIds: number[]; profileId: number }
 const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',') + '|' + b.profileId;
 
 async function loadFacts(screeningId: number, basis?: Basis) {
-  const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id FROM screenings s WHERE s.id=?', [screeningId]))[0];
+  const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id, s.posting_json FROM screenings s WHERE s.id=?', [screeningId]))[0];
   // the Loom video the person chose for this proposal; an early draft (a guess) never has one
   const loom = !basis && s.loom_video_id ? (await query<any>('SELECT title, url, topic FROM loom_videos WHERE id=?', [s.loom_video_id]))[0] ?? null : null;
   const profileId: number | null = basis ? basis.profileId : s.proposal_profile_id;
@@ -54,7 +55,11 @@ async function loadFacts(screeningId: number, basis?: Basis) {
   for (const n of job?.proposal_notes ?? []) if (n && !/^mock provider/i.test(n)) requirements.push(String(n));
   const passOn = new Set((await getSettings())['writer.requirement_rules']); // flags the writer must treat as client requirements (admin setting)
   for (const f of job?.flags ?? []) if (passOn.has(f.code)) requirements.push(`${f.rule}: ${f.value}`);
-  return { jobText: (s.job_text ?? s.raw_input) as string, sender, projects, requirements, profileId, projectIds: ids as number[] };
+  let posting: any = null; try { posting = s.posting_json ? JSON.parse(s.posting_json) : null; } catch { /* none */ }
+  const jobText = (s.job_text ?? s.raw_input) as string;
+  // Upwork's separate questions: answered apart from the cover letter, and the letter is written from the job without them
+  const questions = jobQuestions(jobText, posting);
+  return { jobText, jobOnly: separateQuestions(jobText).jobOnly, questions, sender, projects, requirements, profileId, projectIds: ids as number[] };
 }
 
 async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
@@ -118,7 +123,8 @@ async function readSignals(screeningId: number, jobText: string, stillWanted: ()
   const answers = await Promise.all(layers.map(async (layer) => {
     const mine = defs.filter((d) => d.layer === layer.code);
     if (!mine.length) return [];
-    const r = await run({ label: 'signals: ' + layer.code, system: detectionPrompt(mine, [layer]), prompt: `<job_page>\n${jobText}\n</job_page>`, schema: buildDetectionSchema(mine), timeoutMs: config.llm.timeoutMs });
+    // the signals come from the job alone: Upwork's separate questions section is left out
+    const r = await run({ label: 'signals: ' + layer.code, system: detectionPrompt(mine, [layer]), prompt: `<job_page>\n${separateQuestions(jobText).jobOnly}\n</job_page>`, schema: buildDetectionSchema(mine), timeoutMs: config.llm.timeoutMs });
     const got = (r.data as { signals?: unknown } | undefined)?.signals;
     if (!Array.isArray(got)) throw new Error('invalid_output'); // never let one bad layer quietly fall back to defaults
     return got;
@@ -239,9 +245,11 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const structured = detected.find((d) => d.signal_number === ss.signal && d.value_name.trim().toLowerCase() === ss.value.trim().toLowerCase());
   if (structured) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
   const w = await run({ label: 'writing', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide }),
-    prompt: `<job_page>\n${f.jobText}\n</job_page>\n\nWrite the proposal now.`, schema: writerSchema, timeoutMs: config.llm.timeoutMs });
+    prompt: f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}\n\nWrite the proposal now.` : `<job_page>\n${f.jobText}\n</job_page>\n\nWrite the proposal now.`,
+    schema: f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = writerOut.safeParse(w.data);
   if (!parsed.success) throw new Error('invalid_output');
+  if (f.questions.length) parsed.data.proposal = withAnswers(parsed.data.proposal.split(/\n\s*Screening answers\s*:?\s*\n/i)[0], f.questions, parsed.data.screening_answers ?? []);
   if (!opts.stillWanted()) return null;
 
   // 4. check what the writer cannot be trusted to check
@@ -351,7 +359,7 @@ export async function runChat(messageId: number) {
   const history = await query<any>(`SELECT role, content FROM proposal_messages WHERE proposal_id=? AND status='done' AND id<? ORDER BY id DESC LIMIT 12`, [p.id, m.id]);
   const transcript = history.reverse().map((h) => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');
   const basedOn = Number(cur.version_no);
-  const r = await run({ label: 'chat', system: chatSystem({ template, detected, sender: f.sender, projects: f.projects, clientRequirements: f.requirements, currentProposal: htmlToPlain(cur.content_html), guide }),
+  const r = await run({ label: 'chat', system: chatSystem({ template, detected, sender: f.sender, projects: f.projects, clientRequirements: f.questions.length ? [...f.requirements, 'The proposal ends with a "Screening answers" section: each numbered question on its own line with its answer below. Keep that section and its format; the cover letter above it does not answer the questions.'] : f.requirements, currentProposal: htmlToPlain(cur.content_html), guide }),
     prompt: `${transcript ? 'EARLIER MESSAGES\n' + transcript + '\n\n' : ''}USER REQUEST\n${m.content}\n\n<job_page>\n${f.jobText}\n</job_page>`, schema: chatSchema, timeoutMs: config.llm.timeoutMs });
   const parsed = chatOut.safeParse(r.data);
   if (!parsed.success) throw new Error('invalid_output');

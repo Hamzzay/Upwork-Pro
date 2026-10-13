@@ -48,6 +48,10 @@ Score every type with the type selection rules (`references/type-selection.md`) 
 4. Apply the profile record: voice, signature, allowed stats, and profile rules. Profile rules override general rules.
 5. Use the client's required words or format exactly, if any.
 6. If the job has screening questions, write the answers per `references/screening-answers.md`, separately from the cover letter.
+   When the client asked them in Upwork's own questions section ("You will be asked to answer the following questions when
+   submitting a proposal"), the cover letter is written for the job alone: the signals and the proposal type come from the job
+   without that section, the letter does not answer the questions, and the answers are given one by one, each under its question,
+   so each can be pasted into its own box. Questions written inside the description are handled as part of the job.
 
 ## Verify
 

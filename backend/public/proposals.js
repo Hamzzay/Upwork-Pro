@@ -30,6 +30,17 @@ function htmlToPlainText(html) {
   root.childNodes.forEach(walk);
   return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+/** The proposal text, split into the cover letter and the numbered answers after a "Screening answers" line (as the server writes it). */
+function splitAnswers(text) {
+  const parts = String(text || '').split(/\n\s*Screening answers\s*:?\s*\n/i);
+  if (parts.length < 2) return { letter: text, answers: [] };
+  const answers = parts.slice(1).join('\n').split(/\n(?=\s*\d+[.)]\s)/).map((a) => a.trim()).filter(Boolean).map((a) => {
+    const body = a.replace(/^\d+[.)]\s*/, ''); const nl = body.indexOf('\n');
+    // "1. Question?\nAnswer": the first line is the question when it ends with a question mark
+    return nl > 0 && /\?\s*$/.test(body.slice(0, nl)) ? { q: body.slice(0, nl).trim(), a: body.slice(nl + 1).trim() } : { q: '', a: body.trim() };
+  });
+  return { letter: parts[0].trimEnd(), answers };
+}
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; }
   catch (e) {
@@ -145,7 +156,9 @@ function proposalSection(s, initial, matching) {
     if (!data.current || busy()) { setActions(owner && !busy() ? startBtn(data.status === 'error' ? 'Try again' : 'Write the proposal', data.template ? data.template.id : null) : null); return; }
     const dirty = editor && editor.isDirty();
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
-    const copy = actBtn('Copy', async () => { const ok = await copyText(htmlToPlainText(editor.getHtml())); toast(ok ? 'Copied. Paste it into Upwork.' : 'Could not copy. Select the text and copy it.', !ok); });
+    // with screening answers, Copy takes the cover letter only; each answer has its own Copy under the editor
+    const hasAnswers = splitAnswers(htmlToPlainText(editor.getHtml())).answers.length > 0;
+    const copy = actBtn(hasAnswers ? 'Copy cover letter' : 'Copy', async () => { const t = htmlToPlainText(editor.getHtml()); const ok = await copyText(hasAnswers ? splitAnswers(t).letter : t); toast(ok ? 'Copied. Paste it into Upwork.' : 'Could not copy. Select the text and copy it.', !ok); });
     const save = owner && dirty ? actBtn('Save version', async (e) => {
       btnBusy(e.currentTarget, 'Saving');
       try { const r = await api('POST', `/proposals/${data.id}/versions`, { html: editor.getHtml(), based_on: loaded }); toast(r.unchanged ? 'Nothing changed' : `Saved as version ${r.version_no}`); await reload(); newer = null; drawAll(); }
@@ -277,30 +290,41 @@ function proposalSection(s, initial, matching) {
   function workspace() {
     const cur = data.current; loaded = cur.version_no;
     const counter = h('div', { class: 'counter-line faint small' });
-    const count = () => { const t = htmlToPlainText(editor.getHtml()); const words = t.trim() ? t.trim().split(/\s+/).length : 0; counter.textContent = `${words} words · ${t.length.toLocaleString()} characters` + (t.length > 5000 ? ' · over 5,000: Upwork may cut it off' : ''); counter.classList.toggle('over', t.length > 5000); };
-    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); } dirtyChip.hidden = !d; count(); } });
+    const count = () => { const t = splitAnswers(htmlToPlainText(editor.getHtml())).letter; const words = t.trim() ? t.trim().split(/\s+/).length : 0; counter.textContent = `${words} words · ${t.length.toLocaleString()} characters` + (t.length > 5000 ? ' · over 5,000: Upwork may cut it off' : ''); counter.classList.toggle('over', t.length > 5000); };
+    const answersBox = h('div', {});
+    const drawAnswers = () => {
+      const { answers } = splitAnswers(htmlToPlainText(editor.getHtml()));
+      answersBox.replaceChildren(...(answers.length ? [h('div', { class: 'card card-pad', style: 'margin-top:14px' },
+        h('div', { class: 'jp-sec' }, `Screening answers (${answers.length})`),
+        h('div', { class: 'jp-label', style: 'margin-bottom:8px' }, 'Paste each into its own box on Upwork. Edit them in the text above; this list follows.'),
+        h('div', { class: 'stack', style: 'gap:10px' }, answers.map((x, i) => h('div', { class: 'qa' },
+          h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:10px' }, h('div', { class: 'jp-label' }, `${i + 1}. ${x.q || 'Answer ' + (i + 1)}`),
+            h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(x.a); toast(ok ? `Answer ${i + 1} copied` : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy')),
+          h('p', { class: 'jp-body', style: 'margin:4px 0 0;white-space:pre-wrap' }, x.a)))))] : []));
+    };
+    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); } dirtyChip.hidden = !d; count(); drawAnswers(); } });
     let wasDirty = false;
     const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
     const vsel = h('select', { id: 'ver-sel', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`)));
     const viewing = h('div', { class: 'small muted' });
     vsel.onchange = async () => {
       const no = Number(vsel.value);
-      if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; return; }
+      if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; drawAnswers(); return; }
       if (editor.isDirty() && !(await ask('Show the other version?', 'You have unsaved changes. They are lost when the other version is shown.', 'Show it', true))) { vsel.value = cur.version_no; return; }
-      const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html);
+      const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html); drawAnswers();
       viewing.replaceChildren(...[`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null].filter(Boolean));
     };
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
     const staleBox = stale ? h('div', { class: 'newer', style: 'margin-bottom:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name} after this proposal was written, so the sign-off is out of date. Write it again at the top right.`)) : null;
     const warns = data.warnings.length ? h('details', { class: 'warnline' }, h('summary', {}, icon('warn'), `${data.warnings.length} thing${data.warnings.length === 1 ? '' : 's'} to check before sending`), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
-    count();
+    count(); drawAnswers();
     // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
     return h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' },
         staleBox,
         warns,
         h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px' }, vsel, dirtyChip),
-        viewing, bannerEl, editor.el, counter,
+        viewing, bannerEl, editor.el, counter, answersBox,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
       h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), explain()));
   }

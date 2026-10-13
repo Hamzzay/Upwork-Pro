@@ -22,7 +22,10 @@ export function checkProposal(i: CheckInput): string[] {
     if (!p.live_link) w.push(`"${p.name}" has no live link, so its link line was left out. Add a link to the project in Projects if you want one here.`);
   }
   for (const n of i.otherProjectNames) if (n.length >= 4 && !i.selectedProjects.some((p) => p.name.toLowerCase() === n.toLowerCase()) && has(t, n)) w.push(`The proposal names "${n}", which is not one of the 2 selected projects. Check or remove it.`);
-  for (const n of i.foreignNames) if (n && n.toLowerCase() !== i.sender.name.toLowerCase() && has(t, n)) w.push(`The proposal contains the name "${n}", which comes from a sample or template. Remove it.`);
+  // a name made only of the sender's own name words ("Hamza" for Hamza Yaseen) is the sender, not someone from a sample
+  const own = new Set(String(i.sender.name ?? '').toLowerCase().split(/\s+/).filter(Boolean));
+  const isSender = (n: string) => n.toLowerCase().split(/\s+/).filter(Boolean).every((x) => own.has(x));
+  for (const n of i.foreignNames) if (n && !isSender(n) && has(t, n)) w.push(`The proposal contains the name "${n}", which comes from a sample or template. Remove it.`);
   const allowed = new Set([...i.selectedProjects.map((p) => p.live_link).filter(Boolean), i.sender.gitlab_link, i.sender.loom_link].filter(Boolean).map((u) => norm(String(u))));
   for (const u of new Set(urls(t))) if (!allowed.has(norm(u))) w.push(`The link ${u} is not one of the provided project or profile links. Check it.`);
   if (!has(t, i.sender.name)) w.push(`The sign-off does not contain the sender name "${i.sender.name}".`);

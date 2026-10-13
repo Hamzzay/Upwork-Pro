@@ -64,7 +64,26 @@ export const writerSchema = {
   properties: { proposal: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } } },
   required: ['proposal', 'warnings'], additionalProperties: false,
 } as const;
-export const writerOut = z.object({ proposal: z.string().min(40), warnings: z.array(z.string()) });
+export const writerOut = z.object({ proposal: z.string().min(40), warnings: z.array(z.string()), screening_answers: z.array(z.string()).optional() });
+/** When the client used Upwork's separate questions section: the answers come back apart from the cover letter, one per question. */
+export function writerSchemaWithAnswers(count: number) {
+  return { type: 'object', properties: { proposal: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } },
+    screening_answers: { type: 'array', items: { type: 'string' }, minItems: count, maxItems: count } }, required: ['proposal', 'warnings', 'screening_answers'], additionalProperties: false };
+}
+/** The prompt part for those questions. */
+export function questionsPrompt(questions: string[]): string {
+  return `SCREENING QUESTIONS (the client asked these in Upwork's separate questions section, apart from the job post)
+${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+- Write the cover letter for the job alone, in the chosen proposal type's structure. Do not answer these questions in the cover letter
+  and do not shape it around them.
+- Answer each question separately in "screening_answers", in this order, one answer per question: direct, specific, true to the
+  profile and the projects given, following the screening answer rules. The question itself is not repeated in the answer.`;
+}
+/** The proposal text: the cover letter, then the answers under a "Screening answers" line, each with its question. */
+export function withAnswers(letter: string, questions: string[], answers: string[]): string {
+  if (!questions.length) return letter;
+  return `${letter.trimEnd()}\n\nScreening answers\n\n${questions.map((q, i) => `${i + 1}. ${q}\n${(answers[i] ?? '').trim()}`).join('\n\n')}`;
+}
 
 export const chatSchema = {
   type: 'object',

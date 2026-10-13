@@ -36,7 +36,7 @@ export const postingSystem = `You turn one Upwork job page, copied as plain text
 - "title", "posted" (e.g. "Posted 15 minutes ago"), "location" (e.g. "Worldwide" or the location rule).
 - "skills": the "Skills and Expertise" tags, one per item.
 - "terms": the job terms as label/value pairs, using the page's own wording: budget or hourly range, hours per week, project length, experience level, project type, Connects to apply, and any other terms shown.
-- "screening_questions": each question the client asks applicants, word for word.
+- "screening_questions": only the questions in Upwork's own questions section ("You will be asked to answer the following questions when submitting a proposal"), each word for word. Questions written inside the description stay in the description and are not listed here.
 - "activity": "Activity on this job" as label/value pairs (proposals, last viewed, hires, interviewing, invites sent, unanswered invites).
 - "client": "About the client" as label/value pairs (payment verified, phone verified, rating and reviews, country and city, local time, jobs posted, hire rate, open jobs, total spent, hires, active, average hourly rate paid, hours, industry, company size, member since).
 - "client_history": each past job in the client's recent history: title, dates, amount or rate, the client's rating for it, and the feedback text, word for word.

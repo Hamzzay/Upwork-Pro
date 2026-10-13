@@ -8,6 +8,7 @@ import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, gatePrompt, norma
 import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
+import { jobQuestions, separateQuestions, splitAnswers } from '../src/screening/questions';
 import { coreWork, jobNeeds, jobPlatform, pickLoom, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
@@ -186,6 +187,21 @@ const ctx = { rules, projects };
   assert.equal(pickLoom(jt, [V(3, 'B', ['HubSpot'], 2), V(4, 'A', ['HubSpot'], 1)])?.video.title, 'A', 'same score and count: the order decides');
   assert.equal(pickLoom(jt, [V(5, 'AI', ['AI powered']), V(6, 'Other', ['Shopify'])]), null, 'weight 0 and unshared tags suggest nothing');
   assert.equal(pickLoom(jt, []), null);
+
+  // the sender's own first name in a sample is not a foreign name
+  const own = checkProposal({ text: 'Best regards,\nHamza Yaseen', selectedProjects: [], otherProjectNames: [], foreignNames: ['Hamza', 'Ali Khan'], sender: { name: 'Hamza Yaseen', gitlab_link: null }, banned: [] } as any);
+  assert.ok(!own.some((w) => w.includes('"Hamza"')), 'Hamza is the sender');
+  assert.ok(checkProposal({ text: 'Thanks, Ali Khan', selectedProjects: [], otherProjectNames: [], foreignNames: ['Ali Khan'], sender: { name: 'Hamza Yaseen', gitlab_link: null }, banned: [] } as any).some((w) => w.includes('Ali Khan')));
+  // ---- screening questions: Upwork's own section, apart from the job ----
+  const page50 = 'We need an AI agent for leasing leads.\nProject Type:Ongoing project\nYou will be asked to answer the following questions when submitting a proposal:\n\nWhat similar AI lead-response agents have you built?\nWhat tools would you likely use for a project like this?\nSkills and Expertise\nai project management\nAbout the client\nPayment method verified';
+  const sq = separateQuestions(page50);
+  assert.deepEqual(sq.questions, ['What similar AI lead-response agents have you built?', 'What tools would you likely use for a project like this?']);
+  assert.ok(!sq.jobOnly.includes('What similar AI') && sq.jobOnly.includes('leasing leads') && sq.jobOnly.includes('Skills and Expertise') && sq.jobOnly.includes('About the client'), 'the job keeps everything but the questions');
+  assert.deepEqual(separateQuestions('Answer these: 1. Have you used n8n?').questions, [], 'questions inside the description are not the separate section');
+  assert.deepEqual(jobQuestions('no section', { description: 'Tell me: have you used n8n?', screening_questions: ['Have you used n8n?', 'Describe your recent project'] }), ['Describe your recent project'], 'a question inside the description is not a separate one');
+  const sa = splitAnswers('Hi there.\nCover letter.\n\nScreening answers\n\n1. What tools?\nn8n and Python.\n\n2. Similar work?\nBreesy, a leasing assistant.');
+  assert.equal(sa.letter, 'Hi there.\nCover letter.'); assert.equal(sa.answers.length, 2); assert.ok(sa.answers[1].startsWith('2. Similar work?'));
+  assert.deepEqual(splitAnswers('Only a letter').answers, []);
 
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));

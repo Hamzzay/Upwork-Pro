@@ -69,6 +69,8 @@ These are read from wording, so they are probabilities.
 
 ## Job tags
 
+Read the signals from the job without Upwork's own questions section ("You will be asked to answer the following questions when submitting a proposal"): those questions are answered separately and never decide the proposal type. Questions written inside the description are part of the job.
+
 Set the Job industry signal first, using the industry list in `../project-matcher/references/industry-map.md`. Name ONE industry: the client's own business, or the people the product serves. Never the industries of data to be collected, leads to be found or markets to be reached (a recruitment company scraping real estate contacts is Recruitment / HR). An industry implied clearly by the work counts (a post about patient intake is Healthcare even if the word never appears). If the post gives no industry, write "not stated"; never guess one.
 
 Then tag the job with the same dictionary the project library uses, excluding Industry (categories: Project stage, Product type, AI capability, Automation, Workflow type, Compliance, CRM and business tools, AI models and platforms, Tech stack). The tag names are in the tag dictionary from `get_library`. Tag only what the job actually needs, usually 5 to 15 tags. Do not tag "AI powered" as a reason to match; it carries no weight.
