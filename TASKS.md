@@ -72,6 +72,13 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 28 | Tag scores explained on the Tag dictionary page (R50) | done |
 | 29 | Matching, last step: the AI orders the shortlist with a reason; screening shows the same list (R51) | done |
 
+## Next (planned 14 October, see `PLAN-PLUGIN.md` for the full plan)
+
+| # | Task | Status |
+| --- | --- | --- |
+| 30 | Part A: the Claude plugin saves every step in Upwork Pro (gate, decision, read, profile, projects, type, video, drafts, final) and can resume a job left halfway. Phases A1, A2 | to do |
+| 31 | Part B: admins run the setup from Claude (projects, industries, tags, profiles, videos, rules, signals, types, writing guide, gate instructions, settings), every change a change set that can be reviewed and put back; second admins' changes reviewed by the main admin, optional approval first. Phases B1 to B4. Ask Hamza the five questions at the end of the plan first | to do |
+
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 
 The job: a recruitment company wants contact data scraped for real estate, trades and medical centres. The tagger gave it four
