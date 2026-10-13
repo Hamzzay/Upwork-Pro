@@ -45,6 +45,16 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.7.0)
+
+v0.7.0: the setup from Claude, for admins and managers (skill `setup-admin`). Projects, industries, tags, profiles, Loom videos,
+rules, signals, proposal types and samples, the writing guide, the gate instructions and settings can be added and changed by
+talking to Claude. Nothing raw is saved: Claude shows real examples first, asks, checks what is missing, verifies names and links,
+rewrites in the standard format, shows the final version and saves only after a yes (`setup_prepare`, then `setup_apply`). Every
+change is kept under Changes in the app; the main admin can put any of them back (`setup_history`, `setup_revert`). Users,
+passwords and the AI provider cannot be changed from Claude, and nothing is deleted. Needs the MCP from the same commit and
+migration 036.
+
 ## Status (v0.6.0)
 
 v0.6.0: the independent review. After every saved draft, `/proposal` asks Upwork Pro's reviewer (`review_proposal`) to score that

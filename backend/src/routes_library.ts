@@ -88,7 +88,7 @@ library.get('/tags', anyone, async (_req, res) => {
   res.json({ categories: cats.map((c) => ({ ...c, is_compliance: !!c.is_compliance, tags: tags.filter((t) => t.category_id === c.id) })) });
 });
 
-const categoryBody = z.object({
+export const categoryBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120), sort_order: z.number().int().min(0).max(9999).optional(), is_compliance: z.boolean().optional(),
 });
 library.post('/admin/categories', admin, async (req, res) => {
@@ -131,7 +131,7 @@ library.delete('/admin/categories/:id', admin, async (req, res) => {
 });
 
 // The score (weight) is what a shared tag is worth when projects are matched to a job.
-const tagBody = z.object({
+export const tagBody = z.object({
   category_id: z.number().int().positive(), name: z.string().trim().min(1, 'Name is required').max(120),
   weight: z.number().int('The score must be a whole number').min(0, 'The score cannot be negative').max(10, 'The score can be at most 10'),
   description: optText(500), active: z.boolean().optional(),
@@ -211,7 +211,7 @@ export async function loomVideos(where = '1=1', params: any[] = []) {
   return vids.map((v) => ({ ...v, tags: tags.filter((t) => t.video_id === v.id).map((t) => ({ id: t.id, name: t.name })) }));
 }
 library.get('/looms', anyone, async (_req, res) => { res.json({ videos: await loomVideos() }); });
-const loomBody = z.object({
+export const loomBody = z.object({
   profile_id: z.number('Choose a profile').int().positive('Choose a profile'), title: z.string().trim().min(1, 'Title is required').max(200),
   url, topic: optText(1000), active: z.boolean().optional(), sort_order: z.number().int().min(0).max(1000).optional(),
   tag_ids: z.array(z.number().int().positive()).max(200).optional(),
@@ -277,7 +277,7 @@ library.get('/industries/:id', anyone, async (req, res) => {
   if (!rows[0]) return void res.status(404).json({ error: 'Not found' });
   res.json({ industry: rows[0] });
 });
-const industryBody = z.object({
+export const industryBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120), description: optText(500), related: optText(500), active: z.boolean().optional(),
   project_ids: z.array(z.number().int().positive()).max(1000).optional(),
 });
@@ -354,7 +354,7 @@ library.get('/projects/:id', anyone, async (req, res) => {
   if (!rows[0]) return void res.status(404).json({ error: 'Not found' });
   res.json({ project: rows[0] });
 });
-const projectBody = z.object({
+export const projectBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(190), live_link: optUrl, showable_publicly: optText(60), notes: optText(4000),
   landing_link: optUrl, system_link: optUrl, android_link: optUrl, ios_link: optUrl, mobile_link: optText(500), staging_link: optUrl, case_study_link: optUrl, overview: optText(8000), case_study_summary: optText(8000),
   active: z.boolean().optional(), tag_ids: z.array(z.number().int().positive()).max(200).optional(),

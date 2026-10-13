@@ -37,7 +37,7 @@ proposals.get('/signals/:id', editor, async (req, res) => {
   const usedBy = await query('SELECT t.id, t.name, ts.weight, v.name AS value_name FROM template_signals ts JOIN templates t ON t.id=ts.template_id LEFT JOIN signal_values v ON v.id=ts.value_id WHERE ts.signal_id=? ORDER BY t.name', [s.id]);
   res.json({ signal: { ...s, multi_select: !!s.multi_select, values: (values as any[]).map((v) => ({ ...v, is_fallback: !!v.is_fallback })), used_by: usedBy } });
 });
-const signalBody = z.object({
+export const signalBody = z.object({
   number: z.number().int().min(1).max(999), layer_id: z.number().int().positive(), name: z.string().trim().min(1, 'Name is required').max(160),
   decides: optText(2000), multi_select: z.boolean().optional(), notes: optText(2000), active: z.boolean().optional(),
 });
@@ -83,7 +83,7 @@ proposals.delete('/signals/:id', admin, async (req, res) => {
   res.json({ ok: true });
 });
 
-const valueBody = z.object({
+export const valueBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(200), detect: optText(4000), move: optText(4000),
   is_fallback: z.boolean().optional(), sort_order: z.number().int().min(0).max(9999).optional(), active: z.boolean().optional(),
 });
@@ -161,7 +161,7 @@ proposals.get('/templates/:id', editor, async (req, res) => {
   if (!t) return void res.status(404).json({ error: 'Not found' });
   res.json({ template: t });
 });
-const templateBody = z.object({
+export const templateBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(160), description: optText(1000), body_html: z.string().max(200_000), prompt: optText(20_000),
   priority: z.number().int().min(0).max(100000).optional(), active: z.boolean().optional(), is_default: z.boolean().optional(),
   opening_rules: optText(4000), opening_no_us: z.boolean().optional(), opening_starts: optText(200),
@@ -252,7 +252,7 @@ proposals.get('/templates/:id/samples', editor, async (req, res) => {
   res.json({ samples: await query('SELECT id, title, author, job_url, job_keywords, content, active, created_at FROM template_samples WHERE template_id=? ORDER BY id LIMIT ? OFFSET ?', [tid, PAGE_SIZE, (pg - 1) * PAGE_SIZE]), total, page: pg, pages, page_size: PAGE_SIZE });
 });
 const urlOpt = z.string().trim().max(500).refine((v) => /^https?:\/\/\S+$/i.test(v), 'The job link must start with http:// or https://').or(z.literal('')).nullish().transform((v) => v || null);
-const sampleBody = z.object({ title: z.string().trim().min(1, 'Title is required').max(250), author: optText(120), job_url: urlOpt, job_keywords: optText(500), content: z.string().trim().min(40, 'The sample is too short').max(20_000), active: z.boolean().optional() });
+export const sampleBody = z.object({ title: z.string().trim().min(1, 'Title is required').max(250), author: optText(120), job_url: urlOpt, job_keywords: optText(500), content: z.string().trim().min(40, 'The sample is too short').max(20_000), active: z.boolean().optional() });
 proposals.post('/templates/:id/samples', editor, async (req, res) => {
   const b = sampleBody.safeParse(req.body);
   if (!b.success) return void bad(res, b.error);

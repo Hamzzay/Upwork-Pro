@@ -190,8 +190,8 @@ On Approve, call `save_proposal` for job #N with:
 
 **Add what Upwork Pro is missing as soon as a step needs it** (at the profile or projects step, not at the end):
 * The profile is not in `plugin_options`: call `add_profile` with the profile record (see the `profiles` skill).
-* A chosen project is not in the library: call `add_project` with what the person gives you: name, any links (landing, system,
-  mobile, staging, case study), the overview, the case study summary, and its tags from the tag dictionary (Industry tags included).
+* A chosen project is not in the library: add it with the `setup-admin` skill (its seven steps: examples first, ask, check, verify,
+  rewrite in the standard format, show, and save only after a yes). Never save the person's raw text as a project.
 * Both only add or fill empty fields; they never overwrite. Mention each addition in one line ("Added project Kruzee to Upwork Pro").
   If Upwork Pro refuses (the signed in person is not an admin or manager), say so in one line, name the project or profile a
   manager or admin has to add, and ask the person: pick another, or wait until it is added. The step is not saved until then.

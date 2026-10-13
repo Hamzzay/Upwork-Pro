@@ -956,6 +956,36 @@ screen.
   when it is handed to `append` or `replaceChildren`. Fixed once, at the top of `app.js`: a missing piece is left out everywhere.
 - On live after the deploy: nothing to import (live already has this content). Run `npm run upgrade:openings` as planned.
 
+### R56. The setup, run from Claude: tools for admins and the `setup-admin` skill (done, 14 October; Part B, phases B2 and B3)
+
+- **What it is.** An admin can add and change the setup by talking to Claude: projects, industries, tags and categories, Upwork
+  profiles, Loom videos, rules, signals and their values, proposal types and samples, the writing guide, the gate instructions
+  and settings. A manager can do what a manager can do in the app (projects, industries, proposal types, samples, the writing guide).
+- **Two steps, always** (`src/routes_setup.ts`). `setup_prepare` checks the change with the app's own rules and returns it as before
+  and after, what it affects and any warnings, and saves nothing. `setup_apply` saves it, only for the person who prepared it, only
+  within two hours, and only if nobody changed the item in between. Linked things are given by name (a project's tags, a tag's
+  category) and unknown names are refused by name.
+- **Saved by the website's own routes**, so a change from Claude gets the same checks, the same log line and the same change set as
+  one made in the app: on the Changes page it shows "Claude", the person, the reason, and "To review" for a second admin.
+- **Sign-in (`src/auth.ts`), read this.** A Claude token still cannot reach the website's routes. The one exception: a request that
+  names a prepared change and whose method, path and content are exactly what that same person prepared and has not applied yet.
+  The route's own role check still runs. Checked: a token alone is refused; another content or another person is refused.
+- **Never from Claude:** users, passwords, the AI provider and its keys, deleting anything (an item is switched off instead).
+- **The history and undo:** `setup_history` (admins), `setup_revert` and `setup_review` (main admin only), over the change sets of R53.
+- **Examples first:** `setup_examples` returns two or three complete real items of a kind.
+- **The skill** (`plugin/skills/setup-admin`, plugin v0.7.0), Hamza's rule that nothing raw goes in, as seven steps: look at what
+  exists, show examples, ask, say what is missing (never guess), verify names and links, rewrite in the standard format and show
+  the final version, then prepare, show, and save only after a clear yes. The questions per kind are in its `references/kinds.md`.
+  The proposal skill now adds a missing project through these steps too.
+- Migration `036_setup_prepared.sql` (the prepared changes). The web app must run as one process, as it does (apply calls itself).
+- Checked: 50 checks through the running app with real tokens and temporary accounts, all removed after: an employee refused;
+  a manager limited to a manager's kinds; every kind added or changed once; unknown names and fields refused; a change that changes
+  nothing refused; apply refused twice and after someone else's edit; the gate instructions saved as a version that is not active,
+  then activated; the main admin put the gate instructions, a setting, a writing guide document and a proposal type back; a second
+  admin could not.
+- Not checked: the skill itself in a real Claude conversation (needs the plugin installed again and the MCP rebuilt), and the
+  proposal type's signal mapping, which is still changed in the app only.
+
 ### R42. Skipping a job asks why (done, 13 October)
 - Skip (on the Screening tab) opens "Why skip this job?": five quick reasons (Budget or rate too low, Client history or hire rate,
   Outside our services, Scope unclear, Too much competition) and a note. A reason, a note, or both; the server refuses a skip without

@@ -163,6 +163,44 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
       notes: z.string().optional() },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/profiles', a));
 
+  // ---------- the setup, for admins and managers (the setup-admin skill) ----------
+  const KIND = z.enum(['project', 'industry', 'tag', 'tag_category', 'profile', 'loom_video', 'rule', 'signal', 'signal_value', 'template', 'template_sample', 'writing_doc', 'setting', 'gate_instructions']);
+  const sq = (o: Record<string, unknown>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== '') p.set(k, String(v)); const t = p.toString(); return t ? '?' + t : ''; };
+
+  T('setup_start', 'Call this first for any change to the setup of Upwork Pro. It says who is signed in, which kinds of things they may change (projects, industries, tags, profiles, Loom videos, rules, signals, proposal types, the writing guide, gate instructions, settings), what happens after a change is applied, and what can never be changed from Claude.',
+    {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/plugin/setup'));
+
+  T('setup_list', 'List the items of one kind in the setup, with a search. Always look here before adding something, so nothing is added twice. For gate_instructions it lists the versions; for setting, every setting with its value and what it does.',
+    { kind: KIND, q: z.string().optional().describe('Words to search for') }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', `/plugin/setup/list/${a.kind}` + sq({ q: a.q })));
+
+  T('setup_get', 'One item of the setup in full: every field, its tags, industries or projects by name, and its last changes with who made them. Give its id or its exact name. For gate_instructions, leave item out for the active version.',
+    { kind: KIND, item: z.union([z.string(), z.number()]).optional().describe('Id, code or exact name') }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', `/plugin/setup/item/${a.kind}` + sq({ item: a.item })));
+
+  T('setup_examples', 'Two or three complete, real items of a kind, to show the person what a good one looks like BEFORE asking for theirs, and to copy the format and style from when you write the new one.',
+    { kind: KIND }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', `/plugin/setup/examples/${a.kind}`));
+
+  T('setup_prepare', `Step one of every setup change. It checks the change with the same rules as the app and returns it as before and after, what it affects, any warnings, and a change_id. NOTHING is saved. Show the result to the person as it is and ask for a yes.
+Actions: create, update, switch_on, switch_off (nothing is ever deleted: switch it off). For gate_instructions: new_version (fields content, change_note) and activate (fields version).
+Give linked things by NAME: a project's tags and industries, a tag's category and projects, a Loom video's profile and tags, a signal's layer. A list replaces the whole list, so send the full list you want. A signal value or a sample proposal needs parent (the signal, or the proposal type). A setting takes fields { value }.
+Never send the person's raw text: write every text field yourself in the format of setup_examples, and show it first.`,
+    { kind: KIND, action: z.enum(['create', 'update', 'switch_on', 'switch_off', 'new_version', 'activate']), item: z.union([z.string(), z.number()]).optional().describe('For update and switch: the id, code or exact name'),
+      parent: z.union([z.string(), z.number()]).optional().describe('For a new signal value: the signal. For a new sample proposal: the proposal type'),
+      fields: z.record(z.string(), z.any()).optional().describe('Only the fields to set or change'), reason: z.string().describe('One or two sentences: why this change is made. Kept with the change') },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => api.call('POST', '/plugin/setup/prepare', a));
+
+  T('setup_apply', 'Step two: save a change that setup_prepare returned. Call it ONLY after the person saw that exact change and said yes in the chat. If the item changed in between, or the change is older than two hours, it is refused: prepare again and show the new result.',
+    { change_id: z.number().int() }, { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/setup/apply', a));
+
+  T('setup_history', 'The changes made to the setup, newest first: who, when, from the app or from Claude, what changed, the reason, and whether it is to review, applied or put back. Admins only.',
+    { kind: KIND.optional(), item: z.string().optional().describe('Part of the item name'), person: z.string().optional(), status: z.enum(['review', 'applied', 'reverted']).optional(), limit: z.number().int().min(1).max(50).optional() },
+    { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/setup/history' + sq(a)));
+
+  T('setup_revert', 'Put one change back: the item returns to exactly how it was before that change. Main admin only. Ask for a yes first. If the item was changed again later, it is refused and says what would also be undone: show that, and only with a second yes call again with even_if_changed_since.',
+    { change_set: z.number().int(), even_if_changed_since: z.boolean().optional() }, { readOnlyHint: false, destructiveHint: true, idempotentHint: false }, async (a) => api.call('POST', '/plugin/setup/revert', a));
+
+  T('setup_review', 'Main admin only: mark a change by another admin as seen (reviewed), or all of them. It changes nothing in the setup.',
+    { change_set: z.number().int().optional(), all: z.boolean().optional() }, { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/setup/seen', a));
+
   T('add_project', 'Add a project Upwork Pro does not have yet to the project library, or fill the empty fields of an existing one and add the tags it is missing (never removes or overwrites). Managers and admins. Send only what the person gives; never invent a field.',
     { name: z.string(), landing_link: z.string().optional(), system_link: z.string().optional(), android_link: z.string().optional().describe('Google Play link'), ios_link: z.string().optional().describe('App Store link'), mobile_link: z.string().optional().describe('Only for an older combined store link: it is split into Android and iOS'),
       staging_link: z.string().optional(), case_study_link: z.string().optional(), overview: z.string().optional().describe('Project overview'), case_study_summary: z.string().optional(),

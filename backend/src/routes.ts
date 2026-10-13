@@ -14,6 +14,7 @@ import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { plugin } from './routes_plugin';
 import { writing } from './routes_writing';
+import { setup } from './routes_setup';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { buildReport, packRows } from './reports';
@@ -31,6 +32,7 @@ api.use(proposals);
 api.use(imports);
 api.use(plugin);
 api.use(writing);
+api.use(setup);
 api.use(oauthApi);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);

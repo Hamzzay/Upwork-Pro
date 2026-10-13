@@ -50,10 +50,29 @@ export async function logout(req: Request, res: Response) {
 const tokenMayReach = (method: string, path: string) =>
   path.startsWith('/import/') || path.startsWith('/plugin/') || (method === 'GET' && /^\/(projects|tags|profiles|industries|rules)(\/|$)/.test(path));
 
+/**
+ * The one exception: a setup change from Claude (routes_setup.ts). A token may call a setup save route only to apply a change the
+ * same person prepared and said yes to: the request names the prepared change, and its method, path and content must be exactly
+ * what was prepared and not applied yet. The route's own role check still decides whether that person may make the change.
+ * Returns false when the request is not such a change. The token's owner is looked up below, as for every token.
+ */
+async function preparedChange(req: Request, bearer: string): Promise<{ reason: string | null } | false> {
+  const id = Number(req.headers['x-upw-prepared']);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  const p = (await query<any>(
+    `SELECT p.method, p.path, p.body_json, p.reason FROM setup_prepared p JOIN api_tokens k ON k.user_id=p.user_id
+     WHERE p.id=? AND p.applied_at IS NULL AND p.created_at > NOW() - INTERVAL 2 HOUR AND k.token_hash=? AND k.revoked_at IS NULL AND k.expires_at > NOW()`, [id, sha(bearer)]))[0];
+  if (!p || p.method !== req.method || p.path !== req.path || p.body_json !== JSON.stringify(req.body ?? {})) return false;
+  return { reason: p.reason ?? null };
+}
+
 export async function attachUser(req: Request, _res: Response, next: NextFunction) {
   const bearer = /^Bearer (upw_[0-9a-f]{64})$/.exec(req.headers.authorization ?? '')?.[1];
   if (bearer) {
-    if (tokenMayReach(req.method, req.path)) {
+    const prepared = tokenMayReach(req.method, req.path) ? null : await preparedChange(req, bearer);
+    if (prepared === false) return next(); // not a path a token may reach, and no prepared change that matches: not signed in
+    if (prepared) (req as any).changeReason = prepared.reason; // kept with the change set (changesets.ts)
+    {
       const rows = await query<any>(
         `SELECT u.id, u.name, u.email, u.role, k.id AS kid FROM api_tokens k JOIN users u ON u.id=k.user_id
          WHERE k.token_hash=? AND k.revoked_at IS NULL AND k.expires_at > NOW() AND u.active=1`, [sha(bearer)]);
