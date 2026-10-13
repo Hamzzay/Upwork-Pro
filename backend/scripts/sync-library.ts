@@ -11,6 +11,7 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appRoot } from '../src/config';
+import { splitMobile } from '../src/library/mobile';
 import { pool } from '../src/db';
 
 (async () => {
@@ -71,8 +72,9 @@ import { pool } from '../src/db';
       let row = byName.get(p.name.toLowerCase()); let id: number;
       if (!row) { const [r]: any = await conn.query('INSERT INTO projects (name, live_link, showable_publicly) VALUES (?,?,?)', [p.name, p.live_link, p.showable]); id = r.insertId; }
       else { id = row.id; await conn.query('UPDATE projects SET active=1 WHERE id=?', [id]); }
-      await conn.query(`UPDATE projects SET live_link=?, landing_link=?, system_link=?, mobile_link=?, staging_link=?, case_study_link=?, overview=?, case_study_summary=? WHERE id=?`,
-        [p.live_link ?? null, p.landing_link ?? null, p.system_link ?? null, p.mobile_link ?? null, p.staging_link ?? null, p.case_study_link ?? null, p.overview ?? null, p.case_study_summary ?? null, id]);
+      const mob = splitMobile(p.mobile_link); // the sheet keeps both stores in one cell
+      await conn.query(`UPDATE projects SET live_link=?, landing_link=?, system_link=?, android_link=?, ios_link=?, mobile_link=?, staging_link=?, case_study_link=?, overview=?, case_study_summary=? WHERE id=?`,
+        [p.live_link ?? null, p.landing_link ?? null, p.system_link ?? null, mob.android, mob.ios, mob.other, p.staging_link ?? null, p.case_study_link ?? null, p.overview ?? null, p.case_study_summary ?? null, id]);
       // industries follow the project's Industry tags
       const inds = p.tags.filter((t: string) => industryTags.has(t.toLowerCase()));
       for (const t of inds) if (!industries.has(t.toLowerCase())) { const [r]: any = await conn.query('INSERT INTO industries (name) VALUES (?)', [t]); industries.set(t.toLowerCase(), r.insertId); }

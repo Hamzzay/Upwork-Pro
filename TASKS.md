@@ -62,7 +62,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 18 | The first two lines: strict rules per proposal type, checked and rewritten once (R44). Live: `npm run upgrade:openings` | done |
 | 19 | Pakistan time everywhere (R45). Live: stop, pull, migrate, `npm run fix:timezone -- --apply` once, start | done |
 | 20 | Active and inactive straight from every list, with a confirm popup (R46) | done |
-| 21 | Projects get two mobile links, Android and iOS. Existing links are split by store, nothing lost | to do |
+| 21 | Android and iOS links per project; existing links split by store, nothing lost (R47) | done |
 | 22 | Project step: "Show 10 more projects" (R41) | done |
 | 23 | Change the proposal type after a proposal is written, from the proposal screen, and rewrite | to do |
 | 24 | No Tracking tab: the proposal screen has Copy, Save, and "Save and mark sent", which asks for Connects, boost, Loom video, status, when, notes. Tracking details show on the Overview tab | to do |

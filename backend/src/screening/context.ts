@@ -26,7 +26,7 @@ export async function loadLibraryProjects(): Promise<LibProject[]> {
   const rows = await query<{ id: number; name: string; tag_id: number | null; tag: string | null }>(
     `SELECT p.id, p.name, t.id AS tag_id, t.name AS tag FROM projects p LEFT JOIN project_tags pt ON pt.project_id=p.id LEFT JOIN tags t ON t.id=pt.tag_id AND t.active=1
      WHERE p.active=1`);
-  const links = new Map((await query<any>('SELECT id, landing_link, system_link, mobile_link FROM projects WHERE active=1')).map((r) => [r.id, r]));
+  const links = new Map((await query<any>('SELECT id, landing_link, system_link, android_link, ios_link, mobile_link FROM projects WHERE active=1')).map((r) => [r.id, r]));
   const inds = await query<{ project_id: number; name: string }>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id');
   const map = new Map<number, LibProject & { tagNames: string[] }>();
   for (const r of rows) {

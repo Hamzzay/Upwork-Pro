@@ -300,7 +300,7 @@ library.delete('/industries/:id', editor, async (req, res) => {
 });
 
 // ---------- projects ----------
-const projectSelect = `SELECT p.id, p.name, p.live_link, p.landing_link, p.system_link, p.mobile_link, p.staging_link, p.case_study_link, p.showable_publicly, p.notes,
+const projectSelect = `SELECT p.id, p.name, p.live_link, p.landing_link, p.system_link, p.android_link, p.ios_link, p.mobile_link, p.staging_link, p.case_study_link, p.showable_publicly, p.notes,
   p.overview, p.case_study_summary, p.added_via, p.active, p.created_at, p.updated_at FROM projects p`;
 async function withTags(rows: any[]) {
   if (!rows.length) return rows;
@@ -323,12 +323,12 @@ library.get('/projects/:id', anyone, async (req, res) => {
 });
 const projectBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(190), live_link: optUrl, showable_publicly: optText(60), notes: optText(4000),
-  landing_link: optUrl, system_link: optUrl, mobile_link: optText(500), staging_link: optUrl, case_study_link: optUrl, overview: optText(8000), case_study_summary: optText(8000),
+  landing_link: optUrl, system_link: optUrl, android_link: optUrl, ios_link: optUrl, mobile_link: optText(500), staging_link: optUrl, case_study_link: optUrl, overview: optText(8000), case_study_summary: optText(8000),
   active: z.boolean().optional(), tag_ids: z.array(z.number().int().positive()).max(200).optional(),
   industry_ids: z.array(z.number().int().positive()).max(200).optional(),
 });
 /** The project fields besides name and active. The proposal link is `live_link`; the others are kept for the person to choose from. */
-const PROJECT_FIELDS = ['live_link', 'landing_link', 'system_link', 'mobile_link', 'staging_link', 'case_study_link', 'showable_publicly', 'notes', 'overview', 'case_study_summary'];
+const PROJECT_FIELDS = ['live_link', 'landing_link', 'system_link', 'android_link', 'ios_link', 'mobile_link', 'staging_link', 'case_study_link', 'showable_publicly', 'notes', 'overview', 'case_study_summary'];
 async function setTags(conn: any, projectId: number, tagIds: number[]) {
   const ids = [...new Set(tagIds)];
   await conn.query('DELETE FROM project_tags WHERE project_id=?', [projectId]);

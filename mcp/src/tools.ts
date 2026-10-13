@@ -141,7 +141,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/profiles', a));
 
   T('add_project', 'Add a project Upwork Pro does not have yet to the project library, or fill the empty fields of an existing one and add the tags it is missing (never removes or overwrites). Managers and admins. Send only what the person gives; never invent a field.',
-    { name: z.string(), landing_link: z.string().optional(), system_link: z.string().optional(), mobile_link: z.string().optional().describe('One or more store links, space separated'),
+    { name: z.string(), landing_link: z.string().optional(), system_link: z.string().optional(), android_link: z.string().optional().describe('Google Play link'), ios_link: z.string().optional().describe('App Store link'), mobile_link: z.string().optional().describe('Only for an older combined store link: it is split into Android and iOS'),
       staging_link: z.string().optional(), case_study_link: z.string().optional(), overview: z.string().optional().describe('Project overview'), case_study_summary: z.string().optional(),
       tags: z.array(z.string()).optional().describe('Tag names marked x for this project, Industry tags included') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/projects', a));

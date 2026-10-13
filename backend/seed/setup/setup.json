@@ -1,5 +1,5 @@
 {
- "exported_at": "2026-10-13T18:38:06.795Z",
+ "exported_at": "2026-10-13T18:47:21.573Z",
  "note": "Upwork Pro setup data: no jobs, users or tokens. Restore with npm run setup:import -- --apply",
  "tables": {
   "signal_layers": [
@@ -1927,6 +1927,8 @@
     "case_study_summary": "Project: Navience, an AI prior authorization and utilization management engine for payers, MSOs and delegated IPAs (Healthcare).\nProblem: Clinical reviewers checked every authorization by hand against Medicare, Medi-Cal, health plan and IPA rules, causing slow turnaround, inconsistent decisions and no clear record of why requests were approved or escalated.\nSolution: We built an AI decision engine that matches each request to the right payer policy, approves what clearly qualifies and escalates edge cases to nurses or medical directors with full reasoning.\nKey features: PHI removal and CPT and referral context; policy retrieval with vector search; parallel sub agents for timing, thresholds, treatment history and synonyms; capitation and DOFR checks; Exact Match and Smart Standard modes.\nTechnology: Claude Opus, GPT-4o, AWS Bedrock (Titan embeddings), Qdrant, TensorZero, Fastify, MySQL, React.\nResults: Routine requests approved automatically, edge cases routed with clear reasoning, and every decision logged with policy source, confidence, tokens and cost for a full audit trail.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -1988,6 +1990,8 @@
     "case_study_summary": "Project: AI voice agent for a dental practice running Open Dental (Healthcare, Dental).\nProblem: Missed calls turned into missed appointments, the front desk spent hours on routine questions and scheduling, and existing patients were not coming back for their next visit.\nSolution: We built a HIPAA conscious Retell AI voice agent that answers patient calls and books or reschedules appointments live inside Open Dental, with strict verification before any record changes.\nKey features: Knowledge base Q&A; real time booking and rescheduling; name, date of birth and phone verification; front desk transfer and after hours callback logging; outbound recall campaigns.\nTechnology: Retell AI (under a signed BAA), Open Dental API, self hosted Open Dental server, cloud web dashboard.\nResults: Patient calls answered with real bookings, front desk time freed from routine scheduling, patient records protected, and every call logged with recording and summary.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "AI agent",
      "AI automation",
@@ -2048,6 +2052,8 @@
     "case_study_summary": "Project: Dental Mastery Dynamics, a multi tenant AI analytics SaaS for dental practices (Healthcare, Dental).\nProblem: Practices had their data locked in Open Dental with no clear daily view of case acceptance, hygiene utilization and schedule efficiency, so decisions relied on guesswork.\nSolution: We built a HIPAA compliant platform that syncs practice data, calculates KPIs nightly and delivers a daily AI review with practical coaching, without exposing PHI.\nKey features: Secure Open Dental sync; configurable KPI engine; daily AI review grounded in coaching playbooks; Twilio SMS assistant and AI voice hotline for live KPIs; admin panel for subscriptions and cross clinic performance.\nTechnology: Open Dental API, LLM with RAG, Twilio SMS, AI voice, encryption and tokenized sessions.\nResults: Managers get clear daily priorities and live KPIs on demand, PHI never reaches the LLM, and built in compliance became a sales advantage.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2113,6 +2119,8 @@
     "case_study_summary": "Project: DentAI, Stackup's AI virtual front desk for dental practices, first deployed at a family dental practice in Virginia (Healthcare, Dental).\nProblem: Practices lost patients to missed daytime and after hours calls, front desk staff were buried in phone work, and no shows and unworked recall lists left gaps in the schedule.\nSolution: We built an AI voice receptionist that answers every call 24/7 and books, reschedules and cancels directly in the PMS, following each practice's own rules and confirming only after the action succeeds.\nKey features: 24/7 DentAI Voice; live PMS scheduling with practice rules; patient verification and privacy rules; recall, reminders, intake and payment links; Insights dashboard.\nTechnology: Retell AI (29 node flow, 11 custom tools), NestJS API, Next.js admin panel, Open Dental, Curve Dental and CareStack.\nResults: Every call answered, front desk time returned to patient care, and practices go live in about two weeks after a 63 test acceptance checklist.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2176,6 +2184,8 @@
     "case_study_summary": "Project: ManyParts Dashboard, the system of record for Many Parts Ministries (Nonprofit).\nProblem: Thousands of users, enrollments and assessments were managed across spreadsheets, PDFs and disconnected tools, causing data errors, heavy admin work and constant support tickets.\nSolution: We built one central dashboard from the ground up, migrated years of messy historical records and automated the processes around enrollments, organizations and coupons.\nKey features: User, role and enrollment management with funnel analytics; three level organization hierarchy with merging; coupon engine; form submission automation; AI Ministry Assistant using RAG.\nTechnology: React, Redux Toolkit, Node.js, PostgreSQL, OpenAI embeddings, Pinecone, ClickUp and Easyship integrations.\nResults: About 70% less admin workload, far fewer data errors and support tickets, and one reliable source of truth.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2223,6 +2233,8 @@
     "case_study_summary": "Project: GlowUpHub, a multi tenant AI knowledge assistant SaaS for salons and beauty businesses in Australia (Beauty and Wellness).\nProblem: Salon owners were the bottleneck in their own business, constantly interrupted by staff questions, and every new hire took weeks of the owner's time to onboard.\nSolution: We built the MVP as build partner: owners upload their documents and staff get instant, sourced answers from an AI assistant on their phones.\nKey features: Isolated workspace per salon with roles; document upload and RAG pipeline; staff chat with source attribution; fallback answers flagged to the owner to close gaps; Stripe plans and analytics.\nTechnology: React.js, Node.js, PostgreSQL with row level security, Qdrant, Anthropic Claude, Stripe, Figma.\nResults: Setup in under 10 minutes, owners freed from repeat questions, faster onboarding and a knowledge base that improves as gaps are flagged.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2282,6 +2294,8 @@
     "case_study_summary": "Project: Business automation platform for Rock County Sealcoat, an asphalt sealcoating company (Construction, Home Services).\nProblem: The company paid $400 a month for a phone service it did not control, and scheduling crews, confirming customers, handling weather delays and sharing arrival times were all manual.\nSolution: We built an owned AI phone agent plus an operations platform that takes each job from the first call to completion.\nKey features: 24/7 AI receptionist with call routing and lead intake; two way Bitumio CRM sync; weather aware scheduling and route optimization; automated SMS and email confirmations with backfill; live GPS tracking portal.\nTechnology: Retell AI, Twilio, ElevenLabs, Bitumio API, Linxup GPS, Google Maps Distance Matrix API.\nResults: Every call answered, structured leads created automatically, and an estimated running cost of about $65 to $105 a month instead of $400.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2339,6 +2353,8 @@
     "case_study_summary": "Project: Sarge AI, a jurisdiction aware AI legal intelligence platform for law enforcement (Legal, Public Safety).\nProblem: Officers needed fast, reliable legal authority and court defensible affidavits, but general AI tools hallucinate and cannot be trusted for legal decisions.\nSolution: We built a secure web and mobile platform that answers only from approved case law, statutes and department policies, cites every source and helps draft affidavits without changing officer facts.\nKey features: Strict RAG gating with citations and refusals; guided affidavit workflow with probable cause checks; voice and text chat; single tenant department isolation with document approval; immutable CJIS aligned audit logs.\nTechnology: RAG pipeline, web app, iOS and Android apps, OTP and biometric onboarding, role based access.\nResults: Delivered over 6+ months and prepared for a 5 department pilot, giving officers cited, trustworthy answers and gap checked affidavit drafts.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2397,6 +2413,8 @@
     "case_study_summary": "Project: Seller Genius AI, a multi tenant AI voice calling SaaS for realtors and small brokerages (Real Estate).\nProblem: Agents spent hours each day cold calling leads manually, and many leads were lost because follow ups did not happen on time.\nSolution: We built a platform where each agent sets up a personalized AI caller that qualifies leads, books appointments and follows up automatically.\nKey features: Personalized AI caller setup; lead import by form or Excel; queue driven outbound call engine with retries; GPT-4 call summaries; Google Calendar booking and dashboards.\nTechnology: React, Node.js, PostgreSQL, AWS, SignalWire, GPT-4, Google Calendar, Stripe.\nResults: 1 to 2 hours saved per agent per day, 15 to 35% more booked appointments and 10 to 30% fewer lost leads.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2456,6 +2474,8 @@
     "case_study_summary": "Project: Orion Lease, an AI lease document intelligence platform for a commercial real estate acquisition group (Real Estate).\nProblem: Critical lease terms were buried in long PDFs and amendments and had to be checked against non standard broker spreadsheets, so each project review took 3 to 5 days.\nSolution: We built a human in the loop platform that extracts a defined lease schema, flags risky clauses and reconciles leases against broker data before a reviewer approves the final abstract.\nKey features: OCR for scanned leases; schema extraction with value, source and confidence; red flag clause analysis; Green, Yellow and Red broker variance checks; confirm, correct or flag review and standard exports.\nTechnology: React, FastAPI, PostgreSQL, Celery and Redis, Claude on AWS Bedrock, Azure Document Intelligence.\nResults: Built to compress a 3 to 5 day review across portfolios of 90+ properties, with every final abstract human approved; currently in pilot.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2515,6 +2535,8 @@
     "case_study_summary": "Project: Innspeed, a self serve AI guest communications SaaS for boutique hotels in Europe (Hospitality).\nProblem: Small hotels get guest questions around the clock in many languages across web and WhatsApp, but enterprise tools need sales calls, integrations and IT teams they do not have.\nSolution: We built a multi tenant platform hotels set up themselves, where AI answers guests in six languages from one knowledge base and hands sensitive conversations to staff.\nKey features: One line embeddable chat widget; direct WhatsApp Business integration; unified real time inbox; auto built multilingual knowledge base; confidence based handoff and automated campaigns.\nTechnology: Next.js 14, Fastify, Supabase, pgvector, Claude API, Cohere, Meta WhatsApp Cloud API, Stripe, Resend.\nResults: Signup to live AI in under fifteen minutes, six languages from one knowledge base, and GDPR and EU AI Act readiness built in.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2572,6 +2594,8 @@
     "case_study_summary": "Project: AI CRM and job operations platform for Apex Windows, a window repair and replacement company (Home Services).\nProblem: Leads were lost to missed calls and incomplete details, estimates lacked follow up, and scheduling, deposits and contractor payouts were spread across calls, emails and QuickBooks.\nSolution: We built AI lead intake in Phase 1 and extended it in Phase 2 into one platform that runs every job from inquiry to installation, payment and review.\nKey features: Retell AI voice agent, chatbot and web form; unified CRM with call logs and chats; estimates and field forms with staged follow ups; QuickBooks deposit and final invoicing; role based installer mobile app.\nTechnology: React, Node.js, Express, PostgreSQL, React Native, Retell AI, OpenAI, QuickBooks, SendGrid, Twilio, OneSignal, Google Places API.\nResults: Every lead captured in one place, follow ups automated, invoices generated through QuickBooks, and installers working from a mobile app.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2628,6 +2652,8 @@
     "case_study_summary": "Took Holadoc (MiDocRD) from idea to a live two sided healthcare marketplace for the Dominican Republic that connects patients with verified doctors. Patients browse and filter doctors by specialty, price, availability and accepted insurance without signing up, then register at the point of intent to send appointment requests and chat in real time over Socket.IO with PDF and image sharing. Doctors go through a document based verification pipeline before becoming discoverable, manage availability and appointments, and convert from a freemium tier to unlimited Stripe subscriptions, with usage limits enforced in the workflow and reset monthly. Reviews come only from real appointments and pass admin moderation, and a Super Admin layer governs verification, subscriptions, appointments and ratings. Bilingual English and Spanish, built with React, Node.js, PostgreSQL, Socket.IO and Stripe.",
     "active": 0,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2674,7 +2700,7 @@
     "live_link": "https://caboairportshuttle.net/",
     "landing_link": "https://caboairportshuttle.net/",
     "system_link": null,
-    "mobile_link": "https://play.google.com/store/apps/details?id=com.caboairportshuttle",
+    "mobile_link": null,
     "staging_link": "https://staging.zeo.mx",
     "case_study_link": null,
     "showable_publicly": null,
@@ -2683,6 +2709,8 @@
     "case_study_summary": "Project: Real time operations platform for Cabo Airport Shuttle (Transportation, Logistics).\nProblem: Daily airport transfers were coordinated in Google Sheets, leading to missed rides, slow payment reconciliation and little visibility into drivers and vehicles.\nSolution: We built mobile and web apps that coordinate bookings, drivers, representatives, mechanics and admins in real time.\nKey features: QR code ride verification; live ride assignment and status updates; driver hours, payments and tips logging; vehicle maintenance tracking; admin overrides with audit trail and Google Sheets sync.\nTechnology: React Native, Laravel, MySQL, Pusher, OneSignal, JWT.\nResults: Launched in 3 months and scaled over 2+ years to coordinate 150+ transfers a day across 70+ staff, with far fewer missed rides and faster payment reconciliation.",
     "active": 1,
     "added_via": null,
+    "android_link": "https://play.google.com/store/apps/details?id=com.caboairportshuttle",
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2734,6 +2762,8 @@
     "case_study_summary": "Project: Fierana, a subscription learning and coaching platform for women (Education).\nProblem: Generic onboarding ignored each member's level and goals, and content, live classes and community lived in separate tools, making engagement hard to sustain.\nSolution: We built one platform that personalizes each member's pathway from onboarding and connects lessons, classes, practice, community and communication.\nKey features: Archetype and pathway assessment onboarding; LMS with 6 pathways, 5 levels and 100+ videos; live Zoom class booking; belts, badges, streaks and challenges; 8+ automated email journeys.\nTechnology: Stripe Billing, Zoom API, SendGrid, Vimeo and AWS S3, Mighty Networks SSO.\nResults: Personalized learning from day one, automated engagement that reaches members before they drift away, and clear subscription and MRR insights for admins.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2786,6 +2816,8 @@
     "case_study_summary": "Project: Tolba, a privacy first, women only matchmaking app for serious marriage in the Middle East (Social).\nProblem: The region lacked a culturally aligned, verification first platform where compatibility could be judged before appearance and conversations stayed safe.\nSolution: We built bilingual mobile apps, an admin portal and a backend where every member is ID verified, applications stay anonymous and identities are revealed only by mutual agreement.\nKey features: Admin reviewed ID and selfie verification; anonymous applications with 14 preference dimensions; real time time bound chat; automatic moderation of phone numbers and offensive words; mutual identity reveal.\nTechnology: Flutter, React, Node.js, Express, Socket.IO, PostgreSQL, AWS S3, Firebase Cloud Messaging.\nResults: A fully verified community, anonymity enforced server side, safer conversations through automatic pause and reporting, and a native Arabic experience.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2833,6 +2865,8 @@
     "case_study_summary": "Project: Taleroo, a multi tenant AI career integration SaaS for migrants, refugees and job seekers in Germany (Education, Employment).\nProblem: Career guidance was fragmented, funding eligibility rules were complex, and education providers carried heavy manual workload with little transparency for students.\nSolution: We built a platform where multilingual AI intake creates personal career strategies, deterministic rules validate funding eligibility, and students and providers work in one hub.\nKey features: Six language conversational intake; AI career strategies across funded programs; Red, Yellow and Green eligibility scoring with moderation; student hub with videos, tasks, bookings and chat; provider tools for courses, contracts and audits.\nTechnology: Next.js, Flask, PostgreSQL, Firebase, AWS, PostHog, Kaltura, Stream.io.\nResults: Delivered in about 6 months as a live platform, giving students clear funded pathways and cutting provider admin work.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2878,6 +2912,8 @@
     "case_study_summary": "Project: 24/7 AI voice agent for a nationwide US fencing company (Home Services).\nProblem: Calls were handled by salesmen or voicemail, so peak hour and after hours calls were missed, emergency jobs were lost and office staff were overloaded.\nSolution: We built an AI voice agent that answers, qualifies, schedules and escalates every inbound call across all US time zones.\nKey features: Emergency detection and escalation; live booking with a double booking rule engine; structured estimate intake; SMS and email reminders with round robin salesman assignment; admin dashboard with call logs.\nTechnology: Retell AI, React, Node.js, PostgreSQL, AWS, SendGrid.\nResults: 80% call pickup rate, 30% more booked appointments, 2 to 3 hours saved per day for office staff and no emergency jobs lost to voicemail.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -2926,6 +2962,8 @@
     "case_study_summary": "Project: VerifyScript, a monetized AI medication safety web app (Healthcare).\nProblem: Patients and caregivers managing multiple medications had no simple way to spot dangerous interactions, cascades or recalls.\nSolution: We built and launched in 6 weeks an app that turns typed or photographed medication lists into a clear interaction report.\nKey features: Photo or manual entry with OCR and RxNorm normalization; AI interaction, cascade and deprescribing analysis; safety guardrails; branded PDF report emailed automatically; Stripe payment before analysis.\nTechnology: React, Node.js, Express, OpenAI GPT-4, Google Vision OCR, RxNorm, Puppeteer, Gmail API, Stripe.\nResults: Launched in 6 weeks and signed its first paying users within the launch window.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "AI agent",
      "AI powered",
@@ -2967,6 +3005,8 @@
     "case_study_summary": "Project: Multilingual AI accessibility app for Pashto, Dari and English speakers (Accessibility).\nProblem: Users struggled to understand documents in other languages and depended on human translators.\nSolution: We delivered in 3 weeks an iOS and Android app that summarizes a photographed document in plain language and reads it aloud.\nKey features: Language selection; guided capture and crop; OCR; short AI summaries; text to speech playback with no sign up or stored data.\nTechnology: React Native, Redux, OpenAI gpt-4o-mini, OpenAI text to speech, OCR.\nResults: Delivered in 3 weeks as a fast, private, low cost app that reduces reliance on human translators.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "AI agent",
      "AI powered",
@@ -3008,6 +3048,8 @@
     "case_study_summary": "Project: PaddleWar, a multi tenant league management platform for paddle and racket sports (Sports).\nProblem: Independent leagues ran scheduling, payments and ratings on spreadsheets, creating heavy admin work and low trust in schedules.\nSolution: We built a production platform with automated scheduling, payments and ratings that has run for over two years.\nKey features: Tenant isolation and role based access; custom scheduling engine for home and away, courts and rest periods; Stripe memberships with refunds; automated notifications; AI rating recalculation after each match.\nTechnology: Laravel, InertiaJS, Stripe, Google SMTP, external AI rating engine.\nResults: No more spreadsheet scheduling or payments, lower admin overhead, more player trust and growth without adding staff.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3050,6 +3092,8 @@
     "case_study_summary": "Project: PlayPickleball, a multi tenant tournament management SaaS (Sports).\nProblem: Sports organizations spent hours building schedules and managing registrations and payments by hand.\nSolution: We built a platform that automates registration, payments, scheduling and standings for every organization.\nKey features: Round robin scheduling engine that builds full schedules in under a minute; online registration and Stripe payments; isolated company dashboards; role based access; live standings and revenue reports.\nTechnology: Laravel, Bootstrap, MySQL, Stripe, Google SMTP.\nResults: 80% less scheduling time, 50% less admin workload, 100+ tournaments, 5,000+ players and $1,500+ revenue per tournament.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3099,6 +3143,8 @@
     "case_study_summary": "Project: HIPAA ready AI psychopharmacology platform for psychiatrists (Healthcare).\nProblem: Psychiatrists spent long sessions building medication plans, with high risk of interaction errors and no trustworthy AI support.\nSolution: We built a RAG based clinical assistant that grounds answers in curated medical texts with validation and audit logging.\nKey features: RAG over curated texts with citations; AI validation agent; multithreaded patient chats with SOAP and plan templates; interaction and polypharmacy alerts; ICD-10 and DSM-5-TR mapping.\nTechnology: Next.js, Laravel, GPT-4, Pinecone, AES-256 encryption, JWT, Stripe.\nResults: 10 to 18 minutes saved per consultation, 25 to 40% less workflow time and 15 to 30% fewer medication related errors.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI powered",
@@ -3147,6 +3193,8 @@
     "case_study_summary": "Project: Puppeteer, a mobile first, multi tenant event ticketing platform (Events).\nProblem: Organizers struggled to control ticket allocation across sellers, track sales live and stop duplicate tickets at the gate.\nSolution: We built mobile and web apps that manage tickets from allocation and sales to gate entry.\nKey features: Ticket allocation to sellers with live stock; real time sales charts; in app restock requests with push alerts; one time QR codes with server side invalidation; daily sales reports.\nTechnology: React Native, Laravel, MySQL, VueJS admin, WebSockets, OneSignal.\nResults: Faster entry, no duplicate ticket use, real time revenue visibility and actionable post event insights.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3191,6 +3239,8 @@
     "case_study_summary": "Project: Internal AI knowledge assistant for Glass Doctor (Home Services).\nProblem: Policies, procedures and training documents were scattered, so employees waited on calls and senior staff were constantly interrupted.\nSolution: We built a secure assistant that answers employee questions only from approved company documents.\nKey features: Document upload with OCR; RAG answers that decline when nothing relevant exists; role based access; in app document viewer and chat history; audit logs and usage dashboard.\nTechnology: Next.js, Node.js, MySQL, Pinecone, ChatGPT, JWT.\nResults: Answers in seconds instead of calls, far fewer interruptions for senior staff and faster onboarding for new hires.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3246,6 +3296,8 @@
     "case_study_summary": "Project: AI WhatsApp support system for a residential property operator (Real Estate, Hospitality).\nProblem: Support staff answered the same tenant questions repeatedly, with spikes at check in and check out.\nSolution: We built a WhatsApp assistant that identifies tenants and answers from their apartment documents and live CRM data.\nKey features: Tenant identification by booking ID or phone; apartment specific RAG answers; Bitrix24 CRM data fallback; escalation on failed verification or frustration; manual and automatic chat modes.\nTechnology: Node.js, MySQL, AWS, GPT-4o, Pinecone, Bitrix24 CRM, Meta WhatsApp Business API, React.\nResults: About 90% of tenant queries resolved automatically, replies in 5 to 10 seconds and human support reduced to exceptions.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI automation",
@@ -3287,7 +3339,7 @@
     "live_link": "https://chairboss.io/",
     "landing_link": "https://chairboss.io/",
     "system_link": null,
-    "mobile_link": "Android: http://play.google.com/store/apps/details?id=com.empactappsllc.chairboss\niOS: https://apps.apple.com/us/app/chairboss/id6752791542",
+    "mobile_link": null,
     "staging_link": null,
     "case_study_link": null,
     "showable_publicly": null,
@@ -3296,6 +3348,8 @@
     "case_study_summary": "Project: ChairBoss, an AI powered booking and business platform for salons and barbers (Beauty).\nProblem: Providers lost bookings to slow replies and manual scheduling, had gaps in their calendars and no simple way to share revenue with partner providers.\nSolution: We built a platform where clients book by tap, chat or voice and providers run their business, payouts and partnerships in one place.\nKey features: Real time booking with conflict prevention; AI chat and voice booking; Smart Gaps scheduling; Stripe Connect payouts and commissions; loyalty tiers and provider revenue sharing.\nTechnology: React 18, TypeScript, Supabase, PostgreSQL with RLS, OpenAI, ElevenLabs, WebRTC, Stripe Connect.\nResults: Faster booking for clients, fuller calendars for providers, automated payouts and a new growth channel through partnerships.",
     "active": 1,
     "added_via": null,
+    "android_link": "http://play.google.com/store/apps/details?id=com.empactappsllc.chairboss",
+    "ios_link": "https://apps.apple.com/us/app/chairboss/id6752791542",
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3360,6 +3414,8 @@
     "case_study_summary": "Project: DocTrace, a document ingestion pipeline MVP (Document Intelligence).\nProblem: PDFs had to be processed into a clean, consistent structure before any AI analysis could be built on them.\nSolution: We built an event driven AWS pipeline that turns uploaded PDFs into normalized JSON using asynchronous Textract processing.\nKey features: PDF upload to S3; async Textract analysis for text, forms and tables; SNS callbacks with signature validation; normalized JSON output; modular codebase for Phase 2.\nTechnology: FastAPI (Python), Amazon Textract, S3, SNS, IAM, boto3, Pydantic.\nResults: A complete ingestion pipeline delivered within one week, ready for database, NLP and scoring in the next phase.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3405,6 +3461,8 @@
     "case_study_summary": "Project: IL Borghista, a tourism discovery platform for Italian villages (Tourism).\nProblem: Travelers had no single place to discover lesser known villages, and small local businesses could not afford visibility to international visitors.\nSolution: We built a bilingual platform connecting travelers, local businesses and municipalities through maps, search and curated content.\nKey features: Municipality pages, POIs, events and itineraries; global search and map based discovery; free self service business profiles; Enthusiast and Guide submissions with moderation; favorites and notifications.\nTechnology: React / Next.js, Node.js, PostgreSQL, PostGIS, Meilisearch, Supabase Storage, OneSignal.\nResults: Authentic villages made discoverable, free instant visibility for local businesses, and a GDPR ready platform in English and Italian.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI powered",
@@ -3451,6 +3509,8 @@
     "case_study_summary": "Project: ShipperScout, a freight marketplace MVP connecting shippers with carriers (Logistics).\nProblem: Shippers contacted carriers one by one, while carriers chased leads outside their routes and services.\nSolution: We built a two sided marketplace where each request for quote reaches only matching carriers, who unlock leads with credits.\nKey features: Guided RFQ creation; rule based matching by route and service; multi user carrier accounts with shared credits; Stripe subscriptions and credit purchases; admin moderation and monitoring.\nTechnology: React / Next.js, Node.js, PostgreSQL, Stripe, Sentry.\nResults: Faster carrier discovery for shippers, relevant leads only for carriers and revenue from launch through subscriptions and credits.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI automation",
@@ -3495,6 +3555,8 @@
     "case_study_summary": "Project: Upsell engine and direct booking platform for StayPlus, a short term rental operator (Hospitality).\nProblem: Add on services were sold informally with no central control or tracking, and the company relied on commission based booking platforms.\nSolution: We built a standalone upsell engine that sells eligible services inside each guest's guidebook, then a business website and a direct booking website.\nKey features: Service catalog assigned per property; Guesty reservation eligibility checks; Stripe checkout and order tracking; automated guidebook emails; direct booking site with admin panel.\nTechnology: Laravel, MySQL, Next.js 14, Strapi, PostgreSQL, NextAuth.js, Stripe, Guesty API.\nResults: New revenue on every eligible stay, central control of services and pricing, less manual work and a direct booking channel.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI automation",
@@ -3546,6 +3608,8 @@
     "case_study_summary": "Project: Breesy, an AI operating layer for property restoration companies (Restoration).\nProblem: Missed calls lost emergency jobs, call context was scattered across tools, storm surges overwhelmed intake, and leaders could not see where revenue leaked.\nSolution: We built a suite of connected AI products that capture every call, turn it into structured jobs and show where work is won or lost.\nKey features: Breesy Voice 24/7 AI intake with urgency triage; Breesy Phone call summaries and tasks; Revenue leakage tracking; Marketing Attribution; CAT Command Center for storm surge prioritization.\nTechnology: AI voice and call intelligence, integrations with JobNimbus, Jobber, Salesforce, HubSpot, QuickBooks, Teams and Slack, SOC 2 Type II.\nResults: Breesy reports a 100% answer rate, 30%+ more lead capture and 22%+ more job volume when fully implemented.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3597,6 +3661,8 @@
     "case_study_summary": "Project: Post filing automation for a Florida consumer bankruptcy law firm (Legal).\nProblem: Paralegals read every filing, drafted pleadings, emailed lenders and tracked deadlines by hand, supported by hard to maintain Zapier reminders.\nSolution: We built two automation engines that read official bankruptcy forms and prepare pleadings and lender requests, with fail closed validation and paralegal review.\nKey features: Form 107 extraction for pending lawsuits; Florida case number and court validation; automatic Suggestion of Bankruptcy pleadings; Form 108 reaffirmation requests; Rule 4008 deadline calendaring.\nTechnology: Cloudflare Workers, PDF extraction with OCR confidence checks, Lawcus, Google Drive, Sheets and Calendar APIs.\nResults: Pleadings prepared automatically, no filing built on unverified data, deadlines calculated automatically and legacy Zaps replaced by one pipeline.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3654,6 +3720,8 @@
     "case_study_summary": "Project: Technology partnership with 10-4 Global, a US third party logistics provider (Logistics).\nProblem: Shippers wanted instant online quotes, load posting calls needed answering at any hour, and core operations depended on a third party TMS.\nSolution: We built online quoting and a car shipping platform, an AI voice line for load postings, and an in house TMS to replace Quote Factory.\nKey features: Quote flows for FTL, LTL, automotive and multimodal freight; distance based pricing with subscriptions; Stripe payments and admin content control; Twilio and Retell AI voice agent; in house TMS.\nTechnology: Laravel, Bootstrap, jQuery, MySQL, Stripe, mapping APIs, Twilio, Retell AI.\nResults: Instant online estimates, carrier calls answered by AI and a clear path off third party software.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3708,6 +3776,8 @@
     "case_study_summary": "Project: Deals Smart AI, a multi tenant lead engagement SaaS for car dealerships (Automotive).\nProblem: Dealerships missed and neglected leads because BDC teams could not respond fast enough without adding headcount.\nSolution: We built a platform that runs AI conversations over SMS and email to turn missed and dormant leads into booked appointments.\nKey features: Real time CRM lead and intent sync; inventory sync; campaign templates for lease expiry, dormant and high intent leads; strict pricing and financing guardrails; SLA based escalation and calendar booking.\nTechnology: React, React Native, Laravel, MySQL, AWS, OpenAI with RAG, Twilio, CDK Elead, Automotive Mastermind.\nResults: Under 30 second first response, 20 to 35% more booked appointments and 1 to 2 hours saved per rep per day.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",
@@ -3765,6 +3835,8 @@
     "case_study_summary": "Project: LumiTrip, a mobile first AI travel concierge PWA (Travel).\nProblem: Planning a trip meant hours of research across many sites to build a day by day itinerary.\nSolution: We built an app that creates a complete, editable itinerary in about 10 seconds from a few travel preferences.\nKey features: Structured AI itineraries by morning, afternoon and evening; six languages with right to left support; regeneration that keeps locked edits; inline editing and favorites; shareable public links.\nTechnology: React, Node.js, Express, PostgreSQL, OpenAI GPT-4, JWT.\nResults: 500 to 2,500 monthly users, 2,000 to 10,000 itineraries a month and 20 to 35% of itineraries leading to booking intent.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "AI powered",
      "Content generation",
@@ -3796,6 +3868,8 @@
     "case_study_summary": "Project: ThreadLabStudio, an AI fashion design SaaS (Fashion, Ecommerce).\nProblem: Independent designers spent hours on each mockup and struggled to turn ideas into factory ready files.\nSolution: We built a web app that turns prompts and artwork into realistic apparel mockups and production ready tech packs.\nKey features: AI garment mockups with realistic folds and prints; fast asynchronous generation; AI trend forecasting; tech pack PDF creator; manufacturer directory and Stripe payments.\nTechnology: React, Tailwind CSS, Supabase, OpenAI, Hugging Face, Replicate, Stripe.\nResults: Design time cut from 2 to 6 hours to 2 to 10 minutes per mockup, with 1,000+ mockups created.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "AI powered",
      "Billing / payments",
@@ -3822,7 +3896,7 @@
     "live_link": "https://kruzee.com/",
     "landing_link": "https://kruzee.com/",
     "system_link": null,
-    "mobile_link": "https://play.google.com/store/apps/details?id=com.kruzee.kruzeeInstructor&hl=en",
+    "mobile_link": null,
     "staging_link": null,
     "case_study_link": "https://stackupsolutions.com/projects/kruzee",
     "showable_publicly": null,
@@ -3831,6 +3905,8 @@
     "case_study_summary": "Project: Kruzee, a driving lesson platform scaling from Canada into the US (Education).\nProblem: Lesson booking relied on manual coordination between students and instructors, limiting reliability and growth.\nSolution: We built a vertically controlled platform with a student booking web app, an instructor mobile app and a central backend.\nKey features: Location based lesson booking with packages; platform owned payments; React Native instructor app for schedules and availability; centralized scheduling and pricing logic; admin dashboard for instructors and payouts.\nTechnology: React, React Native (iOS and Android), centralized backend and payment orchestration.\nResults: Much faster booking, better instructor utilization and operational control at scale without added headcount, supporting hundreds of active students.",
     "active": 1,
     "added_via": null,
+    "android_link": "https://play.google.com/store/apps/details?id=com.kruzee.kruzeeInstructor&hl=en",
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "API / backend service",
@@ -3873,6 +3949,8 @@
     "case_study_summary": "Project: Clinic management platform for an eye clinic (Healthcare).\nProblem: Booking, patient records, payments and invoicing ran on separate manual processes, with no self service for patients.\nSolution: We built a patient mobile app and a clinician CRM on one shared backend covering booking through billing.\nKey features: Real time booking, rescheduling and cancellation; medical document upload; tokenized payments; clinician calendars and patient directory; automatic PDF invoices and receipts.\nTechnology: React Native, web CRM, Node.js, JWT, tokenized payment gateway.\nResults: One operational system from booking to billing with 24/7 patient self service.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "API / backend service",
@@ -3914,6 +3992,8 @@
     "case_study_summary": "Project: LexGuard Pro, an AI compliance SaaS for landlords and property managers (Real Estate, Legal).\nProblem: Landlords tracked licenses, inspections and deadlines across scattered files and risked fines or blocked filings when something expired.\nSolution: We built a platform over six months, from prototype to beta, that scores each property's compliance and blocks risky actions when requirements are missing.\nKey features: Red, Yellow and Green Compliance Ledger; jurisdiction rules managed as data; Evidence Vault with audit trails; Gatekeeper that blocks non compliant actions; daily expiry alerts and court ready evidence packs.\nTechnology: Next.js, NestJS, MySQL, AWS S3, OpenAI, Maryland SDAT and Baltimore Housing data pipelines.\nResults: Clear compliance status per property, alerts before deadlines, auditable decisions and new jurisdictions added by configuration.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI automation",
@@ -3960,6 +4040,8 @@
     "case_study_summary": "Project: Lucid Vision, a personalized AI meditation app (Wellness).\nProblem: Static meditation scripts felt generic and did not respond to each user's mood and goals.\nSolution: We built a cross platform app that generates a personalized meditation session in real time from each user's input.\nKey features: Category specific AI prompts; memory across sessions; immersive background audio; saved sessions for reflection; calm, ritual first UX.\nTechnology: React Native, Redux, Supabase, OpenAI gpt-4o-mini, ffmpeg, PostHog.\nResults: A launch ready app delivering sessions that feel personal rather than scripted, with analytics to keep refining the experience.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "AI powered",
      "Bug fixing / debugging",
@@ -3990,6 +4072,8 @@
     "case_study_summary": "Project: Malaab, a multi tenant sports facility booking platform (Sports).\nProblem: Courts and academies took bookings by phone, WhatsApp and spreadsheets, causing double bookings and heavy coordination.\nSolution: We delivered a conflict free booking system for players, venues and admins in English and Arabic.\nKey features: Single, recurring and tournament booking; real time slot locking; local payment gateway; venue portal for pricing and calendars; admin app across all tenants.\nTechnology: Laravel, React, React Native, local payment gateway, Arabic RTL support.\nResults: About 70% less manual coordination, more reliable bookings and better utilization, with daily active usage across venues.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI powered",
@@ -4031,6 +4115,8 @@
     "case_study_summary": "Partnered for about three years to design and build Verkehrbox, an enterprise, multi tenant construction operations platform in Germany that manages labor, materials, logistics and payroll across many sites and companies. Workers check in and out on iOS and Android, giving accurate time tracking per site, task and employer that feeds payroll workflows and reduces disputes. Managers plan labor with dedicated calendars for sites, teams and individuals, and material check in and check out gives shared inventory visibility across companies working on the same site. Strict role based permissions for workers, site managers, company admins and super admins let multiple firms collaborate with customized views on one central API, built for high concurrency at shift changes and years of accumulated data. Results: centralized real time visibility, far less manual coordination, more accurate payroll and stronger accountability.",
     "active": 0,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "API / backend service",
@@ -4072,6 +4158,8 @@
     "case_study_summary": "Project: Doctoria, a two sided healthcare marketplace for the Dominican Republic (Healthcare).\nProblem: Patients had no easy way to find verified doctors by specialty, price and insurance, and doctors lacked a simple channel to receive and manage appointment requests.\nSolution: We took Doctoria from idea to a live marketplace connecting patients with verified doctors through search, appointment requests and real time chat.\nKey features: Doctor search by specialty, price, availability and insurance; appointment requests and real time chat with file sharing; document based doctor verification; freemium to Stripe subscription plans; moderated reviews from real appointments.\nTechnology: React, Node.js, PostgreSQL, Socket.IO, Stripe, English and Spanish.\nResults: A live bilingual marketplace with verified doctors, monetized through subscriptions and governed by a Super Admin layer.",
     "active": 1,
     "added_via": null,
+    "android_link": null,
+    "ios_link": null,
     "tags": [
      "Admin dashboard",
      "AI agent",

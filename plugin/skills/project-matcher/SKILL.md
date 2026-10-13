@@ -29,12 +29,12 @@ Example: "Job needs: a web SaaS platform for appointment booking and payments in
 
 ## Step 1. Platform filter
 
-A project's platform comes from its links and tags: a Landing Page or System link, or Web app, SaaS platform, Website / landing page or Admin dashboard tags, means **web**; a Mobile link or the Mobile app tag means **mobile**; Desktop app means **desktop**.
+A project's platform comes from its links and tags: a Landing Page or System link, or Web app, SaaS platform, Website / landing page or Admin dashboard tags, means **web**; an Android or iOS link or the Mobile app tag means **mobile**; Desktop app means **desktop**.
 
 | Job platform | Project qualifies when | Excluded |
 | --- | --- | --- |
 | Web | It is a web product and has a web link (Landing Page or System link) | Mobile only projects, and projects whose only link is a mobile store link |
-| Mobile | It is a mobile product (Mobile link or Mobile app tag) | Web only projects |
+| Mobile | It is a mobile product (an Android or iOS link, or the Mobile app tag) | Web only projects |
 | Web and mobile | Prefer projects that are both. Otherwise the two recommended must cover both: one web, one mobile | Neither |
 | Backend or API only | It has API / backend service, integrations or automation work matching the job | None by platform; judge on workflow |
 | Desktop | Desktop app tag, otherwise the closest web product, flagged under "Needs your eye" | Mobile only projects |
@@ -106,7 +106,7 @@ Projects with no link of any kind stay in, but are marked "no link". The library
 
 Use the first link that exists, in this order:
 
-1. **Landing page link or Mobile link, matched to the job's platform.** For a web job use the Landing Page link, never a mobile store link. For a mobile job use the store link. For a web and mobile job, use the link that matches the part of the job this project proves, or both on separate lines. A Mobile cell may hold several links (Android and iOS); use the store that fits the job, or both on separate lines.
+1. **Landing page link or a store link (Android or iOS), matched to the job's platform.** For a web job use the Landing Page link, never a mobile store link. For a mobile job use the store link: `android_link` for an Android job, `ios_link` for an iPhone job, both on separate lines when the job wants both. For a web and mobile job, use the link that matches the part of the job this project proves, or both on separate lines. A Mobile cell may hold several links (Android and iOS); use the store that fits the job, or both on separate lines.
 2. **System link.** The live system. For a web job, a System link comes before any mobile link.
 3. **Case study link.** It is on the Stackup Solutions website. Upwork's rules allow portfolio and website links before a contract, but the Stackup site carries contact details and a contact form, so use a case study link only when no link above exists, and list it under "Needs your eye" so the person confirms before submitting.
 4. **Staging link.** Last resort only, since it is served from Stackup's own server. Always list it under "Needs your eye".

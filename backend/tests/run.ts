@@ -9,12 +9,13 @@ import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
 import { jobQuestions, separateQuestions, splitAnswers } from '../src/screening/questions';
-import { coreWork, jobNeeds, jobPlatform, pickLoom, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
+import { coreWork, jobNeeds, jobPlatform, pickLoom, projectPlatforms, rankProjects, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
 import { rankTemplates } from '../src/proposal/rank';
 import { checkOpening, checkProposal } from '../src/proposal/checks';
+import { splitMobile } from '../src/library/mobile';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
 import { settingsConflict } from '../src/settings';
@@ -201,6 +202,13 @@ const ctx = { rules, projects };
   assert.deepEqual(op('Hi Sara, thanks for the invite.\nYour booking flow loses people at payment. We would fix the checkout first.', { invite: true, noUs: false }), [], 'an invite may greet, and its greeting line is not one of the two');
   assert.deepEqual(op('Per your request: BANANA. Leads go cold.', { starts: 'Understood.', clientOpening: true }), [], 'a client\'s required opening wins');
   assert.deepEqual(op('Your US clinics lose calls after hours. Missed calls become lost patients.'), [], '"US" is not talk about us');
+  // the old one-cell mobile link becomes an Android link, an iOS link, and anything else (kept)
+  assert.deepEqual(splitMobile('Android: http://play.google.com/store/apps/details?id=com.x\\niOS: https://apps.apple.com/us/app/x/id1'),
+    { android: 'http://play.google.com/store/apps/details?id=com.x', ios: 'https://apps.apple.com/us/app/x/id1', other: null }, 'the literal \\n the sheet left in is not part of a link');
+  assert.deepEqual(splitMobile('https://play.google.com/store/apps/details?id=a&hl=en'), { android: 'https://play.google.com/store/apps/details?id=a&hl=en', ios: null, other: null });
+  assert.deepEqual(splitMobile('https://apps.apple.com/app/id9 https://testflight.apple.com/join/abc'), { android: null, ios: 'https://apps.apple.com/app/id9', other: 'https://testflight.apple.com/join/abc' }, 'anything else is kept');
+  assert.deepEqual(splitMobile(''), { android: null, ios: null, other: null });
+  assert.deepEqual([...projectPlatforms({ android_link: 'https://play.google.com/x' }, [])], ['mobile']); assert.deepEqual([...projectPlatforms({ ios_link: 'https://apps.apple.com/x', landing_link: 'https://x.io' }, [])].sort(), ['mobile', 'web']);
   // ---- screening questions: Upwork's own section, apart from the job ----
   const page50 = 'We need an AI agent for leasing leads.\nProject Type:Ongoing project\nYou will be asked to answer the following questions when submitting a proposal:\n\nWhat similar AI lead-response agents have you built?\nWhat tools would you likely use for a project like this?\nSkills and Expertise\nai project management\nAbout the client\nPayment method verified';
   const sq = separateQuestions(page50);

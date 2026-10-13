@@ -5,6 +5,7 @@ import { requireRole } from './auth';
 import { typeFacts } from './proposal/guide';
 import { htmlToPlain, textToHtml } from './html';
 import { jobIdFromUrl } from './screening/jobsource';
+import { splitMobile } from './library/mobile';
 import { getSettings } from './settings';
 import { loomVideos, PROFILE_FIELDS, profileBody } from './routes_library';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -226,11 +227,11 @@ plugin.post('/plugin/profiles', requireRole('admin'), async (req, res) => {
 const link = z.string().trim().max(500).regex(/^https?:\/\/\S+$/i, 'Links start with http:// or https://');
 const projectBody = z.object({
   name: z.string().trim().min(1).max(190),
-  landing_link: link.optional(), system_link: link.optional(), mobile_link: z.string().trim().max(500).optional(), staging_link: link.optional(), case_study_link: link.optional(),
+  landing_link: link.optional(), system_link: link.optional(), android_link: link.optional(), ios_link: link.optional(), mobile_link: z.string().trim().max(500).optional(), staging_link: link.optional(), case_study_link: link.optional(),
   overview: z.string().trim().max(8000).optional(), case_study_summary: z.string().trim().max(8000).optional(),
   tags: z.array(z.string().trim().min(1).max(120)).max(200).default([]).describe('Tag names from the tag dictionary, Industry tags included'),
 });
-const PROJECT_FIELDS = ['landing_link', 'system_link', 'mobile_link', 'staging_link', 'case_study_link', 'overview', 'case_study_summary'] as const;
+const PROJECT_FIELDS = ['landing_link', 'system_link', 'android_link', 'ios_link', 'mobile_link', 'staging_link', 'case_study_link', 'overview', 'case_study_summary'] as const;
 
 /** Add a project to the library, or fill the empty fields of an existing one and add the tags it is missing (never removes). */
 plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res) => {
@@ -241,8 +242,10 @@ plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res
     .map((t) => [t.name.toLowerCase(), t]));
   const tags = d.tags.map((n: string) => known.get(n.toLowerCase())).filter(Boolean);
   const unknownTags = d.tags.filter((n: string) => !known.has(n.toLowerCase()));
-  // the proposal link: a public page first (landing, then the first mobile store link), then the live system
-  const liveLink = d.landing_link || (d.mobile_link ? d.mobile_link.split(/\s+/)[0] : null) || d.system_link || null;
+  // an old style mobile link (both stores in one) is split into Android, iOS and anything else
+  if (d.mobile_link) { const m = splitMobile(d.mobile_link); d.android_link ??= m.android ?? undefined; d.ios_link ??= m.ios ?? undefined; d.mobile_link = m.other ?? undefined; }
+  // the proposal link: a public page first (landing, then a store link), then the live system
+  const liveLink = d.landing_link || d.android_link || d.ios_link || d.system_link || null;
   const conn = await pool.getConnection();
   let id: number, created = false, filled: string[] = [], added = 0;
   try {
@@ -279,7 +282,7 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
   const csNames = new Set(wantCs.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
   const cats = await query<any>('SELECT id, name, is_compliance FROM tag_categories ORDER BY sort_order, name');
   const tags = await query<any>('SELECT id, category_id, name, weight, description FROM tags WHERE active=1 ORDER BY sort_order, name');
-  const projects = await query<any>(`SELECT id, name, live_link, landing_link, system_link, mobile_link, staging_link, case_study_link, overview, case_study_summary
+  const projects = await query<any>(`SELECT id, name, live_link, landing_link, system_link, android_link, ios_link, mobile_link, staging_link, case_study_link, overview, case_study_summary
     FROM projects WHERE active=1 ORDER BY name`);
   const links = await query<any>(`SELECT pt.project_id, t.name, c.name AS category FROM project_tags pt JOIN tags t ON t.id=pt.tag_id AND t.active=1 JOIN tag_categories c ON c.id=t.category_id`);
   const inds = await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id');
@@ -293,7 +296,7 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
     },
     tag_dictionary: cats.map((c) => ({ category: c.name, compliance: !!c.is_compliance,
       tags: tags.filter((t) => t.category_id === c.id).map((t) => clean({ name: t.name, weight: Number(t.weight), description: t.description })) })).filter((c) => c.tags.length),
-    projects: projects.map((p) => clean({ name: p.name, proposal_link: p.live_link, landing_link: p.landing_link, system_link: p.system_link, mobile_link: p.mobile_link,
+    projects: projects.map((p) => clean({ name: p.name, proposal_link: p.live_link, landing_link: p.landing_link, system_link: p.system_link, android_link: p.android_link, ios_link: p.ios_link, other_mobile_link: p.mobile_link,
       staging_link: p.staging_link, case_study_link: p.case_study_link, overview: p.overview,
       case_study_summary: allCs || csNames.has(String(p.name).toLowerCase()) ? p.case_study_summary : null, has_case_study: !!p.case_study_summary || null,
       industries: inds.filter((x) => x.project_id === p.id).map((x) => x.name),

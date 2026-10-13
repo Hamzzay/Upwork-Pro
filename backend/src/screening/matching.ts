@@ -32,10 +32,10 @@ export function jobPlatform(tags: { name: string }[]): 'web' | 'mobile' | 'web a
   return 'not stated';
 }
 /** What a project runs on, from its links and tags. */
-export function projectPlatforms(p: { landing_link?: string | null; system_link?: string | null; mobile_link?: string | null }, tagNames: string[]): Set<Platform> {
+export function projectPlatforms(p: { landing_link?: string | null; system_link?: string | null; android_link?: string | null; ios_link?: string | null; mobile_link?: string | null }, tagNames: string[]): Set<Platform> {
   const n = new Set(tagNames.map((t) => t.toLowerCase())), out = new Set<Platform>();
   if (p.landing_link || p.system_link || WEB.some((x) => n.has(x))) out.add('web');
-  if (p.mobile_link || n.has('mobile app')) out.add('mobile');
+  if (p.android_link || p.ios_link || p.mobile_link || n.has('mobile app')) out.add('mobile');
   if (n.has('desktop app')) out.add('desktop');
   return out;
 }

@@ -1,6 +1,7 @@
 // Seeds categories, tags, projects (with their tags), rule codes and Upwork profiles from seed/library.json.
 // Insert-if-missing only: re-running never overwrites edits made through the app (a rule's details are only filled when empty).
 import 'dotenv/config';
+import { splitMobile } from '../src/library/mobile';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appRoot } from '../src/config';
@@ -20,8 +21,8 @@ import { exec, pool, query } from '../src/db';
   const tagId = new Map((await query<any>('SELECT t.id, t.name FROM tags t')).map((r) => [r.name.toLowerCase(), r.id]));
 
   for (const p of lib.projects) {
-    const r = await exec(`INSERT IGNORE INTO projects (name, live_link, showable_publicly, landing_link, system_link, mobile_link, staging_link, case_study_link, overview, case_study_summary)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`, [p.name, p.live_link, p.showable, p.landing_link ?? null, p.system_link ?? null, p.mobile_link ?? null, p.staging_link ?? null, p.case_study_link ?? null, p.overview ?? null, p.case_study_summary ?? null]);
+    const r = await exec(`INSERT IGNORE INTO projects (name, live_link, showable_publicly, landing_link, system_link, android_link, ios_link, mobile_link, staging_link, case_study_link, overview, case_study_summary)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [p.name, p.live_link, p.showable, p.landing_link ?? null, p.system_link ?? null, splitMobile(p.mobile_link).android, splitMobile(p.mobile_link).ios, splitMobile(p.mobile_link).other, p.staging_link ?? null, p.case_study_link ?? null, p.overview ?? null, p.case_study_summary ?? null]);
     if (!r.affectedRows) continue; // already there: leave its tags alone
     n.proj++;
     for (const t of p.tags) {

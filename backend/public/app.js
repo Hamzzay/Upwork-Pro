@@ -1901,7 +1901,7 @@ function projectEditor(p, categories, after, industries = []) {
     notes: h('textarea', { id: 'jt', style: 'min-height:70px', maxlength: 4000 }), active: h('input', { type: 'checkbox', id: 'ja', checked: p ? !!Number(p.active) : true }) };
   f.notes.value = p && p.notes ? p.notes : '';
   // the links the team keeps, the overview and the case study (as in the project sheet); the writer uses the overview and the case study
-  const LINKS = [['landing_link', 'Landing page link'], ['system_link', 'System link'], ['mobile_link', 'Mobile link (store links, space separated)'], ['staging_link', 'Staging link'], ['case_study_link', 'Case study link']];
+  const LINKS = [['landing_link', 'Landing page link'], ['system_link', 'System link'], ['android_link', 'Android link (Google Play)'], ['ios_link', 'iOS link (App Store)'], ['mobile_link', 'Other mobile link (optional)'], ['staging_link', 'Staging link'], ['case_study_link', 'Case study link']];
   for (const [k] of LINKS) f[k] = h('input', { type: 'text', id: 'jx_' + k, maxlength: 500, value: p && p[k] ? p[k] : '', placeholder: 'https://...' });
   f.overview = h('textarea', { id: 'jx_overview', style: 'min-height:90px', maxlength: 8000 }); f.overview.value = p && p.overview ? p.overview : '';
   f.case_study_summary = h('textarea', { id: 'jx_cs', style: 'min-height:90px', maxlength: 8000 }); f.case_study_summary.value = p && p.case_study_summary ? p.case_study_summary : '';
@@ -1968,7 +1968,7 @@ async function projectDetailView(id) {
       canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(p, categories, (nid) => (nid ? route() : (location.hash = lastList.projects)), industries) }, 'Edit project') : null,
       { back: [lastList.projects, 'Projects'], badges: onOff(p.active) }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'), h('dl', { class: 'kv cols2' },
-      kv('Proposal link', link), kv('Landing page', ext(p.landing_link)), kv('System', ext(p.system_link)), kv('Mobile', urlList(p.mobile_link)),
+      kv('Proposal link', link), kv('Landing page', ext(p.landing_link)), kv('System', ext(p.system_link)), kv('Android', ext(p.android_link)), kv('iOS', ext(p.ios_link)), p.mobile_link ? kv('Other mobile', urlList(p.mobile_link)) : null,
       kv('Staging', ext(p.staging_link)), kv('Case study', ext(p.case_study_link)),
       h('div', {}, h('dt', {}, 'Showable publicly'), h('dd', { class: p.showable_publicly ? '' : 'ns' }, p.showable_publicly || 'Not recorded')),
       h('div', {}, h('dt', {}, 'Added'), h('dd', {}, full(p.created_at))), h('div', {}, h('dt', {}, 'Last updated'), h('dd', {}, full(p.updated_at))),

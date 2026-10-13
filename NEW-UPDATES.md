@@ -930,3 +930,15 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
 - The separate Disable / Enable and Retire / Restore buttons on tags, profiles, users and rules are gone (the switch does it).
 - Checked in the browser: an industry switched off and on again through the popup; the rules list; every list's switch call
   (project, tag, profile, signal, rule) off and back on, each ending as it started; no console errors.
+
+### R47. Projects have an Android link and an iOS link (done, 13 October)
+- Projects get two store links, Android (Google Play) and iOS (App Store), in the project editor and on the project page. The old
+  "mobile link" field stays as "Other mobile link" for anything that is neither store (for example a TestFlight link).
+- Nothing is lost: `npm run migrate` splits every existing mobile link by store (migration `030_android_ios_links.sql` and a data step
+  after it, run once). Here: Chairboss into both, CaboAirportShuttle and Kruzee into Android, nothing left over. The project seed, the
+  sheet sync and the plugin's `add_project` split a combined link the same way (`src/library/mobile.ts`).
+- Matching counts an Android or iOS link as a mobile product. The plugin gets `android_link`, `ios_link` (and `other_mobile_link`) in
+  `get_library` and picks the store that fits the job; `add_project` takes the two links (rebuild the MCP: `cd mcp && npm run build`).
+- Checked: tests (the split, with the literal "\n" the sheet left in Chairboss's cell; a link that is neither store is kept; platforms
+  from store links); the migration on this database; Chairboss's page shows both links; saving the links, and a broken link refused.
+  Setup backup re-exported.
