@@ -136,6 +136,22 @@ const verdictPill = (v, status) =>
     : h('span', { class: 'pill wait busy' }, status === 'running' ? 'Screening' : 'Queued');
 /** On or off, the same badge on every list: green when on, grey when off. */
 const onOff = (on, yes = 'Active', no = 'Inactive') => h('span', { class: 'pill ' + (Number(on) ? 'PASS' : 'wait') }, Number(on) ? yes : no);
+/**
+ * The status in a list, as a switch: click it, confirm in the popup, done. `url` is PATCHed with { active } (or `body(active)`).
+ * Without the right to change it (`can` false) it is the plain status.
+ */
+function activeSwitch(on, { name, url, yes = 'Active', no = 'Inactive', can = true, body, after = () => route(), offText }) {
+  if (!can) return onOff(on, yes, no);
+  const isOn = !!Number(on), next = isOn ? no : yes;
+  const b = h('button', { type: 'button', class: 'pill pillbtn ' + (isOn ? 'PASS' : 'wait'), title: `${isOn ? yes : no}. Click to make it ${next.toLowerCase()}` }, isOn ? yes : no);
+  b.onclick = async (e) => {
+    e.stopPropagation(); e.preventDefault();
+    const ok = await ask(`Make ${name} ${next.toLowerCase()}?`, isOn ? (offText || 'It stays saved and can be switched back here at any time, but it is no longer used.') : 'It is used again from now on.', `Make ${next.toLowerCase()}`, isOn);
+    if (!ok) return;
+    try { await api('PATCH', url, body ? body(!isOn) : { active: !isOn }); toast(`${name}: ${next.toLowerCase()}`); after(); } catch (x) { toast(x.message, true); }
+  };
+  return b;
+}
 /** A yes/no question in the app's own dialog (never the browser's). Resolves true when confirmed. */
 function ask(title, text, confirm = 'Continue', danger = false) {
   return new Promise((resolve) => {
@@ -1608,7 +1624,7 @@ async function industriesView() {
         h('td', {}, h('strong', {}, i.name), i.description ? h('div', { class: 'meta' }, i.description.slice(0, 90)) : null),
         h('td', {}, i.projects.length ? h('div', { class: 'chips' }, i.projects.slice(0, 3).map((p) => h('span', { class: 'chip' }, p.name)),
           i.projects.length > 3 ? h('span', { class: 'chip', title: 'Show all ' + i.projects.length + ' projects' }, '+' + (i.projects.length - 3)) : null) : h('span', { class: 'faint' }, 'No projects yet')),
-        h('td', {}, onOff(i.active)),
+        h('td', {}, activeSwitch(i.active, { name: i.name, url: '/industries/' + i.id, can: canEdit, offText: 'It stays saved with its projects, but it is no longer offered when editing a project and its related industries are no longer used in matching.' })),
         canEdit ? acts(h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); industryEditor(i, projects, () => route()); } }, 'Edit')) : null))) })]);
 }
 
@@ -1683,9 +1699,8 @@ async function dictionaryView() {
       const inp = h('input', { type: 'number', class: 'scoreinp', min: 0, max: 10, step: 1, value: t.weight, 'aria-label': 'Score for ' + t.name });
       inp.onchange = () => saveScore(t, inp);
       return h('tr', {}, h('td', {}, h('strong', {}, t.name), t.description ? h('div', { class: 'meta' }, t.description.slice(0, 100)) : null), h('td', { class: 'muted' }, t.category), h('td', {}, inp),
-        h('td', { class: 'muted' }, t.project_count), h('td', {}, onOff(t.active, 'Active', 'Disabled')),
-        acts(h('button', { class: 'btn sm', onclick: () => tagDialog(t) }, 'Edit'),
-          h('button', { class: 'btn sm', onclick: async () => { try { await api('PATCH', '/admin/tags/' + t.id, { active: !Number(t.active) }); toast(Number(t.active) ? 'Tag disabled' : 'Tag enabled'); } catch (x) { toast(x.message, true); } route(); } }, Number(t.active) ? 'Disable' : 'Enable')));
+        h('td', { class: 'muted' }, t.project_count), h('td', {}, activeSwitch(t.active, { name: t.name, url: '/admin/tags/' + t.id, no: 'Disabled', offText: 'It stays on its projects, but jobs are no longer tagged with it and it no longer counts in matching.' })),
+        acts(h('button', { class: 'btn sm', onclick: () => tagDialog(t) }, 'Edit')));
     })) });
   const categoriesList = () => listCard({ items: categories, icon: 'tag', emptyTitle: 'No categories yet', emptyText: 'Add a category, then its tags.',
     search: { placeholder: 'Search categories', text: (c) => c.name },
@@ -1758,7 +1773,6 @@ async function profilesView() {
   function add() { const { f, body } = form(null); modal({ title: 'Add an Upwork profile', confirm: 'Add profile', body, wide: true, onConfirm: async () => { await api('POST', '/profiles', values(f)); toast('Profile added'); route(); } }); }
   function edit(p) { const { f, body } = form(p); modal({ title: 'Edit ' + p.name, confirm: 'Save profile', body, wide: true, extra: () => h('button', { class: 'btn danger', type: 'button', onclick: () => remove(p) }, 'Delete'),
     onConfirm: async () => { await api('PATCH', '/profiles/' + p.id, values(f)); toast('Profile saved'); route(); } }); }
-  const toggle = async (p) => { try { await api('PATCH', '/profiles/' + p.id, { active: !Number(p.active) }); toast(Number(p.active) ? 'Profile disabled' : 'Profile enabled'); } catch (x) { toast(x.message, true); } route(); };
   const remove = (p) => modal({ title: 'Delete ' + p.name + '?', confirm: 'Delete profile', danger: true,
     body: h('p', { class: 'muted' }, 'A profile that already has screenings cannot be deleted. Disable it instead and it disappears from the screening form.'),
     onConfirm: async () => { await api('DELETE', '/profiles/' + p.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Profile deleted'); route(); } });
@@ -1769,9 +1783,8 @@ async function profilesView() {
     h('td', {}, p.tagline ? h('span', {}, p.tagline) : h('span', { class: 'faint' }, 'Not set')),
     h('td', { class: 'nowrap' }, p.price !== null && p.price !== undefined ? money(p.price) + ' / hr' : h('span', { class: 'faint' }, 'Not set')),
     h('td', {}, (() => { const g = gitlabLink(p.gitlab_account) || (p.github_url ? { href: p.github_url, label: p.github_url.replace(/^https?:\/\//, '') } : null); return g ? h('a', { href: g.href, target: '_blank', rel: 'noopener noreferrer' }, g.label) : h('span', { class: 'faint' }, 'Not set'); })()),
-    h('td', {}, onOff(p.active, 'Active', 'Disabled')),
-    acts(h('button', { class: 'btn sm', onclick: () => edit(p) }, 'Edit'),
-      h('button', { class: 'btn sm', onclick: () => toggle(p) }, Number(p.active) ? 'Disable' : 'Enable')));
+    h('td', {}, activeSwitch(p.active, { name: p.name, url: '/profiles/' + p.id, no: 'Disabled', offText: 'It stays saved with its jobs, but it is no longer offered when screening or choosing who sends a proposal.' })),
+    acts(h('button', { class: 'btn sm', onclick: () => edit(p) }, 'Edit')));
   shell('profiles', [
     pageHead('Upwork profiles', 'The profiles your team applies from. Every proposal is sent from one, in its voice and with its rates and rules.', h('button', { class: 'btn primary', onclick: add }, icon('screen'), 'Add profile')),
     listCard({ items: profiles, icon: 'badge', emptyTitle: 'No profiles yet', emptyText: 'Add the Upwork profiles your team applies from.', emptyAction: h('button', { class: 'btn primary', onclick: add }, 'Add profile'),
@@ -1819,7 +1832,7 @@ async function loomsView() {
     mine.length ? dataTable(['Video', 'Tags', 'Status', ''], mine.map((v) => h('tr', {},
       h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null),
       h('td', {}, v.tags.length ? h('div', { class: 'chips' }, v.tags.map((t) => h('span', { class: 'chip' }, t.name))) : h('span', { class: 'faint' }, 'No tags: never suggested')),
-      h('td', {}, onOff(v.active, 'Active', 'Disabled')),
+      h('td', {}, activeSwitch(v.active, { name: v.title, url: '/looms/' + v.id, no: 'Disabled', offText: 'It stays saved, but it is no longer suggested or offered for proposals.' })),
       acts(h('button', { class: 'btn sm', onclick: () => editor(v) }, 'Edit')))))
       : h('p', { class: 'card-pad jp-label', style: 'margin:0' }, 'No videos yet. Add the first one for this profile.'));
   // one row per profile, so the shared list can search and filter them; each carries its videos
@@ -1937,7 +1950,7 @@ async function projectsView() {
         h('td', {}, p.industries.length ? h('div', { class: 'chips' }, p.industries.slice(0, 2).map((i) => h('span', { class: 'chip' }, i.name)), p.industries.length > 2 ? h('span', { class: 'chip' }, '+' + (p.industries.length - 2)) : null) : h('span', { class: 'faint' }, 'None')),
         h('td', {}, p.tags.length ? h('div', { class: 'chips' }, p.tags.slice(0, 4).map((t) => h('span', { class: 'chip' }, t.name)),
           p.tags.length > 4 ? h('span', { class: 'chip', title: 'Show all ' + p.tags.length + ' tags' }, '+' + (p.tags.length - 4)) : null) : h('span', { class: 'faint' }, 'Not tagged yet')),
-        h('td', {}, onOff(p.active)),
+        h('td', {}, activeSwitch(p.active, { name: p.name, url: '/projects/' + p.id, can: canEdit, offText: 'It stays saved, and jobs that used it keep it, but it is no longer matched to new jobs.' })),
         canEdit ? acts(h('button', { class: 'btn sm', onclick: (e) => { e.stopPropagation(); projectEditor(p, categories, afterEdit, industries); } }, 'Edit')) : null))) })], true);
 }
 
@@ -1998,10 +2011,9 @@ async function usersView() {
     h('td', {}, h('div', { class: 'row', style: 'gap:10px;flex-wrap:nowrap' }, h('div', { class: 'avatar' }, initials(u.name)),
       h('div', {}, h('strong', {}, u.name, u.id === me.id ? h('span', { class: 'faint', style: 'font-weight:400' }, ' (you)') : null, u.main ? h('span', { class: 'srcchip', title: 'The first admin account. Only this person can change it.' }, 'Main admin') : null), h('div', { class: 'meta' }, u.email)))),
     h('td', {}, u.id === me.id || locked(u) ? cap(u.role) : roleSel(u.role, (e) => patch(u.id, { role: e.target.value }, 'Role updated'))),
-    h('td', {}, onOff(u.active, 'Active', 'Disabled')),
+    h('td', {}, activeSwitch(u.active, { name: u.name, url: '/admin/users/' + u.id, no: 'Disabled', can: u.id !== me.id && !locked(u), offText: 'They can no longer sign in. Their jobs stay as they are.' })),
     h('td', { class: 'muted nowrap', title: full(u.created_at) }, ago(u.created_at)),
-    u.id === me.id ? acts(h('button', { class: 'btn sm', onclick: changePassword }, 'Change password')) : locked(u) ? acts() : acts(h('button', { class: 'btn sm', onclick: () => resetPw(u) }, 'Reset password'),
-      h('button', { class: 'btn sm', onclick: () => patch(u.id, { active: !Number(u.active) }, Number(u.active) ? 'User disabled' : 'User enabled') }, Number(u.active) ? 'Disable' : 'Enable')));
+    u.id === me.id ? acts(h('button', { class: 'btn sm', onclick: changePassword }, 'Change password')) : locked(u) ? acts() : acts(h('button', { class: 'btn sm', onclick: () => resetPw(u) }, 'Reset password')));
   shell('users', [pageHead('Users', 'Who can sign in, and what each person can see and change.', h('button', { class: 'btn primary', onclick: addUser }, icon('screen'), 'Add user')),
     listCard({ items: users, icon: 'users', emptyTitle: 'No users yet', emptyText: 'Add the people who will use Upwork Pro.',
       search: { placeholder: 'Search users', text: (u) => u.name + ' ' + u.email },
@@ -2137,14 +2149,13 @@ async function rulesView() {
     modal({ title: 'Edit ' + r.code, confirm: 'Save', body: f.body('Keep the meaning: jobs already flagged with ' + r.code + ' were judged by the old wording. For a new meaning, add a new rule.'),
       onConfirm: async () => { await api('PATCH', '/admin/rules/' + r.code, { rule: f.rule.value, details: f.det.value }); toast(r.code + ' saved'); route(); } });
   };
-  const toggle = async (r) => { await api('PATCH', '/admin/rules/' + r.code, { active: !r.active }); toast(r.code + (r.active ? ' retired' : ' restored')); route(); };
   const row = (r) => h('tr', { class: r.active ? '' : 'retired' },
     h('td', {}, h('span', { class: 'code ' + (r.type === 'fail' ? 'F' : 'G') }, r.code)),
     h('td', {}, h('span', { class: 'vbadge ' + (r.type === 'fail' ? 'FAIL' : 'FLAG') }, r.type === 'fail' ? 'Fail' : 'Flag')),
     h('td', { style: 'white-space:normal' }, r.rule, r.details ? h('div', { class: 'meta', style: 'margin-top:2px' }, 'How to apply: ' + r.details) : null),
     h('td', { class: 'nowrap' }, r.fired ? h('a', { href: `#/history?rule=${r.code}` }, `${r.fired} job${r.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-    h('td', {}, onOff(r.active, 'Active', 'Retired')),
-    acts(h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Edit'), h('button', { class: 'btn sm', onclick: () => toggle(r) }, r.active ? 'Retire' : 'Restore')));
+    h('td', {}, activeSwitch(r.active, { name: r.code, url: '/admin/rules/' + r.code, no: 'Retired', offText: 'New screenings no longer use it. Jobs it already fired on keep it.' })),
+    acts(h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Edit')));
   shell('rules', [pageHead('Rules', 'The fail and flag rules the gate applies. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.',
       [h('button', { class: 'btn', onclick: () => add('flag') }, icon('screen'), 'Add flag rule'), h('button', { class: 'btn primary', onclick: () => add('fail') }, icon('screen'), 'Add fail rule')]),
     h('div', { class: 'notice' }, icon('info'), h('span', {}, 'Every active rule, with its "How to apply" note, is added after the ', h('a', { href: '#/skill' }, 'Gate instructions'), ' for every job. A change here applies from the next job on, and each job keeps the rules it was screened against.')),

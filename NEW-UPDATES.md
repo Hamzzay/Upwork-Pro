@@ -921,3 +921,12 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
 - Checked: the session zone is +05:00 here and when the server is started in UTC; a copy of the database with MySQL switched to UTC:
   the dry run, the shift (+300 minutes), and a second run refused; a time written now shows "1 second ago" and the Pakistan time for
   a viewer in New York; tests pass.
+
+### R46. Active and inactive straight from every list (done, 13 October)
+- The status in the lists is now a switch: click "Active" (or "Inactive", "Disabled", "Retired", "Off"), confirm in the popup, done.
+  The popup says what switching it off means for that kind of item. On: industries, projects, tags, Upwork profiles, Loom videos,
+  users, rules, signals, proposal type samples, and a proposal type's own page. Only people allowed to edit the item see a switch;
+  others see the plain status. You cannot switch off yourself or the main admin.
+- The separate Disable / Enable and Retire / Restore buttons on tags, profiles, users and rules are gone (the switch does it).
+- Checked in the browser: an industry switched off and on again through the popup; the rules list; every list's switch call
+  (project, tag, profile, signal, rule) off and back on, each ending as it started; no console errors.

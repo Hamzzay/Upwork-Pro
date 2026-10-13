@@ -383,7 +383,7 @@ async function templateView(idStr) {
 
   const parts = [
     pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', [del, saveBtn],
-      { back: ['#/writing', 'Writing guide'], badges: isNew ? null : onOff(t.active, 'Active', 'Retired') }),
+      { back: ['#/writing', 'Writing guide'], badges: isNew ? null : activeSwitch(t.active, { name: t.name, url: '/templates/' + t.id, no: 'Retired', offText: 'It is no longer suggested or offered. Proposals already written with it keep it.' }) }),
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'),
       h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Name'), f.name),
         h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Tens set the priority group (10 first, then 20, 30, 40); within a group, more supporting signals win, then the lower number.'))),
@@ -465,7 +465,7 @@ function samplesCard(t) {
     holder.replaceChildren(...[d.samples.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Sample', 'By', 'Job', 'Status', ''].map((x) => h('th', {}, x)))),
       h('tbody', {}, d.samples.map((s) => h('tr', {}, h('td', {}, h('strong', {}, s.title), h('div', { class: 'meta' }, s.content.slice(0, 110).replace(/\n/g, ' ') + '...')), h('td', { class: 'muted' }, s.author || '-'),
         h('td', {}, s.job_url ? h('a', { href: s.job_url, target: '_blank', rel: 'noopener noreferrer' }, 'Job') : h('span', { class: 'faint' }, '-')),
-        h('td', {}, onOff(s.active, 'Active', 'Off')), acts(h('button', { class: 'btn sm', type: 'button', onclick: () => dialog(s) }, 'Edit'))))))) : h('p', { class: 'faint small' }, 'No samples yet. Add proposals that worked: the AI uses up to 3 of them as a reference for tone and structure.'),
+        h('td', {}, activeSwitch(s.active, { name: s.title, url: '/template-samples/' + s.id, no: 'Off', can: canEditTemplates(), after: () => load(), offText: 'The writer no longer uses it as an example.' })), acts(h('button', { class: 'btn sm', type: 'button', onclick: () => dialog(s) }, 'Edit'))))))) : h('p', { class: 'faint small' }, 'No samples yet. Add proposals that worked: the AI uses up to 3 of them as a reference for tone and structure.'),
       pager(d.total, d.page, (n) => { pg = n; load(); })].filter(Boolean)); // replaceChildren prints a null as the word
   }
   load();
@@ -496,7 +496,7 @@ async function signalsView() {
       render: (slice) => dataTable(['#', 'Signal', 'Layer', 'Values', 'Proposal types', 'Status'], slice.map((s) => h('tr', { class: 'click', tabindex: 0, onclick: open(s), onkeydown: (e) => { if (e.key === 'Enter') open(s)(); } },
         h('td', { class: 'muted' }, s.number), h('td', {}, h('strong', {}, s.name), s.multi_select ? h('span', { class: 'pill wait', style: 'margin-left:8px' }, 'Multi-select') : null, s.decides ? h('div', { class: 'meta' }, cap(s.decides.slice(0, 110))) : null),
         h('td', { class: 'muted' }, s.layer_name), h('td', { class: 'muted' }, s.value_count), h('td', { class: 'muted' }, s.template_count),
-        h('td', {}, onOff(s.active, 'Active', 'Off'))))) })]);
+        h('td', {}, activeSwitch(s.active, { name: s.name, url: '/signals/' + s.id, no: 'Off', can: me.role === 'admin', offText: 'It is no longer read from jobs or used to choose a proposal type.' }))))) })]);
 }
 
 async function signalView(id) {

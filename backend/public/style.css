@@ -672,3 +672,8 @@ details.timeline > summary { cursor: pointer; }
   dialog .df { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* a status that can be switched from a list: click, confirm */
+.pillbtn { cursor: pointer; font-family: inherit; }
+.pillbtn:hover { box-shadow: 0 0 0 1px currentColor; }
+.pillbtn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
