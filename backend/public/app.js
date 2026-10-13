@@ -2310,8 +2310,19 @@ async function settingsView() {
     return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'jp-label' }, meta[key].help) : null), h('div', { class: 'setin' }, input, btn));
   };
   const num = (key) => { const el = h('input', { type: 'number', min: 0, step: 1, value: settings[key], style: 'width:110px' }); return row(key, el, () => Number(el.value)); };
-  // an on / off setting: a select reads more plainly than a lone checkbox next to a Save button
-  const onoff = (key) => { const el = h('select', { 'aria-label': meta[key].label }, h('option', { value: '1', selected: !!settings[key] }, 'On'), h('option', { value: '0', selected: !settings[key] }, 'Off')); return row(key, el, () => el.value === '1'); };
+  // an on / off setting: a switch that saves as soon as it is flipped (no Save button needed)
+  const onoff = (key) => {
+    const on = !!settings[key];
+    const sw = h('button', { type: 'button', role: 'switch', class: 'switch' + (on ? ' on' : ''), 'aria-checked': on, 'aria-label': meta[key].label }, h('span', { class: 'knob' }));
+    const state = h('span', { class: 'switchlbl' }, on ? 'On' : 'Off');
+    sw.onclick = async () => {
+      sw.disabled = true;
+      try { await api('PUT', '/admin/settings/' + key, { value: !on }); CFG = null; toast(`${meta[key].label}: ${on ? 'off' : 'on'}`); route(); }
+      catch (x) { toast(x.message, true); sw.disabled = false; }
+    };
+    return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'jp-label' }, meta[key].help) : null),
+      h('div', { class: 'setin switchin' }, state, sw));
+  };
   const list = (key, ph) => { const el = h('input', { type: 'text', value: settings[key].join(', '), placeholder: ph, style: 'min-width:320px' }); return row(key, el, () => el.value.split(',').map((x) => x.trim()).filter(Boolean)); };
   // which AI does the work: checked on the server (key present) before it is saved
   const ai = await api('GET', '/admin/ai');

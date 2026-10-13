@@ -690,3 +690,13 @@ details.timeline > summary { cursor: pointer; }
 .chglines .del { color: var(--fail); }
 .chglines .add { color: var(--pass); }
 .chgfold summary { cursor: pointer; font-size: 13px; color: var(--brand); margin-top: 4px; }
+
+/* an on / off switch (Settings) */
+.switchin { min-width: 174px; justify-content: flex-end; }
+.switch { position: relative; width: 44px; height: 24px; border-radius: 999px; border: 0; padding: 0; cursor: pointer; background: var(--line-strong, #c9ced6); transition: background .15s; flex: none; }
+.switch .knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.switch.on { background: var(--brand); }
+.switch.on .knob { transform: translateX(20px); }
+.switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.switch:disabled { opacity: .6; cursor: default; }
+.switchlbl { font-size: 13px; font-weight: 600; color: var(--muted); }

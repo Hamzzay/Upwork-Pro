@@ -1008,4 +1008,4 @@ points (a dental calling bot beat the lead qualification platform). Tags cannot 
   again with the real model: lead projects on top with reasons (Rock County, Apex, Dealsmart, Seller Genius AI, Breesy; and Dealsmart,
   Seller Genius AI, Apex, Rock County, Breesy), no healthcare or dental project; the order differs a little between two runs of the
   same job, as an AI judgement does; a fresh screening of #60 no longer names projects; both pages show the same list.
-- Later on 14 October: the switch "AI orders the matched projects" (On / Off) is on the Settings page, first under Project matching.
+- Later on 14 October: "AI orders the matched projects" is on the Settings page, first under Project matching, as an on / off switch that saves when flipped.
