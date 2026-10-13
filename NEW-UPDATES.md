@@ -904,3 +904,20 @@ screen.
 - Checked: tests (clean openings pass; greeting, introduction, project, stats and talk about us are caught; "Understood."; an invite's
   greeting; a client's own opening; "US" is not "us"); job #50 written by the real model as Type 7 and as Type 1, both openings
   following the rules with no warning. Setup backup re-exported.
+
+### R45. Pakistan time everywhere (done, 13 October)
+Why "5 hours ago": the live server runs in UTC, the database sent its times without a zone, and the browser read them as Pakistan
+time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
+- The server process and every database connection run in Pakistan time (`APP_TZ` in `src/config.ts`; `SET time_zone='+05:00'` on
+  each connection), so NOW(), "today", date filters and the times sent to the page are Pakistan time on a UTC server too.
+- The page reads every time as Pakistan time and shows it in Pakistan time, even on a device set to another zone. The status form's
+  "now" is Pakistan time. Exports keep the times as they are (they were turned into UTC before).
+- **Deploying this on the live server, in this order:** stop the app (pm2 stop), pull, `npm run migrate`, then `npm run fix:timezone`
+  (a dry run: it shows what it will move) and `npm run fix:timezone -- --apply`, then start the app. It moves the times the database
+  wrote in UTC by 5 hours, once; it does nothing on a database already in Pakistan time and refuses to run twice. Times people typed
+  into the status form (sent, viewed, chat, interview, outcome, status history) were already Pakistan time and are left alone.
+  Automatic timestamps (created and updated times) need no change: MySQL converts them by itself.
+- `npx ts-node scripts/check-time.ts` prints the database session zone, the database's and the server's time and Pakistan time.
+- Checked: the session zone is +05:00 here and when the server is started in UTC; a copy of the database with MySQL switched to UTC:
+  the dry run, the shift (+300 minutes), and a second run refused; a time written now shows "1 second ago" and the Pakistan time for
+  a viewer in New York; tests pass.

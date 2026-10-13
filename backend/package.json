@@ -28,6 +28,7 @@
     "merge:writing:prod": "node dist/scripts/merge-writing.js",
     "upgrade:guide": "ts-node scripts/upgrade-guide.ts",
     "upgrade:openings": "ts-node scripts/fill-openings.ts",
+    "fix:timezone": "ts-node scripts/fix-timezone.ts",
     "upgrade:guide:prod": "node dist/scripts/upgrade-guide.js",
     "setup:export": "ts-node scripts/setup-data.ts export",
     "setup:import": "ts-node scripts/setup-data.ts import",

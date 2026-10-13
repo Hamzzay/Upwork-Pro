@@ -1,12 +1,15 @@
 import mysql from 'mysql2/promise';
-import { config } from './config';
+import { APP_TZ_OFFSET, config } from './config';
 
 export const pool = mysql.createPool({
   ...config.db,
   connectionLimit: 10,
   dateStrings: true,
+  timezone: APP_TZ_OFFSET,
   charset: 'utf8mb4',
 });
+// every connection works in Pakistan time, so NOW(), DATE() and the times sent to the page are Pakistan time on a UTC server too
+(pool as any).pool.on('connection', (c: any) => { c.query(`SET time_zone = '${APP_TZ_OFFSET}'`); });
 
 export async function query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   const [rows] = await pool.query(sql, params);

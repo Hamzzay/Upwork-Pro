@@ -429,7 +429,7 @@ const trackBody = z.object({
 const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id', 'skip_reason', 'skip_note'] as const;
 /** Every tracked field, so a change can be stored as old value -> new value. */
 const TRACKED = [...TRACK_KEYS, 'proposal_sent_at', 'client_viewed_at', 'client_replied_at', 'interviewed_at', 'outcome_at'];
-const show = (v: any) => (v == null ? null : v instanceof Date ? v.toISOString().replace('T', ' ').slice(0, 19) : String(v));
+const show = (v: any) => (v == null ? null : v instanceof Date ? v.toLocaleString('sv', { timeZone: 'Asia/Karachi' }) : String(v));
 async function trackSnapshot(id: number): Promise<Record<string, string | null>> {
   const r = (await query<any>(`SELECT ${TRACKED.join(', ')} FROM screenings WHERE id=?`, [id]))[0] ?? {};
   return Object.fromEntries(TRACKED.map((k) => [k, show(r[k])]));

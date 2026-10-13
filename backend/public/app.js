@@ -60,7 +60,9 @@ async function api(method, path, body) {
 }
 /** First letter up: model-written values often start lower case ("not shown"). */
 const cap = (v) => (typeof v === 'string' && v ? v[0].toUpperCase() + v.slice(1) : v);
-const toDate = (s) => (s ? new Date(String(s).replace(' ', 'T')) : null);
+// Every time from the server is Pakistan time (UTC+5) and is shown in Pakistan time, whatever the device's own zone.
+const TZ = 'Asia/Karachi';
+const toDate = (s) => { if (!s) return null; const t = String(s).replace(' ', 'T'); return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? t : (t.length <= 10 ? t + 'T00:00:00' : t) + '+05:00'); };
 function ago(s) {
   const d = toDate(s); if (!d) return '';
   const sec = Math.max(0, (Date.now() - d.getTime()) / 1000);
@@ -68,13 +70,13 @@ function ago(s) {
   if (sec < 3600) return Math.floor(sec / 60) + ' min ago';
   if (sec < 86400) return Math.floor(sec / 3600) + ' h ago';
   if (sec < 604800) return Math.floor(sec / 86400) + ' d ago';
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: TZ });
 }
 /** ago() inside a sentence: "Finished just now", not "Finished Just now". */
 const agoIn = (s) => { const t = ago(s); return t === 'Just now' ? 'just now' : t; };
 /** A day in a table: 7 Oct 2026. */
-const dayText = (s) => { if (!s) return ''; const t = String(s); const d = t.length <= 10 ? new Date(t + 'T00:00:00') : toDate(t); return isNaN(d) ? t : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); };
-const full = (s) => { const d = toDate(s); return d ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
+const dayText = (s) => { if (!s) return ''; const t = String(s); const d = toDate(t); return isNaN(d) ? t : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: TZ }); };
+const full = (s) => { const d = toDate(s); return d ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: TZ }) : ''; };
 const initials = (n) => n.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
 function toast(msg, bad) {
@@ -426,7 +428,7 @@ async function newView() {
 
 // ---------- dashboard ----------
 const PERIODS = [['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['all', 'All time']];
-const ymd = (d) => d.toLocaleDateString('sv'); // YYYY-MM-DD in local time
+const ymd = (d) => d.toLocaleDateString('sv', { timeZone: TZ }); // YYYY-MM-DD in Pakistan time
 function periodRange(key) {
   const now = new Date(), t = ymd(now);
   if (key === 'today') return { from: t, to: t };
@@ -499,7 +501,7 @@ async function dashboardView() {
           : h('p', { class: 'muted' }, 'Every job in this period is complete or skipped.')),
         panel('Jobs per day', 'Screened and proposals written', d.daily.length ? h('div', { class: 'daybars' }, d.daily.map((x) => h('div', { class: 'day', title: `${x.day}: ${x.screened} screened, ${x.continued} continued, ${x.proposals} proposals` },
           h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(x.screened / maxDay) * 100}%` }), h('i', { class: 'p', style: `height:${(x.proposals / maxDay) * 100}%` })),
-          h('span', { class: 'small muted nowrap' }, toDate(x.day + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))))) : h('p', { class: 'muted' }, 'No jobs in this period.'), false,
+          h('span', { class: 'small muted nowrap' }, toDate(x.day + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: TZ }))))) : h('p', { class: 'muted' }, 'No jobs in this period.'), false,
           d.daily.length ? h('div', { class: 'legend' }, h('span', {}, h('i', { class: 's' }), 'Screened'), h('span', {}, h('i', {}), 'Proposals')) : null),
         panel('Rules that fire most', 'And how often people continue anyway', d.rules.length ? h('div', { class: 'hbars' }, d.rules.map((r) =>
           hbar(r.code + (r.rule ? '  ' + r.rule : ''), r.fired, d.rules[0].fired, `${pct(r.continued, r.fired)} continued`, jobsLink({ rule: r.code })))) : h('p', { class: 'muted' }, 'No rules fired in this period.'), true),
@@ -633,7 +635,7 @@ async function reportsView() {
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Over time'), h('span', { class: 'sub' }, 'Jobs screened and proposals sent, by week')),
           h('div', { class: 'card-pad' }, weeks.length ? [h('div', { class: 'daybars' }, weeks.map((w) => h('a', { class: 'day', href: jobsLink(w.link), title: `${w.name}: ${w.jobs} screened, ${w.sent} sent, ${w.viewed} viewed, ${w.chat} chats, ${w.hired} hired` },
             h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(w.jobs / maxW) * 100}%` }), h('i', { class: 'p', style: `height:${(w.sent / maxW) * 100}%` })),
-            h('span', { class: 'small muted nowrap' }, toDate(w.key + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))))),
+            h('span', { class: 'small muted nowrap' }, toDate(w.key + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: TZ }))))),
             h('div', { class: 'legend' }, h('span', {}, h('i', { class: 's' }), 'Screened'), h('span', {}, h('i', {}), 'Sent'))] : h('p', { class: 'muted' }, 'No jobs in this period.'))),
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'How long things take'), h('span', { class: 'sub' }, 'Averages')),
           h('div', { class: 'card-pad' }, h('dl', { class: 'facts' }, [['Paste to proposal ready', tm.secs_to_proposal == null ? 'No data' : mins(tm.secs_to_proposal)], ['Sent to first view', hours(tm.hours_to_view)], ['Sent to chat opened', hours(tm.hours_to_chat)], ['Sent to closed', tm.days_to_close == null ? 'No data' : tm.days_to_close + ' days']]
@@ -660,7 +662,7 @@ async function reportsView() {
 
 // ---------- status: what happened on Upwork after the proposal ----------
 /** Now, as the value a datetime-local input takes (local time, to the minute). */
-const nowLocal = () => { const d = new Date(); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const nowLocal = () => new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 16); // Pakistan time (UTC+5, no daylight saving)
 const NEXT_STATUS = { '': 'Sent', Sent: 'Viewed', Viewed: 'Chat opened', 'Chat opened': 'Interview' };
 const canTrack = (userId) => userId === me.id || me.role === 'admin' || me.role === 'manager';
 /** One click to record a status and when it happened (now, unless changed). Every change is kept in the history. */
@@ -761,7 +763,7 @@ async function journeyPanel(r) {
       h('div', {}, h('span', {}, e.what), e.who ? h('span', { class: 'muted' }, ' · ' + e.who) : null, e.detail ? h('div', { class: 'small muted' }, e.detail) : null)))),
     h('a', { class: 'btn sm', href: '#/s/' + r.id, style: 'margin-top:8px' }, 'Open job')];
 }
-const shortDate = (s) => { const d = toDate(s); return d ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''; };
+const shortDate = (s) => { const d = toDate(s); return d ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: TZ }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: TZ }) : ''; };
 
 /** The gate result: a quiet badge, the rule codes as chips (three, then "+N"), and the details on click. */
 function resultCell(r) {
@@ -2296,9 +2298,9 @@ async function connectView() {
   };
   const revoke = (t) => modal({ title: 'Revoke "' + t.name + '"?', confirm: 'Revoke', danger: true, body: h('p', {}, 'Anything using this token stops working at once. This cannot be undone.'),
     onConfirm: async () => { await api('DELETE', '/tokens/' + t.id); toast('Token revoked'); route(); } });
-  const status = (t) => (t.revoked_at ? h('span', { class: 'pill wait' }, 'Revoked') : new Date(t.expires_at) < new Date() ? h('span', { class: 'pill wait' }, 'Expired') : h('span', { class: 'pill PASS' }, 'Active'));
+  const status = (t) => (t.revoked_at ? h('span', { class: 'pill wait' }, 'Revoked') : toDate(t.expires_at) < new Date() ? h('span', { class: 'pill wait' }, 'Expired') : h('span', { class: 'pill PASS' }, 'Active'));
   const rows = tokens.map((t) => h('tr', {}, h('td', {}, t.name), h('td', {}, status(t)), h('td', {}, ago(t.created_at)), h('td', {}, t.last_used_at ? ago(t.last_used_at) : h('span', { class: 'faint' }, 'Never')), h('td', {}, dayText(t.expires_at)),
-    acts(!t.revoked_at && new Date(t.expires_at) > new Date() ? h('button', { class: 'btn sm', type: 'button', onclick: () => revoke(t) }, 'Revoke') : null)));
+    acts(!t.revoked_at && toDate(t.expires_at) > new Date() ? h('button', { class: 'btn sm', type: 'button', onclick: () => revoke(t) }, 'Revoke') : null)));
   // sign-in (OAuth): the way for everyone; tokens stay for a local setup
   const disconnect = (c) => modal({ title: 'Disconnect ' + c.client_name + '?', confirm: 'Disconnect', danger: true, body: h('p', {}, 'That Claude stops reaching Upwork Pro at once. To use it again, sign in from Claude again.'),
     onConfirm: async () => { await api('DELETE', '/oauth/connections/' + c.grant_id); toast('Disconnected'); route(); } });

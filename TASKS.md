@@ -60,7 +60,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 16 | Skipping a job asks for a reason: five quick picks plus a note, saved and logged (R42) | done |
 | 17 | Screening questions in Upwork's own section: signals and type from the job alone, answers apart with a Copy each (R43). The answers card still to be seen on screen | done |
 | 18 | The first two lines: strict rules per proposal type, checked and rewritten once (R44). Live: `npm run upgrade:openings` | done |
-| 19 | Pakistan time (UTC+5) everywhere: the live server runs in UTC, so a new proposal shows "5 hours ago" | to do |
+| 19 | Pakistan time everywhere (R45). Live: stop, pull, migrate, `npm run fix:timezone -- --apply` once, start | done |
 | 20 | Active and inactive straight from every list (rules, projects, profiles, tags, industries, Loom videos, types): click the status, confirm in a popup, done | to do |
 | 21 | Projects get two mobile links, Android and iOS. Existing links are split by store, nothing lost | to do |
 | 22 | Project step: "Show 10 more projects" (R41) | done |

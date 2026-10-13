@@ -14,7 +14,8 @@ const label = (k: string) => k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpper
 const secs = (a: any, b: any) => (a && b ? Math.round((new Date(b).getTime() - new Date(a).getTime()) / 1000) : null);
 /** The codes a job was screened against, from the snapshot kept with it (older jobs have none). */
 const rulesApplied = (v: string | null) => { try { return v ? (JSON.parse(v) as { code: string }[]).map((r) => r.code).join(', ') : null; } catch { return null; } };
-const dt = (v: any) => (v ? new Date(v).toISOString().replace('T', ' ').slice(0, 19) : null);
+// the database sends Pakistan time as text: keep it as it is (a toISOString would turn it into UTC)
+const dt = (v: any) => (v ? (v instanceof Date ? v.toLocaleString('sv', { timeZone: 'Asia/Karachi' }) : String(v).replace('T', ' ').slice(0, 19)) : null);
 const group = <T extends Record<string, any>>(rows: T[], key: keyof T) => {
   const m = new Map<number, T[]>();
   for (const r of rows) { const k = Number(r[key]); if (!m.has(k)) m.set(k, []); m.get(k)!.push(r); }

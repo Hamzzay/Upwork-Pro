@@ -1,4 +1,7 @@
 import 'dotenv/config';
+// The team works in Pakistan: every time is kept and shown in Pakistan time (UTC+5, no daylight saving), whatever the server's zone.
+export const APP_TZ = 'Asia/Karachi', APP_TZ_OFFSET = '+05:00';
+process.env.TZ = APP_TZ;
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
