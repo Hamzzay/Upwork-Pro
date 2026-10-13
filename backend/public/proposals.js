@@ -88,7 +88,7 @@ function proposalSection(s, initial, matching) {
   const owner = s.user_id === me.id;
   const setActions = typeof actionsFor === 'function' ? actionsFor() : () => {};
   const box = h('div', { class: 'card card-pad propcard' });
-  let data = initial; let timer = null; let editor = null; let loaded = null; let newer = null; let dismissedFor = null;
+  let data = initial; let timer = null; let editor = null; let chatLoader = null; let loaded = null; let newer = null; let dismissedFor = null;
   const busy = () => data && (data.status === 'queued' || data.status === 'running');
   const chatBusy = () => data && data.messages.some((m) => m.role === 'user' && (m.status === 'queued' || m.status === 'running'));
   let templates = [];
@@ -164,12 +164,39 @@ function proposalSection(s, initial, matching) {
       try { const r = await api('POST', `/proposals/${data.id}/versions`, { html: editor.getHtml(), based_on: loaded }); toast(r.unchanged ? 'Nothing changed' : `Saved as version ${r.version_no}`); await reload(); newer = null; drawAll(); }
       catch (x) { toast(x.message, true); drawActions(); }
     }) : null;
-    const finish = owner && !data.finalized_at ? actBtn('Finish proposal', async (e) => {
-      const b = e.currentTarget; btnBusy(b, 'Finishing');
-      try { if (await box.__finish()) { if (typeof stepCtx !== 'undefined' && stepCtx) await stepCtx.advanceTo(4); } else drawActions(); }
-      catch (x) { toast(x.message, true); drawActions(); }
+    // Save and mark sent: saves any edits, finishes the proposal, then one popup records the status, Connects, boost, the video and notes
+    const sent = !!(s.proposal_sent_at || s.proposal_sent_date);
+    const markSent = owner && !sent && !chatBusy() ? actBtn('Save and mark sent', async (e) => {
+      const b = e.currentTarget; btnBusy(b, 'Saving');
+      try {
+        if (!(await box.__finish())) { drawActions(); return; }
+        await reload(); drawAll();
+        await sentDialog(s, async () => { if (typeof stepCtx !== 'undefined' && stepCtx) await stepCtx.advanceTo(4); });
+      } catch (x) { toast(x.message, true); drawActions(); }
     }, true) : null;
-    setActions(stale && owner ? startBtn('Write it again', null, false) : null, copy, save, finish);
+    const change = owner && !chatBusy() ? actBtn('Change type', changeType) : null;
+    setActions(stale && owner ? startBtn('Write it again', null, false) : null, copy, save, change, markSent);
+  }
+
+  // ----- change the proposal type after it is written: pick another, and it is written again with it (a new version)
+  async function changeType() {
+    if (editor && editor.isDirty() && !(await ask('Change the type?', 'You have unsaved changes. Writing again adds a new version and loads it in their place.', 'Continue'))) return;
+    const ch = await api('GET', `/screenings/${s.id}/proposal/types`);
+    let pick = data.template ? data.template.id : null;
+    const grid = h('div', { class: 'pgrid2 typegrid', role: 'radiogroup', 'aria-label': 'Proposal type' });
+    const draw = () => grid.replaceChildren(...ch.types.map((t) => h('button', { type: 'button', class: 'pcard2 typecard' + (pick === t.id ? ' on' : ''), role: 'radio', 'aria-checked': pick === t.id, onclick: () => { pick = t.id; draw(); } },
+      h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('span', { class: 'jp-sec', style: 'min-width:0' }, t.name),
+        data.template && t.id === data.template.id ? h('span', { class: 'tagpill' }, 'Current') : t.suggested ? h('span', { class: 'tagpill' }, 'Suggested') : null),
+      t.chosen_when ? h('div', { class: 'jp-label' }, 'For when ' + t.chosen_when) : null,
+      h('div', { class: 'jp-label faint' }, t.length || ''))));
+    draw();
+    modal({ title: 'Change the proposal type', confirm: 'Write it with this type', wide: true,
+      body: h('div', {}, h('p', { class: 'jp-label', style: 'margin-top:0' }, 'The proposal is written again with the type you pick, as a new version. The earlier versions stay.'), grid),
+      onConfirm: async () => {
+        if (!pick) throw new Error('Pick a type.');
+        await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: pick, loom_video_id: s.loom_video_id ?? null });
+        await reload(); drawAll(); startPolling();
+      } });
   }
 
   // ----- before anything is written: which type of proposal? The types that suit the job's signals come first.
@@ -264,6 +291,8 @@ function proposalSection(s, initial, matching) {
   }
 
   function drawChat() {
+    if (chatLoader) chatLoader.hidden = !chatBusy();
+    drawActions();
     const el = box.querySelector('.chatpanel'); if (!el) return;
     const list = h('div', { class: 'chatlist', 'aria-live': 'polite' }, data.messages.length ? data.messages.map((m) => {
       const mine = m.role === 'user';
@@ -292,6 +321,8 @@ function proposalSection(s, initial, matching) {
     const counter = h('div', { class: 'counter-line faint small' });
     const count = () => { const t = splitAnswers(htmlToPlainText(editor.getHtml())).letter; const words = t.trim() ? t.trim().split(/\s+/).length : 0; counter.textContent = `${words} words · ${t.length.toLocaleString()} characters` + (t.length > 5000 ? ' · over 5,000: Upwork may cut it off' : ''); counter.classList.toggle('over', t.length > 5000); };
     const answersBox = h('div', {});
+    chatLoader = h('div', { class: 'busycover', hidden: !chatBusy(), role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', {}, 'The AI is working on your request'),
+      h('div', { class: 'jp-label' }, 'If it rewrites the proposal, the new version loads here by itself.'));
     const drawAnswers = () => {
       const { answers } = splitAnswers(htmlToPlainText(editor.getHtml()));
       answersBox.replaceChildren(...(answers.length ? [h('div', { class: 'card card-pad', style: 'margin-top:14px' },
@@ -324,7 +355,7 @@ function proposalSection(s, initial, matching) {
         staleBox,
         warns,
         h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px' }, vsel, dirtyChip),
-        viewing, bannerEl, editor.el, counter, answersBox,
+        viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader), counter, answersBox,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
       h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), explain()));
   }

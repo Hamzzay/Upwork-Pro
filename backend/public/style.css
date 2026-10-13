@@ -401,7 +401,7 @@ ul.plain { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 ul.plain li { display: flex; gap: 10px; flex-wrap: wrap; }
 ul.plain li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); margin-top: 9px; flex: none; }
 .progress { padding: 34px 22px; text-align: center; }
-.progress .ring { width: 44px; height: 44px; margin: 0 auto 14px; border-radius: 50%; border: 4px solid var(--brand-soft); border-top-color: var(--brand); animation: spin .9s linear infinite; }
+.progress .ring, .busycover .ring { width: 44px; height: 44px; margin: 0 auto 14px; border-radius: 50%; border: 4px solid var(--brand-soft); border-top-color: var(--brand); animation: spin .9s linear infinite; }
 .progress strong { font-size: 16px !important; }
 
 /* ---------- editors with versions (gate instructions, writing guide) ---------- */
@@ -677,3 +677,9 @@ details.timeline > summary { cursor: pointer; }
 .pillbtn { cursor: pointer; font-family: inherit; }
 .pillbtn:hover { box-shadow: 0 0 0 1px currentColor; }
 .pillbtn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* a loader over the proposal while the AI works on a chat request */
+.busywrap { position: relative; }
+.busycover { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center;
+  background: color-mix(in srgb, var(--surface, #fff) 82%, transparent); border-radius: 10px; backdrop-filter: blur(1px); }
+.busycover[hidden] { display: none; }

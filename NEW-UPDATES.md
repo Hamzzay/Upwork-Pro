@@ -942,3 +942,20 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
 - Checked: tests (the split, with the literal "\n" the sheet left in Chairboss's cell; a link that is neither store is kept; platforms
   from store links); the migration on this database; Chairboss's page shows both links; saving the links, and a broken link refused.
   Setup backup re-exported.
+
+### R48. The proposal screen: change the type, save and mark sent, no Tracking tab, a loader for chat rewrites (done, 13 October)
+- **Change type** (task 23): a button in the proposal's tab row opens every proposal type (the current one and the suggested one
+  marked); pick one and the proposal is written again with it, as a new version. Earlier versions stay.
+- **Save and mark sent** (task 24): the proposal's tab row is now Copy (or Copy cover letter), Save version (with unsaved edits),
+  Change type and Save and mark sent. Save and mark sent saves the edits, finishes the proposal, then one popup asks the status
+  (Sent unless more has happened), when it happened (now, Pakistan time), Connects spent, boost, the Loom video sent and notes. Saving
+  goes to the Overview.
+- **No Tracking tab**: the Overview shows a Tracking card (status now, the status history, Connects, boost, Loom video, notes) with
+  Update status and Edit details in the tab row. "Mark as sent" on the Overview of a finished proposal opens the same popup. Old links
+  to the Tracking tab open the Overview. The job header's step and status now update as soon as something is saved.
+- **Loader** (task 25): while the AI works on a chat request, the proposal is covered by "The AI is working on your request"; Change
+  type and Save and mark sent wait until it is done; a rewrite loads by itself.
+- Checked in the browser on job #48 (lent to a local test account, then put back as it was): a chat request showed the loader, the
+  rewrite loaded as version 2 and the buttons came back; Change type lists the eight types; Save and mark sent saved Sent with the time,
+  16 Connects and a note and opened the Overview with the Tracking card; Edit details shows the saved values; no console errors.
+- The team guide's pictures of the Tracking tab are now out of date.

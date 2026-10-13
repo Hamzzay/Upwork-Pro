@@ -64,9 +64,9 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 20 | Active and inactive straight from every list, with a confirm popup (R46) | done |
 | 21 | Android and iOS links per project; existing links split by store, nothing lost (R47) | done |
 | 22 | Project step: "Show 10 more projects" (R41) | done |
-| 23 | Change the proposal type after a proposal is written, from the proposal screen, and rewrite | to do |
-| 24 | No Tracking tab: the proposal screen has Copy, Save, and "Save and mark sent", which asks for Connects, boost, Loom video, status, when, notes. Tracking details show on the Overview tab | to do |
-| 25 | A loader while a proposal is rewritten from the chat box | to do |
+| 23 | Change the proposal type after writing, from the tab row (R48) | done |
+| 24 | No Tracking tab: Save and mark sent with one popup; tracking on the Overview (R48) | done |
+| 25 | A loader while the AI works on a chat request (R48) | done |
 | 26 | Logs show what changed (old value and new value), not only "updated" | to do |
 | 27 | Tag editor: pick the projects that have the tag, with a search (like industries and projects) | to do |
 | 28 | Explain the tag scores in the app, next to the tags | to do |
@@ -91,6 +91,9 @@ Seller Genius AI and Breesy).
 5. One minimum score for the app and the plugin.
 
 ## Later
+
+- The team guide (`/guide`): retake the pictures of the proposal step and Overview (no Tracking tab since R48), the skip popup and the project step.
+- A local test admin `claude.test@localhost.test` exists on Hamza's Mac for checking screens (not on live).
 
 
 - Loom: Hamza to choose 5 to 7 video topics per profile and which one to three proposal types link a video; then add a "uses Loom" switch on types and the writer line.

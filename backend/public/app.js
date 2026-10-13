@@ -661,7 +661,7 @@ async function reportsView() {
         breakdown(d)),
       h('div', {}, h('h2', {}, 'Every report'), h('p', { class: 'jp-label' }, 'Each card is one way to cut the same jobs. Open one to see it in full above.')),
       h('div', { class: 'grid4 minigrid' }, data.dims.map(mini)),
-      h('div', { class: 'notice' }, icon('info'), h('span', {}, 'A rate is only as good as what is recorded: mark each proposal Sent, then Viewed, Chat opened, Interview and its outcome (the Update status button), and record Connects, boost and the Loom video under Tracking, Edit details. Small groups swing a lot: use "At least" to hide them.')),
+      h('div', { class: 'notice' }, icon('info'), h('span', {}, 'A rate is only as good as what is recorded: mark each proposal Sent, then Viewed, Chat opened, Interview and its outcome (the Update status button), and record Connects, boost and the Loom video when you mark it sent (or on the job Overview, Edit details). Small groups swing a lot: use "At least" to hide them.')),
     ].filter(Boolean));
   }
   async function load() {
@@ -706,6 +706,55 @@ async function statusDialog(id, onDone) {
       const lost = d.loss_outcomes.includes(pick);
       await api('POST', `/screenings/${id}/status`, { status: pick, at: when.value, reason: lost ? reason.value || null : null, note: note.value.trim() || null });
       toast(`Status: ${pick}`); if (onDone) await onDone();
+    } });
+}
+
+/** Connects, boost, the Loom video and notes for a job. */
+async function detailsDialog(s, onDone) {
+  const { videos } = await api('GET', '/looms');
+  const f = trackFields(s, videos);
+  modal({ title: 'Edit details', confirm: 'Save', body: h('div', { class: 'stack' }, f.body),
+    onConfirm: async () => { await api('PATCH', `/screenings/${s.id}/tracking`, f.values()); toast('Saved'); if (onDone) await onDone(); } });
+}
+function trackFields(s, videos) {
+  // the sending profile's videos first; a video that was sent before stays in the list even if it was disabled since
+  const mine = videos.filter((v) => (Number(v.active) || v.id === s.loom_video_id) && (!s.upwork_profile_id || v.profile_id === s.upwork_profile_id));
+  const loom = h('select', { id: 'tl', style: 'width:100%' }, h('option', { value: '' }, 'No Loom video'), mine.map((v) => h('option', { value: v.id, selected: v.id === s.loom_video_id }, v.title + (s.upwork_profile_id ? '' : ' (' + v.profile_name + ')'))));
+  const c = h('input', { type: 'number', id: 'tc', min: 0, max: 1000, value: s.connects_spent ?? '' });
+  const bo = h('input', { type: 'number', id: 'tb', min: 0, max: 1000, value: s.boost_connects ?? '' });
+  const no = h('textarea', { id: 'tn', style: 'min-height:70px', maxlength: 4000, placeholder: 'Anything worth knowing later (optional)' }); no.value = s.notes || '';
+  const num = (el) => (el.value === '' ? null : Number(el.value));
+  return {
+    body: [h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tc' }, 'Connects spent'), c), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tb' }, 'Boost (Connects)'), bo)),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tl' }, 'Loom video sent with the proposal'), loom,
+        h('div', { class: 'hint' }, mine.length ? 'Recorded so the reports can compare proposals with a video against those without.' : 'This profile has no Loom videos yet. An admin adds them under Loom videos.')),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), no)],
+    values: () => ({ connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null, loom_video_id: num(loom) }),
+  };
+}
+/** Mark the proposal as sent, in one popup: the status and when, Connects, boost, the Loom video and notes. */
+async function sentDialog(s, onDone) {
+  const [d, { videos }] = await Promise.all([api('GET', `/screenings/${s.id}/status`), api('GET', '/looms')]);
+  let pick = 'Sent';
+  const f = trackFields(s, videos);
+  const when = h('input', { type: 'datetime-local', id: 'sat', value: nowLocal(), max: nowLocal() });
+  const reason = h('select', { id: 'srs', style: 'width:100%' }, h('option', { value: '' }, 'Choose a reason'), d.loss_reasons.map((r) => h('option', { value: r }, r)));
+  const lossBox = h('div', { class: 'field', hidden: true }, h('label', { class: 'lbl', for: 'srs' }, 'Why didn\u2019t the client go ahead? (required)'), reason);
+  const grid = h('div', { class: 'statuspick', role: 'radiogroup', 'aria-label': 'Status' });
+  const draw = () => { grid.replaceChildren(...d.choices.map((c) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === c, class: 'chip' + (pick === c ? ' brand' : '') + (d.loss_outcomes.includes(c) ? ' loss' : ''), onclick: () => { pick = c; draw(); } }, c))); lossBox.hidden = !d.loss_outcomes.includes(pick); };
+  draw();
+  modal({ title: 'Mark as sent', confirm: 'Save', wide: true, body: h('div', { class: 'stack' },
+    h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Status'), grid, h('div', { class: 'hint' }, 'Sent, unless more has happened already.')), lossBox,
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, h('div', { class: 'hint' }, 'Set to now, in Pakistan time. Change it only if it happened earlier.')),
+    f.body),
+    onConfirm: async () => {
+      const lost = d.loss_outcomes.includes(pick);
+      if (lost && !reason.value) throw new Error('Choose why the client did not go ahead.');
+      await api('PATCH', `/screenings/${s.id}/tracking`, f.values());
+      // a later status needs "Sent" first: record it at the same time
+      if (pick !== 'Sent' && !d.current) await api('POST', `/screenings/${s.id}/status`, { status: 'Sent', at: when.value });
+      await api('POST', `/screenings/${s.id}/status`, { status: pick, at: when.value, reason: lost ? reason.value : null, note: null });
+      toast(`Marked as ${pick.toLowerCase()}`); if (onDone) await onDone();
     } });
 }
 
@@ -1359,8 +1408,9 @@ function gateChip(s) {
 // 2. A button appears only when pressing it does something; nothing is shown greyed out. A missing input is explained inline.
 // 3. Each tab opens with what the decision needs; supporting detail comes after, collapsed when long.
 const JOBPAGE_TABS = [['overview', 'Overview'], ['post', 'Job post'], ['screening', 'Screening', 0], ['projects', 'Projects', 1], ['profile', 'Profile', 2],
-  ['proposal', 'Proposal', 3], ['tracking', 'Tracking', 4], ['history', 'History']];
-const STEP_TAB = ['screening', 'projects', 'profile', 'proposal', 'tracking'];
+  ['proposal', 'Proposal', 3], ['history', 'History']];
+// no Tracking tab (13 October): the proposal is marked sent from the Proposal tab; Overview shows the status and the details
+const STEP_TAB = ['screening', 'projects', 'profile', 'proposal', 'overview'];
 /** The tab a job opens on when it is waiting on you. */
 const TAB_OF_STAGE = { screening: 'screening', failed: 'screening', decide: 'screening', projects: 'projects', profile: 'profile', type: 'proposal', writing: 'proposal', review: 'proposal' };
 /** The tab row's button slot, set while a job page is on screen. */
@@ -1379,11 +1429,12 @@ async function jobPage(id, want) {
   const stepOf = (k) => STEP_TAB.indexOf(k);
   const defaultTab = () => (s.status !== 'done' ? 'screening' : (owner && TAB_OF_STAGE[stage]) || 'overview');
   let tab = JOBPAGE_TABS.some(([k]) => k === want) ? want : defaultTab();
-  if (stepOf(tab) > 0 && !st.unlocked[stepOf(tab)]) tab = defaultTab();
+  if (stepOf(tab) > 0 && stepOf(tab) < 4 && !st.unlocked[stepOf(tab)]) tab = defaultTab();
   const tabsEl = h('div', { class: 'jobtabs', role: 'tablist', 'aria-label': 'Job sections' });
   const actionsEl = h('div', { class: 'jobacts' });
   const bar = h('div', { class: 'jobbar' }, tabsEl, actionsEl);
   const content = h('div', { class: 'jobtab' });
+  const headEl = h('div', { class: 'jobhead' });
   let active = null;
   tabActions = (btns) => actionsEl.replaceChildren(...btns);
 
@@ -1397,6 +1448,7 @@ async function jobPage(id, want) {
     const d = await api('GET', '/screenings/' + id);
     s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal;
     st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawTabs();
+    headEl.replaceChildren(...jobHeader(s, stage)); // the step and status in the header follow too
   }
   stepCtx = { go: (n) => setTab(STEP_TAB[n]), refresh, advanceTo: async (n) => { await refresh(); active = null; await setTab(STEP_TAB[n]); } };
   const statusUpdate = () => statusDialog(id, async () => { await refresh(); drawContent(); });
@@ -1421,7 +1473,7 @@ async function jobPage(id, want) {
       profile: ['Pick the profile', 'Choose the Upwork profile that sends it.' + who],
       type: ['Pick the proposal type', 'Choose how the proposal is written. The types that suit this job come first.' + who],
       writing: ['The proposal is being written', 'A few minutes. You can leave this page.'],
-      review: ['Review and finish the proposal', 'Read it, edit it or ask the AI, then finish it.' + who],
+      review: ['Review the proposal', 'Read it, edit it or ask the AI, then send it on Upwork and press Save and mark sent.' + who],
       ready: ['Ready to send', 'Send it on Upwork, then mark it as sent.'],
       submitted: ['Waiting on the client', 'Record what happens: viewed, chat, interview, outcome.'],
       closed: [`Closed: ${s.outcome || 'done'}`, s.outcome_reason ? s.outcome_reason + (s.outcome_note ? ': ' + s.outcome_note : '') : ''],
@@ -1433,8 +1485,8 @@ async function jobPage(id, want) {
     setActions(discard, s.discarded_at ? null : {
       failed: owner && go('screening', 'Open screening'), decide: owner && go('screening', 'Decide'), projects: owner && go('projects', 'Pick projects'),
       profile: owner && go('profile', 'Pick profile'), type: owner && go('proposal', 'Pick proposal type'), writing: go('proposal', 'Open the proposal'), review: owner && go('proposal', 'Review proposal'),
-      ready: canEdit && actBtn('Mark as sent', statusUpdate, true), submitted: canEdit && actBtn('Update status', statusUpdate, true), closed: canEdit && actBtn('Update status', statusUpdate),
-    }[stage] || null);
+      ready: canEdit && actBtn('Mark as sent', () => sentDialog(s, async () => { await refresh(); drawContent(); }), true), submitted: canEdit && actBtn('Update status', statusUpdate, true), closed: canEdit && actBtn('Update status', statusUpdate),
+    }[stage] || null, canEdit && ['ready', 'submitted', 'closed'].includes(stage) && !s.discarded_at ? actBtn('Edit details', editDetails) : null);
     const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected) : [];
     const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
     const status = s.outcome && s.outcome !== 'Pending' ? s.outcome : s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : s.proposal_sent_at || s.proposal_sent_date ? 'Sent' : null;
@@ -1454,8 +1506,24 @@ async function jobPage(id, want) {
       s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
         h('div', { style: 'margin-top:4px' }, `It is hidden from every list, count, report and export, and from Claude. Discarded ${full(s.discarded_at)}${s.discarded_by_name ? ' by ' + s.discarded_by_name : ''}${s.discard_reason ? ': ' + s.discard_reason : '.'}`)) : null,
       next[0] ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
-      facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null);
+      facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null,
+      ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
   }
+
+  // ---- what happened after sending: the status history, Connects, boost, the Loom video and notes (on Overview)
+  function trackingCard() {
+    const box = h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:50%' }));
+    api('GET', `/screenings/${id}/status`).then((d) => {
+      if (!box.isConnected) return;
+      box.replaceChildren(h('div', { class: 'jp-sec' }, 'Tracking'),
+        h('div', { class: 'jp-label', style: 'margin-bottom:8px' }, d.current ? 'Status now: ' + d.current : 'Not marked as sent yet.'),
+        d.events.length ? h('ol', { class: 'statuslist' }, d.events.map((e) => h('li', {}, h('span', { class: 'jp-sec' }, e.status),
+          h('span', { class: 'jp-label' }, ` ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}`), e.reason ? h('div', { class: 'jp-label' }, e.reason + (e.note ? ': ' + e.note : '')) : null))) : null,
+        h('dl', { class: 'facts', style: 'margin-top:10px' }, [['Connects spent', s.connects_spent], ['Boost', s.boost_connects], ['Loom video', s.loom_video_title], ['Notes', s.notes]].map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v == null || v === '' ? 'ns' : '' }, v == null || v === '' ? 'Not recorded' : String(v))))));
+    }).catch((x) => box.replaceChildren(h('p', { class: 'err' }, x.message)));
+    return box;
+  }
+  const editDetails = () => detailsDialog(s, async () => { await refresh(); drawContent(); });
 
   // ---- Screening: the verdict, the flags and the decision first; the job, client and competition facts after, collapsed
   function screeningTab() {
@@ -1530,43 +1598,6 @@ async function jobPage(id, want) {
   }
 
   // ---- Tracking: the status history; Update status and Edit details in the tab row
-  function trackingTab() {
-    const setActions = actionsFor();
-    const box = h('div', { class: 'stack' }, h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:50%' })));
-    const details = async () => {
-      const { videos } = await api('GET', '/looms');
-      // the sending profile's videos first; a video that was sent before stays in the list even if it was disabled since
-      const mine = videos.filter((v) => (Number(v.active) || v.id === s.loom_video_id) && (!s.upwork_profile_id || v.profile_id === s.upwork_profile_id));
-      const loom = h('select', { id: 'tl', style: 'width:100%' }, h('option', { value: '' }, 'No Loom video'), mine.map((v) => h('option', { value: v.id, selected: v.id === s.loom_video_id }, v.title + (s.upwork_profile_id ? '' : ' (' + v.profile_name + ')'))));
-      const c = h('input', { type: 'number', id: 'tc', min: 0, max: 1000, value: s.connects_spent ?? '' });
-      const bo = h('input', { type: 'number', id: 'tb', min: 0, max: 1000, value: s.boost_connects ?? '' });
-      const no = h('textarea', { id: 'tn', style: 'min-height:80px', maxlength: 4000 }); no.value = s.notes || '';
-      modal({ title: 'Edit details', confirm: 'Save', body: h('div', { class: 'stack' },
-        h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tc' }, 'Connects spent'), c), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tb' }, 'Boost (Connects)'), bo)),
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tl' }, 'Loom video sent with the proposal'), loom,
-          h('div', { class: 'hint' }, mine.length ? 'Recorded so the reports can compare proposals with a video against those without.' : 'This profile has no Loom videos yet. An admin adds them under Loom videos.')),
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), no)),
-        onConfirm: async () => {
-          const num = (el) => (el.value === '' ? null : Number(el.value));
-          await api('PATCH', `/screenings/${id}/tracking`, { connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null, loom_video_id: num(loom) });
-          toast('Saved'); await refresh(); drawContent();
-        } });
-    };
-    api('GET', `/screenings/${id}/status`).then((d) => {
-      if (!box.isConnected) return;
-      if (canEdit) setActions(actBtn('Edit details', details), actBtn(d.current ? 'Update status' : 'Mark as sent', statusUpdate, true));
-      const ev = d.events;
-      box.replaceChildren(
-        h('div', { class: 'card card-pad' }, h('div', { class: 'jp-label' }, 'Status now'), h('div', { class: 'jp-sec' }, d.current || 'Not sent yet'),
-          !d.current ? h('div', { class: 'jp-label' }, 'Mark it as sent once it is submitted on Upwork.') : null),
-        h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'History'),
-          ev.length ? h('ol', { class: 'statuslist' }, ev.map((e) => h('li', {}, h('span', { class: 'jp-sec' }, e.status),
-            h('span', { class: 'jp-label' }, ` ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}`), e.reason ? h('div', { class: 'jp-label' }, e.reason) : null))) : h('p', { class: 'jp-label' }, 'Nothing recorded yet.')),
-        h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, [['Connects spent', s.connects_spent], ['Boost', s.boost_connects], ['Loom video', s.loom_video_title], ['Notes', s.notes]].map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', { class: v == null || v === '' ? 'ns' : '' }, v == null || v === '' ? 'Not recorded' : String(v)))))));
-    }).catch((x) => box.replaceChildren(h('div', { class: 'card card-pad' }, h('p', { class: 'err' }, x.message))));
-    return box;
-  }
-
   function historyTab() {
     const tl = timelineCard(id); setTimeout(() => { tl.open = true; tl.dispatchEvent(new Event('toggle')); });
     return h('div', { class: 'stack' }, tl, h('details', { class: 'card fold' }, h('summary', {}, 'Record details'), recordDetails(s, override, matching, proposal)));
@@ -1577,7 +1608,7 @@ async function jobPage(id, want) {
     const build = {
       overview: overviewTab, post: () => postingCard(s, true, actionsFor()), screening: screeningTab,
       projects: () => (matching && matching.continued ? matchingSection(s, matching) : h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body', style: 'margin:0' }, 'Decide on the Screening tab first.'))),
-      profile: () => profileSection(s, matching), proposal: () => proposalSection(s, proposal, matching), tracking: trackingTab, history: historyTab,
+      profile: () => profileSection(s, matching), proposal: () => proposalSection(s, proposal, matching), history: historyTab,
     }[tab];
     const el = build(); content.replaceChildren(el); active = el;
   }
@@ -1585,7 +1616,8 @@ async function jobPage(id, want) {
   if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) route(); }, 2500);
   history.replaceState(null, '', `#/s/${id}/${tab}`);
   drawTabs(); drawContent();
-  shell('history', h('div', { class: 'jobpage' }, ...jobHeader(s, stage), bar, content));
+  headEl.replaceChildren(...jobHeader(s, stage));
+  shell('history', h('div', { class: 'jobpage' }, headEl, bar, content));
 }
 
 // ---------- industries ----------
@@ -2365,7 +2397,7 @@ async function route() {
     const [, a, b, c] = location.hash.split('?')[0].split('/');
     if (a === 's' && b) { // #/s/12, #/s/12/proposal, and the older #/s/12/work?step=4
       const step = Number(hashParams().step);
-      return await jobPage(Number(b), c === 'work' ? (step >= 1 && step <= 5 ? STEP_TAB[step - 1] : undefined) : c);
+      return await jobPage(Number(b), c === 'work' ? (step >= 1 && step <= 5 ? STEP_TAB[step - 1] : undefined) : c === 'tracking' ? 'overview' : c);
     }
     if (a === 'history') return await historyView();
     if (a === 'dashboard' || !a) return await dashboardView();
