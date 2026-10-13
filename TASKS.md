@@ -52,6 +52,44 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 13 | Reports page with 27 trends; the Loom video recorded per proposal (R32) | done |
 | 14 | MCP: `analyze_jobs` (bulk, paged) and `get_trends`; plugin v0.4.0 with the `job-trends` skill; `npm run test:read` (R33) | done (zip the plugin, rebuild the MCP, restart Claude) |
 
+## Hamza's notes of 13 October (to do, in this order unless Hamza says otherwise)
+
+| # | Task | Status |
+| --- | --- | --- |
+| 15 | Matching, the heart of the app: one workflow for screening and the project step (see "Matching: the proposal" below). Needs Hamza's yes first | to do |
+| 16 | Skipping a job after its flags or fails asks for a reason: four or five quick picks plus a text field, saved and logged | to do |
+| 17 | Screening questions: when the client lists them in Upwork's separate questions section, the signals and the proposal type come from the job alone, and the answers are written and shown separately, each easy to copy. Questions inside the description are handled as now (the recommended type) | to do |
+| 18 | The first two lines: in the writing guide, each proposal type gets its own instructions for the opening two lines, strictly followed and checked | to do |
+| 19 | Pakistan time (UTC+5) everywhere: the live server runs in UTC, so a new proposal shows "5 hours ago" | to do |
+| 20 | Active and inactive straight from every list (rules, projects, profiles, tags, industries, Loom videos, types): click the status, confirm in a popup, done | to do |
+| 21 | Projects get two mobile links, Android and iOS. Existing links are split by store, nothing lost | to do |
+| 22 | Project step: "Show 10 more projects", like the proposals list | to do |
+| 23 | Change the proposal type after a proposal is written, from the proposal screen, and rewrite | to do |
+| 24 | No Tracking tab: the proposal screen has Copy, Save, and "Save and mark sent", which asks for Connects, boost, Loom video, status, when, notes. Tracking details show on the Overview tab | to do |
+| 25 | A loader while a proposal is rewritten from the chat box | to do |
+| 26 | Logs show what changed (old value and new value), not only "updated" | to do |
+| 27 | Tag editor: pick the projects that have the tag, with a search (like industries and projects) | to do |
+| 28 | Explain the tag scores in the app, next to the tags | to do |
+
+### Matching: what went wrong (found 13 October, live jobs #19 and #29)
+
+The job: a recruitment company wants contact data scraped for real estate, trades and medical centres. The tagger gave it four
+industries (Construction, Healthcare, Real estate, Recruitment / HR), because the post names the industries of the data. Healthcare
+then counted as "same industry", so Doctoria, Navience and DentalMasteryDynamics were shown, and industry first put them above the
+projects that prove scraping. Separately, screening picks its own "sample projects" in a different AI reading, so the screening notes
+and the project step disagree (job #50: screening named Seller Genius AI, Rock County Sealcoat, Apex; the project step recommended
+Seller Genius AI and Breesy).
+
+### Matching: the proposal (waiting for Hamza's yes)
+
+1. One job industry: the client's business, or the users of what is built. Never the industries of data to be collected, leads to be
+   found or markets to be reached. None when unclear.
+2. The work comes first: a project can be recommended only if it shares the job's core work (a Workflow type or AI capability tag).
+   A same industry project that proves none of the work is never recommended.
+3. Then industry: among projects that prove the work, the same industry first, then related, then the rest.
+4. One list: the projects screening named are always in the project step, marked "Named in screening", so the two never disagree.
+5. One minimum score for the app and the plugin.
+
 ## Later
 
 - Plugin and app matching differ on two points (minimum tag score 6, Project stage weight 0 in the plugin): decide one rule for both.
