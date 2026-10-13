@@ -331,7 +331,7 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
 /** Everything the page needs for step 2: tags with reasons, the 5 matches with scores, and the confirmed selection. */
 async function matchingFor(id: number) {
   const s = (await query<any>(
-    `SELECT s.verdict, s.status, s.continued_at, s.tagging_status, s.tagging_error_message, s.tagged_at, s.selection_confirmed_at, s.job_needs, u.name AS confirmed_by
+    `SELECT s.verdict, s.status, s.continued_at, s.tagging_status, s.tagging_error_message, s.tagged_at, s.selection_confirmed_at, s.job_needs, s.matching_order, u.name AS confirmed_by
      FROM screenings s LEFT JOIN users u ON u.id=s.selection_confirmed_by WHERE s.id=?`, [id]))[0];
   if (!s) return null;
   const pp = (await query<any>(
@@ -340,17 +340,17 @@ async function matchingFor(id: number) {
   const base = { continued: !!s.continued_at, continued_at: s.continued_at, status: s.tagging_status as string | null, error: s.tagging_error_message as string | null,
     tags: [] as any[], matches: [] as any[], confirmed_at: s.selection_confirmed_at as string | null, confirmed_by: s.confirmed_by as string | null,
     proposal_profile: pp && pp.id ? { id: pp.id, name: pp.name, tagline: pp.tagline, price: pp.price, gitlab_account: pp.gitlab_account, profile_url: pp.profile_url, confirmed_at: pp.confirmed_at, confirmed_by: pp.confirmed_by } : null,
-    profiles: [] as any[], job_needs: s.job_needs as string | null };
+    profiles: [] as any[], job_needs: s.job_needs as string | null, order: s.matching_order as string | null };
   if (s.tagging_status !== 'done') return base;
   base.tags = await query(
     `SELECT jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
      WHERE jt.screening_id=? ORDER BY COALESCE(c.sort_order, 999), jt.weight DESC, jt.tag_name`, [id]);
-  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
+  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   base.matches = rows.map((r) => ({
     project_id: r.project_id, project_name: r.project_name, rank: r.rank_no, score: r.score, max_score: r.max_score,
     percent: r.max_score ? Math.round((r.score / r.max_score) * 100) : 0, compliance_gap: r.compliance_gap,
     recommended: !!r.recommended, selected: !!r.selected, shared: JSON.parse(r.shared_tags), pool: r.pool, alternative: !!r.alternative, platform: r.platform,
-    proves_work: !!r.proves_work, named_in_screening: !!r.named_in_screening, extra: !!r.extra,
+    proves_work: !!r.proves_work, named_in_screening: !!r.named_in_screening, extra: !!r.extra, ai_reason: r.ai_reason, ai_fits: r.ai_fits == null ? null : !!r.ai_fits,
   }));
   if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
     base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, github_url, profile_url, services, notes, active FROM upwork_profiles ORDER BY active DESC, name');

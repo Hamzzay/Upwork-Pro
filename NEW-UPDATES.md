@@ -987,3 +987,24 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
   with a plain example. The checkbox is now "Check that the first two lines do not talk about us", on its own line, with what it does
   (looks for I, we, our and my after writing; rewrites once; then warns) and when to untick it (Invite, Approach first).
 
+### R51. Matching, the last step: the AI orders the shortlist after reading the projects (done, 14 October)
+Why (Hamza, job #60 "AI Agent Developer for Lead Qualification"): screening named Apex, Seller Genius AI and Rock County; the project
+step put Seller Genius AI outside the top five. Five projects shared the same core tags, so the order came from adding up broad tag
+points (a dental calling bot beat the lead qualification platform). Tags cannot tell such projects apart; reading them can.
+- **Tags build the shortlist** (platform, the core work, the industry, the score), as in R41.
+- **The AI orders it** (new step): it reads the job and each shortlisted project's overview and case study and puts them in order by
+  how well each proves this exact job (the same core work done the same way first, then industry, platform, scale), with a one line
+  reason per project, and marks weak fits. The first two that fit are recommended. If that call fails, the tag order is kept and the
+  page says so. Settings: "AI orders the matched projects" (on).
+- **One list**: the screening page shows "Projects that fit", the same list as the Projects step, with the reasons. Screening no longer
+  names projects in "Fit with Stackup"; its own picks only join the shortlist. PASS and FLAG jobs start matching right after screening,
+  so the list is usually ready when the job is opened; FAIL jobs when someone continues.
+- **Core work** is only real work: workflow, AI capability, automation or product type tags, never a project stage (Prototype), a tool,
+  model, stack or a broad tag.
+- The Projects step shows each reason under the project name and explains how the list was made.
+- The Claude plugin (v0.4.3) does the same last step: it reads the top twelve's case studies and orders them with a reason.
+- Migration `032_matching_ai_order.sql`. One more AI call per matched job.
+- Checked: tests (the AI order, fits first, weak fits last, recommended; a project stage is never core work); jobs #60 and #61 matched
+  again with the real model: lead projects on top with reasons (Rock County, Apex, Dealsmart, Seller Genius AI, Breesy; and Dealsmart,
+  Seller Genius AI, Apex, Rock County, Breesy), no healthcare or dental project; the order differs a little between two runs of the
+  same job, as an AI judgement does; a fresh screening of #60 no longer names projects; both pages show the same list.

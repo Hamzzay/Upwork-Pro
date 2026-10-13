@@ -14,6 +14,7 @@ export const SETTINGS = {
   'ai.model.openai': { label: 'GPT model', help: '', schema: modelName, def: 'gpt-5' },
   'matching.shown': { label: 'Projects shown per job', help: 'How many matching projects the Projects step lists.', schema: z.number().int().min(1).max(20), def: 5 },
   'matching.recommended': { label: 'Projects recommended', help: 'How many of the shown projects are pre-selected (and used by the early draft).', schema: z.number().int().min(1).max(5), def: 2 },
+  'matching.ai_order': { label: 'AI orders the matched projects', help: 'After the tags pick the shortlist, the AI reads each project\'s overview and case study and orders them for the job, with a reason. Off: the tag score decides the order.', schema: z.boolean(), def: true },
   'matching.min_score': { label: 'Minimum match score', help: 'A project scoring below this is not shown. The Claude plugin uses the same number.', schema: z.number().int().min(0).max(100), def: 1 },
   'selection.min': { label: 'Fewest projects a person must pick', help: '', schema: z.number().int().min(1).max(5), def: 1 },
   'selection.max': { label: 'Most projects a person can pick', help: '', schema: z.number().int().min(1).max(5), def: 2 },

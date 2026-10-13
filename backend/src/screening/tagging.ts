@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { run } from '../llm';
 import { config } from '../config';
+import { isWorkTag } from './matching';
 
 export interface DictTag { id: number; name: string; category: string; weight: number; description: string | null; compliance?: boolean }
 /** core: 1 for the job's main work, 2 and 3 for the rest of its core work, null otherwise. */
@@ -9,7 +10,7 @@ export type TaggedTag = { tag: DictTag; reason: string; core: number | null };
 const tagsOut = z.object({ industry: z.string().optional(), industry_reason: z.string().optional(), core_work: z.array(z.string()).optional(), tags: z.array(z.object({ tag: z.string(), reason: z.string() })) });
 export const NO_INDUSTRY = 'None stated';
 
-export function buildTagSchema(names: string[], industries: string[] = []) {
+export function buildTagSchema(names: string[], industries: string[] = [], workNames: string[] = names) {
   return {
     type: 'object',
     properties: {
@@ -17,7 +18,7 @@ export function buildTagSchema(names: string[], industries: string[] = []) {
       industry: { type: 'string', enum: [...industries, NO_INDUSTRY] },
       industry_reason: { type: 'string' },
       // the heart of the work, most important first: what a project must have done to prove this job
-      core_work: { type: 'array', items: { type: 'string', enum: names }, minItems: 1, maxItems: 3 },
+      core_work: { type: 'array', items: { type: 'string', enum: workNames.length ? workNames : names }, minItems: 1, maxItems: 3 },
       tags: {
         type: 'array',
         items: { type: 'object', properties: { tag: { type: 'string', enum: names }, reason: { type: 'string' } }, required: ['tag', 'reason'], additionalProperties: false },
@@ -43,8 +44,9 @@ Choose tags ONLY from the dictionary below, using the exact tag names. Tag what 
   In "industry_reason" say in one short sentence why, quoting a few words of the post.
 - CORE WORK: in "core_work" give the one to three tags that are the heart of the work, the most important first: what a past project
   must have done to prove we can do this job (for a scraping job: Web scraping / data pipelines; for a voice receptionist: AI voice agent).
-  Choose specific work, never broad tags such as Workflow automation, AI automation, AI powered, Ongoing maintenance / support, or a
-  tool or tech stack tag unless the job is about that tool. Each core work tag must also be in "tags".
+  Choose specific work (a workflow, an AI capability, an automation or a product type), never a project stage such as Prototype or
+  New build, never a tool, model or tech stack, and never broad tags such as Workflow automation or AI automation. Each core work tag
+  must also be in "tags".
   Do not put Industry tags in "tags": the industry goes only in "industry".
 - Tool and platform tags (CRM and business tools, AI models and platforms, tech stack) only when the post names the tool or clearly requires that kind of tool.
 - Categories marked [COMPLIANCE] ONLY when the post states that requirement (for example HIPAA, SOC 2, GDPR, card payments) or the data handled is clearly that kind. Do not add them as a precaution.
@@ -62,7 +64,7 @@ export async function tagJob(jobText: string, dict: DictTag[]): Promise<TaggedTa
     label: 'tagging',
     system: tagSystemPrompt(dict),
     prompt: `<job_page>\n${jobText}\n</job_page>`,
-    schema: buildTagSchema(dict.filter((t) => t.category !== 'Industry').map((t) => t.name), dict.filter((t) => t.category === 'Industry').map((t) => t.name)),
+    schema: buildTagSchema(dict.filter((t) => t.category !== 'Industry').map((t) => t.name), dict.filter((t) => t.category === 'Industry').map((t) => t.name), dict.filter(isWorkTag).map((t) => t.name)),
     timeoutMs: config.llm.timeoutMs,
   });
   const parsed = tagsOut.safeParse(r.data);
@@ -70,7 +72,7 @@ export async function tagJob(jobText: string, dict: DictTag[]): Promise<TaggedTa
   const byName = new Map(dict.map((t) => [t.name.toLowerCase(), t]));
   const seen = new Set<number>();
   const out: TaggedTag[] = [];
-  const coreNames = [...new Set((parsed.data.core_work ?? []).map((x) => x.trim().toLowerCase()))].slice(0, 3);
+  const coreNames = [...new Set((parsed.data.core_work ?? []).map((x) => x.trim().toLowerCase()))].filter((n) => { const t = byName.get(n); return !!t && isWorkTag(t); }).slice(0, 3);
   const ind = byName.get(String(parsed.data.industry ?? '').trim().toLowerCase());
   if (ind && ind.category === 'Industry') { seen.add(ind.id); out.push({ core: null, tag: ind, reason: (parsed.data.industry_reason ?? '').replace(/\s+/g, ' ').trim().slice(0, 600) || 'The client\'s business' }); }
   for (const x of parsed.data.tags) {

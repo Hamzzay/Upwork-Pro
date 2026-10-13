@@ -1163,7 +1163,8 @@ function matchingSection(s, initial) {
         h('div', { class: 'mtop' }, owner ? cb : null, h('span', { class: 'rank' }, '#' + r.rank),
           h('div', { class: 'mname' }, r.project_id ? h('a', { href: '#/p/' + r.project_id }, r.project_name) : h('span', {}, r.project_name, h('span', { class: 'faint small' }, ' (removed from library)'))),
           r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip' }, r.alternative ? 'Alternative' : 'Match')),
-        r.named_in_screening ? h('div', { class: 'jp-label' }, icon('check'), ' Named in screening') : null,
+        r.ai_reason ? h('p', { class: 'jp-body', style: 'margin:2px 0 0' }, r.ai_reason) : null,
+        r.ai_fits === false ? h('div', { class: 'cgap' }, icon('warn'), 'The AI judged it a weak fit for this job') : null,
         r.proves_work === false ? h('div', { class: 'cgap' }, icon('warn'), 'Shares none of the job\'s core work (workflow or AI capability)') : null,
         POOL[r.pool] || r.platform ? h('div', { class: 'jp-label' }, [POOL[r.pool], r.platform && r.platform !== 'not known' ? 'Runs on ' + r.platform : null].filter(Boolean).join(' · ')) : null,
         h('div', { class: 'mscore' }, h('div', { class: 'bar', role: 'img', 'aria-label': `Score ${r.score} of ${r.max_score}` }, h('i', { style: `width:${Math.max(3, r.percent)}%` })),
@@ -1186,7 +1187,9 @@ function matchingSection(s, initial) {
           h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'The next best matches, in the same order.'), h('div', { class: 'mgrid' }, extra.map(card))) : null,
         extra.length && !moreOpen ? h('div', { style: 'margin-top:14px' }, h('button', { class: 'btn', type: 'button', onclick: () => { showMore = true; draw(); } }, `Show ${extra.length} more project${extra.length === 1 ? '' : 's'}`)) : null,
         owner && picked.size >= pmax ? h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Untick one to choose a different project.') : null,
-        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Order: projects that share the job\'s core work (a workflow or AI capability tag) come first; among them, the job\'s industry first, then related industries, then the rest; then the score. Score: the weights of the tags a project shares with this job, industry not counted (workflow 3, AI capability up to 3, stage, product, automation and compliance 2, tools, models and stack 1). Projects that do not run on what the job builds are left out.')));
+        h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, m.order === 'ai'
+          ? 'How these were chosen: the tags made the shortlist (what the job runs on, its core work, its industry), then the AI read each project\'s overview and case study and put them in order for this job. The line under each name is its reason. Score: the weights of the tags a project shares with the job (see Tag dictionary, How the scores work).'
+          : 'Ordered by the tag score: projects that did the job\'s core work first, then the job\'s industry, then the score. Score: the weights of the tags a project shares with the job (see Tag dictionary, How the scores work).')));
   }
 
 
@@ -1236,7 +1239,7 @@ function recordDetails(s, override, matching, proposal) {
     ['Payment verified', s.payment_verified], ['Client rating (reviews)', s.client_rating], ['Jobs posted', s.jobs_posted], ['Hire rate', s.hire_rate],
     ['Total spent', s.total_spent], ['Hires', s.hires], ['Avg spend per hire', s.avg_spend_per_hire], ['Avg hourly paid', s.avg_hourly_paid],
     ['Member since', s.member_since], ['Proposals', s.proposals], ['Interviewing', s.interviewing], ['Invites sent', s.invites_sent],
-    ['Connects cost', s.connects_cost], ['Sample match', s.sample_match], ['Verdict', s.verdict], ['Fail reasons', s.fail_reasons],
+    ['Connects cost', s.connects_cost], ['Screening\'s first look at projects', s.sample_match], ['Verdict', s.verdict], ['Fail reasons', s.fail_reasons],
     ['Flag reasons', s.flag_reasons], ['Rule codes', s.rule_codes], ['Proceeded', s.proceeded], ['Override reason', override ? override.reason : null],
     ['Selected projects', matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name).join('; ') : null],
     ['Written with template', proposal && proposal.template ? proposal.template.name : null],
@@ -1525,6 +1528,24 @@ async function jobPage(id, want) {
   }
   const editDetails = () => detailsDialog(s, async () => { await refresh(); drawContent(); });
 
+  // ---- the projects that fit, the same list as the Projects step (one list, so screening and the projects never disagree)
+  function fitProjectsCard() {
+    const box = h('div', { class: 'card card-pad' });
+    const draw = (mm) => {
+      const busy = mm && (mm.status === 'queued' || mm.status === 'running');
+      const top = mm && mm.status === 'done' ? mm.matches.filter((x) => !x.extra).slice(0, cfg('matching.shown', 5)) : [];
+      box.replaceChildren(h('div', { class: 'jp-sec' }, 'Projects that fit'),
+        busy ? h('div', { class: 'row muted small', style: 'margin-top:6px' }, h('span', { class: 'spin' }), 'Finding the projects that fit this job. They appear here in a minute or two.')
+          : top.length ? h('ol', { class: 'jp-list', style: 'margin-top:6px' }, top.map((x) => h('li', {}, h('strong', {}, x.project_name), x.recommended ? h('span', { class: 'tagpill', style: 'margin-left:6px' }, 'Recommended') : null,
+              x.ai_reason ? h('div', { class: 'jp-label' }, x.ai_reason) : null)))
+          : h('p', { class: 'jp-label', style: 'margin:6px 0 0' }, mm && mm.status === 'done' ? 'No project in the library proves this kind of work.' : 'The projects are found once you continue with this job.'),
+        top.length ? h('div', { class: 'jp-label', style: 'margin-top:6px' }, 'The same list as the Projects step, where you choose the ones to use.') : null);
+      if (busy) setTimeout(async () => { if (!box.isConnected) return; try { draw((await api('GET', `/screenings/${id}/matching`)).matching); } catch { /* next time */ } }, 4000);
+    };
+    draw(matching);
+    return box;
+  }
+
   // ---- Screening: the verdict, the flags and the decision first; the job, client and competition facts after, collapsed
   function screeningTab() {
     if (s.status === 'queued' || s.status === 'running') return h('div', { class: 'stack' }, progressCard(s.status));
@@ -1588,6 +1609,7 @@ async function jobPage(id, want) {
     if (j.fails.length) parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `Failed rules (${j.fails.length})`), issues(j.fails, 'fail'),
       j.override_note ? h('p', { class: 'jp-label', style: 'margin-top:10px' }, j.override_note) : null));
     if (j.flags.length) parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `Flags (${j.flags.length})`), issues(j.flags, 'flag')));
+    parts.push(fitProjectsCard());
     parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Fit with Stackup'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, j.fit),
       j.proposal_notes.length ? [h('div', { class: 'jp-sec', style: 'margin-top:14px' }, 'Notes for the proposal'), h('ul', { class: 'jp-list' }, j.proposal_notes.map((n) => h('li', {}, n)))] : null));
     const facts = (t, rows) => h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, t),

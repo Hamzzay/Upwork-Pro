@@ -16,6 +16,7 @@ import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, typ
 import { rankTemplates } from '../src/proposal/rank';
 import { checkOpening, checkProposal } from '../src/proposal/checks';
 import { splitMobile } from '../src/library/mobile';
+import { applyJudgement } from '../src/screening/judge';
 import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -210,6 +211,15 @@ const ctx = { rules, projects };
   assert.deepEqual(splitMobile('https://apps.apple.com/app/id9 https://testflight.apple.com/join/abc'), { android: null, ios: 'https://apps.apple.com/app/id9', other: 'https://testflight.apple.com/join/abc' }, 'anything else is kept');
   assert.deepEqual(splitMobile(''), { android: null, ios: null, other: null });
   assert.deepEqual([...projectPlatforms({ android_link: 'https://play.google.com/x' }, [])], ['mobile']); assert.deepEqual([...projectPlatforms({ ios_link: 'https://apps.apple.com/x', landing_link: 'https://x.io' }, [])].sort(), ['mobile', 'web']);
+  // the AI's order is final: fitting projects in its order, then any it left out, then those it judged weak; the first two that fit are recommended
+  const M = (rank: number, name: string, proves = true) => ({ project_name: name, rank, proves_work: proves, recommended: rank <= 2, extra: rank > 3, alternative: false });
+  const ord = applyJudgement([M(1, 'Apex'), M(2, 'Navience'), M(3, 'Rock'), M(4, 'Seller Genius AI'), M(5, 'Chloe')],
+    [{ name: 'Seller Genius AI', fits: true, reason: 'Qualifies leads' }, { name: 'Apex', fits: true, reason: 'Lead follow up' }, { name: 'Navience', fits: false, reason: 'Prior authorization, not leads' }, { name: 'Rock', fits: true, reason: 'x' }],
+    { shown: 3, recommended: 2 });
+  assert.deepEqual(ord.map((x) => [x.project_name, x.recommended, x.extra]), [['Seller Genius AI', true, false], ['Apex', true, false], ['Rock', false, false], ['Chloe', false, true], ['Navience', false, true]]);
+  assert.equal(ord[0].ai_reason, 'Qualifies leads'); assert.equal(ord[4].ai_fits, false); assert.equal(ord[3].ai_fits, null);
+  // core work is only real work: a project stage named as core work does not count
+  assert.deepEqual(coreWork([{ ...T(20, 'Prototype / proof of concept', 'Project stage', 2), core: 1 }, { ...T(21, 'Lead generation / enrichment', 'Workflow type', 3), core: 2 }]).map((t) => t.name), ['Lead generation / enrichment']);
   // the Logs page: what changed
   assert.deepEqual(changeDiff({ name: 'A', weight: '2' }, { name: 'A', weight: '3' }), [{ field: 'weight', from: '2', to: '3' }]);
   const L = (x: string[]) => '\u0000list\u0000' + JSON.stringify(x);

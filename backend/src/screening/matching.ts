@@ -42,10 +42,13 @@ export function projectPlatforms(p: { landing_link?: string | null; system_link?
 
 /** When the tagger named no core work (older jobs): the work tags of these categories, minus the broad ones, stand in for it. */
 export const CORE_CATEGORIES = ['Workflow type', 'AI capability', 'Automation'];
-const BROAD = new Set(['workflow automation', 'ai automation', 'ai powered']);
+export const BROAD = new Set(['workflow automation', 'ai automation', 'ai powered']);
+/** The categories the core work can come from: the work itself, never a project stage, tools, models, stack, compliance or industry. */
+export const WORK_CATEGORIES = ['Workflow type', 'AI capability', 'Automation', 'Product type'];
+export const isWorkTag = (t: { name: string; category: string }) => WORK_CATEGORIES.includes(t.category) && !BROAD.has(t.name.toLowerCase());
 /** The job's core work, main work first. */
 export function coreWork(tags: JobTag[]): JobTag[] {
-  const named = tags.filter((t) => t.core && t.category !== 'Industry').sort((a, b) => a.core! - b.core!);
+  const named = tags.filter((t) => t.core && isWorkTag(t)).sort((a, b) => a.core! - b.core!);
   return named.length ? named : tags.filter((t) => CORE_CATEGORIES.includes(t.category) && t.weight > 0 && !BROAD.has(t.name.toLowerCase()));
 }
 export const MORE_PROJECTS = 10; // kept behind "Show 10 more projects"

@@ -45,6 +45,11 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.4.3)
+
+v0.4.3: the shortlist is put in order by reading each project's overview and case study, with a reason per project, as the app does
+now. Core work is only real work tags (never a project stage, tool, model or stack).
+
 ## Status (v0.4.2)
 
 v0.4.2: one matching rule with the app (13 October). The work first: the job's core work is named (one to three tags, the main

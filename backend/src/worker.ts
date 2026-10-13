@@ -7,7 +7,8 @@ import { providerName } from './llm';
 import { lastUsed } from './llm/context';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects, loadRelatedIndustries } from './screening/context';
-import { jobNeeds, MORE_PROJECTS, rankProjects, type JobTag } from './screening/matching';
+import { coreWork, jobNeeds, MORE_PROJECTS, rankProjects, type JobTag } from './screening/matching';
+import { applyJudgement, judgeProjects } from './screening/judge';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
@@ -61,10 +62,10 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
     const rep = await screenJobText(jobText ?? row.raw_input, skill.content, ctx);
     const v = sheetValues(rep, ctx.rules.map((r) => r.code), ctx.projects.map((p) => p.name));
     await exec(
-      // PASS needs no decision, so tagging and signals start now; FLAG and FAIL wait until the person continues with a reason
+      // PASS and FLAG start matching now, so the projects are ready on the screening page; FAIL waits until the person continues
       `UPDATE screenings SET status='done', job_text=?, title=?, verdict=?, report_json=?, skill_version_id=?, gate_rules=?, model=?, provider=?, finished_at=NOW(),
          fail_reasons=?, flag_reasons=?, rule_codes=?, ${COLUMN_KEYS.map((k) => `${k}=?`).join(', ')},
-         tagging_status=IF(? = 'PASS', COALESCE(tagging_status, 'queued'), tagging_status)
+         tagging_status=IF(? IN ('PASS', 'FLAG'), COALESCE(tagging_status, 'queued'), tagging_status)
        WHERE id=?`,
       [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, JSON.stringify(ctx.rules), lastUsed()?.model ?? config.llm.model, lastUsed()?.provider ?? 'mock',
        v.fail_reasons || null, v.flag_reasons || null, v.rule_codes || null, ...COLUMN_KEYS.map((k) => v.columns[k]), v.verdict, row.id],
@@ -93,6 +94,18 @@ async function processTagging(id: number) {
     const cfg = await getSettings();
     const matches = rankProjects(jobTags, await loadLibraryProjects(), { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'], related: await loadRelatedIndustries(),
       named: String(s.sample_match ?? '').split(';').map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== 'none'), more: MORE_PROJECTS });
+    // the last step: the AI reads the shortlisted projects' overviews and case studies and orders them for this job, with a reason
+    let final: (typeof matches[number] & { ai_reason?: string | null; ai_fits?: boolean | null })[] = matches, order: 'ai' | 'tags' = 'tags';
+    if (cfg['matching.ai_order'] && matches.length > 1) {
+      try {
+        const facts = await query<any>('SELECT id, overview, case_study_summary FROM projects WHERE id IN (?)', [matches.map((m) => m.project_id)]);
+        const lib = await loadLibraryProjects();
+        const candidates = matches.map((m) => ({ name: m.project_name, overview: facts.find((f) => f.id === m.project_id)?.overview ?? null, case_study: facts.find((f) => f.id === m.project_id)?.case_study_summary ?? null,
+          industries: lib.find((l) => l.id === m.project_id)?.industries ?? [], platform: m.platform, shared: m.shared.map((t) => t.name) }));
+        const judged = await judgeProjects(jobText, candidates, coreWork(jobTags.filter((t) => t.category !== 'Industry')).map((t) => t.name), jobTags.find((t) => t.category === 'Industry')?.name ?? null);
+        final = applyJudgement(matches, judged, { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'] }); order = 'ai';
+      } catch (e) { console.error('matching order by the AI failed, the tag order is kept:', (e as Error).message); }
+    }
     await withRetry(async () => {
     const conn = await pool.getConnection();
     try {
@@ -103,14 +116,14 @@ async function processTagging(id: number) {
         await conn.query('INSERT INTO job_tags (screening_id, tag_id, tag_name, category_name, weight, reason, core_rank) VALUES (?,?,?,?,?,?,?)',
           [id, x.tag.id, x.tag.name, x.tag.category, x.tag.weight, x.reason, x.core]);
       }
-      for (const m of matches) {
+      for (const m of final) {
         await conn.query(
-          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, pool, alternative, platform, proves_work, named_in_screening, extra) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared), m.pool, m.alternative ? 1 : 0, m.platform,
-            m.proves_work ? 1 : 0, m.named_in_screening ? 1 : 0, m.extra ? 1 : 0]);
+            m.proves_work ? 1 : 0, m.named_in_screening ? 1 : 0, m.extra ? 1 : 0, m.ai_reason ?? null, m.ai_fits == null ? null : m.ai_fits ? 1 : 0]);
       }
       await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=?, tagged_at=NOW(),
-        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=? WHERE id=?`, [lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, id]);
+        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=?, matching_order=? WHERE id=?`, [lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, order, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });

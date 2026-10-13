@@ -46,7 +46,7 @@ Excluded projects are never recommended and never appear in the top five. If the
 
 The same rule as Upwork Pro (`get_library` returns it under `matching`; follow that text if it differs from this file).
 
-Name the job's **core work**: one to three specific tags from the job's tags, the main work first (for a scraping job "Web scraping /
+Name the job's **core work**: one to three specific workflow, AI capability, automation or product type tags from the job's tags (never a project stage such as Prototype, a tool, a model or a stack), the main work first (for a scraping job "Web scraping /
 data pipelines"; for a voice receptionist "AI voice agent"). Never broad tags such as Workflow automation, AI automation, AI powered or
 Ongoing maintenance / support. Show it in the "Job needs" line.
 
@@ -78,6 +78,14 @@ project that did none of the work is never recommended.
 4. **Better fit from another industry.** If a project outside the job's industry has a tag score at least 1.5 times the best Same industry score, and matches the job's core workflow or AI capability, show it below the five as **"Alternative from another industry"** with two or three lines explaining why it may be the stronger proof. Never let it replace a Same industry recommendation on its own; the person decides.
 5. If the job has a compliance tag, at least one recommended project must share it. If none in the industry pool does, say so and name the best project outside the pool that does.
 6. Keep the two recommended projects distinct: they should prove different parts of the job, not repeat the same match.
+
+## Put the shortlist in order (the last step, the same as the app)
+
+Tags only build the shortlist. Take the top twelve or so from the steps above, read each one's overview and case study (`get_library`
+with `case_studies` set to their names), and order them by how well each proves this exact job: the same core work done the same way
+(the same kind of input, output and users) first; then the same industry or kind of client, platform and scale. Give each a one line
+reason. A project that only shares broad features (an AI agent, a dashboard, automation) is weaker than one that did this exact job;
+drop any that do not really prove it. Recommend the first two that fit.
 
 ## Show the shortlist
 

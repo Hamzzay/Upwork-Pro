@@ -14,6 +14,10 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
     return { text: JSON.stringify(data), data, raw: {} };
   }
   const props: any = (o.schema as any)?.properties ?? {};
+  if (props.ranking) { // matching order: the shortlist as given, all fitting
+    const data = { ranking: (props.ranking.items.properties.project.enum as string[]).map((project) => ({ project, fits: true, reason: 'Mock reason.' })) };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
   if (props.description && props.client_history) { // the job post in fields: the pasted text as the description
     const data = { title: /^Title:\s*(.+)$/m.exec(o.prompt)?.[1]?.trim() || 'Mock job', posted: '', location: '', description: o.prompt.replace(/<\/?job_page>/g, '').trim(),
       skills: [], terms: [], screening_questions: [], activity: [], client: [], client_history: [], other_open_jobs: [] };
