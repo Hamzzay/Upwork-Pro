@@ -983,3 +983,7 @@ time. Now the app works in Pakistan time (UTC+5) whatever the server's zone:
   score per category. The Projects step's note says the same in short.
 - Checked in the browser: a project ticked on a tag and saved (the project has the tag, the log says "projects: added Lucid
   Vision"); an Industry tag given a project and taken away again (the project's industry follows both ways); everything put back.
+- Later on 14 October (Hamza): the "First two lines" section reads more simply. "Must start with" is now "First word or words",
+  with a plain example. The checkbox is now "Check that the first two lines do not talk about us", on its own line, with what it does
+  (looks for I, we, our and my after writing; rewrites once; then warns) and when to untick it (Invite, Approach first).
+
