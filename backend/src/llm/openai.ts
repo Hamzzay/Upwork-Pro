@@ -28,7 +28,10 @@ export async function runOpenAI(o: RunOptions): Promise<RunResult> {
   const timeoutMs = o.timeoutMs ?? 120_000;
   const body = {
     model: o.model,
-    messages: [{ role: 'system', content: o.system }, { role: 'user', content: o.prompt }],
+    // files (R74): images go with the message, as pictures; other files cannot be shown to this API here
+    messages: [{ role: 'system', content: o.system }, { role: 'user', content: o.files?.length ? [{ type: 'text', text: o.prompt }, ...o.files.map((f) => {
+      const ext = (f.name.split('.').pop() || '').toLowerCase(); if (!['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) throw new Error('invalid_output');
+      return { type: 'image_url', image_url: { url: `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${require('node:fs').readFileSync(f.path).toString('base64')}` } }; })] : o.prompt }],
     ...(o.schema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema: strictSchema(o.schema) } } } : {}),
   };
   const deadline = Date.now() + timeoutMs;

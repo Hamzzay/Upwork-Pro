@@ -23,6 +23,7 @@ const ICONS = {
   x: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   link: '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
+  clip: '<path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
   doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
   back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   arrow: '<path d="M5 12h14M12 5l7 7-7 7"/>',
@@ -414,6 +415,89 @@ function loginView() {
   email.focus();
 }
 
+// ---------- documents attached to a job (R74) ----------
+const FILE_ACCEPT = '.pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.gif', FILE_MAX = 10 * 1024 * 1024, FILES_MAX = 8;
+const fileSize = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+/** Read chosen files for upload: { name, data } with the content in base64. */
+const readFiles = (files) => Promise.all(files.map((f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok({ name: f.name, data: String(r.result).split(',')[1] || '' }); r.onerror = () => no(new Error('Could not read ' + f.name)); r.readAsDataURL(f); })));
+/** Choose files (button, or drop them on `dropOn`): kept in a list with a remove button each, checked for kind and size. */
+function filePicker(dropOn, max = FILES_MAX) {
+  let chosen = [];
+  const input = h('input', { type: 'file', multiple: true, accept: FILE_ACCEPT, hidden: true });
+  const list = h('div', { class: 'chips filechips' });
+  const add = (files) => {
+    for (const f of files) {
+      const ext = '.' + (f.name.split('.').pop() || '').toLowerCase();
+      if (!FILE_ACCEPT.split(',').includes(ext)) { toast(`${f.name}: PDF, Word, text, CSV, Markdown or an image only`, true); continue; }
+      if (f.size > FILE_MAX) { toast(`${f.name} is larger than 10 MB`, true); continue; }
+      if (chosen.length >= max) { toast(`At most ${max} files`, true); break; }
+      if (!chosen.some((x) => x.name === f.name && x.size === f.size)) chosen.push(f);
+    }
+    draw();
+  };
+  const draw = () => list.replaceChildren(...chosen.map((f, i) => h('span', { class: 'chip' }, icon(/\.(png|jpe?g|webp|gif)$/i.test(f.name) ? 'doc' : 'doc'), `${f.name} · ${fileSize(f.size)}`,
+    h('button', { type: 'button', class: 'chipx', 'aria-label': 'Remove ' + f.name, onclick: () => { chosen.splice(i, 1); draw(); } }, '×'))));
+  input.onchange = () => { add([...input.files]); input.value = ''; };
+  const btn = h('button', { type: 'button', class: 'btn sm', onclick: () => input.click() }, icon('clip'), 'Attach files');
+  if (dropOn) {
+    dropOn.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); dropOn.classList.add('dropping'); } });
+    dropOn.addEventListener('dragleave', () => dropOn.classList.remove('dropping'));
+    dropOn.addEventListener('drop', (e) => { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); dropOn.classList.remove('dropping'); add([...e.dataTransfer.files]); });
+  }
+  return { btn, input, list, files: () => chosen, clear: () => { chosen = []; draw(); } };
+}
+const READ_WORD = { code: 'Read', ai: 'Read by the AI', person: 'Described by you' };
+/** The Job post tab's documents: what the client attached, what the AI reads from each, and adding more. */
+function attachmentsCard(s) {
+  const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin';
+  const body = h('div', {});
+  const card = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, icon('clip'), 'Attached documents'), h('span', { class: 'sub' }, 'The client\'s files. The AI reads them with the job post.')), body);
+  let timer = null;
+  const picker = canEdit ? filePicker(card) : null;
+  const upload = picker ? h('button', { class: 'btn sm primary', type: 'button' }, 'Upload') : null;
+  if (upload) upload.onclick = async () => {
+    const files = picker.files(); if (!files.length) return toast('Choose files first', true);
+    btnBusy(upload, 'Uploading');
+    try { const r = await api('POST', `/screenings/${s.id}/attachments`, { files: await readFiles(files) }); picker.clear();
+      if (r.errors.length) toast(r.errors.join(' · '), true); else toast(`${r.saved} file${r.saved === 1 ? '' : 's'} added`); draw(r.items); }
+    catch (x) { toast(x.message, true); }
+    upload.disabled = false; upload.replaceChildren('Upload');
+  };
+  const showText = async (a) => { const r = await api('GET', `/attachments/${a.id}/text`);
+    modal({ title: a.file_name, noConfirm: true, wide: true, body: h('div', {}, h('p', { class: 'jp-label', style: 'margin-top:0' }, 'What the AI reads from this file, with the job post.'), h('pre', { class: 'proposal-text', style: 'max-height:60vh' }, r.text || '(nothing)')) }); };
+  const describe = (a) => { const ta = h('textarea', { rows: 6, maxlength: 20000, placeholder: 'For example: a mockup of the booking screen: a calendar on the left, the patient\'s details on the right, a Confirm button.' });
+    modal({ title: 'What does ' + a.file_name + ' show?', confirm: 'Save', body: h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Describe it for the AI'), ta, h('div', { class: 'hint' }, 'The AI reads this instead of the file.')),
+      onConfirm: async () => { await api('PUT', `/attachments/${a.id}/text`, { text: ta.value }); load(); } }); };
+  const row = (a) => {
+    const busy = a.status === 'queued' || a.status === 'running';
+    const state = busy ? h('span', { class: 'row small muted', style: 'gap:6px' }, h('span', { class: 'spin' }), 'The AI is reading it') : a.status === 'error' ? h('span', { class: 'pill FAIL' }, 'Not read')
+      : h('span', { class: 'pill PASS' }, READ_WORD[a.read_by] || 'Read');
+    const btn = (label, fn, danger) => h('button', { class: 'btn sm' + (danger ? ' danger' : ''), type: 'button', onclick: fn }, label);
+    return h('div', { class: 'filerow' },
+      h('div', { style: 'min-width:0' }, h('a', { href: `/api/attachments/${a.id}/file`, target: '_blank', rel: 'noopener', class: 'filename' }, a.file_name),
+        h('div', { class: 'faint small' }, [a.kind === 'docx' ? 'Word' : a.kind === 'text' ? 'Text' : a.kind === 'image' ? 'Image' : 'PDF', fileSize(a.size_bytes), a.status === 'done' ? `${Number(a.chars).toLocaleString()} characters for the AI` : null, a.user_name, ago(a.created_at)].filter(Boolean).join(' · ')),
+        a.status === 'error' ? h('div', { class: 'err small' }, a.error || 'The AI could not read it.') : null,
+        a.added_after_screening ? h('div', { class: 'faint small' }, 'Added after the screening: the matching, the proposal, the chat and the review read it from now on.') : null),
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;justify-content:flex-end' }, state,
+        a.status === 'done' ? btn('What the AI reads', () => showText(a).catch((x) => toast(x.message, true))) : null,
+        canEdit && (a.status === 'error' || (a.kind === 'image' && !busy)) ? btn(a.status === 'error' ? 'Describe it' : 'Change description', () => describe(a)) : null,
+        canEdit && a.status === 'error' ? btn('Read again', async () => { try { await api('POST', `/attachments/${a.id}/read`, {}); load(); } catch (x) { toast(x.message, true); } }) : null,
+        canEdit ? btn('Remove', () => modal({ title: 'Remove ' + a.file_name + '?', confirm: 'Remove', danger: true, body: h('p', { class: 'muted' }, 'The file and what the AI read from it are removed from this job. Proposals already written keep their text.'),
+          onConfirm: async () => { await api('DELETE', `/attachments/${a.id}`); load(); } }), true) : null));
+  };
+  const draw = (items) => {
+    clearTimeout(timer);
+    body.replaceChildren(...[
+      items.length ? h('div', {}, items.map(row)) : h('div', { class: 'card-pad faint small' }, canEdit ? 'No documents. If the client attached files to the job on Upwork, download them and add them here.' : 'No documents.'),
+      picker ? h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line);display:grid;gap:8px' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, picker.btn, upload, h('span', { class: 'faint small' }, 'PDF, Word, text, CSV, Markdown or images, up to 10 MB each. Or drop them here.')), picker.input, picker.list) : null,
+    ].filter(Boolean));
+    if (items.some((a) => a.status === 'queued' || a.status === 'running')) timer = setTimeout(() => { if (card.isConnected) load(); }, 2500);
+  };
+  const load = async () => { try { draw((await api('GET', `/screenings/${s.id}/attachments`)).items); } catch (x) { body.replaceChildren(h('p', { class: 'err card-pad' }, x.message)); } };
+  draw(s.attachments || []);
+  return card;
+}
+
 // ---------- screen a job ----------
 async function newView() {
   const box = h('textarea', { id: 'jobin', 'aria-label': 'Job link or page text', placeholder: 'Paste an Upwork job link, or copy the whole job page and paste it here.\n\nInclude the "About the client" section: the screening depends on it.' });
@@ -431,16 +515,20 @@ async function newView() {
   const submit = async () => {
     err.hidden = true; btnBusy(btn, 'Sending');
     try {
-      const r = await api('POST', '/screenings', { input: box.value, job_url: urlIn.value.trim() || null });
+      const files = picker.files().length ? await readFiles(picker.files()) : undefined;
+      const r = await api('POST', '/screenings', { input: box.value, job_url: urlIn.value.trim() || null, files });
+      if (r.files && r.files.errors.length) toast('Not attached: ' + r.files.errors.join(' · '), true);
       location.hash = '#/s/' + r.id + '/screening'; // a new job opens on its Screening tab
     } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Screen this job'); }
   };
   btn.onclick = submit;
   box.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit(); });
+  const composer = h('div', { class: 'card composer' });
+  const picker = filePicker(composer); // the client's attached documents (R74): read with the job post
   shell('new', [
     pageHead('Screen a job', 'Check an Upwork job against the SOP before anyone spends Connects on it.'),
-    h('div', { class: 'card composer' }, box,
-      h('div', { class: 'composer-bar' }, chip, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), btn)),
+    (composer.append(box, picker.list, picker.input,
+      h('div', { class: 'composer-bar' }, chip, picker.btn, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), btn)), composer),
     h('div', { class: 'field', style: 'max-width:520px' }, h('label', { class: 'lbl', for: 'joburl' }, 'Job link (optional)'), urlIn, h('div', { class: 'hint' }, 'Saved with the record when you paste text instead of a link.')),
     err,
     h('div', { class: 'steps' },
@@ -1452,7 +1540,7 @@ const actionsFor = () => { const g = tabGen; return (...btns) => { if (g === tab
 const actBtn = (label, onclick, primary = false) => h('button', { class: 'btn sm' + (primary ? ' primary' : ''), type: 'button', onclick }, label);
 
 async function jobPage(id, want) {
-  let { screening: s, override, matching, proposal } = await api('GET', '/screenings/' + id);
+  let { screening: s, override, matching, proposal, attachments } = await api('GET', '/screenings/' + id);
   if (!new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) return; // you moved on while this job loaded: never draw it over the next page
   const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin' || me.role === 'manager';
   let st = stepState(matching, proposal), stage = stageOf(s, matching, proposal);
@@ -1476,7 +1564,7 @@ async function jobPage(id, want) {
   }
   async function refresh() {
     const d = await api('GET', '/screenings/' + id);
-    s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal;
+    s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal; attachments = d.attachments;
     st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawTabs();
     headEl.replaceChildren(...jobHeader(s, stage)); // the step and status in the header follow too
   }
@@ -1668,7 +1756,7 @@ async function jobPage(id, want) {
   function drawContent() {
     active = null; tabGen++; setActions();
     const build = {
-      overview: overviewTab, post: () => postingCard(s, true, actionsFor()), screening: screeningTab,
+      overview: overviewTab, post: () => h('div', {}, attachmentsCard({ ...s, attachments }), postingCard(s, true, actionsFor())), screening: screeningTab,
       projects: () => (matching && matching.continued ? matchingSection(s, matching) : h('div', { class: 'card card-pad' }, h('p', { class: 'jp-body', style: 'margin:0' }, 'Decide on the Screening tab first.'))),
       profile: () => profileSection(s, matching), proposal: () => proposalSection(s, proposal, matching), history: historyTab,
     }[tab];
@@ -2471,7 +2559,7 @@ async function feedbackView() {
     h('div', { class: 'card-pad stack', style: 'gap:8px' }, h('p', { class: 'jp-label', style: 'margin:0' }, 'Confirmed on a proposal, not yet a tag on the project: an existing tag that would change the matching, or an answer by someone who cannot change the library.'),
       r.waiting.map((g) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, `${g.tag_name || g.skill} on ${g.project_name || 'no project'}`), h('div', { class: 'jp-label' }, g.note || ''),
         h('div', { class: 'faint small' }, `${g.user_name || ''}, job #${g.screening_id}`)),
-        me.role === 'admin' && g.project_name ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Adding'); try { await api('POST', `/admin/gaps/${g.id}/link`, {}); toast('Added to the project'); route(); } catch (x) { toast(x.message, true); route(); } } }, 'Add to library') : null)))) : null;
+        me.role === 'admin' && g.project_name ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Adding'); try { await api('POST', `/admin/gaps/${g.id}/link`, { project_id: g.project_id }); toast('Added to the project'); route(); } catch (x) { toast(x.message, true); route(); } } }, 'Add to library') : null)))) : null;
   shell('feedback', [pageHead('Proposal feedback', 'What was wrong in proposals, each kept with the proposal as it was. Read it by category to see what to fix in the setup.'),
     counts, waiting,
     listCard({ items: r.items, paged: true, icon: 'audit', emptyTitle: 'No feedback yet', emptyText: 'On a proposal, use the Feedback card beside the review.',
@@ -2649,6 +2737,31 @@ async function settingsView() {
   const sig = settings['writer.structured_signal'];
   const sigNum = h('input', { type: 'number', min: 1, value: sig.signal, style: 'width:90px', 'aria-label': 'Signal number' });
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
+  // the opening styles (R73): one opening per style that is on, for every proposal; two to four
+  const stylesCard = (() => {
+    let styles = settings['writer.opening_styles'].map((x) => ({ ...x }));
+    const list = h('div', { class: 'stack', style: 'gap:12px' });
+    const saveBtn = h('button', { class: 'btn sm primary', type: 'button' }, 'Save styles');
+    const addBtn = h('button', { class: 'btn sm', type: 'button' }, 'Add a style');
+    const draw = () => {
+      list.replaceChildren(...styles.map((st, i) => {
+        const name = h('input', { type: 'text', value: st.name, maxlength: 60, 'aria-label': 'Style name', style: 'max-width:280px' });
+        const ins = h('textarea', { rows: 3, maxlength: 1500, 'aria-label': 'Instructions for ' + st.name }); ins.value = st.instructions;
+        const on = h('input', { type: 'checkbox', checked: st.active, id: 'sty' + i });
+        name.oninput = () => { st.name = name.value; }; ins.oninput = () => { st.instructions = ins.value; }; on.onchange = () => { st.active = on.checked; };
+        const rm = styles.length > 2 ? h('button', { class: 'btn sm', type: 'button', onclick: () => { styles.splice(i, 1); draw(); } }, 'Remove') : null;
+        return h('div', { class: 'stylebox' }, h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'jp-sec' }, `Opening ${i + 1}`), name),
+          h('div', { class: 'row', style: 'gap:10px' }, h('label', { class: 'row small', for: 'sty' + i, style: 'gap:6px' }, on, 'On'), rm)), ins);
+      }));
+      addBtn.hidden = styles.length >= 4;
+    };
+    addBtn.onclick = () => { styles.push({ name: 'New style', active: true, instructions: 'Lead with ... Tone: ... The line of thought: they read on because ...' }); draw(); };
+    saveBtn.onclick = () => save('writer.opening_styles', styles.map((x) => ({ name: x.name.trim(), instructions: x.instructions.trim(), active: !!x.active })), saveBtn);
+    draw();
+    return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, meta['writer.opening_styles'].label), h('span', { class: 'sub' }, 'The openings to pick from on every proposal')),
+      h('div', { class: 'card-pad', style: 'display:grid;gap:12px' }, h('p', { class: 'jp-label', style: 'margin:0' }, meta['writer.opening_styles'].help), list,
+        h('div', { class: 'row', style: 'gap:8px;justify-content:flex-end' }, addBtn, saveBtn)));
+  })();
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     (() => { const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' }); return group('Company', [row('company.name', el, () => el.value.trim())]); })(),
@@ -2657,7 +2770,7 @@ async function settingsView() {
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       (() => { const el = h('textarea', { rows: 2, style: 'min-width:380px;min-height:56px', 'aria-label': 'The Loom video line' }); el.value = settings['writer.loom_line']; return row('writer.loom_line', el, () => el.value.trim()); })(),
-      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
+      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))]), stylesCard], true);
 }
 
 // ---------- connect Claude: personal tokens for the import MCP ----------

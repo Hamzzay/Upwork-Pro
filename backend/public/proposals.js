@@ -71,6 +71,53 @@ function richEditor(html, opts = {}) {
   };
 }
 
+// ---------- comparing two versions (R72) ----------
+/** A word diff of two texts: [kind, text] pieces, kind '=' (both), '-' (only in a) or '+' (only in b). Spaces and line breaks are
+ *  kept as their own pieces, so each side can be shown with its paragraphs. */
+function wordDiff(a, b) {
+  const A = a.split(/(\s+)/).filter(Boolean), B = b.split(/(\s+)/).filter(Boolean), n = A.length, m = B.length;
+  if ((n + 1) * (m + 1) > 6e6) return [['-', a], ['+', b]]; // far too long to compare word by word: shown whole
+  const L = new Int32Array((n + 1) * (m + 1)), w = m + 1;
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i * w + j] = A[i] === B[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+  const out = []; let i = 0, j = 0;
+  const push = (k, t) => { const last = out[out.length - 1]; if (last && last[0] === k) last[1] += t; else out.push([k, t]); };
+  while (i < n && j < m) { if (A[i] === B[j]) { push('=', A[i]); i++; j++; } else if (L[(i + 1) * w + j] >= L[i * w + j + 1]) push('-', A[i++]); else push('+', B[j++]); }
+  while (i < n) push('-', A[i++]); while (j < m) push('+', B[j++]);
+  return out;
+}
+/** One side of the comparison: the shared text plain, and this side's own words marked. */
+const diffSide = (pieces, side) => h('div', { class: 'cmptext' }, pieces.filter(([k]) => k === '=' || k === side).map(([k, t]) => (k === '=' ? t : h(side === '-' ? 'del' : 'ins', {}, t))));
+const wordCount = (pieces, k) => pieces.filter((x) => x[0] === k).reduce((n, x) => n + (x[1].trim() ? x[1].trim().split(/\s+/).length : 0), 0);
+
+/** Two versions of a proposal side by side, any two picked, with what changed between them marked. */
+async function compareVersions(proposalId, versions, left, right) {
+  const cache = new Map();
+  const get = async (no) => { if (!cache.has(no)) cache.set(no, (await api('GET', `/proposals/${proposalId}/versions/${no}`)).version); return cache.get(no); };
+  const label = (v) => `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`;
+  const pick = (val) => h('select', { 'aria-label': 'Version' }, versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === val }, label(v))));
+  const selA = pick(left), selB = pick(right);
+  const sum = h('div', { class: 'small muted' }), colA = h('div', { class: 'cmpcol' }), colB = h('div', { class: 'cmpcol' });
+  const draw = async () => {
+    const [a, b] = await Promise.all([get(Number(selA.value)), get(Number(selB.value))]);
+    const d = wordDiff(htmlToPlainText(a.content_html), htmlToPlainText(b.content_html));
+    const added = wordCount(d, '+'), removed = wordCount(d, '-');
+    sum.textContent = a.version_no === b.version_no ? 'The same version on both sides.' : !added && !removed ? 'The cover letters are the same.' : `From v${a.version_no} to v${b.version_no}: ${added} word${added === 1 ? '' : 's'} added, ${removed} taken out.`;
+    // the screening answers, each compared with the one in the same place
+    const qa = (side) => { const xs = (side === '-' ? a : b).answers || [], ys = (side === '-' ? b : a).answers || [];
+      return xs.length ? h('div', { class: 'cmpqa' }, h('div', { class: 'jp-sec' }, `Screening answers (${xs.length})`), xs.map((x, i) => {
+        const other = ys[i] ? ys[i].answer : ''; const dd = side === '-' ? wordDiff(x.answer, other) : wordDiff(other, x.answer);
+        return h('div', {}, h('div', { class: 'jp-label' }, `${i + 1}. ${x.question}`), diffSide(dd, side)); })) : null; };
+    colA.replaceChildren(...[h('div', { class: 'cmphead' }, selA, note(a)), diffSide(d, '-'), qa('-')].filter(Boolean));
+    colB.replaceChildren(...[h('div', { class: 'cmphead' }, selB, note(b)), diffSide(d, '+'), qa('+')].filter(Boolean));
+  };
+  const note = (v) => (v.note ? h('div', { class: 'faint small' }, v.note) : null);
+  selA.onchange = draw; selB.onchange = draw;
+  const dlg = modal({ title: 'Compare versions', noConfirm: true, body: h('div', {}, h('div', { class: 'row spread', style: 'margin-bottom:10px;gap:10px' }, sum,
+    h('div', { class: 'row small', style: 'gap:12px' }, h('span', {}, h('del', {}, 'taken out')), h('span', {}, h('ins', {}, 'added')))), h('div', { class: 'cmpgrid' }, colA, colB)) });
+  dlg.classList.add('xwide');
+  try { await draw(); } catch (x) { sum.textContent = x.message; }
+}
+
 // ---------- step 4: the proposal ----------
 const STAGE_TEXT = { signals: 'Reading the job and detecting its signals', template: 'Choosing the best proposal type', writing: 'Writing the proposal' };
 const SOURCE_TEXT = { ai: 'Written by AI', manual: 'Edited by hand', chat: 'Revised by chat', restore: 'Restored' };
@@ -91,11 +138,16 @@ function proposalSection(s, initial, matching) {
   // the parts of a written proposal being brought up to date after a change of projects, profile or video (PLAN-SPEED point 1)
   const partsBusy = () => !!(data && data.parts && (data.parts.status === 'queued' || data.parts.status === 'running'));
   const gapsBusy = () => !!(data && data.gaps && (data.gaps.status === 'queued' || data.gaps.status === 'running'));
+  const openingsBusy = () => !!(data && data.openings && (data.openings.status === 'queued' || data.openings.status === 'running'));
   let templates = [];
   // the stepper asks these before it leaves the step or finishes it
   box.__dirty = () => !!(editor && (editor.isDirty() || answersDirty()));
   box.__finish = async () => {
     if (!data || data.status !== 'done' || !data.current) throw new Error('The proposal is not ready yet');
+    if (previewIdx > 0) {
+      if (!(await ask('Use this opening?', 'You are trying one of the openings. It is saved as a new version, then the proposal is finished.', 'Use it and finish'))) return false;
+      await useOpening(); await reload();
+    }
     if (editor && (editor.isDirty() || answersDirty())) {
       if (!(await ask('Save and finish?', 'Your unsaved changes are saved as a new version, then the proposal is finished.', 'Save and finish'))) return false;
       await api('POST', `/proposals/${data.id}/versions`, { html: editor.getHtml(), ...(answersDirty() ? { answers: editedAnswers() } : {}), based_on: loaded }); editor.markClean();
@@ -134,62 +186,91 @@ function proposalSection(s, initial, matching) {
       if ((st.gaps_status || null) !== ((data.gaps && data.gaps.status) || null)) {
         const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.gaps = fresh.gaps; drawGaps();
       }
+      // the three openings arrived (or started): redraw only them
+      if ((st.openings_status || null) !== ((data.openings && data.openings.status) || null)) {
+        data.openings = (await api('GET', `/screenings/${s.id}/proposal`)).proposal.openings; drawOpenings();
+      }
       // the independent review arrived (or started): fetch it and redraw only its panel
       if ((st.review_status || null) !== ((data.review && data.review.status) || null) || (st.review_version || null) !== ((data.review && data.review.version) || null)) {
         data.review = (await api('GET', `/screenings/${s.id}/proposal`)).proposal.review; drawReview();
       }
     } catch (e) { /* try again next time */ }
-    if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy()) timer = setTimeout(poll, 1000);
+    if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy() || openingsBusy()) timer = setTimeout(poll, 1000);
   }
   const startPolling = () => { clearTimeout(timer); timer = setTimeout(poll, 1000); };
 
   // ----- pieces
-  // ----- experience gaps (R67): what the client asks for that our facts do not show. Yes (with the project and how it was used)
-  // or No; a Yes updates only those lines of the proposal, and teaches the library (a new tag is made switched off)
+  // ----- experience gaps (R67, R71): what the client asks for that our facts do not show. Yes (with the projects where it was done,
+  // any number, and how it was used) or No; a Yes updates only those lines of the proposal, and teaches the library (a new tag is
+  // made switched off)
   const gapsEl = h('div', {});
-  const LIB = { added: 'added to the project in the library, switched off until an admin switches it on', waiting: 'the note is on the project; the tag waits for an admin', note: 'the note is on the project', to_add: 'waits for an admin to add it to the library', none: 'said as your own experience' };
+  const LIB = { added: 'in the library, switched off until an admin switches it on', waiting: 'the note is on the projects; the tag waits for an admin', note: 'the note is on the projects', to_add: 'waits for an admin to add it to the library', none: 'said as your own experience' };
   function drawGaps() {
     drawChecks(); drawSideTabs();
     const g = data && data.gaps; if (!g || !g.items || !g.items.length) { gapsEl.replaceChildren(); return; }
     if (g.status === 'queued' || g.status === 'running') {
       gapsEl.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Updating the proposal with your experience. Only those lines change.')); return; }
     const open = g.items.filter((x) => x.status === 'open'), done = g.items.filter((x) => x.status !== 'open');
-    const state = new Map(); // id -> { has, project_id, note, tag_name, category }
+    const state = new Map(); // id -> { has, projects: Set, note, tag_name, category }
+    const send = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Update the proposal');
+    const tally = h('span', { class: 'faint small' });
+    const recount = () => { const n = [...state.values()].filter((v) => v.has !== null).length; send.disabled = !n; tally.textContent = `${n} of ${open.length} answered`; };
+    const inProp = g.projects.filter((p) => Number(p.in_proposal)), others = g.projects.filter((p) => !Number(p.in_proposal));
     const row = (x) => {
-      const st = { has: null, project_id: null, note: '', tag_name: x.skill, category: x.category || '' }; state.set(x.id, st);
-      const more = h('div', { class: 'stack', style: 'gap:8px;margin-top:8px', hidden: true });
-      const projSel = h('select', { 'aria-label': 'Project where it was done' }, h('option', { value: '' }, 'No project: my own experience'), ...g.projects.map((p) => h('option', { value: p.id }, p.name + (Number(p.in_proposal) ? ' (in this proposal)' : ''))));
-      const noteLbl = h('label', { class: 'lbl' }, 'A few words on your experience');
+      const st = { has: null, projects: new Set(), note: '', tag_name: x.skill, category: x.category || '' }; state.set(x.id, st);
+      const more = h('div', { class: 'gapmore', hidden: true });
+      // where it was done: tick any number of projects; none ticked means the sender's own experience
+      const picked = h('div', { class: 'faint small' });
+      const tagLine = h('div', { class: 'gaptag', hidden: true });
+      const drawPicked = () => { const n = st.projects.size; picked.textContent = n ? `${n} project${n === 1 ? '' : 's'} picked` : 'None picked: said as your own experience'; tagLine.hidden = !n; };
+      const pick = (p) => { const cb = h('input', { type: 'checkbox', value: p.id }); cb.onchange = () => { if (cb.checked) st.projects.add(p.id); else st.projects.delete(p.id); drawPicked(); };
+        return h('label', { class: 'gappick', 'data-name': p.name.toLowerCase() }, cb, h('span', {}, p.name)); };
+      const list = h('div', { class: 'gaplist' },
+        inProp.length ? [h('div', { class: 'gapgroup' }, 'In this proposal'), ...inProp.map(pick)] : null,
+        others.length ? [h('div', { class: 'gapgroup' }, inProp.length ? 'Other projects' : 'Projects'), ...others.map(pick)] : null);
+      const find = g.projects.length > 8 ? h('input', { type: 'search', placeholder: 'Find a project', 'aria-label': 'Find a project' }) : null;
+      if (find) find.oninput = () => { const q = find.value.trim().toLowerCase(); list.querySelectorAll('.gappick').forEach((l) => { l.hidden = !!q && !l.dataset.name.includes(q); }); };
       const note = h('textarea', { rows: 2, maxlength: 600, placeholder: 'For example: built the support bot on Grok, with function calls into the booking system.' });
+      note.oninput = () => { st.note = note.value; };
+      // the tag the library gets: shown as one line, changed only when needed
       const tagIn = h('input', { type: 'text', value: x.skill, maxlength: 120, 'aria-label': 'Tag name' });
       const catSel = h('select', { 'aria-label': 'Tag category' }, ...g.categories.map((c) => h('option', { value: c, selected: c === x.category }, c)));
-      const tagRow = h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap', hidden: true }, h('span', { class: 'jp-label' }, 'Tag'), tagIn, h('span', { class: 'jp-label' }, 'in'), catSel,
-        h('span', { class: 'faint small' }, 'Made switched off: it does not count in matching until an admin switches it on.'));
-      projSel.onchange = () => { st.project_id = projSel.value ? Number(projSel.value) : null; tagRow.hidden = !st.project_id; noteLbl.textContent = st.project_id ? 'How it was used in this project' : 'A few words on your experience'; };
-      note.oninput = () => { st.note = note.value; }; tagIn.oninput = () => { st.tag_name = tagIn.value; }; catSel.onchange = () => { st.category = catSel.value; };
-      more.append(h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Where'), projSel), h('div', { class: 'field' }, noteLbl, note), tagRow);
-      const yes = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, 'Yes'), no = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, 'No');
-      const pick = (v) => { st.has = st.has === v ? null : v; yes.classList.toggle('on', st.has === true); no.classList.toggle('on', st.has === false); yes.setAttribute('aria-pressed', String(st.has === true)); no.setAttribute('aria-pressed', String(st.has === false)); more.hidden = st.has !== true; };
-      yes.onclick = () => pick(true); no.onclick = () => pick(false);
-      return h('div', { class: 'qa' }, h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:10px' },
-        h('div', {}, h('strong', {}, x.skill), h('div', { class: 'jp-label' }, x.ask), x.quote ? h('div', { class: 'faint small' }, 'The client: “' + x.quote + '”') : null),
-        owner ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' }, yes, no) : null), more);
+      tagIn.oninput = () => { st.tag_name = tagIn.value; tagText.textContent = tagIn.value || x.skill; }; catSel.onchange = () => { st.category = catSel.value; catText.textContent = catSel.value; };
+      const tagText = h('strong', {}, x.skill), catText = h('span', {}, x.category || g.categories[0] || '');
+      const tagEdit = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:6px', hidden: true }, tagIn, catSel);
+      tagLine.append(h('div', {}, 'Tag for the library: ', tagText, ' in ', catText, ' ', h('button', { type: 'button', class: 'linkbtn', onclick: (e) => { tagEdit.hidden = !tagEdit.hidden; e.currentTarget.textContent = tagEdit.hidden ? 'Change' : 'Done'; } }, 'Change')),
+        tagEdit, h('div', { class: 'faint small' }, 'Made switched off: it does not count in matching until an admin switches it on.'));
+      more.append(h('div', { class: 'lbl' }, 'Where was it done?'), find, list, picked, h('label', { class: 'lbl', style: 'margin-top:10px' }, 'How it was used (optional)'), note, tagLine);
+      drawPicked();
+      const yes = h('button', { type: 'button', 'aria-pressed': 'false' }, 'Yes'), no = h('button', { type: 'button', 'aria-pressed': 'false' }, 'No');
+      const card = h('div', { class: 'gapcard' });
+      const choose = (v) => { st.has = st.has === v ? null : v; yes.classList.toggle('on', st.has === true); no.classList.toggle('on', st.has === false); yes.setAttribute('aria-pressed', String(st.has === true)); no.setAttribute('aria-pressed', String(st.has === false));
+        more.hidden = st.has !== true; card.classList.toggle('yes', st.has === true); card.classList.toggle('no', st.has === false); recount(); };
+      yes.onclick = () => choose(true); no.onclick = () => choose(false);
+      card.append(h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:8px' }, h('strong', { class: 'gapskill' }, x.skill), x.category ? h('span', { class: 'chip' }, x.category) : null),
+        h('div', { class: 'jp-label' }, x.ask), x.quote ? h('div', { class: 'gapquote' }, '“' + x.quote + '”') : null,
+        owner ? h('div', { class: 'gapq' }, h('span', { class: 'small muted' }, 'Have you done this?'), h('div', { class: 'seg' }, yes, no)) : null, more);
+      return card;
     };
     const err = h('div', { class: 'err', hidden: true });
-    const send = h('button', { class: 'btn primary', type: 'button' }, 'Update the proposal');
     send.onclick = async () => {
-      const answers = [...state.entries()].filter(([, v]) => v.has !== null).map(([id, v]) => ({ id, has: v.has, project_id: v.has ? v.project_id : null, note: v.has ? v.note.trim() || undefined : undefined, tag_name: v.has ? v.tag_name.trim() || undefined : undefined, category: v.has ? v.category || undefined : undefined }));
+      const answers = [...state.entries()].filter(([, v]) => v.has !== null).map(([id, v]) => ({ id, has: v.has, project_ids: v.has ? [...v.projects] : [], note: v.has ? v.note.trim() || undefined : undefined, tag_name: v.has ? v.tag_name.trim() || undefined : undefined, category: v.has ? v.category || undefined : undefined }));
       if (!answers.length) { err.replaceChildren(icon('x'), 'Answer Yes or No first.'); err.hidden = false; return; }
       if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Update the proposal?', 'You have unsaved changes. The update starts from the last saved version, so save yours first to keep them.', 'Update anyway'))) return;
       btnBusy(send, 'Saving');
       try { const r = await api('POST', `/proposals/${data.id}/gaps`, { answers }); if (r.updated) { data.gaps.status = 'queued'; drawGaps(); startPolling(); } else { const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.gaps = fresh.gaps; drawGaps(); toast('Saved. Nothing to add to the proposal.'); } }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; send.disabled = false; send.replaceChildren('Update the proposal'); }
     };
+    recount();
     gapsEl.replaceChildren(h('div', {},
-      open.length ? [h('p', { class: 'jp-label', style: 'margin:0 0 10px' }, 'The client asks for these and we have no record of them, so they were left out. Have you done them? A Yes puts them in, explained, and teaches the library.'),
-        h('div', { class: 'stack', style: 'gap:10px' }, open.map(row)), err, owner ? h('div', { class: 'row', style: 'margin-top:12px' }, send) : null] : null,
-      done.length ? h('details', { class: 'reviewfold', style: open.length ? 'margin-top:12px' : '' }, h('summary', {}, `Answered (${done.length})`),
-        h('ul', { class: 'jp-list', style: 'margin:6px 0 0' }, done.map((x) => h('li', {}, h('strong', {}, x.skill), x.status === 'no' ? ': No, left out.' : `: Yes${x.project_name ? ', ' + x.project_name : ''}${x.applied_version ? ', in version ' + x.applied_version : ''}. ${LIB[x.library] || ''}`)))) : null,
+      open.length ? [h('p', { class: 'jp-label', style: 'margin:0 0 12px' }, 'The client asks for these and we have no record of them, so they were left out. Have you done them? A Yes puts them in, explained, and teaches the library.'),
+        h('div', { class: 'stack', style: 'gap:10px' }, open.map(row)), err,
+        owner ? h('div', { class: 'gapfoot' }, tally, send) : null] : null,
+      done.length ? h('details', { class: 'reviewfold', style: open.length ? 'margin-top:14px' : '', open: !open.length || null }, h('summary', {}, `Answered (${done.length})`),
+        h('div', { class: 'stack', style: 'gap:6px;margin-top:8px' }, done.map((x) => h('div', { class: 'gapdone' },
+          h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' }, h('span', { class: 'pill ' + (x.status === 'no' ? 'wait' : 'PASS') }, x.status === 'no' ? 'No' : 'Yes'), h('strong', {}, x.skill)),
+          x.status === 'no' ? h('div', { class: 'faint small' }, 'Left out of the proposal.')
+            : h('div', { class: 'faint small' }, [x.project_name ? 'Done in ' + x.project_name : null, x.applied_version ? 'in version ' + x.applied_version : null, LIB[x.library] || null].filter(Boolean).join('. ') + '.'))))) : null,
       g.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The update failed' + (g.error ? ': ' + g.error : '.') + ' Answer again to try again.') : null));
   }
 
@@ -233,7 +314,7 @@ function proposalSection(s, initial, matching) {
 
   // ----- the side panel: one tool at a time, so the proposal stays the main thing on screen. The tab you used last is kept.
   const SIDE = [['chat', 'Chat'], ['review', 'Review'], ['gaps', 'Experience'], ['feedback', 'Feedback']];
-  let sideTab = 'chat', gapsShown = false;
+  let sideTab = 'chat', gapsShown = false, mainTab = 'letter'; // mainTab: the cover letter or the screening answers
   try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { /* storage blocked */ }
   const hasGaps = () => !!(data && data.gaps && data.gaps.items && data.gaps.items.length);
   const openGaps = () => (hasGaps() ? data.gaps.items.filter((x) => x.status === 'open').length : 0);
@@ -261,6 +342,69 @@ function proposalSection(s, initial, matching) {
         : n ? h('button', { type: 'button', class: 'checkask', onclick: () => { showSide('gaps'); box.querySelector('.sidecard')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } }, icon('info'), `${n} question${n === 1 ? '' : 's'} about your experience`) : null,
     ].filter(Boolean));
     checksEl.hidden = !checksEl.childNodes.length;
+  }
+
+  // ----- three openings (R73): each a different direction, tone and line of thought. Swipe through them: the proposal below shows
+  // each one in place (a preview, not saved); Use this opening saves it as a new version.
+  const openEl = h('div', {});
+  let previewIdx = 0, slides = [], viewingOther = false;
+  const NOT_OPENING = new Set(['[[PROOF]]', '[[VIDEO]]']);
+  const firstPara = (html) => htmlToPlainText(html).split(/\n{2,}/).map((x) => x.trim()).find((x) => x && !NOT_OPENING.has(x)) || '';
+  const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+  const withOpening = (html, text) => { const d = document.createElement('div'); d.innerHTML = html; const el = d.querySelector('p, h1, h2, h3, h4, div');
+    const p = document.createElement('p'); text.trim().split('\n').forEach((line, i) => { if (i) p.append(document.createElement('br')); p.append(line); });
+    if (el) el.replaceWith(p); else d.prepend(p); return d.innerHTML; };
+  async function useOpening() {
+    const sl = slides[previewIdx]; if (!sl || sl.index == null) return;
+    await api('POST', `/proposals/${data.id}/openings/${sl.index}/use`, {});
+    previewIdx = 0;
+  }
+  function drawOpenings() {
+    const o = data && data.openings;
+    if (!o || !data.current || !editor || viewingOther) { openEl.replaceChildren(); return; }
+    const writeBtn = (label) => (owner ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Starting');
+      try { await api('POST', `/proposals/${data.id}/openings`, {}); data.openings = { ...o, status: 'queued' }; previewTo(0); drawOpenings(); startPolling(); } catch (x) { toast(x.message, true); drawOpenings(); } } }, label) : null);
+    const shell = (...kids) => openEl.replaceChildren(h('div', { class: 'opencard' }, ...kids));
+    if (openingsBusy()) return shell(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing the openings, one per style, each a different direction and tone...'));
+    if (!o.items || !o.items.length) return o.status === 'error'
+      ? shell(h('div', { class: 'row spread' }, h('span', { class: 'err' }, icon('x'), 'The openings could not be written' + (o.error ? ': ' + o.error : '.')), writeBtn('Try again')))
+      : owner ? shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Openings to choose from, one per style, each a different direction and tone.'), writeBtn('Write the openings'))) : openEl.replaceChildren();
+    const curFirst = firstPara(data.current.html);
+    if (norm(curFirst) !== norm(o.first)) return shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'The openings were written for an earlier first paragraph.'), writeBtn('Write new ones')));
+    // As written first (the one in use, when one was used), then the others
+    slides = [{ label: o.used != null && o.items[o.used] ? 'Opening in use' : 'Opening as written', angle: o.used != null && o.items[o.used] ? o.items[o.used].angle : null, tone: o.used != null && o.items[o.used] ? o.items[o.used].tone : null, text: curFirst, why: null, index: null },
+      ...o.items.map((x, i) => ({ ...x, label: x.style || `Opening ${i + 1}`, index: i })).filter((x) => x.index !== o.used)]; // labelled by its style (Settings)
+    if (previewIdx >= slides.length) previewIdx = 0;
+    const track = h('div', { class: 'opentrack' }, slides.map((sl) => h('div', { class: 'openslide' }, h('p', { class: 'opentext' }, sl.text), sl.why ? h('div', { class: 'faint small' }, sl.why) : null)));
+    const counter = h('span', { class: 'small muted' }), chips = h('span', { class: 'row', style: 'gap:6px' }), act = h('span', {});
+    const dots = h('div', { class: 'opendots' }, slides.map((_, i) => h('button', { type: 'button', 'aria-label': `Show ${slides[i].label}`, onclick: () => go(i) })));
+    const prev = h('button', { class: 'btn sm', type: 'button', 'aria-label': 'Previous opening', onclick: () => go(previewIdx - 1) }, '‹'), next = h('button', { class: 'btn sm', type: 'button', 'aria-label': 'Next opening', onclick: () => go(previewIdx + 1) }, '›');
+    const head = () => {
+      const sl = slides[previewIdx];
+      counter.textContent = `${previewIdx + 1} of ${slides.length}`;
+      chips.replaceChildren(...[h('strong', {}, sl.label), sl.angle ? h('span', { class: 'chip brand' }, sl.angle) : null, sl.tone ? h('span', { class: 'chip' }, sl.tone) : null].filter(Boolean));
+      dots.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === previewIdx));
+      prev.disabled = previewIdx === 0; next.disabled = previewIdx === slides.length - 1;
+      act.replaceChildren(...(sl.index != null && owner ? [h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
+        try { await useOpening(); toast('Saved as a new version'); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); head(); } } }, 'Use this opening')] : []));
+    };
+    const go = (i) => { i = Math.max(0, Math.min(slides.length - 1, i)); previewTo(i); track.scrollTo({ left: previewIdx * track.clientWidth, behavior: 'smooth' }); head(); };
+    // swiping: the slide that comes to rest is the one shown in the proposal
+    let t = null; track.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); if (i !== previewIdx) { if (!previewTo(i)) track.scrollTo({ left: previewIdx * track.clientWidth, behavior: 'smooth' }); head(); } }, 90); }, { passive: true });
+    shell(h('div', { class: 'row spread', style: 'flex-wrap:wrap;gap:8px' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, chips),
+      h('div', { class: 'row', style: 'gap:6px' }, counter, prev, next, act)), track,
+      h('div', { class: 'row spread', style: 'margin-top:6px' }, dots, h('span', { class: 'faint small' }, 'Swipe to try each one in the proposal below.'), owner ? h('button', { type: 'button', class: 'linkbtn small', onclick: () => writeBtn('').click() }, 'Write new ones') : null));
+    head();
+    requestAnimationFrame(() => { track.scrollLeft = previewIdx * track.clientWidth; });
+  }
+  /** Shows slide i in the proposal itself: a preview, not saved. Never over the person's own unsaved edits. */
+  function previewTo(i) {
+    if (!editor || !data.current) { previewIdx = 0; return false; }
+    if (i === previewIdx) return true;
+    if (editor.isDirty()) { toast('Save or undo your edits first: the opening is tried in the saved proposal.', true); return false; }
+    previewIdx = i;
+    editor.setHtml(previewIdx > 0 && slides[i] ? withOpening(data.current.html, slides[i].text) : data.current.html);
+    return true;
   }
 
   const bannerEl = h('div', { class: 'newer', hidden: true });
@@ -508,35 +652,51 @@ function proposalSection(s, initial, matching) {
     const counter = h('div', { class: 'counter-line faint small' });
     const count = () => { const t = htmlToPlainText(editor.getHtml()); const words = t.trim() ? t.trim().split(/\s+/).length : 0; counter.textContent = `${words} words · ${t.length.toLocaleString()} characters` + (t.length > 5000 ? ' · over 5,000: Upwork may cut it off' : ''); counter.classList.toggle('over', t.length > 5000); };
     const answersBox = h('div', {});
+    // the cover letter and the screening answers are two tabs: each is pasted into its own place on Upwork
+    const mainTabs = h('div', { class: 'tabs maintabs', role: 'tablist', 'aria-label': 'Proposal parts' });
+    const letterPane = h('div', {}), answersPane = h('div', {}, answersBox);
+    const drawMainTabs = () => {
+      const n = shownAnswers.length; if (!n) mainTab = 'letter';
+      mainTabs.hidden = !n;
+      const tab = (k, label, ...extra) => h('button', { type: 'button', role: 'tab', class: 'tab' + (mainTab === k ? ' on' : ''), 'aria-selected': mainTab === k, onclick: () => { mainTab = k; drawMainTabs(); } }, label, ...extra.filter(Boolean));
+      mainTabs.replaceChildren(tab('letter', 'Cover letter', editor && editor.isDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null),
+        tab('answers', 'Screening answers', h('span', { class: 'n' }, String(n)), answersDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null));
+      letterPane.hidden = mainTab !== 'letter'; answersPane.hidden = mainTab !== 'answers';
+    };
     chatLoader = h('div', { class: 'busycover', hidden: !chatBusy(), role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', {}, 'The AI is working on your request'),
       h('div', { class: 'jp-label' }, 'If it rewrites the proposal, the new version loads here by itself.'));
     // the screening answers, apart from the letter: each its own box, Copy and edit; saved with Save version, never through the letter
     const drawAnswers = (answers, editable) => {
       shownAnswers = answers || []; answerBoxes = [];
-      answersBox.replaceChildren(...(shownAnswers.length ? [h('div', { class: 'card card-pad', style: 'margin-top:14px' },
-        h('div', { class: 'jp-sec' }, `Screening answers (${shownAnswers.length})`),
-        h('div', { class: 'jp-label', style: 'margin-bottom:8px' }, editable ? 'Paste each into its own box on Upwork. They are kept apart from the proposal: edit them here and save with Save version.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
+      answersBox.replaceChildren(...(shownAnswers.length ? [h('div', {},
+        h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, editable ? 'Paste each into its own box on Upwork. They are kept apart from the proposal: edit them here and save with Save version.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
         h('div', { class: 'stack', style: 'gap:10px' }, shownAnswers.map((x, i) => {
           const box = h('textarea', { class: 'qa-answer', rows: Math.min(12, Math.max(3, Math.ceil(x.answer.length / 90) + 1)), readOnly: !editable, 'aria-label': `Answer ${i + 1}` });
           box.value = x.answer; answerBoxes.push(box);
-          box.addEventListener('input', () => { answersChip.hidden = !answersDirty(); drawActions(); });
+          box.addEventListener('input', () => { answersChip.hidden = !answersDirty(); drawActions(); drawMainTabs(); });
           return h('div', { class: 'qa' },
             h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:10px' }, h('label', { class: 'jp-label' }, `${i + 1}. ${x.question}`),
               h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(box.value.trim()); toast(ok ? `Answer ${i + 1} copied` : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy')),
             box);
         })), answersChip)] : []));
-      answersChip.hidden = true;
+      answersChip.hidden = true; drawMainTabs();
     };
-    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); } dirtyChip.hidden = !d; count(); } });
+    editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); drawMainTabs(); } dirtyChip.hidden = !d; count(); } });
     let wasDirty = false;
     const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
     const vsel = h('select', { id: 'ver-sel', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`)));
+    // with two or more versions: any two side by side (the one shown and the one before it, to start)
+    const cmpBtn = data.versions.length > 1 ? h('button', { class: 'btn sm', type: 'button', onclick: () => {
+      const shown = Number(vsel.value), nos = data.versions.map((v) => v.version_no).sort((x, y) => x - y);
+      const before = nos.filter((x) => x < shown).pop() ?? nos.find((x) => x !== shown);
+      compareVersions(data.id, data.versions, Math.min(before, shown), Math.max(before, shown)); } }, 'Compare versions') : null;
     const viewing = h('div', { class: 'small muted' });
     vsel.onchange = async () => {
       const no = Number(vsel.value);
-      if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; drawAnswers(cur.answers, owner); drawActions(); return; }
+      if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; drawAnswers(cur.answers, owner); drawActions(); previewIdx = 0; viewingOther = false; drawOpenings(); return; }
       if ((editor.isDirty() || answersDirty()) && !(await ask('Show the other version?', 'You have unsaved changes. They are lost when the other version is shown.', 'Show it', true))) { vsel.value = cur.version_no; return; }
       const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html); drawAnswers(v.answers, false); drawActions();
+      previewIdx = 0; viewingOther = true; drawOpenings(); // the openings are for the newest version only
       viewing.replaceChildren(...[`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null].filter(Boolean));
     };
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id && !partsBusy();
@@ -552,17 +712,17 @@ function proposalSection(s, initial, matching) {
     // open questions about our experience: their tab is shown first, once
     if (!gapsShown && owner && openGaps()) { sideTab = 'gaps'; gapsShown = true; }
     count(); drawAnswers(cur.answers, owner); drawParts();
-    // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
     // the proposal on the left; beside it (below it on a narrow screen) one card with a tab per tool
+    previewIdx = 0; viewingOther = false;
+    letterPane.append(partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader),
+      h('div', { class: 'row spread', style: 'margin-top:6px' }, counter, h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')));
+    drawMainTabs();
     const grid = h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' },
         staleBox,
         checksEl,
-        h('div', { class: 'row', style: 'margin:0 0 8px;gap:8px;flex-wrap:wrap' }, vsel, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
-        partsEl,
-        viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader),
-        h('div', { class: 'row spread', style: 'margin-top:6px' }, counter, h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')),
-        answersBox),
+        h('div', { class: 'row', style: 'margin:0 0 8px;gap:8px;flex-wrap:wrap' }, vsel, cmpBtn, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
+        viewing, bannerEl, mainTabs, letterPane, answersPane),
       h('div', { class: 'propside' }, h('div', { class: 'card sidecard' }, h('div', { class: 'tabs sidetabs', role: 'tablist', 'aria-label': 'Proposal tools' }),
         h('div', { class: 'sidebody' }, h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
     return grid;
@@ -584,10 +744,10 @@ function proposalSection(s, initial, matching) {
     }
     box.replaceChildren(...[data && data.status === 'error' && data.current ? h('div', { class: 'err', style: 'margin:0 0 10px' }, icon('x'), 'The last attempt failed: ' + (data.error || '')) : null, body].filter(Boolean)); // replaceChildren prints a null as the word
     drawActions();
-    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); drawFeedback(); drawGaps(); }
+    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); drawFeedback(); drawGaps(); drawOpenings(); }
   }
   box.replaceChildren(h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' }));
-  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
+  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy() || openingsBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
   return box;
 }
 

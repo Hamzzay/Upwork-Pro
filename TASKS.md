@@ -98,6 +98,13 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 49 | Team guide: pictures and text for the gaps card, the feedback card and the Proposal feedback page, and the Proposal tab pictures again after R69 (job-proposal, job-review, job-parts) | open |
 | 50 | Opening lines (all types) in the Writing guide: the defaults for the first two lines, each type's own rules added after and winning (R68, migration 043, plugin v0.14.0) | done |
 | 51 | The Proposal tab cleaned up: one card of tools beside the proposal (Chat, Review, Experience, Feedback), one line of checks above it, How this was written in a window (R69) | done |
+| 52 | The cover letter and the screening answers in two tabs on the Proposal tab (R70) | done |
+| 53 | Experience: a Yes names any number of projects; the Experience tab redone (R71, migration 044) | done |
+| 54 | Compare two versions side by side (R72) | done |
+| 55 | Three openings, each a different direction and tone, swiped through on top of the proposal; Use this opening (R73, migration 045) | done |
+| 56 | Documents attached to a job, read by the AI with the post in every step; images and scans read by the AI once (R74, migration 046) | done |
+| 57 | Opening styles in Settings: two to four base instructions, one opening per style (R73) | done |
+| 58 | The Claude plugin: show and use the openings, attach a job's documents when saving it | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

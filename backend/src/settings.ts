@@ -39,6 +39,16 @@ export const SETTINGS = {
   'writer.requirement_rules': { label: 'Rules passed to the proposal writer', help: 'When one of these flags fires, its text is given to the writer as a client requirement (e.g. screening questions, required words, location rules).',
     schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G11', 'G12', 'G13'] },
   'writer.loom_line': { label: 'The Loom video line', help: 'Put in a proposal when a Loom video is chosen, where the proposal type puts it. {title} is the video title and {url} its link.', schema: z.string().trim().min(5).max(400), def: 'Here is a short video walkthrough of a similar build:\n{url}' },
+  // R73: the three openings to choose from. Each style is a base instruction for one opening; the Opening lines rules and the
+  // proposal type's own first two lines rules apply on top, and win where they differ. Two to four styles, each switched on or off.
+  'writer.opening_styles': { label: 'Opening styles', help: 'One opening is written per style that is on, for every proposal, to pick from on the proposal page. Each style says what the opening leads with, its tone and its line of thought. The Opening lines rules and the proposal type\'s own first two lines rules apply on top, and win where they differ.',
+    schema: z.array(z.object({ name: z.string().trim().min(2).max(60), instructions: z.string().trim().min(20).max(1500), active: z.boolean() })).min(2).max(4)
+      .refine((xs) => xs.filter((x) => x.active).length >= 2, 'Keep at least two styles switched on'),
+    def: [
+      { name: 'The pain', active: true, instructions: 'Lead with the problem the client describes, in their own words where they used strong ones, and what it costs them now. Calm and plain: no drama, no promises. The line of thought: they read on because they feel understood.' },
+      { name: 'The risk', active: true, instructions: 'Lead with a risk, a trap or a detail in the post that a careful expert would notice and a beginner would miss, and why it matters for this job. Direct and confident, never alarming. The line of thought: they read on because this person clearly knows the work.' },
+      { name: 'The outcome', active: true, instructions: 'Lead with the result the client is after and what it changes for them or their customers once it works. Warm and personal, still specific to their post. The line of thought: they read on because they can picture it done.' },
+    ] },
   'writer.structured_signal': { label: 'Signal that means "structured submission"', help: 'When this signal has this value, the writer follows the post\'s own structure first.',
     schema: z.object({ signal: z.number().int().min(1).max(999), value: z.string().trim().min(1).max(120) }), def: { signal: 5, value: 'Yes' } },
 } as const;

@@ -14,6 +14,10 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
     return { text: JSON.stringify(data), data, raw: {} };
   }
   const props: any = (o.schema as any)?.properties ?? {};
+  if (props.document_text) { // reading an attached image or scanned PDF (R74)
+    const data = { document_text: `Mock reading of ${(o.files ?? []).map((f) => f.name).join(', ') || 'the file'}: no real reading was done.` };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
   if (props.ranking) { // matching order: the shortlist as given, all fitting
     const data = { ranking: (props.ranking.items.properties.project.enum as string[]).map((project) => ({ project, fits: true, reason: 'Mock reason.' })) };
     return { text: JSON.stringify(data), data, raw: {} };

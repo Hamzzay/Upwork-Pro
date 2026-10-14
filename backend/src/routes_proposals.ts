@@ -6,6 +6,7 @@ import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
 import { addVersion, latestVersion, loomChoices, queueParts, readParts, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
+import { queueOpenings, readOpenings, useOpening } from './proposal/openings';
 
 export const proposals = Router();
 const admin = requireRole('admin');
@@ -293,7 +294,7 @@ export function reviewOf(p: any) {
 }
 export async function proposalFor(screeningId: number) {
   const p = (await query<any>(
-    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, p.gaps_status, p.gaps_error, u.name AS created_by_name
+    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, p.gaps_status, p.gaps_error, p.openings_status, p.openings_json, p.openings_error, u.name AS created_by_name
      FROM proposals p JOIN users u ON u.id=p.created_by WHERE p.screening_id=?`, [screeningId]))[0];
   if (!p) return null;
   const versions = await query('SELECT v.version_no, v.source, v.note, v.based_on_version, v.created_at, u.name AS user_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no DESC', [p.id]);
@@ -304,10 +305,12 @@ export async function proposalFor(screeningId: number) {
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
     ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
     current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers, in_parts: !!cur.parts } : null, versions, signals, messages,
+    openings: { status: p.openings_status, error: p.openings_error, ...(readOpenings(p.openings_json) ?? {}) }, // three to pick from (R73)
     review: reviewOf(p), parts: { status: p.parts_status, error: p.parts_error, offer: p.parts_offer_json ? JSON.parse(p.parts_offer_json) : [] },
     // experience the client asks for that our facts do not show (R67), with what is needed to answer it
-    gaps: { status: p.gaps_status, error: p.gaps_error, items: await query<any>(`SELECT g.id, g.skill, g.ask, g.quote, g.category, g.status, g.project_id, g.note, g.tag_name, g.library, g.applied_version, pr.name AS project_name
-        FROM proposal_gaps g LEFT JOIN projects pr ON pr.id=g.project_id WHERE g.proposal_id=? ORDER BY g.id`, [p.id]),
+    gaps: { status: p.gaps_status, error: p.gaps_error, items: await query<any>(`SELECT g.id, g.skill, g.ask, g.quote, g.category, g.status, g.project_id, g.note, g.tag_name, g.library, g.applied_version,
+        (SELECT GROUP_CONCAT(pr.name ORDER BY gp.id SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS project_name
+        FROM proposal_gaps g WHERE g.proposal_id=? ORDER BY g.id`, [p.id]),
       projects: await query<any>(`SELECT pj.id, pj.name, EXISTS(SELECT 1 FROM job_matches m WHERE m.screening_id=? AND m.project_id=pj.id AND m.selected=1) AS in_proposal FROM projects pj WHERE pj.active=1 ORDER BY in_proposal DESC, pj.name`, [screeningId]),
       categories: (await query<any>("SELECT name FROM tag_categories WHERE name<>'Industry' ORDER BY sort_order, name")).map((r) => r.name) },
   };
@@ -433,11 +436,11 @@ export async function queueReview(screeningId: number): Promise<{ status: number
 
 proposals.get('/screenings/:id/proposal/state', anyone, async (req, res) => {
   const s = await visibleScreening(req, res); if (!s) return;
-  const p = (await query<any>('SELECT id, status, stage, error_message, review_status, review_version, parts_status, gaps_status FROM proposals WHERE screening_id=?', [s.id]))[0];
+  const p = (await query<any>('SELECT id, status, stage, error_message, review_status, review_version, parts_status, gaps_status, openings_status FROM proposals WHERE screening_id=?', [s.id]))[0];
   if (!p) return void res.json({ state: null });
   const latest = (await query<any>('SELECT MAX(version_no) AS n FROM proposal_versions WHERE proposal_id=?', [p.id]))[0].n;
   const messages = await query('SELECT m.id, m.role, m.content, m.status, m.error_message, m.based_on_version, m.result_version, m.created_at, u.name AS user_name FROM proposal_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? ORDER BY m.id', [p.id]);
-  res.json({ state: { status: p.status, stage: p.stage, error: p.error_message, latest_version: latest ? Number(latest) : null, messages, review_status: p.review_status, review_version: p.review_version, parts_status: p.parts_status, gaps_status: p.gaps_status } });
+  res.json({ state: { status: p.status, stage: p.stage, error: p.error_message, latest_version: latest ? Number(latest) : null, messages, review_status: p.review_status, review_version: p.review_version, parts_status: p.parts_status, gaps_status: p.gaps_status, openings_status: p.openings_status } });
 });
 
 proposals.get('/proposals/:id/versions/:no', anyone, async (req, res) => {
@@ -450,6 +453,23 @@ proposals.get('/proposals/:id/versions/:no', anyone, async (req, res) => {
 });
 
 // The person's own edit: always a new version, even if a chat revision landed while they were typing.
+// Three openings (R73): write them again, or use one (a new version with only the first paragraph changed).
+proposals.post('/proposals/:id/openings', anyone, async (req, res) => {
+  const p = await ownedProposal(req, res); if (!p) return;
+  const err = await queueOpenings(p.id);
+  if (err) return void res.status(409).json({ error: err });
+  await audit(req.user!.id, 'proposal_openings', `proposal=${p.id}`);
+  res.status(202).json({ ok: true });
+});
+proposals.post('/proposals/:id/openings/:i/use', anyone, async (req, res) => {
+  const p = await ownedProposal(req, res); if (!p) return;
+  if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
+  const r = await useOpening(p.id, num(req.params.i), req.user!.id);
+  if (r.error) return void res.status(409).json({ error: r.error });
+  await audit(req.user!.id, 'proposal_opening_used', `proposal=${p.id} opening=${num(req.params.i) + 1} version=${r.version_no}`);
+  res.json({ version_no: r.version_no });
+});
+
 proposals.post('/proposals/:id/versions', anyone, async (req, res) => {
   // the cover letter and, apart from it, the screening answers (left out: the newest version's answers stay as they are)
   const b = z.object({ html: z.string().max(200_000), answers: qaList.optional(), based_on: z.number().int().positive().nullish() }).safeParse(req.body);

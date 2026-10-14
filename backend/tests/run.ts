@@ -20,6 +20,9 @@ import { splitMobile } from '../src/library/mobile';
 import { applyJudgement } from '../src/screening/judge';
 import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
+import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from '../src/proposal/openings';
+import { libSummary, projectsOf } from '../src/proposal/gaps';
+import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
 import { settingsConflict } from '../src/settings';
 import { createServer } from 'node:http';
@@ -652,6 +655,23 @@ const ctx = { rules, projects };
     assert.equal(by.F1.hint.key, 'working', by.F1.hint.text);
     assert.equal(buildFlagReview(g3.slice(0, 5), rules, known, []).rules.find((r) => r.code === 'G3')!.hint.key, 'too_few', 'five jobs are too few');
     assert.equal(rv.screened, pass.length + g3.length + g7.length + g7more.length + f1.length + 1);
+  }
+
+  // R73: an opening replaces only the first paragraph, never a marker, and the rest stays word for word
+  {
+    const letter = 'Your clinics miss calls after hours.\n\nI built two systems like this.\n\n[[PROOF]]\n\n[[VIDEO]]\n\nShall we talk?';
+    assert.equal(firstParagraph(letter), 'Your clinics miss calls after hours.');
+    assert.equal(firstParagraph('[[PROOF]]\n\nSecond.'), 'Second.', 'a marker is never the opening');
+    const next = replaceFirstParagraph(letter, 'Four clinics, one missed call each night.');
+    assert.equal(next, letter.replace('Your clinics miss calls after hours.', 'Four clinics, one missed call each night.'));
+    assert.equal(replaceFirstHtmlParagraph('<p>Old <b>one</b>.</p><p>Rest &amp; more.</p>', 'New one.'), '<p>New one.</p><p>Rest &amp; more.</p>');
+    assert.equal(replaceFirstHtmlParagraph('', 'New.'), '<p>New.</p>');
+  }
+  // R71: an experience done in several projects; each project once; the gap's word puts what waits first
+  {
+    assert.deepEqual(projectsOf({ id: 1, has: true, project_ids: [4, 8, 4], project_id: 8 }), [4, 8]);
+    assert.deepEqual(projectsOf({ id: 1, has: true, project_id: 3 }), [3], 'the one project of the plugin and older pages');
+    assert.equal(libSummary([]), 'none'); assert.equal(libSummary(['added', 'waiting']), 'waiting'); assert.equal(libSummary(['note', 'added']), 'added'); assert.equal(libSummary(['added', 'to_add']), 'to_add');
   }
 
   console.log('all tests passed');

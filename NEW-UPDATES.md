@@ -1003,6 +1003,91 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R74. Documents attached to a job, read by the AI (done, 15 October)
+
+- **What it is** (asked for by Ahmad): the client's files (briefs, specs, screenshots, mockups) can be attached to a job: on
+  **Screen a job** (Attach files, or drop them on the box) and later on the **Job post** tab (the new Attached documents card).
+  PDF, Word (.docx), text, CSV, Markdown and images (PNG, JPG, WebP, GIF), up to 10 MB each and 8 per job.
+- **The AI reads them with the job post, everywhere:** the screening, the tagging and matching, the signals, the proposal, the
+  chat, the review, the experience update and the openings. A PDF, Word or text file is read in code (no AI call); an image, or a
+  PDF with no text in it (a scan), is read once by the AI, which writes down what it shows. A new job's screening waits for that.
+  Every file is given to the AI as the client's data, never as instructions.
+- **On the card:** each file with its kind, size and how many characters the AI reads; **What the AI reads** shows that text;
+  open the file; **Remove** it. If the AI could not read an image, **Describe it** lets a person type what it shows instead (also
+  Change description for an image), and **Read again**. A file added after the screening says so: the matching, the proposal,
+  the chat and the review read it from then on.
+- Safety: the file's content must match its name (a text file renamed to .pdf is refused); files are kept in
+  `backend/storage/attachments` (ignored by git) and served only to the person who submitted the job and admins and managers; the
+  AI that reads an image may read only the copy in its own folder. The new job and its files are saved together, so a job is never
+  screened without its files.
+- New: migration `046_job_attachments.sql`; `src/screening/attachments.ts`; `src/routes_attachments.ts`; two pinned libraries,
+  `pdf-parse` 2.4.5 and `mammoth` 1.12.0 (`npm ci` installs them). Not in the Claude plugin: there, Claude reads the files itself.
+- Checked locally with a made up job and five files: the text, PDF and Word files read in code, the image read by the AI (it
+  described the mockup screen and its button), the renamed file refused, the screening started only after the image was read, and
+  its report used details found only in the files (from the PDF, the image and the notes). Opening, access without signing in
+  (refused), Remove (the file left the disk). The job, its files and its records were removed afterwards.
+
+### R73. Three openings to choose from, swiped through on top of the proposal (done, 15 October)
+
+- **Opening styles in Settings** (asked for by Ahmad, the same day): each opening is written from a style, a base instruction
+  for what it leads with, its tone and its line of thought. Defaults: **The pain**, **The risk**, **The outcome**. An admin edits
+  them under Settings, Opening styles: rename, rewrite, switch off, add (up to four), remove (at least two stay on). One opening
+  is written per style that is on; the Opening lines rules and the proposal type's own first two lines rules apply on top and win
+  where they differ. Each opening on the proposal page is labelled with its style. Changed from Claude like any setting.
+  Checked: the three styles gave three openings that each followed their style; a save with one style on is refused.
+
+
+- **What it is** (asked for by Ahmad): for every proposal, three replacements for its first paragraph (the part Upwork shows in
+  the preview), each with a different direction (what it leads with), tone and line of thought, not three wordings of one idea.
+- **On the proposal:** a card on top of the cover letter shows the opening as written, then the three. **Swipe** (or use the
+  arrows or dots) and the proposal below shows that opening in place, so the whole proposal can be read with each one. Each shows
+  what it leads with, its tone, and one line on why it may land with this client. **Use this opening** saves it as a new version
+  (only the first paragraph changes; a proposal made of parts keeps its parts). Trying one is a preview, never saved by itself;
+  pressing Save and mark sent while trying one asks to use it first. **Write new ones** asks for three more.
+- Written by the worker after every proposal (one short AI call, in parallel with the review), with the writing guide's Opening
+  lines rules, the type's own rules, its first words and the banned phrases. Older proposals show a **Write 3 openings** button.
+  When the first paragraph changes later (a chat revision, an edit), the card says so and offers new ones.
+- Migration `045_openings.sql`; `src/proposal/openings.ts`; routes `POST /proposals/:id/openings` and `/openings/:i/use`.
+- Checked locally on job #51 with the real model: three distinct openings (all keep the client's required opening words), swipe
+  and arrows, the preview in the proposal, Use this opening (v3: only the first paragraph different, the other 12 word for word).
+  The test version was removed afterwards.
+
+### R72. Compare two versions side by side (done, 15 October)
+
+- **What it is** (asked for by Ahmad): with two or more versions, **Compare versions** next to the version picker opens a window
+  with any two versions side by side (the one shown and the one before it, to start). What was taken out is struck through in red
+  on the left, what was added is green on the right, with the count of words added and taken out, each version's note, and the
+  screening answers compared the same way. On a phone the two sit one above the other.
+- Front end only (a word by word comparison in the browser).
+
+### R71. Experience: one answer, several projects; the Experience tab redone (done, 15 October)
+
+- **Several projects** (asked for by Ahmad): a Yes can name any number of projects where it was done, not one. Each project gets
+  the note and the tag (made switched off), and the proposal explains it in the block of each of its projects that is in the
+  proposal; projects not in the proposal are never named. The Proposal feedback page lists what waits for the library per project.
+- **The tab, refined:** a card per question (what the client asks, their words, its category), **Have you done this? Yes / No**,
+  then with Yes: the projects as tick boxes (this proposal's first, a search box when there are many), how it was used, and the
+  tag the library gets on one line (Change to edit it). The button shows how many are answered.
+- Migration `044_gap_projects.sql` (one row per project, the earlier answers copied in). The Claude plugin's answer with one
+  `project_id` still works.
+- Checked: tests; a script on the local database (an employee's Yes on two projects waits on both, an admin adds one, an admin's
+  Yes puts a switched off tag and the note on both, a project given twice counts once, a No clears them; everything it made was
+  removed); the tab on screen, and what it sends.
+
+### R70. The cover letter and the screening answers in two tabs (done, 15 October)
+
+- **Why** (asked for by Ahmad): they are two separate things, each pasted into its own place on Upwork, but the answers sat under
+  the letter, so you scrolled past the whole letter to reach them.
+- **Now:** when the client used Upwork's questions section, the proposal has two tabs above the text: **Cover letter** and
+  **Screening answers** (with their count). Each tab gets the full height. A dot on a tab means it has unsaved changes. **Save
+  version** still saves both together, and the version picker and the checks line apply to both. A proposal without screening
+  answers shows no tabs, as before.
+- Front end only (`public/proposals.js`, `public/style.css`).
+- Checked locally on job #51 with two temporary answers (removed afterwards): both tabs, the count, the dot after an edit, Save
+  version appearing.
+- Note: job #51 itself was written on 9 October, before R59, so its letter still has the answers written inside the text. Newer
+  proposals keep them apart.
+
 ### R69. The Proposal tab cleaned up: one tool at a time beside the proposal (done, 15 October)
 
 - **Why** (asked for by Ahmad): the tab had grown a card per feature. The chat, the independent review, the feedback form, the

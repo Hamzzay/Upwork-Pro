@@ -71,20 +71,21 @@ export async function feedbackList(user: { id: number; role: string }, q: Record
 feedback.get('/feedback', anyone, async (req, res) => {
   const out: any = await feedbackList(req.user!, req.query as any);
   // the experience people confirmed that still waits for the library (an admin adds it with one click)
-  if (canSeeAll(req.user!.role)) out.waiting = await query<any>(`SELECT g.id, g.screening_id, g.skill, g.tag_name, g.note, g.library, g.answered_at, pr.name AS project_name, u.name AS user_name
-    FROM proposal_gaps g LEFT JOIN projects pr ON pr.id=g.project_id LEFT JOIN users u ON u.id=g.answered_by WHERE g.status='yes' AND g.library IN ('waiting', 'to_add') ORDER BY g.id DESC LIMIT 200`);
+  if (canSeeAll(req.user!.role)) out.waiting = await query<any>(`SELECT g.id, gp.project_id, g.screening_id, g.skill, g.tag_name, g.note, gp.library, g.answered_at, pr.name AS project_name, u.name AS user_name
+    FROM proposal_gap_projects gp JOIN proposal_gaps g ON g.id=gp.gap_id JOIN projects pr ON pr.id=gp.project_id LEFT JOIN users u ON u.id=g.answered_by
+    WHERE g.status='yes' AND gp.library IN ('waiting', 'to_add') ORDER BY gp.id DESC LIMIT 200`); // one row per project (R71)
   res.json(out);
 });
 // The same list for Claude (list_feedback): to review with the person what keeps going wrong. With the confirmed experience too.
 feedback.get('/plugin/feedback', anyone, async (req, res) => {
   const out: any = await feedbackList(req.user!, req.query as any);
-  out.experience_confirmed = await query<any>(`SELECT g.skill, g.ask, g.note, g.library, pr.name AS project_name, g.screening_id, g.answered_at FROM proposal_gaps g JOIN screenings s ON s.id=g.screening_id
-    LEFT JOIN projects pr ON pr.id=g.project_id WHERE g.status='yes' ${canSeeAll(req.user!.role) ? '' : 'AND s.user_id=?'} ORDER BY g.id DESC LIMIT 200`, canSeeAll(req.user!.role) ? [] : [req.user!.id]);
+  out.experience_confirmed = await query<any>(`SELECT g.skill, g.ask, g.note, g.library, (SELECT GROUP_CONCAT(pr.name ORDER BY gp.id SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS project_name, g.screening_id, g.answered_at FROM proposal_gaps g JOIN screenings s ON s.id=g.screening_id
+    WHERE g.status='yes' ${canSeeAll(req.user!.role) ? '' : 'AND s.user_id=?'} ORDER BY g.id DESC LIMIT 200`, canSeeAll(req.user!.role) ? [] : [req.user!.id]);
   out.how_to_use = 'Read the feedback by category and find the patterns (the same problem in several proposals). For each pattern say what in the setup causes it and what to change: a project or profile field for a wrong fact, tags for a wrong project, the proposal type, the writing guide or the banned phrases for tone, length and openings, the reviewer for what the review missed. Changing the setup is the setup-admin skill, after a yes.';
   res.json(out);
 });
 feedback.post('/admin/gaps/:id/link', requireRole('admin'), async (req, res) => {
-  const err = await linkWaiting(Number(req.params.id), req.user!);
+  const err = await linkWaiting(Number(req.params.id), req.user!, Number(req.body?.project_id) || undefined);
   if (err) return void res.status(409).json({ error: err });
   res.json({ ok: true });
 });

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -15,6 +15,9 @@ export interface RunOptions {
   apiKey?: string;
   keyName?: string; // for the error message when the key is missing
   oauthToken?: string; // a Claude subscription token (from `claude setup-token`): used instead of an API key and base URL
+  /** Files the model must look at (an image, a scanned PDF: R74). They are copied into the call's own folder, and the model may
+   *  read only inside that folder. Without files the call has no tools at all. */
+  files?: { path: string; name: string }[];
 }
 
 export interface RunResult {
@@ -75,13 +78,15 @@ export async function runClaude(o: RunOptions): Promise<RunResult> {
     mkdirSync(cwd);
     mkdirSync(config);
     writeFileSync(join(root, 'system.txt'), o.system);
+    for (const f of o.files ?? []) copyFileSync(f.path, join(cwd, f.name));
 
     const argv = [
       '-p', '--output-format', 'json',
       '--model', o.model ?? process.env.LLM_MODEL ?? 'glm-5.3-flash[1m]',
       '--max-turns', String(o.maxTurns ?? 5),
       '--strict-mcp-config', '--no-session-persistence',
-      '--tools', '', // no tools: pure text in, text out
+      // no tools: pure text in, text out. With files: Read only, and only inside this call's folder
+      ...(o.files?.length ? ['--tools', 'Read', '--allowedTools', 'Read(./**)'] : ['--tools', '']),
       '--system-prompt-file', join(root, 'system.txt'),
       ...(o.schema ? ['--json-schema', JSON.stringify(o.schema)] : []),
       '--disable-slash-commands', // no skills are used by this app

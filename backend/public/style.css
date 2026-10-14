@@ -737,3 +737,60 @@ div.checkask { cursor: default; font-weight: 400; color: var(--muted); }
   .sidebody { overflow-y: auto; }
   .propside .chatlist { max-height: 42vh; }
 }
+/* the cover letter and the screening answers, one tab each (R70) */
+.maintabs { margin-bottom: 12px; }
+.maintabs[hidden] { display: none; }
+.tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--flag); display: inline-block; }
+/* the Experience tab (R71): one card per question, Yes or No, then the projects where it was done (any number) */
+.gapcard { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; display: grid; gap: 4px; background: var(--surface); }
+.gapcard.yes { border-color: color-mix(in srgb, var(--pass) 45%, var(--line)); }
+.gapcard.no { background: var(--surface-2); }
+.gapskill { font-size: 15px; }
+.gapquote { font-size: 13px; color: var(--muted); font-style: italic; border-left: 2px solid var(--line-strong); padding-left: 8px; margin-top: 2px; }
+.gapq { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.gapq .seg button { padding: 5px 16px; font-size: 13px; }
+.gapmore { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.gapmore[hidden], .gaptag[hidden] { display: none; }
+.gaplist { max-height: 210px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 0; }
+.gapgroup { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); padding: 6px 10px 2px; }
+.gappick { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; cursor: pointer; }
+.gappick:hover { background: var(--surface-2); }
+.gappick[hidden] { display: none; }
+.gappick input { width: auto; margin: 0; }
+.gaptag { font-size: 13px; margin-top: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.gapfoot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.gapdone { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.gapdone:last-child { border-bottom: 0; }
+/* comparing two versions (R72): side by side, what was taken out struck through on the left, what was added on the right */
+dialog.xwide { width: min(1240px, calc(100vw - 32px)); }
+.cmpgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.cmpcol { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; display: grid; gap: 10px; align-content: start; }
+.cmphead { display: grid; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.cmptext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
+.cmptext del, dialog del { background: color-mix(in srgb, var(--fail) 16%, transparent); color: var(--fail); text-decoration: line-through; border-radius: 3px; }
+.cmptext ins, dialog ins { background: color-mix(in srgb, var(--pass) 18%, transparent); color: var(--pass); text-decoration: none; border-radius: 3px; }
+.cmpqa { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) { .cmpgrid { grid-template-columns: 1fr; } }
+/* three openings (R73): one card on top of the cover letter, swiped left and right; the proposal below shows the one in view */
+.opencard { border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 45%, var(--surface)); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 10px; }
+.opentrack { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; margin-top: 8px; overscroll-behavior-x: contain; }
+.opentrack::-webkit-scrollbar { display: none; }
+.openslide { flex: 0 0 100%; scroll-snap-align: start; min-width: 0; display: grid; gap: 4px; }
+.opentext { margin: 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+.opendots { display: flex; gap: 6px; }
+.opendots button { width: 8px; height: 8px; padding: 0; border-radius: 50%; border: 0; background: var(--line-strong); cursor: pointer; }
+.opendots button.on { background: var(--brand); width: 18px; border-radius: 99px; }
+/* documents attached to a job (R74) */
+.filechips:empty { display: none; }
+.composer .filechips { padding: 0 14px 10px; }
+.chipx { border: 0; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 15px; line-height: 1; padding: 0 0 0 2px; }
+.chipx:hover { color: var(--fail); }
+.card.dropping, .composer.dropping { outline: 2px dashed var(--brand); outline-offset: 2px; }
+.filerow { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.filerow:last-child { border-bottom: 0; }
+.filename { font-weight: 600; overflow-wrap: anywhere; }
+.card-head h2 svg { width: 16px; height: 16px; vertical-align: -2px; margin-right: 6px; }
+@media (max-width: 640px) { .filerow { flex-direction: column; } }
+.stylebox { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 8px; }
+.stylebox textarea { min-height: 70px; }
+.stylebox input[type=checkbox] { width: auto; margin: 0; }

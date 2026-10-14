@@ -14,6 +14,8 @@ import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
+import { runOpenings } from './proposal/openings';
+import { docsBlock, runAttachmentRead } from './screening/attachments';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
 import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
@@ -60,7 +62,7 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
     }
     const skill = await activeSkill();
     const ctx = await loadContext();
-    const rep = await screenJobText(jobText ?? row.raw_input, skill.content, ctx);
+    const rep = await screenJobText((jobText ?? row.raw_input) + (await docsBlock(row.id)), skill.content, ctx); // with the client's documents (R74)
     const v = sheetValues(rep, ctx.rules.map((r) => r.code), ctx.projects.map((p) => p.name));
     // PLAN-SPEED point 11 (Ahmad's rule): matching starts by itself only for a PASS, or a FLAG with few flags; else it waits for a person
     const flags = new Set((rep.job?.flags ?? []).map((f: { code: string }) => f.code)).size;
@@ -88,7 +90,7 @@ async function processTagging(id: number) {
   try {
     const s = (await query<any>('SELECT job_text, raw_input, sample_match, skip_tech_stack, rematch_only, source FROM screenings WHERE id=?', [id]))[0];
     const fromClaude = s.source === 'claude_plugin'; // Claude reads the signals and writes the proposal itself: only the matching is wanted
-    const jobText: string = s.job_text ?? s.raw_input;
+    const jobText: string = (s.job_text ?? s.raw_input) + (await docsBlock(id)); // with the client's documents (R74)
     // "Skip tech stack tags" was switched: score the tags this job already has again, without reading it a second time
     const saved = s.rematch_only ? await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.reason, jt.core_rank, c.is_compliance FROM job_tags jt
       LEFT JOIN tag_categories c ON c.name=jt.category_name WHERE jt.screening_id=? AND jt.tag_id IS NOT NULL`, [id]) : [];
@@ -206,10 +208,15 @@ async function processChat(id: number) {
  * screening questions), the review. Background work comes last: matching started by itself after a PASS, then early drafts.
  * Background work may never take the last free slot, so a person who presses a button never waits behind it.
  */
+const NOT_READING = (col: string) => `NOT EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=${col} AND ja.status IN ('queued','running'))`;
 type Job = { kind: string; claim: () => Promise<boolean>; run: () => Promise<unknown>; background?: boolean };
 let bgInFlight = 0;
 async function nextJob(allowBackground: boolean): Promise<Job | null> {
-  const pr = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE status='queued' ORDER BY id LIMIT 1`);
+  // a file attached to a job is read first (R74): its screening, matching and proposal wait for it
+  const at = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM job_attachments WHERE status='queued' ORDER BY id LIMIT 1`);
+  if (at.length) return { kind: 'attachment', claim: async () => !!(await exec(`UPDATE job_attachments SET status='running' WHERE id=? AND status='queued'`, [at[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'screening', screeningId: at[0].screening_id }, () => processAttachment(at[0].id)) };
+  const pr = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE status='queued' AND ${NOT_READING('proposals.screening_id')} ORDER BY id LIMIT 1`);
   if (pr.length) return { kind: 'proposal', claim: async () => !!(await exec(`UPDATE proposals SET status='running', stage='signals' WHERE id=? AND status='queued'`, [pr[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'proposal', proposalId: pr[0].id, screeningId: pr[0].screening_id }, () => processProposal(pr[0].id)) };
   const ch = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM proposal_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
@@ -223,12 +230,12 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const pa = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE parts_status='queued' AND status='done' ORDER BY id LIMIT 1`);
   if (pa.length) return { kind: 'parts', claim: async () => !!(await exec(`UPDATE proposals SET parts_status='running' WHERE id=? AND parts_status='queued'`, [pa[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'proposal', proposalId: pa[0].id, screeningId: pa[0].screening_id }, () => processParts(pa[0].id)) };
-  const sc = await query<any>(`SELECT id, input_type, raw_input, upwork_job_id, job_text FROM screenings WHERE status='queued' AND discarded_at IS NULL ORDER BY id LIMIT 1`);
+  const sc = await query<any>(`SELECT id, input_type, raw_input, upwork_job_id, job_text FROM screenings WHERE status='queued' AND discarded_at IS NULL AND ${NOT_READING('screenings.id')} ORDER BY id LIMIT 1`);
   if (sc.length) return { kind: 'screening', claim: async () => !!(await exec(`UPDATE screenings SET status='running', started_at=NOW() WHERE id=? AND status='queued'`, [sc[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'screening', screeningId: sc[0].id }, () => process_(sc[0])) };
   const tagging = (id: number, background: boolean): Job => ({ kind: 'tagging', background, claim: async () => !!(await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [id])).affectedRows,
     run: () => withCallContext({ kind: 'tagging', screeningId: id }, () => processTagging(id)) });
-  const tc = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NOT NULL ORDER BY continued_at, id LIMIT 1`);
+  const tc = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NOT NULL AND ${NOT_READING('screenings.id')} ORDER BY continued_at, id LIMIT 1`);
   if (tc.length) return tagging(tc[0].id, false);
   const po = await query<{ id: number }>(`SELECT id FROM screenings WHERE posting_status='queued' AND discarded_at IS NULL AND (job_text IS NOT NULL OR input_type='text') ORDER BY id LIMIT 1`);
   if (po.length) return { kind: 'posting', claim: async () => !!(await exec(`UPDATE screenings SET posting_status='running' WHERE id=? AND posting_status='queued'`, [po[0].id])).affectedRows,
@@ -236,8 +243,12 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const rv = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE review_status='queued' AND status='done' ORDER BY id LIMIT 1`);
   if (rv.length) return { kind: 'review', claim: async () => !!(await exec(`UPDATE proposals SET review_status='running' WHERE id=? AND review_status='queued'`, [rv[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'review', proposalId: rv[0].id, screeningId: rv[0].screening_id }, () => processReview(rv[0].id)) };
+  // the three openings to pick from (R73), written after the proposal
+  const op = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE openings_status='queued' AND status='done' ORDER BY id LIMIT 1`);
+  if (op.length) return { kind: 'openings', claim: async () => !!(await exec(`UPDATE proposals SET openings_status='running' WHERE id=? AND openings_status='queued'`, [op[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'proposal', proposalId: op[0].id, screeningId: op[0].screening_id }, () => processOpenings(op[0].id)) };
   if (!allowBackground) return null;
-  const ta = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NULL ORDER BY id LIMIT 1`);
+  const ta = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NULL AND ${NOT_READING('screenings.id')} ORDER BY id LIMIT 1`);
   if (ta.length) return tagging(ta[0].id, true);
   const ed = await query<{ screening_id: number }>(`SELECT screening_id FROM early_drafts WHERE status='queued' ORDER BY created_at, screening_id LIMIT 1`);
   if (ed.length) return { kind: 'early_draft', background: true, claim: async () => !!(await exec(`UPDATE early_drafts SET status='running' WHERE screening_id=? AND status='queued'`, [ed[0].screening_id])).affectedRows,
@@ -292,6 +303,24 @@ async function processReview(id: number) {
   }
 }
 
+/** An attached image or scanned PDF read by the AI (R74). If it cannot be read, the job goes on without it and the person can say what it shows. */
+async function processAttachment(id: number) {
+  try { await runAttachmentRead(id); }
+  catch (e) {
+    console.error('attachment failed', (e as Error).message);
+    await exec(`UPDATE job_attachments SET status=?, error=? WHERE id=?`, [stopping ? 'queued' : 'error', stopping ? null : 'The AI could not read this file. Type what it shows, or remove it.', id]).catch(() => undefined);
+  }
+}
+
+/** The three openings (R73). */
+async function processOpenings(id: number) {
+  try { await runOpenings(id); }
+  catch (e) {
+    console.error('openings failed', (e as Error).message);
+    await exec(`UPDATE proposals SET openings_status=?, openings_error=? WHERE id=?`, [stopping ? 'queued' : 'error', String((e as Error).message).slice(0, 300), id]).catch(() => undefined);
+  }
+}
+
 async function shutdown() {
   if (stopping) return;
   stopping = true;
@@ -305,6 +334,8 @@ async function shutdown() {
   await exec(`UPDATE proposals SET review_status='queued' WHERE review_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET parts_status='queued' WHERE parts_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`).catch(() => undefined);
+  await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`).catch(() => undefined);
+  await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
@@ -323,6 +354,8 @@ async function main() {
   await exec(`UPDATE proposals SET review_status='queued' WHERE review_status='running'`);
   await exec(`UPDATE proposals SET parts_status='queued' WHERE parts_status='running'`);
   await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`);
+  await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`);
+  await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);

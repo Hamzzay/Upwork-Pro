@@ -12,6 +12,7 @@ import { rankTemplates } from './rank';
 import { reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerSections } from './reviewer';
 import { activeReviewer } from './reviewer_store';
 import { pickLoom } from '../screening/matching';
+import { docsBlock, postOnly } from '../screening/attachments';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
@@ -62,17 +63,19 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   const passOn = new Set((await getSettings())['writer.requirement_rules']); // flags the writer must treat as client requirements (admin setting)
   for (const f of job?.flags ?? []) if (passOn.has(f.code)) requirements.push(`${f.rule}: ${f.value}`);
   // experience the sender confirmed on the proposal page (R67): true, and it wins over any screening note that it cannot be claimed
-  const confirmed = await query<any>(`SELECT g.skill, g.note, pr.name AS project_name FROM proposal_gaps g JOIN proposals p ON p.id=g.proposal_id LEFT JOIN projects pr ON pr.id=g.project_id
+  const confirmed = await query<any>(`SELECT g.skill, g.note, (SELECT GROUP_CONCAT(pr.name ORDER BY gp.id SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS project_name FROM proposal_gaps g JOIN proposals p ON p.id=g.proposal_id
     WHERE p.screening_id=? AND g.status='yes' ORDER BY g.id`, [screeningId]);
   if (confirmed.length) requirements.push(`CONFIRMED BY THE SENDER after the screening (true; it overrides any screening note above that it cannot be claimed or answered): ${confirmed.map((c) => `${c.skill}${c.project_name ? ' (in ' + c.project_name + ')' : ''}${c.note ? ': ' + c.note : ''}`).join('; ')}.`);
   let posting: any = null; try { posting = s.posting_json ? JSON.parse(s.posting_json) : null; } catch { /* none */ }
-  const jobText = (s.job_text ?? s.raw_input) as string;
+  const post = (s.job_text ?? s.raw_input) as string;
   // Upwork's separate questions: answered apart from the cover letter, and the letter is written from the job without them
-  const questions = jobQuestions(jobText, posting);
-  return { jobText, jobOnly: separateQuestions(jobText).jobOnly, questions, sender, projects, requirements, profileId, projectIds: ids as number[], loomId: loom ? (s.loom_video_id as number) : null };
+  const questions = jobQuestions(post, posting);
+  // the client's attached documents (R74) follow the post everywhere the AI reads it
+  const docs = await docsBlock(screeningId);
+  return { jobText: post + docs, jobOnly: separateQuestions(post).jobOnly + docs, questions, sender, projects, requirements, profileId, projectIds: ids as number[], loomId: loom ? (s.loom_video_id as number) : null };
 }
 
-async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
+export async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
   const t = (await query<any>('SELECT id, name, body_html, prompt, opening_rules, opening_no_us, opening_starts FROM templates WHERE id=?', [id]))[0];
   return t ? { id: t.id, name: t.name, body_html: t.body_html, prompt: t.prompt, opening_rules: t.opening_rules, opening_no_us: !!t.opening_no_us, opening_starts: t.opening_starts } : null;
 }
@@ -145,11 +148,12 @@ export function detectSignals(screeningId: number, jobText: string, stillWanted:
  *  Layer rules only compare signals within their own layer, so reading the layers apart loses nothing. */
 async function readSignals(screeningId: number, jobText: string, stillWanted: () => boolean): Promise<DetectedValue[] | null> {
   const { defs, layers } = await loadSignalDefs();
+  const docs = await docsBlock(screeningId); // the client's attached documents are part of the job (R74)
   const answers = await Promise.all(layers.map(async (layer) => {
     const mine = defs.filter((d) => d.layer === layer.code);
     if (!mine.length) return [];
     // the signals come from the job alone: Upwork's separate questions section is left out
-    const r = await run({ label: 'signals: ' + layer.code, system: detectionPrompt(mine, [layer]), prompt: `<job_page>\n${separateQuestions(jobText).jobOnly}\n</job_page>`, schema: buildDetectionSchema(mine), timeoutMs: config.llm.timeoutMs });
+    const r = await run({ label: 'signals: ' + layer.code, system: detectionPrompt(mine, [layer]), prompt: `<job_page>\n${separateQuestions(postOnly(jobText)).jobOnly}${docs}\n</job_page>`, schema: buildDetectionSchema(mine), timeoutMs: config.llm.timeoutMs });
     const got = (r.data as { signals?: unknown } | undefined)?.signals;
     if (!Array.isArray(got)) throw new Error('invalid_output'); // never let one bad layer quietly fall back to defaults
     return got;
@@ -340,7 +344,7 @@ async function checksFor(text: string, f: Facts, template: TemplateFact | null, 
 }
 
 /** The parts put together, with the Loom line in the admin's wording. */
-const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: loomLine(loomTemplate, p.loom), signoff: p.signoff });
+export const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: loomLine(loomTemplate, p.loom), signoff: p.signoff });
 
 /** One project's proof block, written on its own: a short call, for a project added after the proposal was written. */
 async function writeProof(f: Facts, template: TemplateFact, p: ProjectFact): Promise<string> {
@@ -485,7 +489,7 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
   await saveGaps(proposalId, p.screening_id, versionNo, d.gaps ?? []);
   // the independent review follows every written proposal by itself (worker.ts picks it up), unless an admin turned that off
   const auto = (await getSettings())['review.auto'];
-  await exec(`UPDATE proposals SET status='done', stage=NULL, warnings=?, model=?, error_code=NULL, error_message=NULL, finished_at=NOW(), review_status=IF(?, 'queued', review_status), review_error=IF(?, NULL, review_error) WHERE id=?`, [JSON.stringify(d.warnings), d.model, auto ? 1 : 0, auto ? 1 : 0, proposalId]);
+  await exec(`UPDATE proposals SET status='done', stage=NULL, warnings=?, model=?, error_code=NULL, error_message=NULL, finished_at=NOW(), review_status=IF(?, 'queued', review_status), review_error=IF(?, NULL, review_error), openings_status='queued', openings_json=NULL, openings_error=NULL WHERE id=?`, [JSON.stringify(d.warnings), d.model, auto ? 1 : 0, auto ? 1 : 0, proposalId]);
 }
 
 /**
@@ -512,7 +516,8 @@ export async function runGapUpdate(proposalId: number) {
   const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
   const cur = p ? await latestVersion(p.id) : null;
   if (!p || !cur) return;
-  const yes = await query<any>(`SELECT g.*, pr.name AS project_name FROM proposal_gaps g LEFT JOIN projects pr ON pr.id=g.project_id WHERE g.proposal_id=? AND g.status='yes' AND g.applied_version IS NULL`, [p.id]);
+  const yes = await query<any>(`SELECT g.*, (SELECT GROUP_CONCAT(pr.name ORDER BY gp.id SEPARATOR '\x1f') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS project_names
+    FROM proposal_gaps g WHERE g.proposal_id=? AND g.status='yes' AND g.applied_version IS NULL`, [p.id]);
   if (!yes.length) { await exec(`UPDATE proposals SET gaps_status='done' WHERE id=?`, [p.id]); return; }
   const f = await loadFacts(p.screening_id); // fresh: the projects' notes now hold what was confirmed
   const template = p.template_id ? await loadTemplate(p.template_id) : null;
@@ -523,9 +528,12 @@ export async function runGapUpdate(proposalId: number) {
   const inParts = !!cur.parts;
   const system = writerSystem({ template, detected, samples: [], sender: f.sender, projects: f.projects, clientRequirements: f.requirements, guide, parts: inParts, gapCategories: [] });
   const inProposal = new Set(f.projects.map((x) => x.name.toLowerCase()));
+  // a skill can have been done in several projects (R71): explained in the block of each one this proposal shows; the others are never named
   const confirmed = yes.map((g) => {
-    const onProject = g.project_name && inProposal.has(String(g.project_name).toLowerCase());
-    return `- ${g.skill} (the client asks: ${g.ask}). ${onProject ? `Done in the project ${g.project_name}, one of this proposal's projects: explain in that project's block, in one or two sentences, how ${g.skill} was used there${g.note ? ' (' + g.note + ')' : ''}.` : `The sender's own experience${g.note ? ': ' + g.note : ''}. Say it in one sentence in the letter where it fits${g.project_name ? `; it was done in ${g.project_name}, which is not one of this proposal's projects, so do not name that project` : ''}.`}`;
+    const names: string[] = g.project_names ? String(g.project_names).split('\x1f') : [];
+    const shown = names.filter((n) => inProposal.has(String(n).toLowerCase())), other = names.filter((n) => !inProposal.has(String(n).toLowerCase()));
+    const how = g.note ? ' (' + g.note + ')' : '';
+    return `- ${g.skill} (the client asks: ${g.ask}). ${shown.length ? `Done in ${shown.length === 1 ? 'the project' : 'the projects'} ${shown.join(', ')}, ${shown.length === 1 ? "one of this proposal's projects: explain in that project's block" : "all in this proposal: explain in each of those projects' blocks"}, in one or two sentences, how ${g.skill} was used there${how}.${other.length ? ' It was also done in other projects not shown here: do not name them.' : ''}` : `The sender's own experience${g.note ? ': ' + g.note : ''}. Say it in one sentence in the letter where it fits${other.length ? `; it was done in projects that are not in this proposal, so do not name them` : ''}.`}`;
   }).join('\n');
   const current = inParts
     ? `THE LETTER\n${cur.parts!.letter}\n\nTHE PROJECT BLOCKS\n${cur.parts!.proof.map((b) => `[${b.name}]\n${b.text}`).join('\n\n')}`

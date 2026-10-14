@@ -17,6 +17,8 @@ import { writing } from './routes_writing';
 import { setup } from './routes_setup';
 import { reviewer } from './routes_reviewer';
 import { feedback } from './routes_feedback';
+import { attachments, attachmentList } from './routes_attachments';
+import { dropPrepared, prepareFiles, recordFiles, uploadBody } from './screening/attachments';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
@@ -40,6 +42,7 @@ api.use(writing);
 api.use(setup);
 api.use(reviewer); // the Reviewer page (R61)
 api.use(feedback); // experience gaps and proposal feedback (R67)
+api.use(attachments); // documents attached to jobs (R74)
 api.use(oauthApi);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);
@@ -80,6 +83,7 @@ api.post('/screenings', requireRole(), async (req, res) => {
   const b = z.object({
     input: z.string(),
     job_url: z.string().trim().max(500).nullish(),
+    files: uploadBody.shape.files.optional(), // documents the client attached to the job (R74)
   }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: 'Paste a job link or the job page text' });
   let parsed;
@@ -91,12 +95,22 @@ api.post('/screenings', requireRole(), async (req, res) => {
     if (!/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i.test(b.data.job_url)) return void res.status(400).json({ error: 'The job link must be an Upwork link' });
     sourceUrl = b.data.job_url;
   }
-  const r = await exec(
-    `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status) VALUES (?,?,?,?,?,?,'queued')`,
-    [req.user!.id, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
-     b.data.input.trim(), parsed.type === 'text' ? parsed.text : null],
-  );
-  res.status(202).json({ id: r.insertId, status: 'queued', input_type: parsed.type });
+  // the files are read first; the job and its files are then saved together, so the worker never screens it without them
+  const { ready, errors } = b.data.files?.length ? await prepareFiles(b.data.files, 0) : { ready: [], errors: [] };
+  const conn = await pool.getConnection();
+  let id: number;
+  try {
+    await conn.beginTransaction();
+    const [r]: any = await conn.query(
+      `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status) VALUES (?,?,?,?,?,?,'queued')`,
+      [req.user!.id, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
+       b.data.input.trim(), parsed.type === 'text' ? parsed.text : null]);
+    id = Number(r.insertId);
+    await recordFiles((sql, p) => conn.query(sql, p as any[]), id, req.user!.id, ready, false);
+    await conn.commit();
+  } catch (e) { await conn.rollback(); dropPrepared(ready); throw e; } finally { conn.release(); }
+  if (ready.length || errors.length) await audit(req.user!.id, 'attachments_add', `screening=${id} files=${ready.length}${errors.length ? ' refused=' + errors.length : ''}`);
+  res.status(202).json({ id, status: 'queued', input_type: parsed.type, files: { saved: ready.length, errors } });
 });
 
 /**
@@ -427,6 +441,7 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
     override: ov[0] ?? null,
     matching: await matchingFor(id),
     proposal: await proposalFor(id),
+    attachments: await attachmentList(id),
   });
 });
 
