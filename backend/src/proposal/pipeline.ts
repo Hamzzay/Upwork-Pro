@@ -511,7 +511,9 @@ export async function runPartsRefresh(proposalId: number) {
   // edited by hand: offer what the text does not have yet, and change nothing
   const text = htmlToPlain(cur.html).toLowerCase();
   const offer: { kind: string; label: string; text: string }[] = [];
-  for (const proj of f.projects) if (!text.includes(proj.name.toLowerCase())) {
+  // a project is already in the text when its name (with or without a part in brackets, "Open Dental AI Calling (Chloe)") or its link is
+  const inText = (proj: ProjectFact) => [proj.name, proj.name.replace(/\s*\([^)]*\)\s*/g, ' ').trim(), proj.live_link].some((x) => x && text.includes(x.toLowerCase().replace(/\/+$/, '')));
+  for (const proj of f.projects) if (!inText(proj)) {
     const t = template ? await writeProof(f, template, proj) : proj.name;
     offer.push({ kind: 'project', label: `Project: ${proj.name}`, text: proj.live_link && !t.includes(proj.live_link) ? `${t}\n${proj.live_link}` : t });
   }

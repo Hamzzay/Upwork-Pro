@@ -2471,7 +2471,7 @@ async function flagReviewView() {
     const decided = x.continued + x.skipped, f = x.continued_funnel, [hl, ht] = FR_HINT[x.hint.key];
     return h('tr', { class: x.active ? '' : 'retired' },
       h('td', {}, h('span', { class: 'code ' + (x.type === 'fail' ? 'F' : 'G') }, x.code)),
-      h('td', { style: 'white-space:normal;min-width:260px' }, x.rule, x.active ? null : h('span', { class: 'faint small' }, ' (retired)'),
+      h('td', { style: 'white-space:normal;min-width:180px' }, x.rule, x.active ? null : h('span', { class: 'faint small' }, ' (retired)'),
         h('details', { class: 'reviewfold', style: 'margin-top:6px' }, h('summary', {}, 'Reasons and details'),
           h('div', { class: 'stack', style: 'gap:8px;margin-top:6px' },
             h('div', {}, h('div', { class: 'jp-label' }, 'Why people continued'), reasons(x.continue_reasons, 'No quick reason picked yet.'), x.own_words_only ? h('div', { class: 'small muted' }, `Own words only: ${x.own_words_only}`) : null),
@@ -2479,10 +2479,10 @@ async function flagReviewView() {
             h('div', {}, h('div', { class: 'jp-label' }, 'When it was the only rule that fired'),
               h('div', { class: 'small' }, `${x.alone.fired} jobs: ${x.alone.continued} continued, ${x.alone.skipped} skipped; of the continued, ${x.alone.funnel.sent} sent, ${pct(x.alone.funnel.chat, x.alone.funnel.sent)} got a chat, ${x.alone.funnel.hired} hired.`))))),
       h('td', { class: 'nowrap' }, x.fired ? h('a', { href: `#/history?rule=${x.code}` }, `${x.fired} job${x.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-      h('td', { class: 'nowrap' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, `${x.continued} on, ${x.skipped} skipped${x.undecided ? ', ' + x.undecided + ' open' : ''}`) : null),
-      h('td', { style: 'white-space:normal;max-width:220px' }, x.continue_reasons.length ? x.continue_reasons.slice(0, 2).map((c) => h('div', { class: 'small' }, `${c.reason} (${c.jobs})`)) : h('span', { class: 'faint small' }, 'None yet')),
-      h('td', { class: 'nowrap' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, `${f.sent} sent, ${f.hired} hired · passes ${pct(b.chat, b.sent)}`) : null),
-      h('td', { style: 'white-space:normal;min-width:220px' }, h('span', { class: 'pill ' + ht }, hl), h('div', { class: 'small muted', style: 'margin-top:4px' }, x.hint.text)));
+      h('td', { style: 'white-space:normal;max-width:140px' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, `${x.continued} on, ${x.skipped} skipped${x.undecided ? ', ' + x.undecided + ' open' : ''}`) : null),
+      h('td', { style: 'white-space:normal;max-width:170px' }, x.continue_reasons.length ? x.continue_reasons.slice(0, 2).map((c) => h('div', { class: 'small' }, `${c.reason} (${c.jobs})`)) : h('span', { class: 'faint small' }, 'None yet')),
+      h('td', { style: 'white-space:normal;max-width:150px' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, `${f.sent} sent, ${f.hired} hired · passes ${pct(b.chat, b.sent)}`) : null),
+      h('td', { style: 'white-space:normal;min-width:200px;max-width:280px' }, h('span', { class: 'pill ' + ht }, hl), h('div', { class: 'small muted', style: 'margin-top:4px' }, x.hint.text)));
   };
   shell('flagreview', [pageHead('Flag review', 'For every gate rule: what people did when it fired and how those jobs went. Use it to relax a rule with evidence, without losing the ones that protect you.',
       me.role === 'admin' ? [h('a', { class: 'btn', href: '#/rules' }, icon('warn'), 'Rules')] : null),
@@ -2625,6 +2625,7 @@ async function settingsView() {
     group('Project matching', [num('matching.auto_max_flags'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
+      (() => { const el = h('textarea', { rows: 2, style: 'min-width:380px;min-height:56px', 'aria-label': 'The Loom video line' }); el.value = settings['writer.loom_line']; return row('writer.loom_line', el, () => el.value.trim()); })(),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
 }
 

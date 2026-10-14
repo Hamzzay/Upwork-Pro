@@ -56,7 +56,7 @@ export function signoff(s: { name: string; signature?: string | null; gitlab_lin
 /** The Loom line, from the admin setting's wording ({title} and {url} are filled in). */
 export function loomLine(template: string, loom: { title: string; url: string } | null): string {
   if (!loom) return '';
-  const t = (template || 'I recorded a short walkthrough of {title}:\n{url}').replace(/\{title\}/g, loom.title).replace(/\{url\}/g, loom.url);
+  const t = (template || 'Here is a short video walkthrough of a similar build:\n{url}').replace(/\{title\}/g, loom.title).replace(/\{url\}/g, loom.url);
   return t.includes(loom.url) ? t : `${t}\n${loom.url}`;
 }
 /** The proof as it reads in the proposal: each block, then its link on its own line. */

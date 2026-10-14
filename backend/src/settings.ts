@@ -36,7 +36,7 @@ export const SETTINGS = {
     schema: z.number().int().min(1).max(90), def: 5 },
   'writer.requirement_rules': { label: 'Rules passed to the proposal writer', help: 'When one of these flags fires, its text is given to the writer as a client requirement (e.g. screening questions, required words, location rules).',
     schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G11', 'G12', 'G13'] },
-  'writer.loom_line': { label: 'The Loom video line', help: 'Put in a proposal when a Loom video is chosen, where the proposal type puts it. {title} is the video title and {url} its link.', schema: z.string().trim().min(5).max(400), def: 'I recorded a short walkthrough of {title}:\n{url}' },
+  'writer.loom_line': { label: 'The Loom video line', help: 'Put in a proposal when a Loom video is chosen, where the proposal type puts it. {title} is the video title and {url} its link.', schema: z.string().trim().min(5).max(400), def: 'Here is a short video walkthrough of a similar build:\n{url}' },
   'writer.structured_signal': { label: 'Signal that means "structured submission"', help: 'When this signal has this value, the writer follows the post\'s own structure first.',
     schema: z.object({ signal: z.number().int().min(1).max(999), value: z.string().trim().min(1).max(120) }), def: { signal: 5, value: 'Yes' } },
 } as const;

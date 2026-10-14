@@ -1003,6 +1003,30 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R65. The team guide brought up to date for R58 to R64, and four fixes found while taking its pictures (done, 14 October)
+
+- **Pictures retaken (6):** the decide step with the quick reasons (`screen-4-flag`), the Projects step with Skip tech stack tags
+  (`job-projects`), the proposal page with the Loom video selector and Copy cover letter (`job-proposal`), Settings with the
+  review and the matching rule (`settings-matching`), the plugin card at v0.13.0 (`connect-plugin`).
+- **New pictures (6):** the screening answers apart from the proposal (`job-answers`), the parts offered for edited text
+  (`job-parts`), the Reviewer page in two parts (`reviewer`, `reviewer-try`), the Flag review (`flag-review`), Settings with the
+  quick reasons and the Loom line (`settings-writer`). 71 pictures in all.
+- **Text:** the flag and fail step (quick reasons, which jobs are matched by themselves), the Projects step (skip tech stack), the
+  proposal written in parts and updated part by part after a change, the screening answers, the review that never forces a
+  change, the Reviewer page, the new settings, the Flag review, the plugin's faster run (server matching, no rate question, type
+  and video in one question, saves alongside the next step), the reviewer from Claude, the roles table, a habit and a
+  troubleshooting row. Built with `python3 guide/build.py`.
+- The pictures were taken with headless Chrome at 1440 by 900 in the existing style, with a temporary account and two made up jobs
+  (a dental clinic booking assistant and a cheap scraping job) run through the real app; all removed afterwards.
+- **Fixed on the way:**
+  - The default Loom line read badly with real video titles ("I recorded a short walkthrough of Test video: AI voice agents:"; the
+    reviewer flagged it). Now "Here is a short video walkthrough of a similar build:" and the link. The setting can change it.
+  - The Loom line setting was missing from the Settings page: it is in Proposal writer now.
+  - For edited text, a project already in it was offered again when the writer had shortened its name ("Open Dental AI Calling"
+    for "Open Dental AI Calling (Chloe)"). A project now counts as in the text by its name, its name without the part in
+    brackets, or its link.
+  - The Flag review table was wider than the page at 1440 pixels (the Hint column was cut off): its columns wrap now.
+
 ### R64. A faster proposal: the plan in PLAN-SPEED.md, points 1 to 11 (done in code, 14 October)
 
 From the speed review (`SPEED-REVIEW.md`) and the plan agreed with Ahmad (`PLAN-SPEED.md`). Measured on Hamza's Mac with Claude Sonnet.
