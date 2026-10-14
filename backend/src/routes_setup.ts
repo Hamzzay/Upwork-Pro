@@ -15,6 +15,9 @@ import { lineDiff } from './changes';
 import { categoryBody, industryBody, loomBody, profileBody, projectBody, tagBody } from './routes_library';
 import { sampleBody, signalBody, templateBody, valueBody } from './routes_proposals';
 import { getSettings, SETTINGS } from './settings';
+import { reviewerSections } from './proposal/reviewer';
+import { activeReviewer, ensureReviewer, reviewerVersion } from './proposal/reviewer_store';
+import { sectionsText } from './routes_reviewer';
 
 export const setup = Router();
 const staff = requireRole('admin', 'manager');
@@ -55,7 +58,10 @@ const SPEC: Record<string, Spec> = {
   writing_doc: { name: 'title', body: docBody, item: (id) => `/writing-docs/${id}`, put: true, hint: ['doc_key', 'kind'] },
   setting: { name: 'k', item: (k) => `/admin/settings/${k}`, put: true },
   gate_instructions: { name: 'version' },
+  reviewer_instructions: { name: 'version' },
 };
+/** Kinds kept as versions with one active: their table. */
+const VERSIONS: Record<string, string> = { gate_instructions: 'skill_versions', reviewer_instructions: 'reviewer_versions' };
 const HIDE = new Set(['created_at', 'updated_at', 'updated_by', 'created_by', 'added_via', 'source']);
 const keyOf = (kind: string) => KINDS[kind].key ?? 'id';
 const may = (kind: string, role: string) => !!KINDS[kind] && !!SPEC[kind] && KINDS[kind].roles.includes(role as any);
@@ -85,7 +91,7 @@ async function find(kind: string, idOrName: unknown): Promise<string | number | 
   const v = String(idOrName ?? '').trim(); if (!v) return null;
   if (kind === 'setting') return settingKeys().includes(v) ? v : (settingKeys().find((k) => (SETTINGS as any)[k].label?.toLowerCase() === v.toLowerCase()) ?? null);
   const k = KINDS[kind], key = keyOf(kind), s = SPEC[kind];
-  if (kind === 'gate_instructions') return (await query<any>('SELECT id FROM skill_versions WHERE version=?', [Number(v.replace(/\D/g, '')) || 0]))[0]?.id ?? null;
+  if (VERSIONS[kind]) return (await query<any>(`SELECT id FROM ${VERSIONS[kind]} WHERE version=?`, [Number(v.replace(/\D/g, '')) || 0]))[0]?.id ?? null;
   if (key === 'id' && /^\d+$/.test(v)) { const r = (await query<any>(`SELECT id FROM ${k.table} WHERE id=?`, [Number(v)]))[0]; if (r) return r.id; }
   const cols = [s.name, ...(kind === 'writing_doc' ? ['doc_key'] : []), ...(kind === 'signal' && /^\d+$/.test(v) ? ['number'] : [])];
   for (const c of cols) { const r = await query<any>(`SELECT ${key} AS id FROM ${k.table} WHERE ${c}=? LIMIT 2`, [v]); if (r.length === 1) return r[0].id; if (r.length > 1) throw new Refuse(409, `More than one ${k.label.toLowerCase()} is called "${v}". Use its id (see setup_list).`); }
@@ -95,6 +101,8 @@ async function find(kind: string, idOrName: unknown): Promise<string | number | 
 async function detail(kind: string, id: string | number): Promise<Record<string, unknown> | null> {
   if (kind === 'setting') { const def = (SETTINGS as any)[id]; if (!def) return null; return { id, name: def.label ?? id, value: (await getSettings() as any)[id], what_it_does: def.help || null }; }
   if (kind === 'gate_instructions') { const v = (await query<any>('SELECT id, version, content, change_note, is_active, created_at FROM skill_versions WHERE id=?', [id]))[0]; return v ? { ...v, is_active: !!v.is_active } : null; }
+  if (kind === 'reviewer_instructions') { const v = await reviewerVersion(Number(id)); return v ? { id: v.id, version: v.version, is_active: v.is_active, change_note: v.change_note, created_at: v.created_at, ...v.sections,
+    fixed: 'Not changeable here: the facts the reviewer reads (the job, the proposal and its answers, the profile, the projects, the proposal type, the client requirements) and the output format (score, verdict, strengths, problems, suggestions).' } : null; }
   const r = await raw(kind, id); if (!r) return null;
   const out: Record<string, unknown> = {};
   for (const [c, v] of Object.entries(r.row)) if (!HIDE.has(c)) out[c] = v;
@@ -126,7 +134,7 @@ setup.get('/plugin/setup/list/:kind', staff, async (req, res) => {
     const kind = kindOf(req), q = String(req.query.q ?? '').trim().toLowerCase(), s = SPEC[kind], k = KINDS[kind];
     let rows: Record<string, unknown>[];
     if (kind === 'setting') { const cur = await getSettings() as any; rows = settingKeys().map((key) => ({ id: key, name: (SETTINGS as any)[key].label ?? key, value: short(Array.isArray(cur[key]) ? cur[key].join(', ') : cur[key]), what_it_does: (SETTINGS as any)[key].help || null })); }
-    else if (kind === 'gate_instructions') rows = (await query<any>('SELECT id, version, change_note, is_active, created_at FROM skill_versions ORDER BY version DESC')).map((v) => ({ id: v.id, name: 'Version ' + v.version, active: !!v.is_active, note: v.change_note, saved: v.created_at }));
+    else if (VERSIONS[kind]) { if (kind === 'reviewer_instructions') await ensureReviewer(); rows = (await query<any>(`SELECT id, version, change_note, is_active, created_at FROM ${VERSIONS[kind]} ORDER BY version DESC`)).map((v) => ({ id: v.id, name: 'Version ' + v.version, active: !!v.is_active, note: v.change_note, saved: v.created_at })); }
     else {
       const all = await query<any>(`SELECT * FROM ${k.table}`);
       const cats = kind === 'tag' ? new Map((await query<any>('SELECT id, name FROM tag_categories')).map((c) => [c.id, c.name])) : null;
@@ -142,10 +150,11 @@ setup.get('/plugin/setup/list/:kind', staff, async (req, res) => {
 setup.get('/plugin/setup/item/:kind', staff, async (req, res) => {
   try {
     const kind = kindOf(req);
-    const id = kind === 'gate_instructions' && !req.query.item ? (await query<any>('SELECT id FROM skill_versions WHERE is_active=1'))[0]?.id : await find(kind, req.query.item);
+    if (kind === 'reviewer_instructions') await ensureReviewer();
+    const id = VERSIONS[kind] && !req.query.item ? (await query<any>(`SELECT id FROM ${VERSIONS[kind]} WHERE is_active=1`))[0]?.id : await find(kind, req.query.item);
     const item = id == null ? null : await detail(kind, id);
     if (!item) throw new Refuse(404, `No ${KINDS[kind].label.toLowerCase()} with that id or name. Call setup_list to see what exists.`);
-    const changes = await query<any>(`SELECT c.id AS change_set, c.created_at AS at, u.name AS who, c.action, c.source, c.status, c.reason FROM change_sets c LEFT JOIN users u ON u.id=c.user_id WHERE c.entity=? AND c.entity_id=? ORDER BY c.id DESC LIMIT 5`, [kind, String(kind === 'gate_instructions' ? 'active' : id)]);
+    const changes = await query<any>(`SELECT c.id AS change_set, c.created_at AS at, u.name AS who, c.action, c.source, c.status, c.reason FROM change_sets c LEFT JOIN users u ON u.id=c.user_id WHERE c.entity=? AND c.entity_id=? ORDER BY c.id DESC LIMIT 5`, [kind, String(VERSIONS[kind] ? 'active' : id)]);
     res.json({ kind, item, last_changes: changes });
   } catch (e) { send(res, e); }
 });
@@ -153,7 +162,7 @@ setup.get('/plugin/setup/item/:kind', staff, async (req, res) => {
 setup.get('/plugin/setup/examples/:kind', staff, async (req, res) => {
   try {
     const kind = kindOf(req), k = KINDS[kind];
-    if (kind === 'setting' || kind === 'gate_instructions') return void res.json({ kind, examples: [], note: 'No examples for this kind: read the current one with setup_get.' });
+    if (kind === 'setting' || VERSIONS[kind]) return void res.json({ kind, examples: [], note: 'No examples for this kind: read the current one with setup_get.' });
     const rows = await query<any>(`SELECT * FROM ${k.table}${k.active ? ` WHERE ${k.active}=1` : ''}`);
     const tagCount = kind === 'project' ? new Map((await query<any>('SELECT project_id, COUNT(*) AS n FROM project_tags GROUP BY project_id')).map((r) => [r.project_id, Number(r.n)])) : null;
     // the most complete ones: every field filled counts, and for a project its overview, case study and tags must be there
@@ -195,6 +204,7 @@ async function affects(kind: string, action: Action, id: string | number | null,
   if (kind === 'template' || kind === 'template_sample') out.push('Used from the next proposal written with this type. Proposals already written do not change.');
   if (kind === 'writing_doc') out.push('The writer reads this for every proposal from now on. The earlier text is kept as a version.');
   if (kind === 'setting' && id != null) out.push((SETTINGS as any)[id]?.help || 'Changes how the app behaves from now on.');
+  if (kind === 'reviewer_instructions') out.push(action === 'activate' ? 'Every review from now on, in the app and from Claude, uses this version. Reviews already made do not change.' : 'Saved as a new version that is NOT active yet. Test it on a past proposal in the app (Reviewer, Try it), then activate it.');
   if (kind === 'gate_instructions') out.push(action === 'activate' ? 'Every job screened from now on is checked with this version.' : 'Saved as a new version that is NOT active yet. Test it on a past job in the app (Gate instructions, Test), then activate it.');
   return out;
 }
@@ -216,8 +226,29 @@ setup.post('/plugin/setup/prepare', staff, async (req, res) => {
         if (v.is_active) throw new Refuse(400, `Version ${v.version} is already the active one.`);
         method = 'POST'; path = `/admin/skill/${vid}/activate`; id = 'active'; name = 'Version ' + v.version; changes.push({ field: 'active version', before: cur?.version ?? null, after: v.version }); }
       else throw new Refuse(400, 'For the gate instructions use action new_version (fields: content, change_note) or activate (fields: version).');
+    } else if (kind === 'reviewer_instructions') {
+      if (req.user!.role !== 'admin') throw new Refuse(403, 'Only an admin changes the reviewer');
+      const active = await activeReviewer();
+      if (action === 'new_version') {
+        // only the sections sent change; the rest is kept from the active version
+        const { change_note, ...given } = fields;
+        const known = Object.keys(reviewerSections.shape); const extra = Object.keys(given).filter((f) => !known.includes(f));
+        if (extra.length) throw new Refuse(400, `Not a part of the reviewer: ${extra.join(', ')}. Its parts: ${known.join(', ')}, and change_note.`);
+        if (!Object.keys(given).length) throw new Refuse(400, `Send at least one part to change: ${known.join(', ')}.`);
+        const merged = { ...active.sections, ...given, limits: { ...active.sections.limits, ...(given.limits ?? {}) }, context: { ...active.sections.context, ...(given.context ?? {}) } };
+        const sections = reviewerSections.parse(merged);
+        if (JSON.stringify(sections) === JSON.stringify(reviewerSections.parse(active.sections))) throw new Refuse(400, 'This is the same as the active version: nothing to save.');
+        const was = sectionsText(active.sections), is = sectionsText(sections);
+        for (const f of Object.keys(is)) if ((was[f] ?? null) !== (is[f] ?? null)) changes.push({ field: f, ...showVal(was[f], is[f]) });
+        method = 'POST'; path = '/admin/reviewer'; body = { sections, change_note: z.string().trim().max(250).optional().parse(change_note) }; name = 'A new version';
+      } else if (action === 'activate') {
+        const vid = await find(kind, fields.version ?? b.item); if (vid == null) throw new Refuse(404, 'No such version. Call setup_list for the versions.');
+        const v = await reviewerVersion(Number(vid));
+        if (v!.is_active) throw new Refuse(400, `Version ${v!.version} is already the active one.`);
+        method = 'POST'; path = `/admin/reviewer/${vid}/activate`; id = 'active'; name = 'Version ' + v!.version; changes.push({ field: 'active version', before: active.version, after: v!.version });
+      } else throw new Refuse(400, 'For the reviewer use action new_version (fields: any of method, concerns, dos, donts, score_guide, score_limits, writing, limits, context, and change_note) or activate (fields: version).');
     } else {
-      if (action === 'new_version' || action === 'activate') throw new Refuse(400, 'new_version and activate are only for gate_instructions.');
+      if (action === 'new_version' || action === 'activate') throw new Refuse(400, 'new_version and activate are only for gate_instructions and reviewer_instructions.');
       if (action === 'create') {
         if (!s.create) throw new Refuse(400, `A ${k.label.toLowerCase()} cannot be added from here, only changed.`);
         const given = fields[s.name]; const there = given ? await find(kind, given) : null;
@@ -303,7 +334,7 @@ setup.post('/plugin/setup/apply', staff, async (req, res) => {
     await exec('UPDATE setup_prepared SET applied_at=NOW(), change_set_id=? WHERE id=?', [set, p.id]);
     const newId = answer?.id ?? answer?.code ?? p.entity_id;
     res.json({ ok: true, saved: true, kind: p.kind, action: p.action, item: answer?.code ?? p.entity_name, id: newId, change_set: set,
-      ...(p.kind === 'gate_instructions' && p.action === 'new_version' ? { version: answer?.version, note: 'Saved as a new version. It is not active yet.' } : {}),
+      ...(VERSIONS[p.kind] && p.action === 'new_version' ? { version: answer?.version, note: 'Saved as a new version. It is not active yet.' } : {}),
       where: 'In Upwork Pro under Changes' + (set ? `, change ${set}` : '') + '.' });
   } catch (e) { send(res, e); }
 });

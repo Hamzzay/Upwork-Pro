@@ -535,8 +535,27 @@ const ctx = { rules, projects };
     const good = { score: 7, verdict: 'Solid, the opening is generic.', strengths: ['Right projects'], problems: ['Generic first line'], suggestions: [{ title: 'Sharper opening', instruction: 'Rewrite the first two lines around the missed after hours calls.' }] };
     assert.equal(reviewOut.parse(good).score, 7);
     assert.equal(reviewOut.parse({ ...good, score: '8' }).score, 8, 'a score sent as text is read as a number');
-    for (const bad of [{ ...good, score: 0 }, { ...good, score: 11 }, { ...good, score: 7.5 }, { ...good, suggestions: Array(4).fill(good.suggestions[0]) }, { ...good, suggestions: [{ title: 'No instruction' }] }])
+    for (const bad of [{ ...good, score: 0 }, { ...good, score: 11 }, { ...good, score: 7.5 }, { ...good, suggestions: Array(6).fill(good.suggestions[0]) }, { ...good, suggestions: [{ title: 'No instruction' }] }])
       assert.ok(!reviewOut.safeParse(bad).success, 'refused: ' + JSON.stringify(bad).slice(0, 80));
+    // the Reviewer page (R61): the built-in version keeps the old instructions; each section changes what the reviewer gets
+    const { DEFAULT_REVIEWER, reviewerSections, reviewSchemaFor } = await import('../src/proposal/reviewer');
+    const { parseSections } = await import('../src/proposal/reviewer_store');
+    const facts = { template: null, signals: ['Wants similar work'], sender: { name: 'Jane Doe', gitlab_link: null, tagline: null }, projects: [], clientRequirements: [], checkWarnings: ['Generic first line'],
+      guide: { rules: 'RULES TEXT', banned: 'BANNED TEXT', modules: null, screening: null, checklist: 'CHECK TEXT' } } as any;
+    const d = reviewerSystem(facts);
+    for (const x of ['Judge the proposal on these, in this order:', '1. The first two lines', 'cannot score above 6', 'Do not round up to be kind', '"suggestions": up to 3', 'RULES TEXT', 'BANNED TEXT', 'CHECK TEXT', 'Wants similar work', 'Generic first line'])
+      assert.ok(d.includes(x), 'the built-in reviewer still says: ' + x);
+    assert.ok(reviewerSections.safeParse(DEFAULT_REVIEWER).success, 'the built-in version is a valid version');
+    const mine = { ...DEFAULT_REVIEWER, concerns: ['Price is mentioned'], donts: ['Never mention discounts'], limits: { strengths: 0, problems: 2, suggestions: 1 },
+      context: { ...DEFAULT_REVIEWER.context, banned_phrases: false, automatic_checks: false } };
+    const m = reviewerSystem(facts, mine);
+    assert.ok(m.includes('1. Price is mentioned') && !m.includes('1. The first two lines'), 'the key concerns are the admin\'s');
+    assert.ok(m.includes('Never mention discounts') && m.includes('"suggestions": up to 1') && m.includes('"strengths": none'), 'dos, don\'ts and how many');
+    assert.ok(!m.includes('BANNED TEXT') && !m.includes('Generic first line') && m.includes('RULES TEXT'), 'only the facts switched on are given');
+    const sch: any = reviewSchemaFor(mine.limits);
+    assert.equal(sch.properties.suggestions.maxItems, 1); assert.equal(sch.properties.strengths.maxItems, 0);
+    assert.deepEqual(parseSections('not json'), DEFAULT_REVIEWER, 'a broken stored version falls back to the built-in one');
+    assert.equal(parseSections(JSON.stringify({ dos: ['Be kind'] })).dos[0], 'Be kind', 'a stored version missing parts keeps the built-in parts');
   }
 
   console.log('all tests passed');

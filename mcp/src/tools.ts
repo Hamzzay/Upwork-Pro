@@ -167,23 +167,23 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/profiles', a));
 
   // ---------- the setup, for admins and managers (the setup-admin skill) ----------
-  const KIND = z.enum(['project', 'industry', 'tag', 'tag_category', 'profile', 'loom_video', 'rule', 'signal', 'signal_value', 'template', 'template_sample', 'writing_doc', 'setting', 'gate_instructions']);
+  const KIND = z.enum(['project', 'industry', 'tag', 'tag_category', 'profile', 'loom_video', 'rule', 'signal', 'signal_value', 'template', 'template_sample', 'writing_doc', 'setting', 'gate_instructions', 'reviewer_instructions']);
   const sq = (o: Record<string, unknown>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== '') p.set(k, String(v)); const t = p.toString(); return t ? '?' + t : ''; };
 
-  T('setup_start', 'Call this first for any change to the setup of Upwork Pro. It says who is signed in, which kinds of things they may change (projects, industries, tags, profiles, Loom videos, rules, signals, proposal types, the writing guide, gate instructions, settings), what happens after a change is applied, and what can never be changed from Claude.',
+  T('setup_start', 'Call this first for any change to the setup of Upwork Pro. It says who is signed in, which kinds of things they may change (projects, industries, tags, profiles, Loom videos, rules, signals, proposal types, the writing guide, the instructions of the independent reviewer, gate instructions, settings), what happens after a change is applied, and what can never be changed from Claude.',
     {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/plugin/setup'));
 
-  T('setup_list', 'List the items of one kind in the setup, with a search. Always look here before adding something, so nothing is added twice. For gate_instructions it lists the versions; for setting, every setting with its value and what it does.',
+  T('setup_list', 'List the items of one kind in the setup, with a search. Always look here before adding something, so nothing is added twice. For gate_instructions and reviewer_instructions it lists the versions; for setting, every setting with its value and what it does.',
     { kind: KIND, q: z.string().optional().describe('Words to search for') }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', `/plugin/setup/list/${a.kind}` + sq({ q: a.q })));
 
-  T('setup_get', 'One item of the setup in full: every field, its tags, industries or projects by name, and its last changes with who made them. Give its id or its exact name. For gate_instructions, leave item out for the active version.',
+  T('setup_get', 'One item of the setup in full: every field, its tags, industries or projects by name, and its last changes with who made them. Give its id or its exact name. For gate_instructions and reviewer_instructions, leave item out for the active version.',
     { kind: KIND, item: z.union([z.string(), z.number()]).optional().describe('Id, code or exact name') }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', `/plugin/setup/item/${a.kind}` + sq({ item: a.item })));
 
   T('setup_examples', 'Two or three complete, real items of a kind, to show the person what a good one looks like BEFORE asking for theirs, and to copy the format and style from when you write the new one.',
     { kind: KIND }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', `/plugin/setup/examples/${a.kind}`));
 
   T('setup_prepare', `Step one of every setup change. It checks the change with the same rules as the app and returns it as before and after, what it affects, any warnings, and a change_id. NOTHING is saved. Show the result to the person as it is and ask for a yes.
-Actions: create, update, switch_on, switch_off (nothing is ever deleted: switch it off). For gate_instructions: new_version (fields content, change_note) and activate (fields version).
+Actions: create, update, switch_on, switch_off (nothing is ever deleted: switch it off). For gate_instructions: new_version (fields content, change_note) and activate (fields version). For reviewer_instructions (how the independent reviewer scores every proposal): new_version with only the parts that change, any of method (how to review, text), concerns (key concerns, most important first, a list), dos and donts (lists), score_guide (text), score_limits (a list), writing (how to write the review, text), limits ({ strengths, problems, suggestions }: how many of each), context ({ signals, writing_rules, banned_phrases, checklist, automatic_checks }: true or false), and change_note; then activate (fields version). A list replaces the whole list: send every item to keep.
 Give linked things by NAME: a project's tags and industries, a tag's category and projects, a Loom video's profile and tags, a signal's layer. A list replaces the whole list, so send the full list you want. A signal value or a sample proposal needs parent (the signal, or the proposal type). A setting takes fields { value }.
 Never send the person's raw text: write every text field yourself in the format of setup_examples, and show it first.`,
     { kind: KIND, action: z.enum(['create', 'update', 'switch_on', 'switch_off', 'new_version', 'activate']), item: z.union([z.string(), z.number()]).optional().describe('For update and switch: the id, code or exact name'),

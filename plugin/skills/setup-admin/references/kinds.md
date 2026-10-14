@@ -65,6 +65,22 @@ Only changed, never added. `setup_get` it, show the part to change, and send the
 
 `setup_list` shows every setting with its value and what it does. Change one with `fields: { value }`. Say what the new value will change from the next job on.
 
+## Reviewer instructions (`reviewer_instructions`)
+
+How the independent reviewer scores every proposal. `setup_get` it first and show the parts the person wants to change as they are now.
+Ask what they want it to care about, in their words, then write each part in the same plain style:
+
+* `method`: who the reviewer is, who it reads for, how it should think. Two to five sentences.
+* `concerns`: what matters most, a list, most important first. Each one a short question or statement the reviewer judges.
+* `dos` and `donts`: short lists, one rule each, written as instructions ("Quote the words you mean", "Do not round up to be kind").
+* `score_guide`: one line per band of scores, from 9 or 10 down to 1 or 2.
+* `score_limits`: rules that always hold ("A proposal with an invented fact cannot score above 6").
+* `writing`: how the verdict, problems and suggestions are written.
+* `limits`: `{ strengths, problems, suggestions }`, the most of each (strengths 0 to 5, problems 1 to 6, suggestions 0 to 5).
+* `context`: `{ signals, writing_rules, banned_phrases, checklist, automatic_checks }`, true or false, which optional facts it reads.
+
+Send only the parts that change; a list replaces the whole list. Then `activate` as its own change once they have tried it.
+
 ## Gate instructions (`gate_instructions`)
 
 See the skill: `new_version` (the full text in `content`, and a `change_note`), test in the app, then `activate` (`version`).

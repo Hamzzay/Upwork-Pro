@@ -1,6 +1,6 @@
 ---
 name: setup-admin
-description: Adds and changes the setup of Upwork Pro from Claude, for admins and managers: projects, industries, the tag dictionary, Upwork profiles, Loom videos, rules, signals, proposal types and samples, the writing guide, the gate instructions and settings. Use when the person says "add a project", "update this project", "add a tag", "change the tag score", "add a Loom video", "add a rule", "change the writing guide", "change a setting", "switch this off", "what did Daniel change", "show the changes" or "undo that change".
+description: Adds and changes the setup of Upwork Pro from Claude, for admins and managers: projects, industries, the tag dictionary, Upwork profiles, Loom videos, rules, signals, proposal types and samples, the writing guide, the gate instructions, the independent reviewer and settings. Use when the person says "add a project", "update this project", "add a tag", "change the tag score", "add a Loom video", "add a rule", "change the writing guide", "change a setting", "change how the reviewer scores", "add a don't for the reviewer", "switch this off", "what did Daniel change", "show the changes" or "undo that change".
 ---
 
 # Setup admin
@@ -49,6 +49,15 @@ They decide every screening, so they go in two separate changes:
 
 1. `new_version`: the full new text and a change note. It is saved **not active**. Tell the person to test it on a past job in the app (Gate instructions, Test) before going further.
 2. `activate`: only when they say it is tested and they want it live. A separate prepare, a separate yes.
+
+## The reviewer
+
+The independent reviewer scores every proposal, in the app and from Claude, so it goes in two separate changes like the gate:
+
+1. `new_version` with only the parts that change (`setup_get` `reviewer_instructions` shows them all first: how to review, key concerns, dos, don'ts, the score guide, the score limits, how to write the review, how many of each, and which facts it reads). It is saved **not active**. Tell the person to try it on a past proposal in the app (Reviewer, Try the draft) before going further.
+2. `activate`: only when they say it is tried and they want it live. A separate prepare, a separate yes.
+
+The facts it reads and the shape of its answer (score, verdict, problems, strengths, suggestions) are fixed by the app and cannot be changed here. Say so if asked.
 
 ## The history, and putting a change back
 

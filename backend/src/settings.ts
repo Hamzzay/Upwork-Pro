@@ -12,6 +12,7 @@ export const SETTINGS = {
   'ai.model.glm': { label: 'GLM model', help: '', schema: modelName, def: process.env.LLM_MODEL || 'glm-5.3-flash[1m]' },
   'ai.model.claude': { label: 'Claude model', help: '', schema: modelName, def: 'claude-sonnet-5-5' },
   'ai.model.openai': { label: 'GPT model', help: '', schema: modelName, def: 'gpt-5' },
+  'review.auto': { label: 'Review every proposal by itself', help: 'The independent reviewer scores every proposal as soon as it is written. Off: it reviews only when someone asks (the Review button, or Claude). How it reviews is set on the Reviewer page.', schema: z.boolean(), def: true },
   'matching.shown': { label: 'Projects shown per job', help: 'How many matching projects the Projects step lists.', schema: z.number().int().min(1).max(20), def: 5 },
   'matching.recommended': { label: 'Projects recommended', help: 'How many of the shown projects are pre-selected (and used by the early draft).', schema: z.number().int().min(1).max(5), def: 2 },
   'matching.ai_order': { label: 'AI orders the matched projects', help: 'After the tags pick the shortlist, the AI reads each project\'s overview and case study and orders them for the job, with a reason. Off: the tag score decides the order.', schema: z.boolean(), def: true },

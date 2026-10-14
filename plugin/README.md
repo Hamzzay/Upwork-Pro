@@ -45,7 +45,10 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.10.0)
+## Status (v0.11.0)
+
+v0.11.0: admins change the independent reviewer from Claude (`setup-admin`, kind `reviewer_instructions`): how it reviews, key
+concerns, dos and don'ts, the score guide and limits, how many of each, and what it reads. A new version, then activate.
 
 v0.10.0: faster runs. Every save goes in the same message as the next step's work (no turn and no line of its own), the review
 starts as the draft is saved and is only collected after the draft is shown, `save_job` no longer sends the post in fields

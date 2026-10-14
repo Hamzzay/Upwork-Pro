@@ -86,6 +86,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 37 | Screening answers kept apart from the proposal: own field per version, own boxes on the proposal screen, the plugin saves them apart (R59, plugin v0.9.0, migration 038) | done in code; to check on screen with a job that has screening questions |
 | 38 | Plugin: after the independent review, show it and wait, no forced options (R59) | done in the skill; to try in Claude |
 | 39 | Plugin speed: saves in parallel with the next step, the review started with the draft, no post in fields, type and video in one question (R60, plugin v0.10.0) | done in code; time one real run in Claude before and after |
+| 40 | The Reviewer page: full control of the independent reviewer (sections, versions, try, full prompt, activate), and from Claude as setup kind reviewer_instructions (R61, plugin v0.11.0, migration 039) | done in code; to check on screen, try a draft with the real model, and try it from Claude |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

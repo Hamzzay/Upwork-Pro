@@ -357,7 +357,8 @@ const NAV = [
     { key: 'looms', icon: 'video', label: 'Loom videos', roles: ADMIN }] },
   { label: 'Proposal setup', links: [
     { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
-    { key: 'writing', icon: 'doc', label: 'Writing guide' }] },
+    { key: 'writing', icon: 'doc', label: 'Writing guide' },
+    { key: 'reviewer', icon: 'skill', label: 'Reviewer' }] },
   { label: 'Admin', links: [
     { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
@@ -2170,11 +2171,123 @@ async function skillView() {
       versionsCard(versions, vitem, (v) => `version ${v.version} ${v.change_note || ''}`))], true);
 }
 
+// ---------- Reviewer: full control of the independent proposal reviewer (R61); admins edit, everyone reads ----------
+const RV_CONTEXT = { signals: 'What the post signals', writing_rules: 'The writing rules', banned_phrases: 'The banned phrases', checklist: 'The verification checklist', automatic_checks: 'What the automatic checks found' };
+async function reviewerView() {
+  const edit = me.role === 'admin';
+  const { versions, active } = await api('GET', '/reviewer');
+  let base = active.sections; // what the editor was loaded from, to tell unsaved changes
+  const lines = (xs) => (xs || []).join('\n');
+  const toList = (t) => t.split('\n').map((x) => x.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+  const area = (id, label, rows) => h('textarea', { id, rows, 'aria-label': label, readOnly: !edit, spellcheck: 'true' });
+  const f = {
+    method: area('rv-method', 'How to review', 6), concerns: area('rv-concerns', 'Key concerns', 7), dos: area('rv-dos', 'Dos', 5), donts: area('rv-donts', "Don'ts", 5),
+    score_guide: area('rv-guide', 'Score guide', 6), score_limits: area('rv-limits', 'Score limits', 3), writing: area('rv-writing', 'How to write the review', 5),
+  };
+  const num = (id, min, max) => h('input', { type: 'number', id, min, max, step: 1, readOnly: !edit, style: 'width:90px' });
+  const n = { strengths: num('rv-ns', 0, 5), problems: num('rv-np', 1, 6), suggestions: num('rv-ng', 0, 5) };
+  const ctx = Object.fromEntries(Object.keys(RV_CONTEXT).map((k) => [k, h('input', { type: 'checkbox', id: 'rv-c-' + k, disabled: !edit })]));
+  const fill = (sec) => {
+    f.method.value = sec.method; f.concerns.value = lines(sec.concerns); f.dos.value = lines(sec.dos); f.donts.value = lines(sec.donts);
+    f.score_guide.value = sec.score_guide; f.score_limits.value = lines(sec.score_limits); f.writing.value = sec.writing || '';
+    for (const k of Object.keys(n)) n[k].value = sec.limits[k];
+    for (const k of Object.keys(ctx)) ctx[k].checked = !!sec.context[k];
+  };
+  const read = () => ({
+    method: f.method.value.trim(), concerns: toList(f.concerns.value), dos: toList(f.dos.value), donts: toList(f.donts.value),
+    score_guide: f.score_guide.value.trim(), score_limits: toList(f.score_limits.value), writing: f.writing.value.trim(),
+    limits: { strengths: Number(n.strengths.value), problems: Number(n.problems.value), suggestions: Number(n.suggestions.value) },
+    context: Object.fromEntries(Object.keys(ctx).map((k) => [k, ctx[k].checked])),
+  });
+  const dirty = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
+  fill(base);
+  const baseJson = () => { const keep = read(); fill(base); const b = JSON.stringify(read()); fill(keep); return b; };
+  const check = () => { dirty.hidden = JSON.stringify(read()) === baseJson(); };
+  [...Object.values(f), ...Object.values(n)].forEach((el) => el.addEventListener('input', check));
+  Object.values(ctx).forEach((el) => el.addEventListener('change', check));
+  const loadedFrom = h('span', {}, ` Editing from version ${active.version}`);
+
+  const sec = (title, hint, body) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'card-pad' }, hint ? h('p', { class: 'jp-label', style: 'margin:0 0 8px' }, hint) : null, body));
+  const editor = h('div', { class: 'stack' },
+    sec('How to review', 'Who the reviewer is, who it reads for, and how it should think about a proposal. It comes first in its instructions.', f.method),
+    sec('Key concerns', 'What matters most, one per line, most important first. The reviewer judges the proposal on these, in this order.', f.concerns),
+    h('div', { class: 'two' }, sec('Dos', 'One per line.', f.dos), sec("Don'ts", 'One per line.', f.donts)),
+    sec('Score guide', 'What each score means, one line per band. Scores are whole numbers from 1 to 10.', f.score_guide),
+    sec('Score limits', 'Rules that always hold, one per line, for example "A proposal with an invented fact cannot score above 6."', f.score_limits),
+    sec('How to write the review', 'How the verdict, the problems and the suggestions should be written.', f.writing),
+    sec('How many', 'The most of each the reviewer gives. Suggestions 0 turns them off.', h('div', { class: 'row', style: 'gap:18px;flex-wrap:wrap' },
+      ...[['Strengths', n.strengths], ['Problems', n.problems], ['Suggestions', n.suggestions]].map(([l, el]) => h('label', { class: 'row', style: 'gap:8px' }, h('span', {}, l), el)))),
+    sec('What it reads', 'The job, the proposal and its screening answers, the profile, the projects, the proposal type and the client requirements are always given. These are optional.',
+      h('div', { class: 'stack', style: 'gap:6px' }, Object.entries(RV_CONTEXT).map(([k, l]) => h('label', { class: 'row', style: 'gap:8px' }, ctx[k], h('span', {}, l))))));
+
+  // try it: a past proposal, the draft above, nothing saved
+  const { jobs } = edit ? await api('GET', '/admin/reviewer/jobs') : { jobs: [] };
+  const jobSel = h('select', { id: 'rv-job', 'aria-label': 'Job to try it on' }, jobs.length ? jobs.map((j) => h('option', { value: j.id }, `#${j.id} ${j.title || 'Untitled'}${j.template_name ? ' · ' + j.template_name : ''}`)) : h('option', { value: '' }, 'No written proposals yet'));
+  const out = h('div', { class: 'stack', style: 'margin-top:14px' });
+  const reviewCard = (title, rv, sub) => {
+    if (!rv) return h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, title), h('p', { class: 'jp-label' }, 'No review yet.'));
+    const tone = rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL';
+    const ul = (t, xs) => (xs && xs.length ? h('div', {}, h('div', { class: 'jp-label' }, t), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, xs.map((x) => h('li', {}, x)))) : null);
+    return h('div', { class: 'card card-pad stack', style: 'gap:10px' }, h('div', { class: 'jp-sec' }, title), sub ? h('div', { class: 'jp-label' }, sub) : null,
+      h('div', { class: 'reviewscore ' + tone }, h('span', { class: 'num' }, String(rv.score)), h('span', { class: 'of' }, 'out of 10')),
+      h('p', { class: 'jp-body', style: 'margin:0' }, rv.verdict), ul('What hurts it', rv.problems), ul('What works', rv.strengths),
+      rv.suggestions && rv.suggestions.length ? h('div', {}, h('div', { class: 'jp-label' }, 'Suggestions'), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, rv.suggestions.map((sg) => h('li', {}, h('strong', {}, sg.title), ': ', sg.instruction)))) : null);
+  };
+  const testBtn = h('button', { class: 'btn', type: 'button', disabled: !jobs.length || null }, 'Try the draft');
+  testBtn.onclick = async () => {
+    btnBusy(testBtn, 'Reviewing'); out.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'The reviewer is reading the proposal with the draft above. This takes about a minute.'));
+    try {
+      const r = await api('POST', '/admin/reviewer/test', { sections: read(), screening_id: Number(jobSel.value) });
+      out.replaceChildren(h('div', { class: 'two' }, reviewCard('With the draft above', r.review, `Proposal version ${r.proposal_version}. Not saved.`),
+        reviewCard('The review it has now', r.current, r.current ? `Proposal version ${r.current.proposal_version}${r.current.reviewer_version ? ', reviewer version ' + r.current.reviewer_version : ''}` : null)));
+    } catch (x) { out.replaceChildren(); toast(x.message, true); }
+    testBtn.disabled = false; testBtn.replaceChildren('Try the draft');
+  };
+  const previewBtn = h('button', { class: 'btn', type: 'button', disabled: !jobs.length || null }, 'See full prompt');
+  previewBtn.onclick = async () => {
+    try {
+      const r = await api('POST', '/admin/reviewer/preview', { sections: read(), screening_id: Number(jobSel.value) });
+      modal({ title: 'What the reviewer gets', noConfirm: true, wide: true, body: h('div', {},
+        h('p', { class: 'muted', style: 'margin-top:0' }, 'Its instructions: the sections above, then the fixed output format and the facts of this job. Then the job page and the proposal.'),
+        h('pre', { class: 'proposal-text', style: 'max-height:60vh;overflow:auto;white-space:pre-wrap' }, r.system + '\n\n----------\n\n' + r.prompt)) });
+    } catch (x) { toast(x.message, true); }
+  };
+  const note = h('input', { type: 'text', id: 'rv-note', placeholder: 'What did you change and why?' });
+  const saveBtn = h('button', { class: 'btn primary', type: 'button' }, 'Save as new version');
+  saveBtn.onclick = async () => {
+    btnBusy(saveBtn, 'Saving');
+    try { const r = await api('POST', '/admin/reviewer', { sections: read(), change_note: note.value || undefined }); toast(`Saved as version ${r.version}. Try it, then activate it to use it.`); route(); }
+    catch (x) { toast(x.message, true); saveBtn.disabled = false; saveBtn.replaceChildren('Save as new version'); }
+  };
+  const resetBtn = h('button', { class: 'btn', type: 'button' }, 'Load the built-in reviewer');
+  resetBtn.onclick = async () => { const { defaults } = await api('GET', '/reviewer'); fill(defaults); check(); toast('The built-in reviewer is in the editor. Save it as a new version to keep it.'); };
+
+  const vitem = (v) => h('div', { class: 'vitem' }, h('div', { class: 'top' }, h('strong', {}, 'Version ' + v.version), v.is_active ? h('span', { class: 'pill PASS' }, 'Active') : null),
+    h('div', { class: 'small muted' }, (v.change_note || 'No note') + (v.created_by_name ? ' · ' + v.created_by_name : '') + ' · ' + ago(v.created_at)),
+    h('div', { class: 'row', style: 'gap:6px' },
+      h('button', { class: 'btn sm', onclick: async () => { const r = (await api('GET', '/reviewer/' + v.id)).version; base = r.sections; fill(base); check(); loadedFrom.textContent = ` Editing from version ${v.version}`; toast('Loaded version ' + v.version + ' into the editor'); window.scrollTo(0, 0); } }, 'Load'),
+      edit && !v.is_active ? h('button', { class: 'btn sm', onclick: () => modal({ title: 'Activate version ' + v.version + '?', confirm: 'Activate',
+        body: h('p', { class: 'muted' }, 'Every review from now on, in the app and from Claude, uses this version. Reviews already made keep the version that made them.'),
+        onConfirm: async () => { await api('POST', `/admin/reviewer/${v.id}/activate`, {}); toast('Version ' + v.version + ' is now active'); route(); } }) }, 'Activate') : null));
+
+  shell('reviewer', [pageHead('Reviewer', 'How the independent reviewer scores every proposal, in the app and from Claude. Saving never overwrites: it creates a new version.'),
+    h('div', { class: 'notice' }, icon('info'), h('span', {}, edit ? 'Change any part, try the draft on a past proposal, save it as a new version, then activate it. The facts the reviewer reads and the shape of its answer (score, verdict, problems, strengths, suggestions) are fixed by the app.'
+      : 'Only an admin changes the reviewer. This is the active version.')),
+    h('div', { class: 'two' }, h('div', { class: 'stack' },
+      h('div', { class: 'row spread' }, h('span', { class: 'sub' }, dirty, loadedFrom), edit ? resetBtn : null),
+      editor,
+      edit ? h('div', { class: 'card card-pad' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'rv-note' }, 'Change note'), note), h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, saveBtn)) : null,
+      edit ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Try the draft')), h('div', { class: 'card-pad' },
+        h('p', { class: 'jp-label', style: 'margin:0 0 8px' }, 'Reviews the newest version of a past proposal with the sections above, beside the review it has now. Nothing is saved.'),
+        jobSel, h('div', { class: 'row', style: 'margin-top:12px;gap:8px' }, testBtn, previewBtn), out)) : null),
+      versionsCard(versions, vitem, (v) => `version ${v.version} ${v.change_note || ''}`))], true);
+}
+
 // ---------- changes (admin): every change to the setup, to review and put back ----------
 const CHANGE_ACTION = { create: 'Added', update: 'Changed', switch_off: 'Switched off', switch_on: 'Switched on', delete: 'Deleted', revert: 'Put back' };
 /** Where an item of each kind is opened in the app, when it has a page of its own. */
 const CHANGE_LINK = { project: (id) => '#/p/' + id, industry: (id) => '#/i/' + id, signal: (id) => '#/sig/' + id, template: (id) => '#/t/' + id, writing_doc: (id) => '#/wg/' + id, rule: () => '#/rules', tag: () => '#/dictionary',
-  tag_category: () => '#/dictionary?tab=categories', profile: () => '#/profiles', loom_video: () => '#/looms', setting: () => '#/settings', gate_instructions: () => '#/skill' };
+  tag_category: () => '#/dictionary?tab=categories', profile: () => '#/profiles', loom_video: () => '#/looms', setting: () => '#/settings', gate_instructions: () => '#/skill', reviewer_instructions: () => '#/reviewer' };
 async function changesView() {
   const hp = hashParams();
   const st = { kind: hp.kind || '', user: hp.user || '', source: hp.source || '', status: hp.status || '', from: hp.from || '', to: hp.to || '', q: hp.q || '', page: Math.max(1, Number(hp.page) || 1) };
@@ -2452,6 +2565,7 @@ async function settingsView() {
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
+    group('Independent reviewer', [onoff('review.auto')]),
     group('Project matching', [onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
@@ -2557,6 +2671,7 @@ async function route() {
     if (a === 'looms' && me.role === 'admin') return await loomsView();
     if (a === 'users' && me.role === 'admin') return await usersView();
     if (a === 'skill' && me.role === 'admin') return await skillView();
+    if (a === 'reviewer') return await reviewerView();
     if (a === 'rules' && me.role === 'admin') return await rulesView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();
     if (a === 'connect') return await connectView();

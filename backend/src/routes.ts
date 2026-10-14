@@ -15,6 +15,7 @@ import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } 
 import { plugin } from './routes_plugin';
 import { writing } from './routes_writing';
 import { setup } from './routes_setup';
+import { reviewer } from './routes_reviewer';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
@@ -34,6 +35,7 @@ api.use(imports);
 api.use(plugin);
 api.use(writing);
 api.use(setup);
+api.use(reviewer); // the Reviewer page (R61)
 api.use(oauthApi);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);

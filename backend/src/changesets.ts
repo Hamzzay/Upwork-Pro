@@ -39,7 +39,10 @@ export const KINDS: Record<string, Kind> = {
   writing_doc: { table: 'writing_docs', label: 'Writing guide', active: 'active', roles: ['admin', 'manager'] },
   setting: { table: 'app_settings', key: 'k', label: 'Setting', roles: ['admin'] },
   gate_instructions: { table: 'skill_versions', label: 'Gate instructions', roles: ['admin'] },
+  reviewer_instructions: { table: 'reviewer_versions', label: 'Reviewer instructions', roles: ['admin'] },
 };
+/** Kinds kept as versions with one active: a change is which version is active (the text of each version is never changed). */
+const VERSIONED: Record<string, string> = { gate_instructions: 'skill_versions', reviewer_instructions: 'reviewer_versions' };
 export type KindName = keyof typeof KINDS;
 
 /** An item exactly as stored: its row, the ids in each linked list, and its child rows. This is what a revert writes back. */
@@ -47,8 +50,8 @@ export interface Raw { row: Record<string, any>; links: Record<string, number[]>
 const GATE_ID = 'active';
 export async function raw(kind: string, id: string | number | null): Promise<Raw | null> {
   const k = KINDS[kind]; if (!k || id == null) return null;
-  if (kind === 'gate_instructions') { // one thing: which version is the active one
-    const a = (await query<any>('SELECT id, version FROM skill_versions WHERE is_active=1 LIMIT 1'))[0];
+  if (VERSIONED[kind]) { // one thing: which version is the active one
+    const a = (await query<any>(`SELECT id, version FROM ${VERSIONED[kind]} WHERE is_active=1 LIMIT 1`))[0];
     return { row: { active_version_id: a?.id ?? null, active_version: a?.version ?? null }, links: {}, rows: {} };
   }
   const row = (await query<any>(`SELECT * FROM ${k.table} WHERE ${k.key ?? 'id'}=?`, [id]))[0];
@@ -66,7 +69,7 @@ export const same = (a: Raw | null, b: Raw | null) => stable(a) === stable(b);
 /** What changed between two copies, in the words the Logs page uses. */
 async function readable(kind: string, before: Raw | null, after: Raw | null, id: string | number): Promise<Change[]> {
   const k = KINDS[kind];
-  if (kind === 'gate_instructions') return diff({ active_version: before?.row.active_version == null ? null : String(before.row.active_version) }, { active_version: after?.row.active_version == null ? null : String(after.row.active_version) });
+  if (VERSIONED[kind]) return diff({ active_version: before?.row.active_version == null ? null : String(before.row.active_version) }, { active_version: after?.row.active_version == null ? null : String(after.row.active_version) });
   const plain = (r: Raw | null) => { if (!r) return null; const o: Record<string, string | null> = {};
     for (const [c, v] of Object.entries(r.row)) if (!BOOKKEEPING.has(c) && c !== 'id' && c !== 'password_hash' && c !== 'added_via') o[c] = v == null ? null : String(v);
     if (kind === 'setting') return { value: o.v ?? null }; // a setting is one value under its name
@@ -129,6 +132,7 @@ const ROUTES: [string, RegExp, Target][] = [
   ['PUT', /^\/writing-docs\/(\d+)$/, { kind: 'writing_doc', id: byParam }],
   ['PUT', /^\/admin\/settings\/([\w.]+)$/, { kind: 'setting', id: byParam }],
   ['POST', /^\/admin\/skill\/\d+\/activate$/, { kind: 'gate_instructions', id: () => GATE_ID }],
+  ['POST', /^\/admin\/reviewer\/\d+\/activate$/, { kind: 'reviewer_instructions', id: () => GATE_ID }],
   ['POST', /^\/plugin\/projects$/, { kind: 'project', id: byName('projects'), created: made }], ['POST', /^\/plugin\/profiles$/, { kind: 'profile', id: byName('upwork_profiles'), created: made }],
 ];
 /** Reads the item before the route runs and after it answered, and keeps the difference as a change set. */
@@ -158,7 +162,7 @@ export function recordSetupChanges(req: Request, res: Response, next: NextFuncti
 /** Write a stored copy over the item: the row and its linked lists. A missing copy means the item did not exist: switch it off (or remove it when it has no on/off). */
 export async function restore(kind: string, id: string | number, snap: Raw | null, userId: number, note: string): Promise<void> {
   const k = KINDS[kind], key = k.key ?? 'id';
-  if (kind === 'gate_instructions') { if (snap?.row.active_version_id) await exec('UPDATE skill_versions SET is_active = (id=?)', [snap.row.active_version_id]); return; }
+  if (VERSIONED[kind]) { if (snap?.row.active_version_id) await exec(`UPDATE ${VERSIONED[kind]} SET is_active = (id=?)`, [snap.row.active_version_id]); return; }
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();

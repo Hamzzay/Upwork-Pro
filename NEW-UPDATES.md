@@ -1003,6 +1003,31 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R61. The Reviewer page: full control of the independent reviewer, in the app and from Claude (done in code, 14 October)
+
+- **What it is.** A page, Proposal setup, **Reviewer**, for how the independent reviewer scores every proposal (asked for by Ahmad).
+  Everyone can read it; an admin changes it. Its parts: how to review; key concerns, most important first; dos; don'ts; the score
+  guide; score limits that always hold; how to write the review; how many strengths, problems and suggestions; and which optional
+  facts it reads (the signals, the writing rules, the banned phrases, the checklist, the automatic checks).
+- **Fixed by the app:** the facts it always reads (the job, the proposal and its screening answers, the profile, the projects, the
+  proposal type, the client requirements) and the shape of its answer, so the app and the plugin can always read a review.
+- **Like the Gate instructions:** saving makes a new version that is not used until it is activated. "Try the draft" reviews a past
+  proposal with the sections in the editor, beside the review it has now, and saves nothing. "See full prompt" shows exactly what the
+  reviewer gets for that job. Each version can be loaded back; "Load the built-in reviewer" puts the original back in the editor.
+- **Version 1** is the reviewer as it was written in code (R54), split into the sections, so reviews read the same until someone
+  changes it. It is created by the app itself the first time it is needed (`ensureReviewer` in `src/proposal/reviewer_store.ts`).
+- **Every review** in the app and from Claude uses the active version, and keeps which version made it (`proposals.review_reviewer_version`).
+  Activating a version is a change set (Changes page), so the main admin can put it back.
+- **From Claude (plugin v0.11.0):** setup kind `reviewer_instructions` for admins: `setup_get` shows every part, `new_version` sends
+  only the parts that change (the rest is kept), `activate` is its own change with its own yes. The `setup-admin` skill says how.
+- **New setting:** Settings, Independent reviewer, "Review every proposal by itself" (on). Off: a review is made only when asked.
+- Migration `039_reviewer_versions.sql`. New: `src/routes_reviewer.ts`, `src/proposal/reviewer_store.ts`; the prompt in `src/proposal/reviewer.ts`.
+- Checked: tests (the built-in version still says what the old reviewer said; each part changes the prompt; how many changes the
+  answer's limits; a broken stored version falls back); `tsc` for the backend and the MCP; `node --check`; the migration locally;
+  version 1 created and a real job's full reviewer prompt built from it; the routes refuse anyone not signed in.
+- Not checked: the page in the browser (it needs a sign in), "Try the draft" with the real model, and the setup kind in a real
+  Claude conversation.
+
 ### R60. The Claude plugin runs faster: saves in parallel, the review starts with the draft (done in code, 14 October)
 
 - **Why it was slow.** The saves were never slow on the server (each is a few database writes). The time was Claude's: about ten
