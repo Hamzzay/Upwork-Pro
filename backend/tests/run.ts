@@ -599,6 +599,17 @@ const ctx = { rules, projects };
     setCompanyName('Stackup Solutions');
   }
 
+  // ---------- opening lines for every type (R68) ----------
+  {
+    const { openingSection } = await import('../src/proposal/writer');
+    const t = { name: 'Type 1', body_html: '', prompt: null, opening_rules: 'Line one names the pain.' } as any;
+    const both = openingSection(t, 'No greeting.');
+    assert.ok(both.indexOf('FOR EVERY PROPOSAL TYPE\nNo greeting.') < both.indexOf('FOR THIS PROPOSAL TYPE') && both.includes('Line one names the pain.'), 'the defaults first, then the type, which wins');
+    assert.ok(openingSection({ ...t, opening_rules: null }, 'No greeting.').includes('No greeting.'), 'a type without its own rules still gets the defaults');
+    assert.ok(!openingSection(t, null).includes('FOR EVERY PROPOSAL TYPE') && openingSection(t, null).includes('Line one names the pain.'), 'no defaults: the type alone, as before');
+    assert.equal(openingSection({ ...t, opening_rules: null }, null), '', 'neither: nothing');
+  }
+
   // ---------- experience gaps (R67) ----------
   {
     const { gapsRule, gapsOut, writerSchema: ws } = await import('../src/proposal/writer');

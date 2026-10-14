@@ -11,7 +11,17 @@ export interface SenderFact { name: string; gitlab_link: string | null; tagline:
 export interface SampleFact { title: string; content: string }
 export interface TemplateFact { name: string; body_html: string; prompt: string | null; opening_rules?: string | null; opening_no_us?: boolean; opening_starts?: string | null }
 /** The strict rules for the first two lines, the part Upwork shows in the preview. */
-export const openingSection = (t: TemplateFact | null) => (t?.opening_rules?.trim() ? `FIRST TWO LINES (strict: Upwork shows them in the preview before the client opens the proposal. Follow every rule below exactly; they win over anything else in the type about the opening, except a client\'s required opening words)\n${t.opening_rules.trim()}\n` : '');
+/**
+ * The first two lines (R68): the Writing guide's "Opening lines" document, the defaults for every type, then the proposal type's
+ * own rules, which win where the two differ.
+ */
+export function openingSection(t: TemplateFact | null, shared?: string | null): string {
+  const own = t?.opening_rules?.trim(), all = shared?.trim();
+  if (!own && !all) return '';
+  return `FIRST TWO LINES (strict: Upwork shows them in the preview before the client opens the proposal. Follow every rule below exactly; they win over anything else in the type about the opening, except a client\'s required opening words)\n`
+    + (all ? `FOR EVERY PROPOSAL TYPE\n${all}\n` : '')
+    + (own ? `${all ? '\nFOR THIS PROPOSAL TYPE (where these differ from the rules above, these win)\n' : ''}${own}\n` : '');
+}
 
 /** Fixed rules. Not editable in the app: a template, a sample or a client cannot talk the writer out of them (except rule 6, which is the point). */
 export const GUARDRAILS = `NON-NEGOTIABLE RULES
@@ -70,7 +80,7 @@ export function writerSystem(a: { template: TemplateFact; detected: DetectedValu
     `CLIENT REQUIREMENTS (from the screening of this post)\n${a.clientRequirements.length ? a.clientRequirements.map((r) => '  - ' + r).join('\n') : '  (none found)'}`, '',
     `PROPOSAL TYPE: ${a.template.name}\nFollow this format and its rules exactly, unless a client requirement above demands otherwise.\n${htmlToPlain(a.template.body_html)}`, '',
     a.template.prompt?.trim() ? `TEMPLATE INSTRUCTIONS\n${a.template.prompt.trim()}\n` : '',
-    openingSection(a.template),
+    openingSection(a.template, a.guide?.opening),
     a.guide ? guideBlock(a.guide) + '\n' : '',
     signalsBlock(a.detected), '',
     a.samples.length ? `SAMPLE PROPOSALS (tone and structure only; they are about other jobs, other people and other projects)\n${a.samples.map((s, i) => `--- Sample ${i + 1}: ${s.title}\n${s.content}`).join('\n\n')}\n` : '',
@@ -118,7 +128,7 @@ export function chatSystem(a: { template: TemplateFact | null; detected: Detecte
 - "reply" is one or two short sentences saying what you changed or answering the question. Never paste the proposal into "reply".
 - Keep to the template's format unless the user asks otherwise, and never break the rules above.`, '',
     `CLIENT REQUIREMENTS\n${a.clientRequirements.length ? a.clientRequirements.map((r) => '  - ' + r).join('\n') : '  (none found)'}`, '',
-    a.template ? `PROPOSAL TYPE: ${a.template.name}\n${htmlToPlain(a.template.body_html)}\n${a.template.prompt?.trim() ? '\nTEMPLATE INSTRUCTIONS\n' + a.template.prompt.trim() : ''}` : '', openingSection(a.template), '',
+    a.template ? `PROPOSAL TYPE: ${a.template.name}\n${htmlToPlain(a.template.body_html)}\n${a.template.prompt?.trim() ? '\nTEMPLATE INSTRUCTIONS\n' + a.template.prompt.trim() : ''}` : '', openingSection(a.template, a.guide?.opening), '',
     a.guide ? guideBlock(a.guide) + '\n' : '',
     signalsBlock(a.detected), '',
     facts(a.sender, a.projects), '',

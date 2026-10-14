@@ -1003,6 +1003,26 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R68. Opening lines: the first two lines rules for every type, in the Writing guide (done, 15 October)
+
+- **What it is** (asked for by Ahmad): a Writing guide document, **Opening lines (all types)**, with the default rules for the first
+  two lines, the part Upwork shows in the preview: write them for this client only, with a detail only they wrote; start with the
+  client, never with us; sound like a person; use the client's required opening word exactly; and never a greeting, talk about us,
+  a project name, a link, stats or filler. Each proposal type keeps its own first two lines rules (what line one and line two do,
+  and its exceptions: the Invite type may greet, types 3 and 8 may say how we would start); they are added after the defaults and
+  win where the two differ.
+- **Where it is used:** the writer's FIRST TWO LINES section (the defaults, then the type's rules), the chat, the automatic check of
+  the first two lines (now also for a type with no opening rules of its own), the reviewer (with the writing rules), and the Claude
+  plugin (`get_writing_guide` returns `opening_lines`; the proposal-writer skill applies it, plugin v0.14.0). Edited on the Writing
+  guide page like any document, with versions.
+- Migration `043_opening_lines.sql` adds the kind and creates the document with its default text (`seed/writing/opening-lines.md`,
+  also loaded by `npm run seed:writing` on a fresh copy).
+- The types' own rules were not changed, so some of them still repeat a default (for example "no project names"). That is harmless;
+  they can be trimmed to what is special about each type when convenient.
+- Checked: tests (the defaults first, the type after and winning; a type without rules still gets the defaults); `tsc` for the backend
+  and the MCP; migration 043 locally, twice (the second run changes nothing); the document in place with its first version; the
+  writer's instructions for Type 1 with both parts in order.
+
 ### R67. Experience gaps answered on the proposal, and feedback on proposals (done, 14 October)
 
 Asked for by Ahmad (the Grok example: a client asked for Grok experience we have, the library did not show it, and the proposal

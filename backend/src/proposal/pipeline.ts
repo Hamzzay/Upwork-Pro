@@ -312,7 +312,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const clientOpening = requirements.some((r) => /\b(open(ing)?|start|begin)\w*\b.*\b(with|word|phrase|line)\b/i.test(r));
   const allNames = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
   const invite = /invite/i.test(template.name);
-  const opening = (t: string) => template.opening_rules ? checkOpening(t, { noUs: !!template.opening_no_us, starts: template.opening_starts ?? null, projectNames: allNames, invite, clientOpening }) : [];
+  const opening = (t: string) => template.opening_rules || guide.opening ? checkOpening(t, { noUs: !!template.opening_no_us, starts: template.opening_starts ?? null, projectNames: allNames, invite, clientOpening }) : [];
   let openingIssues = opening(text);
   if (openingIssues.length && opts.stillWanted()) {
     await stage('writing');

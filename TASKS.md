@@ -96,6 +96,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 47 | Experience gaps answered on the proposal (the library learns them, switched off), and proposal feedback with its page and list_feedback for Claude (R67, migration 042) | done in the app |
 | 48 | The same in the Claude plugin: ask the gaps after the draft, save the answers, update; save feedback from the chat | next |
 | 49 | Team guide: pictures and text for the gaps card, the feedback card and the Proposal feedback page | open |
+| 50 | Opening lines (all types) in the Writing guide: the defaults for the first two lines, each type's own rules added after and winning (R68, migration 043, plugin v0.14.0) | done |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

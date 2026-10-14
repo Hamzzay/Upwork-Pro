@@ -5,13 +5,13 @@ import { cached } from '../cache';
  * The shared part of the Writing guide (writing_docs): writing rules, banned phrases, modules, screening answers and the checklist.
  * The app's writer and the Claude plugin both follow it; the proposal types themselves are the templates.
  */
-export interface Guide { rules: string | null; banned: string | null; modules: string | null; screening: string | null; checklist: string | null }
+export interface Guide { rules: string | null; banned: string | null; modules: string | null; screening: string | null; checklist: string | null; /** the default first two lines rules (R68) */ opening?: string | null }
 
 export const loadGuide = (): Promise<Guide> => cached('guide', readGuide);
 async function readGuide(): Promise<Guide> {
   const docs = await query<any>("SELECT kind, content FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
   const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content.trim()).join('\n\n') || null;
-  return { rules: one('rules'), banned: one('banned'), modules: one('modules'), screening: one('screening'), checklist: one('checklist') };
+  return { rules: one('rules'), banned: one('banned'), modules: one('modules'), screening: one('screening'), checklist: one('checklist'), opening: one('opening') };
 }
 
 /** The quoted phrases of the banned list ("I'm excited to apply"), as patterns: "[project]" matches any short text. */

@@ -45,7 +45,10 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.13.0)
+## Status (v0.14.0)
+
+v0.14.0: the first two lines follow the Writing guide's "Opening lines" (`opening_lines`, every type), then the type's own rules,
+which win where they differ.
 
 v0.13.0: faster runs (PLAN-SPEED). `match_projects` does the project matching on the server, the same list the app shows, so
 Claude no longer scores the library itself; the setup reads go in one message at the start and a second job in the same

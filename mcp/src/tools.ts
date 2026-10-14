@@ -168,7 +168,7 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
     { id: z.number().int(), skip_tech_stack: z.boolean().optional() }, { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     async (a) => api.call('POST', `/plugin/jobs/${a.id}/match`, { skip_tech_stack: a.skip_tech_stack }));
 
-  T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), how to choose the type (type_selection), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
+  T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), how to choose the type (type_selection), the opening lines rules for every type (opening_lines; the first_two_lines of each type win where they differ), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
     { type: z.string().optional(), all: z.boolean().optional(), known_version: z.string().optional().describe('The "version" you already read in this conversation: if nothing changed, the answer is "unchanged"') }, { readOnlyHint: true, openWorldHint: false },
     async (a) => api.call('GET', '/plugin/writing-guide?' + new URLSearchParams({ ...(a.type ? { type: a.type } : {}), ...(a.all ? { all: '1' } : {}), ...(a.known_version ? { known_version: a.known_version } : {}) })));
 

@@ -98,7 +98,7 @@ export function reviewerSystem(a: { template: TemplateFact | null; signals: stri
     '',
     r.context.signals && a.signals.length ? `WHAT THE POST SIGNALS\n${a.signals.map((s) => '  - ' + s).join('\n')}` : '',
     '',
-    r.context.writing_rules && a.guide?.rules ? `WRITING RULES\n${a.guide.rules}` : '', r.context.banned_phrases && a.guide?.banned ? `\nBANNED PHRASES\n${a.guide.banned}` : '', r.context.checklist && a.guide?.checklist ? `\nCHECKLIST\n${a.guide.checklist}` : '',
+    r.context.writing_rules && a.guide?.rules ? `WRITING RULES\n${a.guide.rules}` : '', r.context.writing_rules && a.guide?.opening ? `\nOPENING LINES (every type; the type's own rules win)\n${a.guide.opening}` : '', r.context.banned_phrases && a.guide?.banned ? `\nBANNED PHRASES\n${a.guide.banned}` : '', r.context.checklist && a.guide?.checklist ? `\nCHECKLIST\n${a.guide.checklist}` : '',
     '',
     'THE FACTS THE WRITER HAD (anything in the proposal beyond these is invented)',
     `  Sender: ${a.sender.name}${a.sender.tagline ? ', ' + a.sender.tagline : ''}`,

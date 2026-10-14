@@ -2526,7 +2526,7 @@ async function flagReviewView() {
 }
 
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
-const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist', selection: 'Type selection' };
+const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist', selection: 'Type selection', opening: 'Opening lines' };
 async function writingView() {
   const { types, docs } = await api('GET', '/writing-docs');
   const staff = me.role === 'admin' || me.role === 'manager';
