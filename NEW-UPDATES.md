@@ -1003,6 +1003,25 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R60. The Claude plugin runs faster: saves in parallel, the review starts with the draft (done in code, 14 October)
+
+- **Why it was slow.** The saves were never slow on the server (each is a few database writes). The time was Claude's: about ten
+  saves per job, each its own turn followed by a "Saved in Upwork Pro" line; long payloads that repeat what was already shown (the
+  post in fields, long reasons and evidence); and `review_proposal` holding Claude for up to 50 seconds on every draft.
+- **What changed (plugin v0.10.0).**
+  1. Every save goes in the same message as the next step's first call, never as a step of its own, and a save that works gets no
+     line. A refused save still stops the run.
+  2. `save_proposal` takes `review: true`: the review starts on the server as the draft is saved, Claude shows the draft while it is
+     written, and `review_proposal` only collects it. It never starts a second review of the same version unless `again: true`
+     (the person asks for a fresh one), so no review is paid for twice.
+  3. `save_job` no longer needs `posting`: a plugin job saved without it is queued for the worker, which reads the post into fields
+     in the background (one small call on the server's AI, the same reader the app uses). Reasons are a few words, evidence the
+     shortest quote.
+  4. The proposal type and the Loom video are asked in one question box and saved together.
+- Checked: `tsc` for the backend and the MCP, the backend tests, the MCP build.
+- Not checked: a real `/proposal` run in Claude with v0.10.0 (zip it, rebuild the MCP, restart Claude), so the time saved is not
+  measured yet. Worth timing one job before and after.
+
 ### R59. Screening answers apart from the proposal; the plugin stops asking after the review (done in code, 14 October)
 
 - **What was wrong.** The answers to the client's screening questions were stored inside the proposal text, after a "Screening

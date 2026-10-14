@@ -82,7 +82,7 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
        VALUES (?, 'text', ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude-plugin', 'plugin', NOW(), NOW(), ?, ?, ?, ?, ?)`,
       [user.id, SOURCE, d.job_url ?? null, jobId, d.job_text, d.job_text, d.title, d.verdict, JSON.stringify(report), codes.join(', ') || null,
         fails.map((x) => `${x.rule}${x.value ? ': ' + x.value : ''}`).join(' | ') || null, flags.map((x) => `${x.rule}${x.value ? ': ' + x.value : ''}`).join(' | ') || null,
-        d.client_country ?? null, d.budget ?? null, d.hire_rate ?? null, d.job_type ?? null, post ? JSON.stringify(post) : null, post ? 'done' : null,
+        d.client_country ?? null, d.budget ?? null, d.hire_rate ?? null, d.job_type ?? null, post ? JSON.stringify(post) : null, post ? 'done' : 'queued', // no post in fields: the worker reads it, so Claude does not have to
         cont === undefined ? null : cont ? 'yes' : 'no', cont ? new Date() : null, cont === false ? d.decision?.reason ?? null : null]);
     id = Number(r.insertId);
     if (cont && d.verdict !== 'PASS') await conn.query('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason) VALUES (?,?,?,?)', [id, user.id, d.verdict, d.decision!.reason]);
@@ -127,6 +127,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     continue_reason: z.string().trim().max(2000).optional(),
     loom_video: z.string().trim().max(200).nullable().optional(),
     screening_answers: qaList.optional(), // apart from the text; left out: the answers saved before stay
+    review: z.boolean().optional(), // start the independent review of this version now, so it is ready by the time Claude asks for it
   }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
   const s = await ownJob(req, res); if (!s) return;
@@ -197,7 +198,9 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(userId, 'plugin_proposal_save', `screening=${s.id} version=${version} profile=${prof.id}${d.finished ? ' finished' : ''}`);
-  res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, stage: await stageAfter(s.id), loom_video: loom ? loom.title : loom === null ? 'none' : undefined, projects_not_in_library: unknown,
+  let review: string | undefined;
+  if (d.review) { const { queueReview } = await import('./routes_proposals'); const q = await queueReview(s.id); review = q.error ? `not started: ${q.error}` : 'started: collect it with review_proposal'; }
+  res.json({ ok: true, proposal_id: proposalId, version, profile: prof.name, review, stage: await stageAfter(s.id), loom_video: loom ? loom.title : loom === null ? 'none' : undefined, projects_not_in_library: unknown,
     add_missing: unknown.length ? 'Add each of these with add_project (name, links, overview, tags from the project sheet), then save again so they link to the library.' : undefined,
     next: d.finished ? 'Ready to send: once it is submitted on Upwork, set the status to Sent.' : 'Saved as a draft. Save again with finished=true when it is final.' });
 });
@@ -372,10 +375,18 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
  */
 plugin.post('/plugin/jobs/:id/review', anyone, async (req, res) => {
   const s = await ownJob(req, res); if (!s) return;
+  const again = req.body?.again === true;
   const { queueReview, reviewOf } = await import('./routes_proposals');
-  const q = await queueReview(s.id);
-  if (q.error) return void res.status(q.status).json({ error: q.error });
-  const read = async () => (await query<any>('SELECT review_status, review_json, review_version, review_error, reviewed_at FROM proposals WHERE screening_id=?', [s.id]))[0];
+  const read = async () => (await query<any>(`SELECT p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at,
+      (SELECT MAX(v.version_no) FROM proposal_versions v WHERE v.proposal_id=p.id) AS latest FROM proposals p WHERE p.screening_id=?`, [s.id]))[0];
+  const now = await read();
+  // started with the draft (save_proposal review=true) or already done for the newest version: collect it, never pay for it twice
+  const current = now && now.review_version != null && Number(now.review_version) === Number(now.latest);
+  const pending = now && (now.review_status === 'queued' || now.review_status === 'running');
+  if (again || !(pending || (current && now.review_status === 'done'))) {
+    const q = await queueReview(s.id);
+    if (q.error) return void res.status(q.status).json({ error: q.error });
+  }
   for (let i = 0; i < 25; i++) { // under the connector's own one minute limit
     const p = await read();
     if (p.review_status === 'done') return void res.json({ review: reviewOf(p), how_to_use: 'Show the score, the verdict, the problems and the suggestions as they are. Do not ask which to apply and do not list options: the person says if they want any applied. Apply only the ones they name, save the new draft, and review it again. Never change the score or soften the review.' });

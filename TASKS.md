@@ -85,7 +85,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 36 | Skip tech stack tags: a per job switch on the Projects step (and in the plugin, v0.8.0) that matches the projects without the Tech stack tags, the rest unchanged (R58, migration 037) | done in code; to check in the browser on job #60 or #62, and in Claude |
 | 37 | Screening answers kept apart from the proposal: own field per version, own boxes on the proposal screen, the plugin saves them apart (R59, plugin v0.9.0, migration 038) | done in code; to check on screen with a job that has screening questions |
 | 38 | Plugin: after the independent review, show it and wait, no forced options (R59) | done in the skill; to try in Claude |
-| 39 | Plugin speed: the saves and the review make each run slow (Ahmad, 14 October) | proposal written, waiting for a decision |
+| 39 | Plugin speed: saves in parallel with the next step, the review started with the draft, no post in fields, type and video in one question (R60, plugin v0.10.0) | done in code; time one real run in Claude before and after |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

@@ -22,13 +22,14 @@ This is the rule the rest of the workflow hangs on. Upwork Pro must show the job
 | Decision 3, the projects | `save_step` `projects` | the shortlist you showed with a reason each, and the projects picked |
 | Decision 4, the type | `save_step` `type` | the proposal type |
 | Decision 4b, the video | `save_step` `loom` | the Loom video, or none |
-| Every draft and every revision | `save_proposal` with `finished: false` | the text as a new version |
-| Right after each saved draft | `review_proposal` | the independent review of that version: score, key points, suggestions |
+| Every draft and every revision | `save_proposal` with `finished: false` and `review: true` | the text as a new version, and the independent review starts at once |
+| After the draft is shown | `review_proposal` | collects that review: score, key points, suggestions |
 | Decision 5, approved | `save_proposal` with `finished: true` | the final text |
 
-* Save right after the person answers, before you start the next step. Never collect the saves for the end.
-* After each save, say one short line: "Saved in Upwork Pro: <what>" (for example "Saved in Upwork Pro: projects Breesy and Apex"). The answer includes the job's stage in the app; mention it when it helps ("the app now shows it waiting on the proposal type").
-* **If a save is refused, stop there.** Show the message as it is, fix only what the person confirms, and save again. Never go on as if it was saved.
+* **Save in parallel with the next step, never as a step of its own.** As soon as the person answers, send the save in the same message as the first tool call of the next step (for example `record_decision` together with `get_library`; `save_step` `profile` together with the matching work). Upwork Pro answers a save in a moment; it should never cost a turn of its own. Never collect the saves for the end.
+* Do not write a line about a save that worked. Say nothing about saves unless one is refused.
+* **If a save is refused, stop there** when its answer comes back. Show the message as it is, fix only what the person confirms, and save again. Never go on as if it was saved.
+* Keep what you send short. Upwork Pro needs the facts, not the presentation: reasons of a few words, evidence as the shortest quote that shows it, never the same long text twice.
 * If the person changes an earlier answer (another profile, other projects, another type), save that step again. It replaces what that step saved; the other steps stay.
 
 ## Continuing a job left halfway
@@ -91,12 +92,12 @@ Apply the `job-gate` skill to the job data. Then show the person, as one visible
 5. **Fit.** Which Stackup projects look relevant and why, in one or two lines.
 6. **Notes for the proposal.** Screening questions, required opening words, location rules.
 
-**Save the job now, before asking** (step 4 below, without `decision`), so it is in Upwork Pro as "Decision pending" even if the person stops here.
+**Save the job now, in the same message as Decision 1** (step 4 below, without `decision`), so it is in Upwork Pro as "Decision pending" even if the person stops here.
 
 **Decision 1.** Only after that message is visible, ask: **Continue** or **Stop**. Put the verdict and the main flags in the question text, for example "FLAG (G3 avg hourly $8, G14 20 Connects). Continue?"
 * On Continue after a Flag or Fail, ask for the override reason with the quick picks: Invite, Strong client history, Strong project fit, Low workload, Other.
 * On Stop, ask why in one line (budget or rate too low, client history or hire rate, outside our services, scope unclear, too much competition, or their own words), then call `record_decision` with `continue: false` and that reason, and end.
-* On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason, written as "Quick pick: Invite. <their note>"; never invent a note).
+* On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason, written as "Quick pick: Invite. <their note>"; never invent a note), in the same message as the first call of step 5 (`get_library`).
 
 ## Step 4. Save the job (done inside step 3, right after the gate)
 
@@ -106,16 +107,16 @@ Call `save_job` once, as soon as the gate result is shown and before Decision 1,
 * `verdict`, and every fail and flag as `{ code, rule, value }`, the value being the actual number or text behind it ("Hire rate 32%").
 * `job`, `client`, `competition`: the label and value pairs from the gate's Job, Client and Competition sections. `fit` and `proposal_notes`.
 * `client_country`, `budget`, `hire_rate`, `job_type` as shown.
-* `posting` when you have read the post in fields: `description` word for word, `skills`, `terms`, `screening_questions`, `activity`, `client`, `client_history`.
+* Leave `posting` out. Upwork Pro reads the post into fields from `job_text` by itself, in the background; writing it out again only makes the run slower.
 * Leave `decision` out: the person has not decided yet. It is recorded with `record_decision` when they answer Decision 1.
 
-If it is refused as a duplicate, go back to step 2. Confirm in one line: "Saved to Upwork Pro as job #N." Keep N: every later save uses it.
+If it is refused as a duplicate, go back to step 2. Keep the job number N from its answer: every later save uses it. No line about it unless it was refused.
 
 ## Step 5. Read the job
 
 Apply the `job-signals` skill. Do not show the full signal table unless asked. Show one compact line: job industry, proposal type candidates, compliance, explicit asks count, invite yes or no.
 
-**Save it:** `save_step` with `step: "read"` and `data`: `tags` (each tag's name exactly as in `get_library`, a short reason, and `core_rank` 1 to 3 on the core work tags), `industry` (the one job industry with its reason, or null), `signals` (the stated values only, each with the signal number or name, the value name, and the words from the post as `evidence`). Upwork Pro names any tag or signal it does not have and leaves it out; say so in one line if that happens.
+**Save it:** `save_step` with `step: "read"` and `data`: `tags` (each tag's name exactly as in `get_library`, a reason of a few words, and `core_rank` 1 to 3 on the core work tags), `industry` (the one job industry with a reason of a few words, or null), `signals` (the stated values only, each with the signal number or name, the value name, and as `evidence` the shortest quote from the post that shows it, at most about twelve words). Send it in the same message as Decision 2. Upwork Pro names any tag or signal it does not have and leaves it out; say so in one line if that happens.
 
 ## Step 6. Profile
 
@@ -123,7 +124,7 @@ Apply the `profiles` skill to suggest a profile and rate. Show the suggestion an
 
 **Decision 2.** Ask the person to pick the profile (suggested one first). Then confirm the rate: the profile default, or a different rate they type.
 
-**Save it:** `save_step` with `step: "profile"` and `data: { profile, rate }`. If the profile is not in `plugin_options`, add it first with `add_profile` (see step 10).
+**Save it:** `save_step` with `step: "profile"` and `data: { profile, rate }`, in the same message as the first call of step 7. If the profile is not in `plugin_options`, add it first with `add_profile` (see step 10).
 
 ## Step 7. Projects
 
@@ -131,7 +132,7 @@ Apply the `project-matcher` skill with the job tags and the chosen profile. The 
 
 **Decision 3.** Ask the person to pick one or two (multi select). Offer one more choice with it: **Match again without the tech stack tags** (or with them again, when they were skipped). It leaves the job's Tech stack tags (languages, frameworks, databases) out of the matching and changes nothing else (see `project-matcher`). If the person chooses it, match again, show the new shortlist, and ask Decision 3 again. When continuing a job, use `skip_tech_stack` from `get_job` under `saved`.
 
-**Save it:** `save_step` with `step: "projects"` and `data`: `shortlist` (every project you showed, in the order shown, each with its one line `reason`, `recommended: true` on the recommended ones), `picked` (the names the person chose) and `skip_tech_stack` (true when the shortlist was matched without the tech stack tags, false otherwise). Every name must be in the library: if Upwork Pro answers that one is missing, add it with `add_project` (see step 10), then save this step again.
+**Save it**, in the same message as the first call of step 8 (`get_writing_guide`, and `get_library` with the chosen projects' case studies): `save_step` with `step: "projects"` and `data`: `shortlist` (every project you showed, in the order shown, each with its one line `reason`, `recommended: true` on the recommended ones), `picked` (the names the person chose) and `skip_tech_stack` (true when the shortlist was matched without the tech stack tags, false otherwise). Every name must be in the library: if Upwork Pro answers that one is missing, add it with `add_project` (see step 10), then save this step again.
 
 If no project clears the minimum score, say so and offer: continue with none, or pick manually from the library.
 
@@ -139,9 +140,9 @@ If no project clears the minimum score, say so and offer: continue with none, or
 
 Score all eight types with the type selection from `get_writing_guide` (`type_selection`; fallback `../proposal-writer/references/type-selection.md`). Show the top two or three as a visible table (type, required signals met, supporting signals, why), recommended one marked, before asking.
 
-**Decision 4.** Ask the person to pick the type. Write only the type they pick.
+**Decision 4.** Ask the person to pick the type, **in the same question box as Decision 4b** (one AskUserQuestion with two questions: the type, and the Loom video), so it costs one turn. Show both tables first. Write only the type they pick.
 
-**Save it:** `save_step` with `step: "type"` and `data: { type }` (the type's name, for example "Type 7. Problem first").
+**Save it:** `save_step` with `step: "type"` and `data: { type }` (the type's name, for example "Type 7. Problem first"), sent together with the Loom save in one message.
 
 ## Step 8b. Loom video
 
@@ -151,13 +152,13 @@ Nothing is written until this is answered too. The videos are in `get_library` (
 2. Find the profile's video that fits best: the one whose tags share the most weight with the job tags (industry included). A video that shares nothing is not a fit.
 3. Show the profile's videos as a visible table (title, what it shows, tags shared with this job), the best fit marked.
 
-**Decision 4b.** Ask: which video to send, or **No Loom video**.
+**Decision 4b.** Asked together with Decision 4 (see above): which video to send, or **No Loom video**.
 * The post asks for a video and the profile has one: recommend the best fit.
 * The post does not ask for one: recommend **No Loom video**, with the best fit as the second option.
 * The post asks for a video and the profile has none: say so plainly ("The client asks for a video and this profile has no Loom videos"), and offer: continue without one, or the person pastes a link to a video they recorded. A pasted link goes into the proposal as given; it is not saved as `loom_video` (only library videos are).
 * The profile has no videos and the post does not ask: skip this step silently.
 
-**Save it:** `save_step` with `step: "loom"` and `data: { video }`: the chosen video's title exactly as in `get_library`, or `null` for none. Skip the save only when the step itself was skipped.
+**Save it:** `save_step` with `step: "loom"` and `data: { video }`: the chosen video's title exactly as in `get_library`, or `null` for none, in the same message as the type save. Skip the save only when the step itself was skipped.
 
 ## Step 9. Draft and verify
 
@@ -165,19 +166,19 @@ Apply the `proposal-writer` skill with: job data, signals, profile record, chose
 
 1. Write the cover letter and, if the job has screening questions, the screening answers.
 2. Run the verification checklist. Rewrite any failing item once. If it still fails, list it under "Needs your eye".
-3. Show the cover letter, then the screening answers apart from it, and "Needs your eye" items, each in its own code block so it copies cleanly. The screening answers are never part of the cover letter.
-4. **Save the draft:** `save_proposal` for job #N with `text` (the cover letter only), `screening_answers` (each question with its answer, in the client's order, when the job has screening questions) and `finished: false`. Leave `profile`, `projects`, `template` and `loom_video` out: the steps already saved them. Upwork Pro shows the answers in their own section, apart from the proposal.
+3. **Save the draft first, then show it**, so the reviewer works while you show it: `save_proposal` for job #N with `text` (the cover letter only), `screening_answers` (each question with its answer, in the client's order, when the job has screening questions), `finished: false` and `review: true`. Leave `profile`, `projects`, `template` and `loom_video` out: the steps already saved them. Upwork Pro shows the answers in their own section, apart from the proposal.
+4. Show the cover letter, then the screening answers apart from it, and "Needs your eye" items, each in its own code block so it copies cleanly. The screening answers are never part of the cover letter.
 
-5. **Get the independent review:** call `review_proposal` for job #N. A separate reviewer in Upwork Pro reads the saved draft against the job, the profile, the chosen projects and the proposal type. It is not you, and it does not see this chat. Show what it returns under the heading "Independent review", unchanged:
+5. **Collect the independent review:** call `review_proposal` for job #N (it was started by the save; this only waits for it if it is not ready yet). A separate reviewer in Upwork Pro reads the saved draft against the job, the profile, the chosen projects and the proposal type. It is not you, and it does not see this chat. Show what it returns under the heading "Independent review", unchanged:
    * the score out of 10 and the one line verdict,
    * "What works" and "What hurts it" as short lists,
    * the suggestions, numbered, each with its title and its instruction.
    Never change the score, soften a point, drop a point or add points of your own. If the review does not come back (it can take a minute), say so in one line and go on: the review is advice, the proposal does not wait for it.
 
 **Decision 5.** Do not ask with AskUserQuestion and do not list options after the review. End the turn with the review and one plain line: "Say approve to save it as final, or tell me what to change: a suggestion by number, your own edit, review again, or another type." Then wait. The review is advice: the person decides whether to act on any of it, and approving at any score is fine. Act on what they say; loop until approved.
-* When they name one or more suggestions: revise the proposal by following those suggestions' instructions and nothing else, show it, save it with `finished: false`, and get a new review of the new version.
-* On Edit: revise, show it, and save it again with `finished: false`. Each save is a new version in Upwork Pro, so nothing the person liked is lost. Then get a new review.
-* On Review again: call `review_proposal` again and show the result.
+* When they name one or more suggestions: revise the proposal by following those suggestions' instructions and nothing else, save it with `finished: false` and `review: true`, show it, and collect the new review.
+* On Edit: revise, save it with `finished: false` and `review: true`, show it, and collect the new review. Each save is a new version in Upwork Pro, so nothing the person liked is lost.
+* On Review again: call `review_proposal` with `again: true` and show the result.
 * On Switch type: save the new type with `save_step` `type`, write again, and save the draft.
 
 ## Step 10. Save the final proposal
