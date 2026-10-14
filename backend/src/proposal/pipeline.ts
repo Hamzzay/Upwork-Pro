@@ -1,5 +1,6 @@
 import { separateQuestions, jobQuestions } from '../screening/questions';
 import { config } from '../config';
+import { cached } from '../cache';
 import { getSettings } from '../settings';
 import { exec, pool, query, withRetry } from '../db';
 import { htmlToPlain, textToHtml } from '../html';
@@ -12,11 +13,13 @@ import { reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerSections } fro
 import { activeReviewer } from './reviewer_store';
 import { pickLoom } from '../screening/matching';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
-import { chatOut, chatSchema, chatSystem, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
+import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
+import { assemble, cleanLetter, loomLine, partsOut, partsSchema, proofFor, proofOut, proofSchema, signoff, type Parts, type ProofBlock } from './parts';
 
 
-export async function loadSignalDefs(): Promise<{ defs: SignalDef[]; layers: { code: string; intro: string | null; rule: string | null }[] }> {
+export const loadSignalDefs = () => cached('signals', readSignalDefs);
+async function readSignalDefs(): Promise<{ defs: SignalDef[]; layers: { code: string; intro: string | null; rule: string | null }[] }> {
   const rows = await query<any>(
     `SELECT s.id, s.number, s.name, s.decides, s.multi_select, s.notes, l.code AS layer, l.intro AS layer_intro, l.rule_note AS layer_rule
      FROM signals s JOIN signal_layers l ON l.id=s.layer_id WHERE s.active=1 ORDER BY s.number`);
@@ -35,7 +38,7 @@ export const gitlabLink = (v: string | null) => (!v ? null : /^https?:\/\//i.tes
 export interface Basis { projectIds: number[]; profileId: number }
 const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',') + '|' + b.profileId;
 
-async function loadFacts(screeningId: number, basis?: Basis) {
+export async function loadFacts(screeningId: number, basis?: Basis) {
   const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id, s.posting_json FROM screenings s WHERE s.id=?', [screeningId]))[0];
   // the Loom video the person chose for this proposal; an early draft (a guess) never has one
   const loom = !basis && s.loom_video_id ? (await query<any>('SELECT title, url, topic FROM loom_videos WHERE id=?', [s.loom_video_id]))[0] ?? null : null;
@@ -47,7 +50,7 @@ async function loadFacts(screeningId: number, basis?: Basis) {
   const ids = matches.map((m) => m.project_id).filter(Boolean);
   const tags = ids.length ? await query<any>('SELECT pt.project_id, t.name FROM project_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.project_id IN (?) ORDER BY t.sort_order', [ids]) : [];
   const inds = ids.length ? await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id WHERE pi.project_id IN (?) ORDER BY i.name', [ids]) : [];
-  const projects: ProjectFact[] = matches.map((m) => ({ name: m.project_name, live_link: m.live_link || null, notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
+  const projects: ProjectFact[] = matches.map((m) => ({ id: m.project_id ?? null, name: m.project_name, live_link: m.live_link || null, notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
     tags: tags.filter((t) => t.project_id === m.project_id).map((t) => t.name), industries: inds.filter((t) => t.project_id === m.project_id).map((t) => t.name) }));
   const sender: SenderFact = { name: pr.name, gitlab_link: gitlabLink(pr.gitlab_account) || pr.github_url || null, tagline: pr.tagline || null,
     voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null, certifications: pr.certifications || null,
@@ -62,7 +65,7 @@ async function loadFacts(screeningId: number, basis?: Basis) {
   const jobText = (s.job_text ?? s.raw_input) as string;
   // Upwork's separate questions: answered apart from the cover letter, and the letter is written from the job without them
   const questions = jobQuestions(jobText, posting);
-  return { jobText, jobOnly: separateQuestions(jobText).jobOnly, questions, sender, projects, requirements, profileId, projectIds: ids as number[] };
+  return { jobText, jobOnly: separateQuestions(jobText).jobOnly, questions, sender, projects, requirements, profileId, projectIds: ids as number[], loomId: loom ? (s.loom_video_id as number) : null };
 }
 
 async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
@@ -87,19 +90,27 @@ async function nextVersion(conn: any, proposalId: number) {
   return Number(r[0].n);
 }
 /** The newest version of a proposal, as its letter and its answers apart. */
-export async function latestVersion(proposalId: number): Promise<{ version_no: number; html: string; answers: QA[] } | null> {
-  const v = (await query<any>('SELECT version_no, content_html, answers_json FROM proposal_versions WHERE proposal_id=? ORDER BY version_no DESC LIMIT 1', [proposalId]))[0];
-  return v ? { version_no: Number(v.version_no), ...separate(v.content_html, v.answers_json) } : null;
+export async function latestVersion(proposalId: number): Promise<{ version_no: number; html: string; answers: QA[]; parts: Parts | null } | null> {
+  const v = (await query<any>('SELECT version_no, content_html, answers_json, parts_json FROM proposal_versions WHERE proposal_id=? ORDER BY version_no DESC LIMIT 1', [proposalId]))[0];
+  return v ? { version_no: Number(v.version_no), ...separate(v.content_html, v.answers_json), parts: readParts(v.parts_json) } : null;
 }
-/** A new version. `answers` left out: the newest version's screening answers are carried over, so editing the letter never loses them. */
-export async function addVersion(proposalId: number, html: string, source: 'ai' | 'manual' | 'chat' | 'restore', userId: number | null, note: string | null, basedOn: number | null, answers?: QA[] | null) {
+/** A version's parts (PLAN-SPEED point 1), or null when its text was edited by hand or by the chat. */
+export function readParts(json: string | null | undefined): Parts | null {
+  if (!json) return null;
+  try { const p = JSON.parse(json); return p && typeof p.letter === 'string' && Array.isArray(p.proof) ? p as Parts : null; } catch { return null; }
+}
+/**
+ * A new version. `answers` left out: the newest version's screening answers are carried over, so editing the letter never loses them.
+ * `parts` is given only when the text was put together from parts; a version without parts is the person's (or the chat's) text.
+ */
+export async function addVersion(proposalId: number, html: string, source: 'ai' | 'manual' | 'chat' | 'restore', userId: number | null, note: string | null, basedOn: number | null, answers?: QA[] | null, parts?: Parts | null) {
   if (answers === undefined) answers = (await latestVersion(proposalId))?.answers ?? null;
   return withRetry(async () => {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
       const no = await nextVersion(conn, proposalId);
-      await conn.query('INSERT INTO proposal_versions (proposal_id, version_no, content_html, answers_json, source, note, based_on_version, created_by) VALUES (?,?,?,?,?,?,?,?)', [proposalId, no, html, storeAnswers(answers), source, note, basedOn, userId]);
+      await conn.query('INSERT INTO proposal_versions (proposal_id, version_no, content_html, answers_json, parts_json, source, note, based_on_version, created_by) VALUES (?,?,?,?,?,?,?,?,?)', [proposalId, no, html, storeAnswers(answers), parts ? JSON.stringify(parts) : null, source, note, basedOn, userId]);
       await conn.query('UPDATE proposals SET updated_at=NOW() WHERE id=?', [proposalId]);
       await conn.commit();
       return no;
@@ -146,10 +157,8 @@ async function readSignals(screeningId: number, jobText: string, stillWanted: ()
     try {
       await conn.beginTransaction();
       await conn.query('DELETE FROM job_signals WHERE screening_id=?', [screeningId]);
-      for (const d of detected) {
-        await conn.query(`INSERT INTO job_signals (screening_id, signal_id, signal_number, signal_name, value_id, value_name, is_fallback, is_primary, confidence, evidence, reason, move_text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [screeningId, d.signal_id, d.signal_number, d.signal_name, d.value_id, d.value_name, d.is_fallback ? 1 : 0, d.is_primary ? 1 : 0, d.confidence, d.evidence || null, d.reason || null, d.move]);
-      }
+      if (detected.length) await conn.query(`INSERT INTO job_signals (screening_id, signal_id, signal_number, signal_name, value_id, value_name, is_fallback, is_primary, confidence, evidence, reason, move_text) VALUES ?`, // one statement for all
+        [detected.map((d) => [screeningId, d.signal_id, d.signal_number, d.signal_name, d.value_id, d.value_name, d.is_fallback ? 1 : 0, d.is_primary ? 1 : 0, d.confidence, d.evidence || null, d.reason || null, d.move])]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   });
@@ -214,7 +223,7 @@ export async function suggestedTypeId(screeningId: number): Promise<number | nul
 
 type Facts = Awaited<ReturnType<typeof loadFacts>>;
 /** `text` is the cover letter only; `answers` the screening answers apart (missing in early drafts written before R59: then they are in `text`). */
-interface Draft { template: { id: number; name: string; score: number; choice: 'auto' | 'manual'; ranking: string }; text: string; answers?: QA[]; warnings: { source: string; text: string }[]; model: string }
+interface Draft { template: { id: number; name: string; score: number; choice: 'auto' | 'manual'; ranking: string }; text: string; answers?: QA[]; parts?: Parts | null; warnings: { source: string; text: string }[]; model: string }
 
 /** Signals, template, writing and checks for one set of facts. Stores nothing about the proposal, so an early draft can use it too. */
 async function compose(screeningId: number, f: Facts, opts: { templateId?: number | null; stillWanted: () => boolean; stage?: (s: string) => Promise<void>; onTemplate?: (t: Draft['template']) => Promise<void> }): Promise<Draft | null> {
@@ -252,45 +261,119 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const samples = sampleRows.map((s) => ({ title: s.title, content: s.content }));
   const guide = await loadGuide();
   const requirements = [...f.requirements];
-  const ss = (await getSettings())['writer.structured_signal']; // which signal value means "answer in the post's own structure" (admin setting)
+  const cfg = await getSettings();
+  const ss = cfg['writer.structured_signal']; // which signal value means "answer in the post's own structure" (admin setting)
   const structured = detected.find((d) => d.signal_number === ss.signal && d.value_name.trim().toLowerCase() === ss.value.trim().toLowerCase());
   if (structured) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
-  const w = await run({ label: 'writing', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide }),
-    prompt: f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}\n\nWrite the proposal now.` : `<job_page>\n${f.jobText}\n</job_page>\n\nWrite the proposal now.`,
-    schema: f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
-  const parsed = writerOut.safeParse(w.data);
-  if (!parsed.success) throw new Error('invalid_output');
-  // the letter alone (a stray "Screening answers" section the model added is cut off); the answers stay apart, each with its question
+  // in parts (PLAN-SPEED point 1), except a structured submission: the client's own structure is written whole
+  const inParts = !structured;
+  const system = writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide, parts: inParts });
+  const jobPart = f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}` : `<job_page>\n${f.jobText}\n</job_page>`;
+  const w = await run({ label: 'writing', system, prompt: `${jobPart}\n\nWrite the proposal now.`,
+    schema: inParts ? partsSchema(f.questions.length) : f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
   const pair = (qs: string[], a: string[] = []): QA[] => qs.map((q, i) => ({ question: q, answer: String(a[i] ?? '').trim() }));
-  parsed.data.proposal = splitText(parsed.data.proposal).letter;
-  let answers = f.questions.length ? pair(f.questions, parsed.data.screening_answers) : [];
+  let answers: QA[] = [];
+  let writerWarnings: string[] = [];
+  let parts: Parts | null = null;
+  let text: string;
+  if (inParts) {
+    const po = partsOut.safeParse(w.data);
+    if (!po.success) throw new Error('invalid_output');
+    writerWarnings = po.data.warnings;
+    if (f.questions.length) answers = pair(f.questions, po.data.screening_answers);
+    // each chosen project's block, by its name; a block the writer left out is written on its own
+    const written = new Map(po.data.proof.map((x) => [x.project.trim().toLowerCase(), x.text]));
+    const proof: ProofBlock[] = [];
+    for (const [i, p] of f.projects.entries()) {
+      const t = written.get(p.name.toLowerCase()) ?? po.data.proof[i]?.text ?? null;
+      proof.push({ project_id: p.id ?? null, name: p.name, link: p.live_link, text: t ?? (await writeProof(f, template, p)) });
+    }
+    parts = { letter: cleanLetter(po.data.letter), proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender) };
+    text = assembleParts(parts, cfg['writer.loom_line']);
+  } else {
+    const parsed = writerOut.safeParse(w.data);
+    if (!parsed.success) throw new Error('invalid_output');
+    writerWarnings = parsed.data.warnings;
+    text = splitText(parsed.data.proposal).letter; // a stray "Screening answers" section the model added is cut off
+    if (f.questions.length) answers = pair(f.questions, parsed.data.screening_answers);
+  }
 
-  // 3b. the first two lines, strictly: a draft that breaks the type's opening rules is rewritten once, then anything left is a warning
+  // 3b. the first two lines, strictly (PLAN-SPEED point 5): when they break the type's opening rules, only the opening paragraph
+  // is written again (a short call), never the whole proposal; anything still wrong is a warning
   const clientOpening = requirements.some((r) => /\b(open(ing)?|start|begin)\w*\b.*\b(with|word|phrase|line)\b/i.test(r));
   const allNames = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
-  const opening = (text: string) => template.opening_rules ? checkOpening(text, { noUs: !!template.opening_no_us, starts: template.opening_starts ?? null,
-    projectNames: allNames, invite: /invite/i.test(template.name), clientOpening }) : [];
-  let openingIssues = opening(parsed.data.proposal);
+  const invite = /invite/i.test(template.name);
+  const opening = (t: string) => template.opening_rules ? checkOpening(t, { noUs: !!template.opening_no_us, starts: template.opening_starts ?? null, projectNames: allNames, invite, clientOpening }) : [];
+  let openingIssues = opening(text);
   if (openingIssues.length && opts.stillWanted()) {
     await stage('writing');
-    const fix = await run({ label: 'writing: first two lines', system: writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide }),
-      prompt: `${f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}` : `<job_page>\n${f.jobText}\n</job_page>`}\n\nYOUR DRAFT\n${parsed.data.proposal}\n\nThe first two lines of your draft break the FIRST TWO LINES rules: they ${openingIssues.join('; ')}. Return the whole proposal again with only the first two lines rewritten to follow every FIRST TWO LINES rule. Keep everything after them word for word.${f.questions.length ? ' Return the same screening answers.' : ''}`,
-      schema: f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
-    const again = writerOut.safeParse(fix.data);
-    if (again.success) {
-      const text = splitText(again.data.proposal).letter;
-      const left = opening(text);
-      if (left.length < openingIssues.length) { parsed.data.proposal = text; openingIssues = left; if (f.questions.length && again.data.screening_answers?.length) answers = pair(f.questions, again.data.screening_answers); }
+    const base = parts ? parts.letter : text;
+    const fixed = await rewriteOpening(system, jobPart, base, openingIssues, invite).catch(() => null);
+    if (fixed) {
+      const nextText = parts ? assembleParts({ ...parts, letter: fixed }, cfg['writer.loom_line']) : fixed;
+      const left = opening(nextText);
+      if (left.length < openingIssues.length) { text = nextText; if (parts) parts.letter = fixed; openingIssues = left; }
     }
   }
   if (!opts.stillWanted()) return null;
 
   // 4. check what the writer cannot be trusted to check
-  const library = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
-  const warnings = [...openingIssues.map((x) => ({ source: 'check', text: `First two lines: ${x}. Rewrite them before sending; Upwork shows them in the preview.` })), ...parsed.data.warnings.map((t) => ({ source: 'writer', text: t })),
-    ...checkProposal({ text: parsed.data.proposal, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
-      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: wordRange(htmlToPlain(template.body_html)) }).map((t) => ({ source: 'check', text: t }))];
-  return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text: parsed.data.proposal, answers, warnings, model: lastUsed()?.model ?? config.llm.model };
+  const warnings = [...openingIssues.map((x) => ({ source: 'check', text: `First two lines: ${x}. Rewrite them before sending; Upwork shows them in the preview.` })), ...writerWarnings.map((t) => ({ source: 'writer', text: t })),
+    ...(await checksFor(text, f, template, guide, allNames))];
+  return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text, answers, parts, warnings, model: lastUsed()?.model ?? config.llm.model };
+}
+
+/** The automatic checks of a finished text. */
+async function checksFor(text: string, f: Facts, template: TemplateFact | null, guide: Awaited<ReturnType<typeof loadGuide>>, library?: string[]) {
+  const names = library ?? (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
+  return checkProposal({ text, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: names, foreignNames: await foreignNames(),
+    sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
+}
+
+/** The parts put together, with the Loom line in the admin's wording. */
+const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: loomLine(loomTemplate, p.loom), signoff: p.signoff });
+
+/** One project's proof block, written on its own: a short call, for a project added after the proposal was written. */
+async function writeProof(f: Facts, template: TemplateFact, p: ProjectFact): Promise<string> {
+  const r = await run({ label: 'writing: project', timeoutMs: config.llm.timeoutMs, schema: proofSchema,
+    system: [GUARDRAILS, '', `PROPOSAL TYPE: ${template.name}\n${htmlToPlain(template.body_html)}`, '', `SENDER: ${f.sender.name}${f.sender.voice ? '. Voice: ' + f.sender.voice : ''}`, '',
+      `THE PROJECT\n  Name: ${p.name}\n  Tags: ${p.tags.join(', ') || '(none)'}\n  Industries: ${p.industries.join(', ') || '(none)'}${p.overview ? '\n  Overview: ' + p.overview : ''}${p.case_study ? '\n  Case study: ' + p.case_study : ''}${p.notes ? '\n  Notes: ' + p.notes : ''}`].join('\n'),
+    prompt: `<job_page>\n${f.jobOnly || f.jobText}\n</job_page>\n\nWrite how this proposal shows the project, in the type's format: its name, then one or two sentences on what it proves for THIS job, from its facts only. No link (it is added after). Answer in "text".` });
+  const o = proofOut.safeParse(r.data);
+  return o.success ? o.data.text.trim() : p.name;
+}
+
+/** The opening paragraph written again to follow the FIRST TWO LINES rules; the rest of the proposal is kept word for word. */
+async function rewriteOpening(system: string, jobPart: string, letter: string, issues: string[], invite: boolean): Promise<string | null> {
+  const paras = letter.split(/\n{2,}/);
+  const at = invite && paras.length > 1 && /^(hi|hello|hey)\b/i.test(paras[0].trim()) && paras[0].length < 80 ? 1 : 0; // an invite's greeting stays
+  const r = await run({ label: 'writing: first two lines', system, timeoutMs: config.llm.timeoutMs,
+    schema: { type: 'object', properties: { paragraph: { type: 'string' } }, required: ['paragraph'], additionalProperties: false },
+    prompt: `${jobPart}\n\nTHE OPENING PARAGRAPH OF YOUR DRAFT\n${paras[at]}\n\nIts first two lines break the FIRST TWO LINES rules: they ${issues.join('; ')}. Write this one paragraph again so its first two lines follow every FIRST TWO LINES rule, keeping what the rest of it says. Answer with the paragraph only, in "paragraph". Never name a project or add a link.` });
+  const para = String((r.data as any)?.paragraph ?? '').trim();
+  if (!para) return null;
+  paras[at] = para;
+  return paras.join('\n\n');
+}
+
+/**
+ * A proposal made from parts, brought up to date with what the job has now: the chosen projects (a kept block stays, a new
+ * project's block is written, a removed one goes), the Loom video and the profile's sign off. The letter is never touched.
+ */
+export async function refitParts(f: Facts, parts: Parts, template: TemplateFact | null): Promise<{ parts: Parts; text: string; wrote: string[] }> {
+  const cfg = await getSettings();
+  const want = f.projects.map((p) => ({ id: p.id ?? 0, name: p.name, link: p.live_link }));
+  const { keep } = proofFor(parts.proof, want);
+  const wrote: string[] = [];
+  const proof: ProofBlock[] = await Promise.all(f.projects.map(async (p) => {
+    const k = keep.find((x) => x.name === p.name);
+    if (k) return k;
+    wrote.push(p.name);
+    const t = template ? await writeProof(f, template, p) : p.name;
+    return { project_id: p.id ?? null, name: p.name, link: p.live_link, text: t };
+  }));
+  const next: Parts = { ...parts, proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender) };
+  return { parts: next, text: assembleParts(next, cfg['writer.loom_line']), wrote };
 }
 
 // ---------- early drafts ----------
@@ -344,9 +427,10 @@ async function takeEarlyDraft(screeningId: number, basis: Basis, onWait: () => P
   let row = (await query<any>('SELECT status, project_ids, profile_id FROM early_drafts WHERE screening_id=?', [screeningId]))[0];
   if (!row) return null;
   const same = basisKey({ projectIds: String(row.project_ids).split(',').map(Number), profileId: row.profile_id }) === basisKey(basis);
-  // not started yet, or written for other choices: it is no use, so it never runs
-  const skip = await exec(`UPDATE early_drafts SET status='skipped' WHERE screening_id=? AND (status='queued' OR (? AND status<>'running'))`, [screeningId, same ? 0 : 1]);
-  if (!same || skip.affectedRows) return null;
+  // not started yet: the proposal writes its own. Written in parts (PLAN-SPEED point 1), it suits any projects, profile and video:
+  // only those parts are redone. An older draft written whole still has to match exactly.
+  const skip = await exec(`UPDATE early_drafts SET status='skipped' WHERE screening_id=? AND status='queued'`, [screeningId]);
+  if (skip.affectedRows) return null;
   if (row.status === 'running' || earlyInFlight.has(screeningId)) {
     const running = earlyInFlight.get(screeningId);
     if (!running) return null; // running in another process that may be gone: write it here instead
@@ -356,8 +440,10 @@ async function takeEarlyDraft(screeningId: number, basis: Basis, onWait: () => P
   }
   const done = (await query<any>(`SELECT result_json FROM early_drafts WHERE screening_id=? AND status='done' AND used_at IS NULL`, [screeningId]))[0];
   if (!done) return null;
+  const d = JSON.parse(done.result_json) as Draft;
+  if (!d.parts && !same) { await exec(`UPDATE early_drafts SET status='skipped' WHERE screening_id=?`, [screeningId]); return null; }
   await exec('UPDATE early_drafts SET used_at=NOW() WHERE screening_id=?', [screeningId]);
-  return JSON.parse(done.result_json) as Draft;
+  return d;
 }
 
 /** Step 4: signals, template, writing and checks, then store the result as the next version. */
@@ -369,17 +455,70 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
   const stage = (st: string) => setStage(proposalId, st);
   // the first automatic write can use the early draft; a rewrite or a chosen template always writes again
   const firstWrite = p.template_choice === 'auto' && !(await query<any>('SELECT 1 FROM proposal_versions WHERE proposal_id=? LIMIT 1', [proposalId])).length;
-  const early = firstWrite && f.profileId && !f.sender.loom ? await takeEarlyDraft(p.screening_id, { projectIds: f.projectIds, profileId: f.profileId }, () => stage('writing')) : null;
+  let early = firstWrite && f.profileId ? await takeEarlyDraft(p.screening_id, { projectIds: f.projectIds, profileId: f.profileId }, () => stage('writing')) : null;
+  // the early draft's letter and its proof blocks are kept; the projects, video and sign off are brought up to what was confirmed
+  if (early?.parts) {
+    await stage('writing');
+    const template = await loadTemplate(early.template.id);
+    const r = await refitParts(f, early.parts, template);
+    const guide = await loadGuide();
+    const writer = early.warnings.filter((w) => w.source === 'writer');
+    const open = early.warnings.filter((w) => w.source === 'check' && w.text.startsWith('First two lines'));
+    early = { ...early, text: r.text, parts: r.parts, warnings: [...open, ...writer, ...(await checksFor(r.text, f, template, guide))] };
+  }
   const saveTemplate = (t: Draft['template']) => exec('UPDATE proposals SET template_id=?, template_name=?, template_score=?, template_choice=?, template_ranking=? WHERE id=?',
     [t.id, t.name, t.score, t.choice, t.ranking, proposalId]).then(() => undefined);
   const d = early ?? await compose(p.screening_id, f, { templateId: p.template_choice === 'manual' ? p.template_id : null, stillWanted, stage, onTemplate: saveTemplate });
   if (!d || !stillWanted()) return;
   if (early) await saveTemplate(d.template);
   const written = d.answers ? { letter: d.text, answers: d.answers } : splitText(d.text); // an early draft from before R59 has them in the text
-  await addVersion(proposalId, textToHtml(written.letter), 'ai', null, `Written with "${d.template.name}"${early ? ' (drafted early)' : ''}`, null, written.answers);
+  await addVersion(proposalId, textToHtml(written.letter), 'ai', null, `Written with "${d.template.name}"${early ? ' (drafted early)' : ''}`, null, written.answers, d.parts ?? null);
   // the independent review follows every written proposal by itself (worker.ts picks it up), unless an admin turned that off
   const auto = (await getSettings())['review.auto'];
   await exec(`UPDATE proposals SET status='done', stage=NULL, warnings=?, model=?, error_code=NULL, error_message=NULL, finished_at=NOW(), review_status=IF(?, 'queued', review_status), review_error=IF(?, NULL, review_error) WHERE id=?`, [JSON.stringify(d.warnings), d.model, auto ? 1 : 0, auto ? 1 : 0, proposalId]);
+}
+
+/** Bring a written proposal up to date after its projects, profile or video changed (PLAN-SPEED point 1). Nothing to do: nothing queued. */
+export async function queueParts(screeningId: number) {
+  await exec(`UPDATE proposals SET parts_status='queued', parts_error=NULL WHERE screening_id=? AND status='done' AND EXISTS (SELECT 1 FROM proposal_versions v WHERE v.proposal_id=proposals.id)`, [screeningId]);
+}
+/**
+ * The worker job behind queueParts. A version made from parts gets a new version with only the changed parts redone. A version
+ * the person edited by hand is never overwritten: the new parts are offered beside the editor instead (Put it in, Copy).
+ */
+export async function runPartsRefresh(proposalId: number) {
+  const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
+  const cur = p ? await latestVersion(p.id) : null;
+  if (!p || !cur) return;
+  const f = await loadFacts(p.screening_id);
+  const template = p.template_id ? await loadTemplate(p.template_id) : null;
+  const cfg = await getSettings();
+  if (cur.parts) {
+    const r = await refitParts(f, cur.parts, template);
+    const before = htmlToPlain(cur.html).replace(/\s+/g, ' ').trim();
+    if (r.text.replace(/\s+/g, ' ').trim() !== before) {
+      const what = [r.wrote.length || r.parts.proof.length !== cur.parts.proof.length || r.parts.proof.some((x, i) => x.name !== cur.parts!.proof[i]?.name) ? 'the projects' : '',
+        (r.parts.loom?.url ?? null) !== (cur.parts.loom?.url ?? null) ? 'the video' : '', r.parts.signoff !== cur.parts.signoff ? 'the sign off' : ''].filter(Boolean);
+      await addVersion(p.id, textToHtml(r.text), 'ai', null, `Updated ${what.join(', ') || 'the parts'}`, cur.version_no, undefined, r.parts);
+      let old: { source: string; text: string }[] = []; try { old = JSON.parse(p.warnings || '[]'); } catch { old = []; }
+      const kept = old.filter((w) => w.source === 'writer' || w.text.startsWith('First two lines'));
+      const auto = cfg['review.auto'];
+      await exec(`UPDATE proposals SET warnings=?, profile_id=?, review_status=IF(?, 'queued', review_status) WHERE id=?`, [JSON.stringify([...kept, ...(await checksFor(r.text, f, template, await loadGuide()))]), f.profileId, auto ? 1 : 0, p.id]);
+    }
+    await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=NULL WHERE id=?`, [p.id]);
+    return;
+  }
+  // edited by hand: offer what the text does not have yet, and change nothing
+  const text = htmlToPlain(cur.html).toLowerCase();
+  const offer: { kind: string; label: string; text: string }[] = [];
+  for (const proj of f.projects) if (!text.includes(proj.name.toLowerCase())) {
+    const t = template ? await writeProof(f, template, proj) : proj.name;
+    offer.push({ kind: 'project', label: `Project: ${proj.name}`, text: proj.live_link && !t.includes(proj.live_link) ? `${t}\n${proj.live_link}` : t });
+  }
+  if (f.sender.loom && !text.includes(f.sender.loom.url.toLowerCase())) offer.push({ kind: 'video', label: `Loom video: ${f.sender.loom.title}`, text: loomLine(cfg['writer.loom_line'], f.sender.loom) });
+  const so = signoff(f.sender);
+  if (f.sender.name && (!text.includes(f.sender.name.toLowerCase()) || (f.sender.gitlab_link && !text.includes(f.sender.gitlab_link.toLowerCase())))) offer.push({ kind: 'signoff', label: `Sign off: ${f.sender.name}`, text: so });
+  await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=?, profile_id=? WHERE id=?`, [offer.length ? JSON.stringify(offer) : null, f.profileId, p.id]);
 }
 
 /** What the reviewer gets for a job's newest proposal version, with the given reviewer sections: the instructions and the facts. */

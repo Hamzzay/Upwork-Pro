@@ -89,6 +89,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 40 | The Reviewer page: full control of the independent reviewer (sections, versions, try, full prompt, activate), and from Claude as setup kind reviewer_instructions (R61, plugin v0.11.0, migration 039) | done in code; to check on screen, try a draft with the real model, and try it from Claude |
 | 41 | Quick reasons to continue past a FLAG or FAIL: one click fillers above the reason box, an admin setting, shared with the plugin (R62, plugin v0.12.0) | done in code; to check on screen |
 | 42 | Flag review: per rule, continued or skipped, the reasons picked, how the continued jobs did against clean passes, and a hint; quick reasons stored as data; review_flags for Claude (R63, migration 040) | done in code; review at 200 jobs |
+| 43 | A faster proposal: PLAN-SPEED points 1 to 11 (parts, server matching for the plugin, no gaps between steps, the review in the same job, the opening only, memory for the setup, fewer plugin turns, Ahmad's auto matching rule) (R64, plugin v0.13.0, migration 041) | done in code; to check on screen and in Claude |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

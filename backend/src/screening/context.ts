@@ -1,4 +1,5 @@
 import { query } from '../db';
+import { cached } from '../cache';
 import type { ProjectLite, RuleRow } from './contract';
 import { projectPlatforms, type LibProject } from './matching';
 import type { DictTag } from './tagging';
@@ -15,14 +16,16 @@ export async function loadContext(): Promise<{ rules: RuleRow[]; projects: Proje
 }
 
 /** Active tags with their category: the dictionary the model tags jobs with. */
-export async function loadDictionary(): Promise<DictTag[]> {
+export const loadDictionary = (): Promise<DictTag[]> => cached('dictionary', readDictionary);
+async function readDictionary(): Promise<DictTag[]> {
   return (await query<any>(
     `SELECT t.id, t.name, t.weight, t.description, c.name AS category, c.is_compliance AS compliance FROM tags t JOIN tag_categories c ON c.id=t.category_id
      WHERE t.active=1 ORDER BY c.sort_order, t.sort_order`)).map((r) => ({ ...r, compliance: !!r.compliance }));
 }
 
 /** Active projects with the ids of their active tags, their industries and what they run on, for matching. */
-export async function loadLibraryProjects(): Promise<LibProject[]> {
+export const loadLibraryProjects = (): Promise<LibProject[]> => cached('library', readLibraryProjects);
+async function readLibraryProjects(): Promise<LibProject[]> {
   const rows = await query<{ id: number; name: string; tag_id: number | null; tag: string | null }>(
     `SELECT p.id, p.name, t.id AS tag_id, t.name AS tag FROM projects p LEFT JOIN project_tags pt ON pt.project_id=p.id LEFT JOIN tags t ON t.id=pt.tag_id AND t.active=1
      WHERE p.active=1`);
@@ -37,6 +40,7 @@ export async function loadLibraryProjects(): Promise<LibProject[]> {
 }
 
 /** Each industry's related industries ("Dental" -> ["Healthcare"]), from the Industries page. */
-export async function loadRelatedIndustries(): Promise<Map<string, string[]>> {
+export const loadRelatedIndustries = (): Promise<Map<string, string[]>> => cached('related', readRelatedIndustries);
+async function readRelatedIndustries(): Promise<Map<string, string[]>> {
   return new Map((await query<any>('SELECT name, related FROM industries WHERE active=1 AND related IS NOT NULL')).map((r) => [String(r.name).toLowerCase(), String(r.related).split(',').map((x) => x.trim()).filter(Boolean)]));
 }

@@ -7,6 +7,8 @@ description: Matches Stackup's past projects to a job by first understanding wha
 
 Matching runs in four steps: **understand the job, filter by platform, then industry, then tags.** A project that does not fit what the client is building is never recommended, however high its tag score. Recommending a mobile app for a web build, or a web dashboard for a mobile app, tells the client the post was not read.
 
+**Upwork Pro does the matching.** In the proposal workflow, call `match_projects` for the saved job: it runs these same rules on the server, with the AI's order and a reason per project, in seconds. Show its answer; never score projects yourself. The rules below explain what it does, and are what to follow by hand only when `match_projects` is not available.
+
 ## Load the library
 
 1. **Call `get_library` (Upwork Pro) once per run.** It returns every active project (proposal link, landing, system, mobile, staging and case study links, overview, industries, tags) and the tag dictionary with each tag's match weight. Upwork Pro is the one library every Claude shares; the team edits it there (Projects, Industries, Tag dictionary).

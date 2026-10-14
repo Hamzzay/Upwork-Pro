@@ -64,7 +64,9 @@ function richEditor(html, opts = {}) {
     h('button', { type: 'button', class: 'rt-btn', title, 'aria-label': title, style: style || null, onmousedown: (e) => e.preventDefault(), onclick: () => actions[k]() }, label)));
   const el = h('div', { class: 'rt' + (opts.readOnly ? ' ro' : '') }, opts.readOnly ? null : bar, area);
   return {
-    el, getHtml: () => area.innerHTML, setHtml: (x) => { area.innerHTML = x; clean = area.innerHTML; notify(); }, isDirty: dirty, markClean: () => { clean = area.innerHTML; notify(); },
+    el, getHtml: () => area.innerHTML, setHtml: (x) => { area.innerHTML = x; clean = area.innerHTML; notify(); },
+    appendHtml: (x) => { area.insertAdjacentHTML('beforeend', x); notify(); }, // an unsaved change: the person saves it
+    isDirty: dirty, markClean: () => { clean = area.innerHTML; notify(); },
     focus: () => area.focus(), area,
   };
 }
@@ -86,6 +88,8 @@ function proposalSection(s, initial, matching) {
   const busy = () => data && (data.status === 'queued' || data.status === 'running');
   const chatBusy = () => data && data.messages.some((m) => m.role === 'user' && (m.status === 'queued' || m.status === 'running'));
   const reviewBusy = () => !!(data && data.review && (data.review.status === 'queued' || data.review.status === 'running'));
+  // the parts of a written proposal being brought up to date after a change of projects, profile or video (PLAN-SPEED point 1)
+  const partsBusy = () => !!(data && data.parts && (data.parts.status === 'queued' || data.parts.status === 'running'));
   let templates = [];
   // the stepper asks these before it leaves the step or finishes it
   box.__dirty = () => !!(editor && (editor.isDirty() || answersDirty()));
@@ -121,17 +125,41 @@ function proposalSection(s, initial, matching) {
         if (editor && !(editor.isDirty() || answersDirty())) { await reload(); drawAll(); }
         else if (dismissedFor !== st.latest_version) { newer = st.latest_version; drawBanner(); }
       }
+      // the parts finished updating: a new version is picked up above; an offer for edited text is shown beside the editor
+      if ((st.parts_status || null) !== ((data.parts && data.parts.status) || null)) {
+        const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.parts = fresh.parts; drawParts();
+      }
       // the independent review arrived (or started): fetch it and redraw only its panel
       if ((st.review_status || null) !== ((data.review && data.review.status) || null) || (st.review_version || null) !== ((data.review && data.review.version) || null)) {
         data.review = (await api('GET', `/screenings/${s.id}/proposal`)).proposal.review; drawReview();
       }
     } catch (e) { /* try again next time */ }
-    if (busy() || chatBusy() || reviewBusy()) timer = setTimeout(poll, 2500);
+    if (busy() || chatBusy() || reviewBusy() || partsBusy()) timer = setTimeout(poll, 1000);
   }
-  const startPolling = () => { clearTimeout(timer); timer = setTimeout(poll, 2500); };
+  const startPolling = () => { clearTimeout(timer); timer = setTimeout(poll, 1000); };
 
   // ----- pieces
   const bannerEl = h('div', { class: 'newer', hidden: true });
+  // the parts: "updating" while they are redone, and the parts offered when the person's own text was not changed for them
+  const partsEl = h('div', {});
+  function drawParts() {
+    const pt = data && data.parts; if (!pt) { partsEl.replaceChildren(); return; }
+    if (pt.status === 'queued' || pt.status === 'running') {
+      partsEl.replaceChildren(h('div', { class: 'row muted small', style: 'margin:8px 0' }, h('span', { class: 'spin' }), 'Updating the projects, the video and the sign off. Only those parts change.')); return; }
+    const offer = pt.offer || [];
+    if (!offer.length) { partsEl.replaceChildren(pt.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The parts could not be updated' + (pt.error ? ': ' + pt.error : '.')) : ''); return; }
+    const put = (o) => { const para = o.text.split(/\n{2,}/).map((x) => '<p>' + x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</p>').join('');
+      editor.appendHtml(para); toast('Put in at the end. Move it where it belongs, then save.'); };
+    partsEl.replaceChildren(h('div', { class: 'card card-pad', style: 'margin:12px 0' },
+      h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, 'New parts for your edited text'),
+        owner ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('POST', `/proposals/${data.id}/parts-offer/dismiss`, {}); data.parts.offer = []; drawParts(); } catch (x) { toast(x.message, true); } } }, 'Dismiss') : null),
+      h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'You edited this proposal, so these were not put in for you. Put one in, or copy it.'),
+      h('div', { class: 'stack', style: 'gap:10px' }, offer.map((o) => h('div', { class: 'qa' },
+        h('div', { class: 'row spread', style: 'flex-wrap:nowrap;gap:10px' }, h('div', { class: 'jp-label' }, o.label),
+          h('div', { class: 'row', style: 'gap:6px' }, owner ? h('button', { class: 'btn sm', type: 'button', onclick: () => put(o) }, 'Put it in') : null,
+            h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(o.text); toast(ok ? 'Copied' : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy'))),
+        h('p', { class: 'jp-body', style: 'margin:4px 0 0;white-space:pre-wrap' }, o.text))))));
+  }
   function drawBanner() {
     if (!newer) { bannerEl.hidden = true; return; }
     bannerEl.hidden = false;
@@ -251,7 +279,7 @@ function proposalSection(s, initial, matching) {
       clearTimeout(typeTimer);
       try { const was = choices && choices.ready; choices = await api('GET', `/screenings/${s.id}/proposal/types`); if (choices.ready && !was && !byHand) picked = null; /* the suggestion arrived: select it, unless the person already chose */ } catch (x) { if (!choices) { el.replaceChildren(h('p', { class: 'err' }, x.message)); return; } }
       if (!box.isConnected || data) return;
-      draw(); if (!choices.ready) typeTimer = setTimeout(load, 3000);
+      draw(); if (!choices.ready) typeTimer = setTimeout(load, 1500);
     };
     draw(); if (owner) load();
     return el;
@@ -392,16 +420,25 @@ function proposalSection(s, initial, matching) {
       const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html); drawAnswers(v.answers, false); drawActions();
       viewing.replaceChildren(...[`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null].filter(Boolean));
     };
-    const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id;
-    const staleBox = stale ? h('div', { class: 'newer', style: 'margin-bottom:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name} after this proposal was written, so the sign-off is out of date. Write it again at the top right.`)) : null;
+    const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id && !partsBusy();
+    const staleBox = stale ? h('div', { class: 'newer', style: 'margin-bottom:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name}. ${cur.in_parts ? 'The sign off is being updated; the letter stays.' : 'Your edited text was kept: the new sign off is offered below.'} To write the letter again in this profile's voice, use Write again at the top right.`)) : null;
+    // the Loom video can be changed after writing: only its line changes, no new write
+    const loomSel = owner ? h('select', { 'aria-label': 'Loom video', style: 'max-width:280px' }, h('option', { value: '' }, 'Loading videos')) : null;
+    if (loomSel) api('GET', `/screenings/${s.id}/proposal/types`).then((r) => {
+      const vids = (r.loom && r.loom.videos) || [];
+      if (!vids.length) { loomSel.replaceWith(h('span', { class: 'faint small' }, 'No Loom videos on this profile')); return; }
+      loomSel.replaceChildren(h('option', { value: '' }, 'No Loom video'), ...vids.map((v) => h('option', { value: v.id, selected: r.loom.chosen === v.id }, v.title + (v.best ? ' (best fit)' : ''))));
+      loomSel.onchange = async () => { try { await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: loomSel.value ? Number(loomSel.value) : null }); s.loom_video_id = loomSel.value ? Number(loomSel.value) : null; data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawParts(); startPolling(); } catch (x) { toast(x.message, true); } };
+    }).catch(() => loomSel.replaceWith(h('span', { class: 'faint small' }, '')));
     const warns = data.warnings.length ? h('details', { class: 'warnline' }, h('summary', {}, icon('warn'), `${data.warnings.length} thing${data.warnings.length === 1 ? '' : 's'} to check before sending`), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
-    count(); drawAnswers(cur.answers, owner);
+    count(); drawAnswers(cur.answers, owner); drawParts();
     // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
     return h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' },
         staleBox,
         warns,
-        h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px' }, vsel, dirtyChip),
+        h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px;flex-wrap:wrap' }, vsel, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
+        partsEl,
         viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader), counter, answersBox,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
       h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), h('div', { class: 'reviewpanel' }), explain())); // the chat first: it is short and used most; the review's score shows right under it
@@ -426,7 +463,7 @@ function proposalSection(s, initial, matching) {
     if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); }
   }
   box.replaceChildren(h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' }));
-  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
+  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy() || partsBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
   return box;
 }
 

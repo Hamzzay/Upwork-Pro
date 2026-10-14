@@ -396,13 +396,40 @@ plugin.post('/plugin/jobs/:id/review', anyone, async (req, res) => {
     const q = await queueReview(s.id);
     if (q.error) return void res.status(q.status).json({ error: q.error });
   }
-  for (let i = 0; i < 25; i++) { // under the connector's own one minute limit
+  for (let i = 0; i < 55; i++) { // up to 55 s, under the connector's own one minute limit, so Claude asks once (PLAN-SPEED point 6)
     const p = await read();
     if (p.review_status === 'done') return void res.json({ review: reviewOf(p), how_to_use: 'Show the score, the verdict, the problems and the suggestions as they are. Do not ask which to apply and do not list options: the person says if they want any applied. Apply only the ones they name, save the new draft, and review it again. Never change the score or soften the review.' });
     if (p.review_status === 'error') return void res.status(502).json({ error: 'The review could not be made: ' + (p.review_error || 'the reviewer failed') + '. Try again.' });
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1000));
   }
   res.status(202).json({ pending: true, note: 'The review is still being written. Call review_proposal again in a moment, or read it with get_job (review).' });
+});
+
+// Project matching for the plugin, on the server (PLAN-SPEED point 2): the app's own matching and the AI's order, on the tags Claude
+// saved at the read step. The worker does it (all model work is the worker's); this waits for it, up to 55 s, and returns the list.
+plugin.post('/plugin/jobs/:id/match', anyone, async (req, res) => {
+  const b = z.object({ skip_tech_stack: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: 'Not valid' });
+  const s = await ownJob(req, res); if (!s) return;
+  if (!(await query<any>('SELECT 1 FROM job_tags WHERE screening_id=? AND tag_id IS NOT NULL LIMIT 1', [s.id])).length)
+    return void res.status(409).json({ error: 'Save the read step first (save_step read, with the job tags): the matching works on those tags.' });
+  await exec(`UPDATE screenings SET skip_tech_stack=COALESCE(?, skip_tech_stack), rematch_only=1, tagging_status='queued', tagging_error_code=NULL, tagging_error_message=NULL
+    WHERE id=? AND (tagging_status IS NULL OR tagging_status IN ('done', 'error'))`, [b.data.skip_tech_stack == null ? null : b.data.skip_tech_stack ? 1 : 0, s.id]);
+  for (let i = 0; i < 55; i++) {
+    const st = (await query<any>('SELECT tagging_status, tagging_error_message, job_needs, matching_order, skip_tech_stack FROM screenings WHERE id=?', [s.id]))[0];
+    if (st.tagging_status === 'error') return void res.status(502).json({ error: 'The matching failed: ' + (st.tagging_error_message || 'try again') });
+    if (st.tagging_status === 'done') {
+      const rows = await query<any>(`SELECT jm.project_name, jm.rank_no, jm.recommended, jm.alternative, jm.extra, jm.score, jm.max_score, jm.shared_tags, jm.platform, jm.pool, jm.proves_work, jm.named_in_screening, jm.ai_reason, jm.ai_fits, p.live_link
+        FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id WHERE jm.screening_id=? ORDER BY jm.rank_no`, [s.id]);
+      const item = (r: any) => ({ name: r.project_name, recommended: !!r.recommended, reason: r.ai_reason || undefined, weak_fit: r.ai_fits === 0 ? true : undefined, link: r.live_link || undefined,
+        score: `${r.score} of ${r.max_score}`, matched_tags: (JSON.parse(r.shared_tags || '[]') as { name: string }[]).map((t) => t.name), platform: r.platform, industry: r.pool, proves_the_work: !!r.proves_work, named_in_screening: r.named_in_screening ? true : undefined });
+      return void res.json({ job_needs: st.job_needs, ordered_by: st.matching_order === 'ai' ? 'the AI, after the tags' : 'the tags', skip_tech_stack: !!st.skip_tech_stack,
+        shortlist: rows.filter((r) => !r.alternative && !r.extra).map(item), alternative: rows.filter((r) => r.alternative).map(item), more: rows.filter((r) => r.extra).map(item),
+        how_to_use: 'Show the job needs line, then the shortlist as a table (name, platform and link, industry, score, matched tags, reason), the recommended ones marked, and any alternative below it. Do not score or reorder the projects yourself. Then save_step projects with this shortlist and the picks.' });
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  res.status(202).json({ pending: true, note: 'The matching is still running. Call match_projects again in a moment.' });
 });
 
 /** The values the plugin may use: active profiles, project names, rule codes, statuses, outcomes and loss reasons. */
@@ -497,7 +524,19 @@ plugin.post('/plugin/projects', requireRole('admin', 'manager'), async (req, res
 // ---------- what the plugin reads instead of keeping its own copy ----------
 /** The project library and the tag dictionary, as the app has them: the plugin matches projects from this, not from a sheet.
  *  Case studies are long, so they come only for the projects named in `case_studies` (comma separated), or all with `case_studies=all`. */
+/**
+ * The setup's version: the newest change set (every setup change is one). get_library and get_writing_guide return it; asked again
+ * with the same version (known_version), they answer "unchanged", so a second job in the same Claude conversation does not read the
+ * whole library again (PLAN-SPEED point 8).
+ */
+async function setupVersionOr(req: any, res: any, plain: boolean): Promise<boolean> {
+  const v = 'v' + Number((await query<any>('SELECT COALESCE(MAX(id), 0) AS n FROM change_sets'))[0]?.n ?? 0);
+  if (plain && String(req.query.known_version ?? '') === v) { res.json({ unchanged: true, version: v, note: 'Nothing changed since you read it: use the copy you have.' }); return true; }
+  const send = res.json.bind(res); res.json = (b: any) => send({ ...b, version: v });
+  return false;
+}
 plugin.get('/plugin/library', anyone, async (req, res) => {
+  if (await setupVersionOr(req, res, !req.query.case_studies)) return;
   const wantCs = String(req.query.case_studies ?? '').trim(), allCs = wantCs.toLowerCase() === 'all';
   const csNames = new Set(wantCs.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
   const cats = await query<any>('SELECT id, name, is_compliance FROM tag_categories ORDER BY sort_order, name');
@@ -529,6 +568,7 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
 /** The writing guide: the proposal types (the templates the app's writer uses too, each with when it is chosen and its length), the
  *  writing rules, banned phrases, modules, screening answer rules and the checklist. `type` returns that type's full text; `all=1` every type's. */
 plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
+  if (await setupVersionOr(req, res, !req.query.type && !req.query.all)) return;
   const docs = await query<any>("SELECT kind, content, updated_at FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
   const types = await query<any>('SELECT id, name, body_html, prompt, priority, updated_at, opening_rules, opening_no_us, opening_starts FROM templates WHERE active=1 ORDER BY priority, name');
   const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content).join('\n\n') || null;

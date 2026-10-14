@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { htmlToPlain } from '../html';
 import type { DetectedValue } from './signals';
 import { guideBlock, type Guide } from './guide';
+import { PARTS_RULES } from './parts';
 
-export interface ProjectFact { name: string; live_link: string | null; tags: string[]; industries: string[]; notes: string | null; overview?: string | null; case_study?: string | null }
+export interface ProjectFact { id?: number | null; name: string; live_link: string | null; tags: string[]; industries: string[]; notes: string | null; overview?: string | null; case_study?: string | null }
 /** The profile the proposal is sent from. `gitlab_link` is its code link: the GitLab account, or else the GitHub link. */
 export interface SenderFact { name: string; gitlab_link: string | null; tagline: string | null; voice?: string | null; signature?: string | null; stats?: string | null; rules?: string | null; certifications?: string | null; /** The Loom video the person chose to send with this proposal, if any. */ loom?: { title: string; url: string; topic: string | null } | null }
 export interface SampleFact { title: string; content: string }
@@ -47,7 +48,7 @@ function signalsBlock(detected: DetectedValue[]) {
   return lines(['DETECTED SIGNALS (apply each move)', ...rows.map((d) => `  - ${d.signal_name}: ${d.value_name}${d.is_fallback ? ' (default: nothing stated in the post)' : ''}${d.move ? '\n    Move: ' + d.move : ''}`)]);
 }
 
-export function writerSystem(a: { template: TemplateFact; detected: DetectedValue[]; samples: SampleFact[]; sender: SenderFact; projects: ProjectFact[]; clientRequirements: string[]; guide?: Guide }): string {
+export function writerSystem(a: { template: TemplateFact; detected: DetectedValue[]; samples: SampleFact[]; sender: SenderFact; projects: ProjectFact[]; clientRequirements: string[]; guide?: Guide; parts?: boolean }): string {
   return lines([
     'You write one Upwork proposal for a freelancer at Stackup Solutions.', '',
     GUARDRAILS, '',
@@ -59,6 +60,7 @@ export function writerSystem(a: { template: TemplateFact; detected: DetectedValu
     signalsBlock(a.detected), '',
     a.samples.length ? `SAMPLE PROPOSALS (tone and structure only; they are about other jobs, other people and other projects)\n${a.samples.map((s, i) => `--- Sample ${i + 1}: ${s.title}\n${s.content}`).join('\n\n')}\n` : '',
     facts(a.sender, a.projects),
+    a.parts ? '\n' + PARTS_RULES : '',
   ]);
 }
 

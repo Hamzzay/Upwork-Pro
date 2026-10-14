@@ -20,6 +20,7 @@ import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
 import { buildFlagReview, picksOf } from './flagreview';
+import { queueEarlyDraft, queueParts } from './proposal/pipeline';
 import { buildReport, packRows } from './reports';
 import { ChangedSince, KINDS, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
@@ -823,6 +824,7 @@ api.put('/screenings/:id/selection', requireRole(), async (req, res) => {
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(req.user!.id, 'selection_confirm', `screening=${s.id} projects=${b.data.project_ids.join(',')} recommended=${sameAsRecommended ? 'yes' : 'changed'}`);
+  await queueParts(s.id); // a written proposal gets only its project blocks redone (PLAN-SPEED point 1)
   res.json({ ok: true });
 });
 
@@ -840,8 +842,10 @@ api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
   const existing = (await query<any>('SELECT id, profile_id, status FROM proposals WHERE screening_id=?', [s.id]))[0];
   const started = false;
   await audit(req.user!.id, 'proposal_profile', `screening=${s.id} profile=${prof.id}`);
-  // a profile changed after the proposal was written: the sign-off is out of date, the person decides whether to write again
-  res.json({ ok: true, started, needs_rewrite: !!existing && existing.profile_id !== null && existing.profile_id !== prof.id });
+  // a profile changed after the proposal was written: only the sign off is redone (PLAN-SPEED point 1); the letter stays, and
+  // "Write it again" is there for the new profile's voice. Before any proposal, an early draft starts now if none was guessed.
+  if (existing) await queueParts(s.id); else await queueEarlyDraft(s.id).catch(() => undefined);
+  res.json({ ok: true, started, needs_rewrite: false });
 });
 
 // Continue anyway on FAIL or FLAG: a reason is required and kept.

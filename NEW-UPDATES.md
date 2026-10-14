@@ -1003,6 +1003,67 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R64. A faster proposal: the plan in PLAN-SPEED.md, points 1 to 11 (done in code, 14 October)
+
+From the speed review (`SPEED-REVIEW.md`) and the plan agreed with Ahmad (`PLAN-SPEED.md`). Measured on Hamza's Mac with Claude Sonnet.
+
+- **1. The proposal in parts (Ahmad's design).** The writer returns the letter (with a line `[[PROOF]]` where the projects go and
+  `[[VIDEO]]` where a Loom line goes, never a project name, a link or the sign off) and one proof block per project. The Loom line
+  (setting "The Loom video line") and the sign off are made in code (`src/proposal/parts.ts`). Each version keeps its parts
+  (`proposal_versions.parts_json`, migration 041). After writing, changing the projects, the video (a new selector on the proposal
+  screen) or the profile redoes only that part as a new version: measured, a video or a profile 1 to 2 ms with no AI, a new
+  project 9 s (one short call) against 36 s for a full write. A version edited by hand (or by the chat) is never overwritten: the
+  new parts are offered beside the editor with Put it in, Copy and Dismiss. A structured submission is written whole, as before.
+  The early draft is now usable whatever the projects, profile or video (only the type has to match), it starts right after the
+  matching in the same worker job, and it is no longer skipped when a Loom video is chosen. A first time user gets one as soon as
+  the profile is picked.
+- **2. Matching for the plugin on the server.** `match_projects` (plugin) queues a re-match of the tags Claude saved, with the app's
+  own rules and the AI's order, waits for it (up to 55 s) and returns the shortlist with reasons. The app shows the same list.
+  Plugin jobs skip the app's signal reading and early draft (Claude does both).
+- **3. No gaps between steps; people first.** The worker looks again every 250 ms when idle (was 1.5 s) and at once when a job ends.
+  The order: a proposal someone asked for, a chat answer, the parts update, a new screening, the matching of a job someone just
+  continued, the post reading, the review, then background work (matching started by itself, early drafts). Background work never
+  takes the last free slot. Pages check every second while something is being made (was 2.5 to 4 s).
+- **4. The plugin's reads** stay as they are; they go in one message at the start.
+- **5. The first two lines.** When they break the type's rules, only the opening paragraph is written again (a short call), not the
+  whole proposal.
+- **6. The review** starts in the same worker job right after writing; it never forces changes; `review_proposal` waits up to 55 s.
+- **7. Claude only**: nothing to build; check Settings, AI on the live server.
+- **8. Fewer repeated reads.** The worker keeps settings, the writing guide, the tag dictionary, the library and the signal
+  definitions in memory and reads them again when the setup changes (the newest change set, checked at most once a second; a
+  minute at most) (`src/cache.ts`). The library is loaded once per tagging. Tags, matches and signals are saved in one statement
+  each. `get_library` and `get_writing_guide` carry a `version` and answer "unchanged" to `known_version`.
+- **9. Fewer plugin turns.** The profile is one question, no rate (the profile's own rate is saved); on a PASS the Continue question
+  comes with the gate; `record_decision` is sent with the read step's save. The draft is still shown in full in the chat.
+- **10.** Not done (Ahmad).
+- **11. Matching starts by itself only for jobs likely to be taken (Ahmad's rule).** A PASS, or a FLAG with at most 2 flags (setting
+  "Start matching by itself when a FLAG has at most this many flags"); more flags or a FAIL wait for the person, as before.
+- Checked: tests (the parts put together, markers, sign off, Loom line, kept and new blocks); `tsc` for the backend and the MCP;
+  `node --check`; migration 041 locally; three real proposals written by the new writer (one structured, written whole; one with
+  no projects; one in parts with two projects: letter without names or links, both blocks with links, sign off last, no marker
+  left, 36 s); the parts redone for a video, a profile and a new project with the timings above; the worker and the web app start.
+- **Tested on the local app** (14 October, a temporary test account and test copies of jobs, all removed after):
+  - Writing: the proposal was shown 32 s after Write was pressed (the AI call itself took 32 s: no gap), saved in parts; the review
+    started in the same job and was done at 51 s.
+  - Profile changed after writing: a new version "Updated the sign off" in under a second, the rest word for word the same.
+  - Loom video chosen from the new selector: "Updated the video, the sign off" in under a second, the link where the letter had
+    its marker. Projects changed: "Updated the projects" in 8 s (one short call), the letter and the kept project unchanged.
+  - Edited by hand, then a project changed: no new version; the new project's block was offered beside the editor. Put it in
+    puts it in as an unsaved change.
+  - Ahmad's rule: three real screenings came back FLAG with 6, 3 and 4 flags, and none started matching by itself. Matching started
+    as background work: tagging and the three signal layers together at 6 to 7 s, the AI order at 16 s, and the early draft
+    started at once and was done in parts at 40 s.
+  - The early draft reused: other projects, another profile and a Loom video than it guessed, and the proposal was shown 8 s after
+    Write (one 7 s call for the new project's block), where before it would have been written again from scratch (about 35 s).
+  - The plugin's routes with a test token: `match_projects` 13 s with the AI order and a reason per project (11 s again with skip
+    tech stack, no Tech stack tag in any match); `save_proposal` with review=true started the review, one `review_proposal` call
+    returned it in 15 s, a second call 1 s with no new review; `get_library` with `known_version` answered "unchanged".
+- **Fixed while testing:** a profile's signature that is a note about how to sign off (Hamza's: "Hamza Yaseen, then the GitHub
+  link on the next line") was pasted in as text. Now only a ready sign off (one that opens with "Best regards", "Thanks" and the
+  like) is used as written; otherwise the standard sign off is made, which is what the note asks for. Hamza may want to change
+  that field to the sign off itself. And Put it in did not count as an unsaved change, so Save version did not appear.
+- Not checked: the plugin in a real Claude conversation with v0.13.0 (zip it, rebuild the MCP, restart Claude).
+
 ### R63. Flag review: which rules to relax, with evidence (done in code, 14 October)
 
 - **Why.** After a couple of hundred jobs, the reasons people give for continuing past a FLAG or FAIL should say which rules are too

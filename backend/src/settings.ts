@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cached } from './cache';
 import { exec, query } from './db';
 import { PROVIDER_IDS } from './llm/ids';
 
@@ -13,6 +14,7 @@ export const SETTINGS = {
   'ai.model.claude': { label: 'Claude model', help: '', schema: modelName, def: 'claude-sonnet-5-5' },
   'ai.model.openai': { label: 'GPT model', help: '', schema: modelName, def: 'gpt-5' },
   'review.auto': { label: 'Review every proposal by itself', help: 'The independent reviewer scores every proposal as soon as it is written. Off: it reviews only when someone asks (the Review button, or Claude). How it reviews is set on the Reviewer page.', schema: z.boolean(), def: true },
+  'matching.auto_max_flags': { label: 'Start matching by itself when a FLAG has at most this many flags', help: 'A PASS, or a FLAG with no more flags than this, is tagged and matched (and its early draft written) as soon as it is screened, before anyone clicks. More flags, or a FAIL: nothing is spent until someone continues with a reason.', schema: z.number().int().min(0).max(30), def: 2 },
   'matching.shown': { label: 'Projects shown per job', help: 'How many matching projects the Projects step lists.', schema: z.number().int().min(1).max(20), def: 5 },
   'matching.recommended': { label: 'Projects recommended', help: 'How many of the shown projects are pre-selected (and used by the early draft).', schema: z.number().int().min(1).max(5), def: 2 },
   'matching.ai_order': { label: 'AI orders the matched projects', help: 'After the tags pick the shortlist, the AI reads each project\'s overview and case study and orders them for the job, with a reason. Off: the tag score decides the order.', schema: z.boolean(), def: true },
@@ -34,13 +36,15 @@ export const SETTINGS = {
     schema: z.number().int().min(1).max(90), def: 5 },
   'writer.requirement_rules': { label: 'Rules passed to the proposal writer', help: 'When one of these flags fires, its text is given to the writer as a client requirement (e.g. screening questions, required words, location rules).',
     schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G11', 'G12', 'G13'] },
+  'writer.loom_line': { label: 'The Loom video line', help: 'Put in a proposal when a Loom video is chosen, where the proposal type puts it. {title} is the video title and {url} its link.', schema: z.string().trim().min(5).max(400), def: 'I recorded a short walkthrough of {title}:\n{url}' },
   'writer.structured_signal': { label: 'Signal that means "structured submission"', help: 'When this signal has this value, the writer follows the post\'s own structure first.',
     schema: z.object({ signal: z.number().int().min(1).max(999), value: z.string().trim().min(1).max(120) }), def: { signal: 5, value: 'Yes' } },
 } as const;
 export type SettingKey = keyof typeof SETTINGS;
 export type Settings = { [K in SettingKey]: z.infer<(typeof SETTINGS)[K]['schema']> };
 
-export async function getSettings(): Promise<Settings> {
+export const getSettings = (): Promise<Settings> => cached('settings', readSettings);
+async function readSettings(): Promise<Settings> {
   const rows = await query<{ k: string; v: string }>('SELECT k, v FROM app_settings');
   const out: any = {};
   for (const [k, d] of Object.entries(SETTINGS)) out[k] = d.def;

@@ -1114,11 +1114,11 @@ function matchingSection(s, initial) {
     clearTimeout(timer);
     if (!box.isConnected) return; // the page was left: stop polling
     try { m = (await api('GET', `/screenings/${s.id}/matching`)).matching; draw(); } catch (e) { /* try again next time */ }
-    if (m && busy()) timer = setTimeout(poll, 2500);
+    if (m && busy()) timer = setTimeout(poll, 1000);
   }
   const start = async (btn) => {
     btnBusy(btn, 'Starting');
-    try { await api('POST', `/screenings/${s.id}/matching/start`, {}); picked = null; m = { ...m, status: 'queued', error: null }; draw(); timer = setTimeout(poll, 2500); }
+    try { await api('POST', `/screenings/${s.id}/matching/start`, {}); picked = null; m = { ...m, status: 'queued', error: null }; draw(); timer = setTimeout(poll, 1000); }
     catch (x) { toast(x.message, true); btn.disabled = false; btn.replaceChildren('Try again'); }
   };
 
@@ -1128,7 +1128,7 @@ function matchingSection(s, initial) {
     const sw = h('button', { type: 'button', role: 'switch', class: 'switch' + (on ? ' on' : ''), 'aria-checked': on, 'aria-label': 'Skip tech stack tags', disabled: !can }, h('span', { class: 'knob' }));
     sw.onclick = async () => {
       sw.disabled = true;
-      try { await api('PUT', `/screenings/${s.id}/skip-tech-stack`, { skip: !on }); picked = null; m = { ...m, status: 'queued', error: null, skip_tech_stack: !on }; toast(`Skip tech stack tags: ${on ? 'off' : 'on'}`); draw(); timer = setTimeout(poll, 2500); }
+      try { await api('PUT', `/screenings/${s.id}/skip-tech-stack`, { skip: !on }); picked = null; m = { ...m, status: 'queued', error: null, skip_tech_stack: !on }; toast(`Skip tech stack tags: ${on ? 'off' : 'on'}`); draw(); timer = setTimeout(poll, 1000); }
       catch (x) { toast(x.message, true); sw.disabled = false; }
     };
     const help = m.has_proposal ? 'A proposal is already written with the projects picked, so this can no longer change.'
@@ -1237,7 +1237,7 @@ function matchingSection(s, initial) {
     if (busy()) setActions();
     box.replaceChildren(busy() ? h('div', { class: 'card' }, body) : body);
   }
-  draw(); if (busy()) timer = setTimeout(poll, 2500);
+  draw(); if (busy()) timer = setTimeout(poll, 1000);
   return box;
 }
 
@@ -1346,7 +1346,7 @@ function postingCard(s, open = true, setButtons = null) {
     // refresh only this card, never the page: the workflow may hold unsaved text
     const refresh = async () => { if (!box.isConnected) return; try { const d = await api('GET', '/screenings/' + s.id); box.replaceWith(postingCard(d.screening, box.open, setButtons)); } catch { /* try again on the next visit */ } };
     go.onclick = async () => { btnBusy(go, 'Starting'); try { await api('POST', `/screenings/${s.id}/posting`, {}); toast('Reading the job post...'); setTimeout(refresh, 2500); } catch (x) { toast(x.message, true); go.disabled = false; } };
-    if (busy) setTimeout(refresh, 4000);
+    if (busy) setTimeout(refresh, 2000);
     body.replaceChildren(busy ? h('div', { class: 'row muted' }, h('span', { class: 'spin' }), 'Reading the job post into fields...')
       : h('div', {}, h('p', { class: 'muted', style: 'margin-top:0' }, s.posting_status === 'error' ? (s.posting_error || 'The job post could not be read into fields.') : 'This job was pasted before the posting was read into fields.'), canTrack(s.user_id) && !setButtons ? go : null), raw);
     if (setButtons) setButtons(!busy && canTrack(s.user_id) ? actBtn(go.textContent, () => go.click(), true) : null); // on the job page the button sits in the tab row
@@ -1566,7 +1566,7 @@ async function jobPage(id, want) {
               x.ai_reason ? h('div', { class: 'jp-label' }, x.ai_reason) : null)))
           : h('p', { class: 'jp-label', style: 'margin:6px 0 0' }, mm && mm.status === 'done' ? 'No project in the library proves this kind of work.' : 'The projects are found once you continue with this job.'),
         top.length ? h('div', { class: 'jp-label', style: 'margin-top:6px' }, 'The same list as the Projects step, where you choose the ones to use.') : null);
-      if (busy) setTimeout(async () => { if (!box.isConnected) return; try { draw((await api('GET', `/screenings/${id}/matching`)).matching); } catch { /* next time */ } }, 4000);
+      if (busy) setTimeout(async () => { if (!box.isConnected) return; try { draw((await api('GET', `/screenings/${id}/matching`)).matching); } catch { /* next time */ } }, 1500);
     };
     draw(matching);
     return box;
@@ -1674,7 +1674,7 @@ async function jobPage(id, want) {
     const el = build(); content.replaceChildren(el); active = el;
   }
 
-  if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) route(); }, 2500);
+  if (s.status === 'queued' || s.status === 'running') setTimeout(() => { if (new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) route(); }, 1500);
   history.replaceState(null, '', `#/s/${id}/${tab}`);
   drawTabs(); drawContent();
   headEl.replaceChildren(...jobHeader(s, stage));
@@ -2622,7 +2622,7 @@ async function settingsView() {
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     group('Independent reviewer', [onoff('review.auto')]),
-    group('Project matching', [onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
+    group('Project matching', [num('matching.auto_max_flags'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);

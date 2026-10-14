@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.12.0)
+## Status (v0.13.0)
+
+v0.13.0: faster runs (PLAN-SPEED). `match_projects` does the project matching on the server, the same list the app shows, so
+Claude no longer scores the library itself; the setup reads go in one message at the start and a second job in the same
+conversation gets "unchanged" (`known_version`); the profile is one question with no rate; on a PASS the Continue question comes
+with the gate; `record_decision` goes with the read step's save; `review_proposal` waits up to 55 s so it is asked once.
 
 v0.12.0: the quick reasons to continue past a FLAG or FAIL, and to skip a job, come from Upwork Pro (`plugin_options`
 `continue_reasons` and `skip_reasons`), the same ones the app offers. Several can be picked, with a note. The picks are sent

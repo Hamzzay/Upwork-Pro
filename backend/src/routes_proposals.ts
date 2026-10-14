@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion, latestVersion, loomChoices, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { addVersion, latestVersion, loomChoices, queueParts, readParts, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
 
 export const proposals = Router();
@@ -293,7 +293,7 @@ export function reviewOf(p: any) {
 }
 export async function proposalFor(screeningId: number) {
   const p = (await query<any>(
-    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, u.name AS created_by_name
+    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, u.name AS created_by_name
      FROM proposals p JOIN users u ON u.id=p.created_by WHERE p.screening_id=?`, [screeningId]))[0];
   if (!p) return null;
   const versions = await query('SELECT v.version_no, v.source, v.note, v.based_on_version, v.created_at, u.name AS user_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no DESC', [p.id]);
@@ -303,8 +303,8 @@ export async function proposalFor(screeningId: number) {
   return {
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
     ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
-    current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers } : null, versions, signals, messages,
-    review: reviewOf(p),
+    current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers, in_parts: !!cur.parts } : null, versions, signals, messages,
+    review: reviewOf(p), parts: { status: p.parts_status, error: p.parts_error, offer: p.parts_offer_json ? JSON.parse(p.parts_offer_json) : [] },
   };
 }
 async function ownedScreening(req: any, res: any) {
@@ -374,6 +374,28 @@ proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
   res.status(202).json({ ok: true });
 });
 
+// The Loom video after the proposal is written: only the video line changes, no new write (PLAN-SPEED point 1).
+proposals.put('/screenings/:id/loom', anyone, async (req, res) => {
+  const b = z.object({ loom_video_id: z.number().int().positive().nullable() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: 'Choose a video, or none' });
+  const s = await ownedScreening(req, res); if (!s) return;
+  if (b.data.loom_video_id === null) await exec('UPDATE screenings SET loom_video_id=NULL, loom_video_title=NULL WHERE id=?', [s.id]);
+  else {
+    const v = (await query<any>('SELECT id, title FROM loom_videos WHERE id=? AND profile_id=?', [b.data.loom_video_id, s.proposal_profile_id]))[0];
+    if (!v) return void res.status(400).json({ error: 'That Loom video does not belong to the sending profile' });
+    await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, s.id]);
+  }
+  await queueParts(s.id);
+  await audit(req.user!.id, 'proposal_loom', `screening=${s.id} video=${b.data.loom_video_id ?? 'none'}`);
+  res.json({ ok: true });
+});
+// A part offered beside an edited proposal is dismissed.
+proposals.post('/proposals/:id/parts-offer/dismiss', anyone, async (req, res) => {
+  const p = await ownedProposal(req, res); if (!p) return;
+  await exec('UPDATE proposals SET parts_offer_json=NULL WHERE id=?', [p.id]);
+  res.json({ ok: true });
+});
+
 // The person is happy with the proposal: this opens the tracking step.
 proposals.post('/screenings/:id/proposal/done', anyone, async (req, res) => {
   const s = await ownedScreening(req, res); if (!s) return;
@@ -406,11 +428,11 @@ export async function queueReview(screeningId: number): Promise<{ status: number
 
 proposals.get('/screenings/:id/proposal/state', anyone, async (req, res) => {
   const s = await visibleScreening(req, res); if (!s) return;
-  const p = (await query<any>('SELECT id, status, stage, error_message, review_status, review_version FROM proposals WHERE screening_id=?', [s.id]))[0];
+  const p = (await query<any>('SELECT id, status, stage, error_message, review_status, review_version, parts_status FROM proposals WHERE screening_id=?', [s.id]))[0];
   if (!p) return void res.json({ state: null });
   const latest = (await query<any>('SELECT MAX(version_no) AS n FROM proposal_versions WHERE proposal_id=?', [p.id]))[0].n;
   const messages = await query('SELECT m.id, m.role, m.content, m.status, m.error_message, m.based_on_version, m.result_version, m.created_at, u.name AS user_name FROM proposal_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? ORDER BY m.id', [p.id]);
-  res.json({ state: { status: p.status, stage: p.stage, error: p.error_message, latest_version: latest ? Number(latest) : null, messages, review_status: p.review_status, review_version: p.review_version } });
+  res.json({ state: { status: p.status, stage: p.stage, error: p.error_message, latest_version: latest ? Number(latest) : null, messages, review_status: p.review_status, review_version: p.review_version, parts_status: p.parts_status } });
 });
 
 proposals.get('/proposals/:id/versions/:no', anyone, async (req, res) => {
@@ -436,7 +458,9 @@ proposals.post('/proposals/:id/versions', anyone, async (req, res) => {
   const answersChanged = !!answers && JSON.stringify(answers) !== JSON.stringify(cur?.answers ?? []);
   if (cur && htmlToPlain(cur.html) === htmlToPlain(html) && !answersChanged) return void res.json({ unchanged: true, version_no: cur.version_no });
   const stale = b.data.based_on && cur && cur.version_no > b.data.based_on;
-  const no = await addVersion(p.id, html, 'manual', req.user!.id, stale ? `Edited from v${b.data.based_on}; v${cur.version_no} was saved meanwhile` : null, b.data.based_on ?? null, answers);
+  // the letter unchanged (only the answers were edited): it keeps its parts; any change to the letter makes it the person's own text
+  const keepParts = cur && htmlToPlain(cur.html) === htmlToPlain(html) ? cur.parts : null;
+  const no = await addVersion(p.id, html, 'manual', req.user!.id, stale ? `Edited from v${b.data.based_on}; v${cur.version_no} was saved meanwhile` : null, b.data.based_on ?? null, answers, keepParts);
   await audit(req.user!.id, 'proposal_edit', `proposal=${p.id} version=${no}`);
   res.status(201).json({ version_no: no });
 });
@@ -446,10 +470,10 @@ proposals.post('/proposals/:id/restore', anyone, async (req, res) => {
   if (!b.success) return void bad(res, b.error);
   const p = await ownedProposal(req, res); if (!p) return;
   if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
-  const v = (await query<any>('SELECT content_html, answers_json FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, b.data.version_no]))[0];
+  const v = (await query<any>('SELECT content_html, answers_json, parts_json FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, b.data.version_no]))[0];
   if (!v) return void res.status(404).json({ error: 'That version does not exist' });
-  const sep = separate(v.content_html, v.answers_json); // the letter and its answers both come back
-  const no = await addVersion(p.id, sep.html, 'restore', req.user!.id, `Restored from v${b.data.version_no}`, b.data.version_no, sep.answers);
+  const sep = separate(v.content_html, v.answers_json); // the letter, its answers and its parts all come back
+  const no = await addVersion(p.id, sep.html, 'restore', req.user!.id, `Restored from v${b.data.version_no}`, b.data.version_no, sep.answers, readParts(v.parts_json));
   await audit(req.user!.id, 'proposal_restore', `proposal=${p.id} from=${b.data.version_no} version=${no}`);
   res.status(201).json({ version_no: no });
 });

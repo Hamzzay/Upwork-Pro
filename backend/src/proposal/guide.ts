@@ -1,4 +1,5 @@
 import { query } from '../db';
+import { cached } from '../cache';
 
 /**
  * The shared part of the Writing guide (writing_docs): writing rules, banned phrases, modules, screening answers and the checklist.
@@ -6,7 +7,8 @@ import { query } from '../db';
  */
 export interface Guide { rules: string | null; banned: string | null; modules: string | null; screening: string | null; checklist: string | null }
 
-export async function loadGuide(): Promise<Guide> {
+export const loadGuide = (): Promise<Guide> => cached('guide', readGuide);
+async function readGuide(): Promise<Guide> {
   const docs = await query<any>("SELECT kind, content FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
   const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content.trim()).join('\n\n') || null;
   return { rules: one('rules'), banned: one('banned'), modules: one('modules'), screening: one('screening'), checklist: one('checklist') };

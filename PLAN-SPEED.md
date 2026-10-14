@@ -3,6 +3,8 @@
 Agreed with Ahmad on 14 October 2026, from `SPEED-REVIEW.md`. Each point says what is built and what changes for the person.
 Branch `hamza`; each finished point gets its `NEW-UPDATES.md` entry and its row in `TASKS.md`.
 
+**Status (14 October): points 1 to 9 and 11 are built (R64); 10 is not wanted; 7 is a setting to check on the live server.**
+
 ## 1. The proposal in parts (Ahmad's design, with the early draft fix)
 
 A proposal is built from parts. Only the part a change touches is redone, so most changes cost no new full write.

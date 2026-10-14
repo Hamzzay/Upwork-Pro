@@ -558,6 +558,33 @@ const ctx = { rules, projects };
     assert.equal(parseSections(JSON.stringify({ dos: ['Be kind'] })).dos[0], 'Be kind', 'a stored version missing parts keeps the built-in parts');
   }
 
+  // ---------- a proposal in parts (PLAN-SPEED point 1) ----------
+  {
+    const { assemble, signoff, loomLine, proofFor, cleanLetter } = await import('../src/proposal/parts');
+    const proof = [{ project_id: 1, name: 'Breesy', text: 'Breesy: an AI leasing assistant that answers leads at night.', link: 'https://breesy.example.com' },
+      { project_id: 2, name: 'Apex', text: 'Apex: a booking system for clinics.', link: null }];
+    const so = signoff({ name: 'Jane Doe', gitlab_link: 'https://gitlab.com/jane' });
+    assert.equal(so, 'Best regards,\nJane Doe\nhttps://gitlab.com/jane', 'the sign off from the profile');
+    assert.equal(signoff({ name: 'Jane Doe', signature: 'Cheers,\nJane', gitlab_link: null }), 'Cheers,\nJane', 'its own ready sign off wins');
+    assert.equal(signoff({ name: 'Jane Doe', signature: 'Jane Doe, then the GitHub link on the next line', gitlab_link: 'https://github.com/jane' }), 'Best regards,\nJane Doe\nhttps://github.com/jane', 'a note about signing off is guidance, not the text');
+    const ll = loomLine('I recorded a short walkthrough of {title}:\n{url}', { title: 'the leasing bot', url: 'https://loom.com/x' });
+    assert.equal(ll, 'I recorded a short walkthrough of the leasing bot:\nhttps://loom.com/x');
+    assert.equal(loomLine('Here is a video.', { title: 'x', url: 'https://loom.com/y' }), 'Here is a video.\nhttps://loom.com/y', 'the link is always there');
+    const letter = 'Your leads go cold after hours.\n\nHere is similar work:\n\n[[PROOF]]\n\n[[VIDEO]]\n\nShall we talk this week?';
+    const full = assemble({ letter, proof, loomLine: ll, signoff: so });
+    assert.ok(full.startsWith('Your leads go cold after hours.'), 'the letter leads');
+    assert.ok(full.includes('Breesy: an AI leasing assistant that answers leads at night.\nhttps://breesy.example.com\n\nApex: a booking system'), 'each block, then its link');
+    assert.ok(full.indexOf('https://loom.com/x') > full.indexOf('Apex') && full.indexOf('https://loom.com/x') < full.indexOf('Shall we talk'), 'the video where the marker was');
+    assert.ok(full.endsWith(so) && !full.includes('[['), 'signed off, no marker left');
+    const noVideo = assemble({ letter, proof, loomLine: '', signoff: so });
+    assert.ok(!noVideo.includes('[[VIDEO]]') && !/\n{3,}/.test(noVideo), 'no video: the marker goes, no gap is left');
+    const noMarkers = assemble({ letter: 'Para one.\n\nPara two.', proof, loomLine: ll, signoff: so });
+    assert.ok(noMarkers.indexOf('Breesy') > noMarkers.indexOf('Para one') && noMarkers.indexOf('Breesy') < noMarkers.indexOf('Para two'), 'no marker: the proof goes before the last paragraph');
+    assert.equal(cleanLetter('Body text here.\n\nBest regards,\nSomeone'), 'Body text here.', 'a sign off the writer added anyway is cut');
+    const pf = proofFor(proof, [{ id: 2, name: 'Apex', link: null }, { id: 3, name: 'Kruzee', link: 'https://k.example.com' }]);
+    assert.deepEqual(pf.keep.map((x) => x.name), ['Apex'], 'a kept project keeps its block'); assert.deepEqual(pf.missing.map((x) => x.name), ['Kruzee'], 'a new one is written');
+  }
+
   // ---------- flag review (R63) ----------
   {
     const { buildFlagReview, picksOf } = await import('../src/flagreview');

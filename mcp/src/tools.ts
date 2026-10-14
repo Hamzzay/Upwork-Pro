@@ -155,12 +155,18 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => { const { id, ...body } = a; return api.call('POST', `/plugin/jobs/${id}/proposal`, body); });
 
   T('get_library', 'The project library and tag dictionary from Upwork Pro: every active project with its links, overview, industries and tags, every tag with its category and match weight, and the Loom videos per profile with their tags. Read it once per run for tagging and project matching; it is the only library (no sheet copy). Case studies are long and left out: once the projects are chosen, call again with case_studies set to their names.',
-    { case_studies: z.array(z.string()).max(10).optional().describe('Project names whose case study to include, e.g. ["Breesy", "Apex"]') }, { readOnlyHint: true, openWorldHint: false },
-    async (a) => api.call('GET', '/plugin/library' + (a.case_studies?.length ? '?' + new URLSearchParams({ case_studies: a.case_studies.join(',') }) : '')));
+    { case_studies: z.array(z.string()).max(10).optional().describe('Project names whose case study to include, e.g. ["Breesy", "Apex"]'),
+      known_version: z.string().optional().describe('The "version" of the library you already read in this conversation: if nothing changed, the answer is just "unchanged" and you use your copy') }, { readOnlyHint: true, openWorldHint: false },
+    async (a) => { const q = new URLSearchParams({ ...(a.case_studies?.length ? { case_studies: a.case_studies.join(',') } : {}), ...(a.known_version ? { known_version: a.known_version } : {}) }).toString();
+      return api.call('GET', '/plugin/library' + (q ? '?' + q : '')); });
+
+  T('match_projects', `Match the Stackup projects to a saved job, on the server: the app's own matching (platform, the job's core work, industry, the weighted tags, compliance) and then the AI's order with a reason for each, the same list the app shows. It works on the job tags saved with save_step read, so save that first. Takes up to a minute. Show what it returns as it is; never score or reorder projects yourself. skip_tech_stack: true to match without the Tech stack tags.`,
+    { id: z.number().int(), skip_tech_stack: z.boolean().optional() }, { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    async (a) => api.call('POST', `/plugin/jobs/${a.id}/match`, { skip_tech_stack: a.skip_tech_stack }));
 
   T('get_writing_guide', 'The writing guide from Upwork Pro: the proposal types (when each is chosen and its length), how to choose the type (type_selection), writing rules, banned phrases, modules, screening answer rules and the verification checklist. Pass type (e.g. "1-standard-build" or "invite") for that type\'s full text, or all=true for every type.',
-    { type: z.string().optional(), all: z.boolean().optional() }, { readOnlyHint: true, openWorldHint: false },
-    async (a) => api.call('GET', '/plugin/writing-guide?' + new URLSearchParams({ ...(a.type ? { type: a.type } : {}), ...(a.all ? { all: '1' } : {}) })));
+    { type: z.string().optional(), all: z.boolean().optional(), known_version: z.string().optional().describe('The "version" you already read in this conversation: if nothing changed, the answer is "unchanged"') }, { readOnlyHint: true, openWorldHint: false },
+    async (a) => api.call('GET', '/plugin/writing-guide?' + new URLSearchParams({ ...(a.type ? { type: a.type } : {}), ...(a.all ? { all: '1' } : {}), ...(a.known_version ? { known_version: a.known_version } : {}) })));
 
   T('add_profile', 'Add an Upwork profile Upwork Pro does not have yet, or fill the empty fields of an existing one (never overwrites). Admins only. Send only what your profile record says; leave out anything marked TO FILL.',
     { name: z.string().describe('The profile name, e.g. "Hassan Ijaz"'), tagline: z.string().optional().describe('Upwork headline'), price: z.number().optional().describe('Default hourly rate'),

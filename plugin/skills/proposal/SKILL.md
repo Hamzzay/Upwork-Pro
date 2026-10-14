@@ -7,7 +7,7 @@ description: Runs the full Stackup Upwork proposal workflow from a job link to a
 
 Take one Upwork job from link to a proposal saved in Upwork Pro, in ten steps. Do the reading, matching, drafting and saving. Stop at the six decision points and wait for the person's answer before moving on. **Every step is saved in Upwork Pro the moment it is answered**, so the app always shows where the job stands and anyone can pick it up halfway.
 
-Read `references/config.md` first. Upwork Pro (through the `upwork-pro` MCP tools) is where every job and proposal is saved. Load those tools with ToolSearch and call `plugin_options` once at the start: it lists the profiles, project names, rule codes, outcomes and loss reasons Upwork Pro accepts. Only if the tools are not available, use the Google Sheet Job Log instead (read `references/log-columns.md` before writing to it) and say so in one line.
+Read `references/config.md` first. Upwork Pro (through the `upwork-pro` MCP tools) is where every job and proposal is saved. Load those tools with ToolSearch, then **in one message** call `plugin_options` (the profiles, project names, rule codes, outcomes and reasons Upwork Pro accepts), `find_jobs` for the job (step 2), `get_library` and `get_writing_guide`: none of them waits on another, so they go together. Keep the `version` each read returns: for a second job in the same conversation, pass it as `known_version` and use your copy when the answer is "unchanged". Only if the tools are not available, use the Google Sheet Job Log instead (read `references/log-columns.md` before writing to it) and say so in one line.
 
 ## Save every step, as it happens
 
@@ -16,7 +16,7 @@ This is the rule the rest of the workflow hangs on. Upwork Pro must show the job
 | After | Call | What it saves |
 | --- | --- | --- |
 | Step 3, the gate (before the decision) | `save_job` without `decision` | the job, the post, the verdict, every fail and flag |
-| Decision 1 | `record_decision` | continue (with the reason past a FLAG or FAIL) or skip (with the reason) |
+| Decision 1 | `record_decision` (sent with the step 5 save) | continue (with the reason past a FLAG or FAIL) or skip (with the reason) |
 | Step 5, read the job | `save_step` `read` | the job tags with a reason each, the core work, the one industry, the signals with their evidence |
 | Decision 2, the profile | `save_step` `profile` | the profile and the rate |
 | Decision 3, the projects | `save_step` `projects` | the shortlist you showed with a reason each, and the projects picked |
@@ -65,7 +65,7 @@ A job that belongs to someone else can be continued only by a manager or an admi
 
 ## Step 2. Duplicate check
 
-Call `find_jobs` with the job link (or `job_id`) to find every earlier save of this job in Upwork Pro (fallback: the Job Log rows whose normalized `Job URL` matches). A duplicate is never a fail and is never skipped automatically. It is a **flag** (code D1) for the person to decide.
+Use the `find_jobs` answer from the start (called with the job link or `job_id`) to find every earlier save of this job in Upwork Pro (fallback: the Job Log rows whose normalized `Job URL` matches). A duplicate is never a fail and is never skipped automatically. It is a **flag** (code D1) for the person to decide.
 
 If one or more matches exist, show them as a visible message before anything else:
 
@@ -94,10 +94,10 @@ Apply the `job-gate` skill to the job data. Then show the person, as one visible
 
 **Save the job now, in the same message as Decision 1** (step 4 below, without `decision`), so it is in Upwork Pro as "Decision pending" even if the person stops here.
 
-**Decision 1.** Only after that message is visible, ask: **Continue** or **Stop**. Put the verdict and the main flags in the question text, for example "FLAG (G3 avg hourly $8, G14 20 Connects). Continue?"
+**Decision 1.** Only after that message is visible, ask: **Continue** or **Stop**. Put the verdict and the main flags in the question text, for example "FLAG (G3 avg hourly $8, G14 20 Connects). Continue?" On a **PASS**, ask it in the same message as the gate result (the AskUserQuestion right after the visible gate message, with the save), not as a turn of its own.
 * On Continue after a Flag or Fail, ask for the reason with the quick picks from `plugin_options` (`continue_reasons`, the same ones the app offers), multi select, plus Other for their own words. Several picks and a note can go together.
 * On Stop, ask why in one line (the quick picks from `plugin_options` `skip_reasons`, or their own words), then call `record_decision` with `continue: false`, that reason, and `picks` with the quick reason they picked, and end.
-* On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason: the picks as sentences, then their note, for example "Invited by the client. Strong client history. They asked for us by name."; never invent a note; and `picks`, the quick reasons they picked exactly as listed), in the same message as the first call of step 5 (`get_library`).
+* On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason: the picks as sentences, then their note, for example "Invited by the client. Strong client history. They asked for us by name."; never invent a note; and `picks`, the quick reasons they picked exactly as listed), in the same message as the step 5 save (`save_step` read) and Decision 2, so it costs no turn of its own (the library was already read at the start).
 
 ## Step 4. Save the job (done inside step 3, right after the gate)
 
@@ -122,15 +122,15 @@ Apply the `job-signals` skill. Do not show the full signal table unless asked. S
 
 Apply the `profiles` skill to suggest a profile and rate. Show the suggestion and a one line reason per option before asking.
 
-**Decision 2.** Ask the person to pick the profile (suggested one first). Then confirm the rate: the profile default, or a different rate they type.
+**Decision 2.** Ask the person to pick the profile (suggested one first), in one question. Do not ask for a rate: it is put in on Upwork by hand.
 
-**Save it:** `save_step` with `step: "profile"` and `data: { profile, rate }`, in the same message as the first call of step 7. If the profile is not in `plugin_options`, add it first with `add_profile` (see step 10).
+**Save it:** `save_step` with `step: "profile"` and `data: { profile, rate }` with the profile's own rate from `plugin_options`, in the same message as the first call of step 7 (`match_projects`). If the profile is not in `plugin_options`, add it first with `add_profile` (see step 10).
 
 ## Step 7. Projects
 
-Apply the `project-matcher` skill with the job tags and the chosen profile. The library comes from Upwork Pro (`get_library`); never ask for it. Matching runs platform first, then industry, then tags. Show the "Job needs" line, then the five shortlisted projects as a visible table (name, platform and link, industry match, tag score, matched tags, one line on why it fits), two marked recommended, plus any "Alternative from another industry" with its explanation, before asking.
+Call `match_projects` for job #N (with `skip_tech_stack` when the person asked for it). Upwork Pro matches on the tags saved at step 5, with the app's own rules and the AI's order, and returns the shortlist with a reason for each: do not score or reorder projects yourself. Show the "Job needs" line, then the shortlist as a visible table (name, platform and link, industry, score, matched tags, the reason), the recommended ones marked, plus any "alternative" with its reason, before asking. If the person already used projects in an earlier proposal of this job (step 2), mark them. Only if `match_projects` is not available or fails twice, apply the `project-matcher` skill by hand and say so in one line.
 
-**Decision 3.** Ask the person to pick one or two (multi select). Offer one more choice with it: **Match again without the tech stack tags** (or with them again, when they were skipped). It leaves the job's Tech stack tags (languages, frameworks, databases) out of the matching and changes nothing else (see `project-matcher`). If the person chooses it, match again, show the new shortlist, and ask Decision 3 again. When continuing a job, use `skip_tech_stack` from `get_job` under `saved`.
+**Decision 3.** Ask the person to pick one or two (multi select). Offer one more choice with it: **Match again without the tech stack tags** (or with them again, when they were skipped). It leaves the job's Tech stack tags (languages, frameworks, databases) out of the matching and changes nothing else (see `project-matcher`). If the person chooses it, call `match_projects` again with `skip_tech_stack` switched, show the new shortlist, and ask Decision 3 again. When continuing a job, use `skip_tech_stack` from `get_job` under `saved`.
 
 **Save it**, in the same message as the first call of step 8 (`get_writing_guide`, and `get_library` with the chosen projects' case studies): `save_step` with `step: "projects"` and `data`: `shortlist` (every project you showed, in the order shown, each with its one line `reason`, `recommended: true` on the recommended ones), `picked` (the names the person chose) and `skip_tech_stack` (true when the shortlist was matched without the tech stack tags, false otherwise). Every name must be in the library: if Upwork Pro answers that one is missing, add it with `add_project` (see step 10), then save this step again.
 
