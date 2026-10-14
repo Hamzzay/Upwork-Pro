@@ -301,19 +301,35 @@ ol.habits{padding-left:20px;display:grid;gap:8px}
 @media (max-width:860px){.wrap{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}}
 @media print{nav{display:none}.wrap{display:block}.step{break-inside:avoid}}
 """
-nav = ''.join(f'<a href="#{k}">{e(t)}</a>' for k, t, _ in SECTIONS)
-body = ''.join(f'<h2 id="{k}">{e(t)}</h2>' + ''.join(parts) for k, t, parts in SECTIONS)
-page = f"""<!doctype html>
+def render(sections, title, lead, foot, other):
+    nav = ''.join(f'<a href="#{k}">{e(t)}</a>' for k, t, _ in sections)
+    body = ''.join(f'<h2 id="{k}">{e(t)}</h2>' + ''.join(parts) for k, t, parts in sections)
+    return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Upwork Pro: the team guide</title><style>{CSS}</style></head>
-<body><div class="wrap"><nav><strong>Upwork Pro guide</strong>{nav}<a id="toapp" href="/" hidden>Back to Upwork Pro</a></nav><main>
-<h1>Upwork Pro: the team guide</h1>
-<p class="lead">How to do the daily work, with Claude and without it, how to add and manage everything proposals are built from, and how to read the numbers. Each picture has numbers on it; the list under the picture says what each one is. Click a picture to see it full size.</p>
+<title>{e(title)}</title><style>{CSS}</style></head>
+<body><div class="wrap"><nav><strong>Upwork Pro guide</strong>{nav}{other}<a id="toapp" href="/" hidden>Back to Upwork Pro</a></nav><main>
+<h1>{e(title)}</h1>
+<p class="lead">{lead}</p>
 {body}
-<p class="after" style="margin-top:48px">Pictures show Upwork Pro as of 9 to 14 October 2026. To update this guide, edit <code>guide/build.py</code> and run it.</p>
+<p class="after" style="margin-top:48px">{foot}</p>
 </main></div><script src="guide.js"></script></body></html>
 """
+
+page = render(SECTIONS, 'Upwork Pro: the team guide',
+  'How to do the daily work, with Claude and without it, how to add and manage everything proposals are built from, and how to read the numbers. Each picture has numbers on it; the list under the picture says what each one is. Click a picture to see it full size. Setting up a fresh copy? Read <a href="setup.html">Setting up from zero</a>.',
+  'Pictures show Upwork Pro as of 9 to 14 October 2026. To update this guide, edit <code>guide/build.py</code> and run it.',
+  '<a href="setup.html" style="margin-top:14px"><b>Setting up from zero</b></a>')
 open(os.path.join(HERE, 'index.html'), 'w').write(page)
+
+# the setup guide: a fresh, empty copy to working proposals (guide/setup_content.py)
+import importlib.util
+_spec = importlib.util.spec_from_file_location('setup_content', os.path.join(HERE, 'setup_content.py')); _sc = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_sc)
+setup_page = render(_sc.sections(note), 'Upwork Pro: setting up from zero',
+  'For a fresh, empty copy of Upwork Pro: what to put in, in which order, how much each thing matters and where it shows, until it writes proposals the way your company already does with GPT or Claude. The screens themselves are shown in <a href="index.html">the team guide</a>.',
+  'Checked against the code on 14 October 2026. To update this guide, edit <code>guide/setup_content.py</code> and run <code>python3 guide/build.py</code>.',
+  '<a href="index.html" style="margin-top:14px"><b>The team guide</b></a>')
+open(os.path.join(HERE, 'setup.html'), 'w').write(setup_page)
+print('built setup.html:', len(_sc.sections(note)), 'sections')
 used = {p.split('"')[0] for p in page.split('src="img/')[1:]}
 have = set(os.listdir(os.path.join(HERE, 'img')))
 print('built index.html:', len(used), 'pictures;', 'missing:', sorted(used - have) or 'none', '; not used:', sorted(have - used) or 'none')

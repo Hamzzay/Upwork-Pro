@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { companyName } from '../company';
 
 export interface SignalValueDef { id: number; name: string; detect: string | null; move: string | null; is_fallback: boolean }
 export interface SignalDef { id: number; number: number; layer: string; layer_intro?: string | null; layer_rule?: string | null; name: string; decides: string | null; multi_select: boolean; notes?: string | null; values: SignalValueDef[] }
@@ -57,7 +58,7 @@ export function detectionPrompt(signals: SignalDef[], layers: { code: string; in
   }).join('\n\n');
   const noFallback = signals.filter((s) => !s.values.some((v) => v.is_fallback)).map((s) => s.number);
   const layerNotes = layers.filter((l) => l.intro || l.rule).map((l) => `${l.code.toUpperCase()} LAYER: ${[l.intro, l.rule].filter(Boolean).join(' ')}`).join('\n');
-  return `You read one Upwork job post and detect Stackup's proposal signals from it.
+  return `You read one Upwork job post and detect the proposal signals for ${companyName()} from it.
 
 For EVERY signal below, return exactly one entry with the signal number and the value or values that fit the post.
 - Pick a value only when the post shows it. Quote the short evidence from the post and give a one-sentence reason.

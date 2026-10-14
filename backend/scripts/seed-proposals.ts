@@ -42,7 +42,8 @@ const load = (f: string) => JSON.parse(readFileSync(join(appRoot, 'seed', f), 'u
   }
 
   const tplId = new Map<string, number>((await query<any>('SELECT id, name FROM templates')).map((r) => [r.name, r.id]));
-  for (const s of samples) {
+  // --no-samples (the starter kit): the sample proposals are one company's real proposals, so a fresh company starts without them
+  for (const s of process.argv.includes('--no-samples') ? [] : samples) {
     const tid = tplId.get(s.template);
     if (!tid) throw new Error('sample for an unknown template: ' + s.template);
     const exists = await query('SELECT id FROM template_samples WHERE template_id=? AND author=? AND job_url <=> ?', [tid, s.author, s.job_url]);

@@ -1088,7 +1088,7 @@ function jobReportView(j, multi) {
       j.override_note ? h('div', { class: 'callout', style: 'margin-top:12px' }, j.override_note) : null) : null,
     j.flags.length ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, `Flags (${j.flags.length})`), issues(j.flags, 'flag')) : null,
     h('div', { class: 'grid3' }, kvCard('Job', j.job), kvCard('Client', j.client), kvCard('Competition', j.competition)),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Fit with Stackup'), h('p', {}, j.fit)),
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Fit with ' + cfg('company.name', 'us')), h('p', {}, j.fit)),
     j.proposal_notes.length ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Notes for the proposal'),
       h('ul', { class: 'plain' }, j.proposal_notes.map((n) => h('li', {}, n)))) : null);
 }
@@ -1649,7 +1649,7 @@ async function jobPage(id, want) {
       j.override_note ? h('p', { class: 'jp-label', style: 'margin-top:10px' }, j.override_note) : null));
     if (j.flags.length) parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `Flags (${j.flags.length})`), issues(j.flags, 'flag')));
     parts.push(fitProjectsCard());
-    parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Fit with Stackup'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, j.fit),
+    parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Fit with ' + cfg('company.name', 'us')), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, j.fit),
       j.proposal_notes.length ? [h('div', { class: 'jp-sec', style: 'margin-top:14px' }, 'Notes for the proposal'), h('ul', { class: 'jp-list' }, j.proposal_notes.map((n) => h('li', {}, n)))] : null));
     const facts = (t, rows) => h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, t),
       h('dl', { class: 'facts one' }, rows.map((r) => h('div', {}, h('dt', {}, r.label), h('dd', { class: /^not shown$/i.test(r.value.trim()) ? 'ns' : '' }, cap(r.value))))));
@@ -1708,8 +1708,8 @@ async function industriesView() {
   const canEdit = canEditProjects();
   const open = (i) => () => { location.hash = '#/i/' + i.id; };
   const add = canEdit ? h('button', { class: 'btn primary', onclick: () => industryEditor(null, projects, () => route()) }, icon('screen'), 'Add industry') : null;
-  shell('industries', [pageHead('Industries', 'The industries Stackup has worked in. A project can belong to several industries, and an industry can have several projects.', add),
-    listCard({ items: industries, icon: 'building', emptyTitle: 'No industries yet', emptyText: 'Add the industries Stackup has worked in.',
+  shell('industries', [pageHead('Industries', `The industries ${cfg('company.name', 'the company')} has worked in.` + ' A project can belong to several industries, and an industry can have several projects.', add),
+    listCard({ items: industries, icon: 'building', emptyTitle: 'No industries yet', emptyText: `Add the industries ${cfg('company.name', 'the company')} has worked in.`,
       search: { placeholder: 'Search industries', text: (i) => i.name + ' ' + (i.description || '') + ' ' + i.projects.map((p) => p.name).join(' ') },
       filters: [statusFilter((i) => i.active)],
       onSync: () => { lastList.industries = location.hash; },
@@ -2041,8 +2041,8 @@ async function projectsView() {
   const afterEdit = () => route();
   const detail = (p) => () => { location.hash = '#/p/' + p.id; };
   const add = canEdit ? h('button', { class: 'btn primary', onclick: () => projectEditor(null, categories, afterEdit, industries) }, icon('screen'), 'Add project') : null;
-  shell('projects', [pageHead('Projects', "Stackup's delivered work. Tags are how a new job is matched to the projects that prove the same kind of work.", add),
-    listCard({ items: projects, icon: 'folder', emptyTitle: 'No projects yet', emptyText: 'Add the projects Stackup has delivered.',
+  shell('projects', [pageHead('Projects', `The work ${cfg('company.name', 'the company')} has delivered.` + " Tags are how a new job is matched to the projects that prove the same kind of work.", add),
+    listCard({ items: projects, icon: 'folder', emptyTitle: 'No projects yet', emptyText: `Add the projects ${cfg('company.name', 'the company')} has delivered.`,
       search: { placeholder: 'Search projects', text: (p) => p.name + ' ' + p.tags.map((t) => t.name).join(' ') + ' ' + p.industries.map((i) => i.name).join(' ') },
       filters: [
         { key: 'industry', label: 'Any industry', options: industries.map((i) => [i.id, i.name]), test: (p, v) => p.industries.some((i) => String(i.id) === v) },
@@ -2621,6 +2621,7 @@ async function settingsView() {
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
+    (() => { const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' }); return group('Company', [row('company.name', el, () => el.value.trim())]); })(),
     group('Independent reviewer', [onoff('review.auto')]),
     group('Project matching', [num('matching.auto_max_flags'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),

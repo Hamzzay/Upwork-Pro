@@ -585,6 +585,20 @@ const ctx = { rules, projects };
     assert.deepEqual(pf.keep.map((x) => x.name), ['Apex'], 'a kept project keeps its block'); assert.deepEqual(pf.missing.map((x) => x.name), ['Kruzee'], 'a new one is written');
   }
 
+  // ---------- the company name is a setting (R66) ----------
+  {
+    const { setCompanyName, companyName } = await import('../src/company');
+    const { tagSystemPrompt } = await import('../src/screening/tagging');
+    const { reviewerSystem: rs } = await import('../src/proposal/reviewer');
+    setCompanyName('Acme Studio');
+    assert.equal(companyName(), 'Acme Studio');
+    assert.ok(tagSystemPrompt([]).includes('the projects Acme Studio has delivered') && !tagSystemPrompt([]).includes('Stackup'), 'the tagger works for the company set');
+    const r = rs({ template: null, signals: [], sender: { name: 'Jane', gitlab_link: null, tagline: null }, projects: [], clientRequirements: [], checkWarnings: [] } as any);
+    assert.ok(r.includes('proposals for Acme Studio') && !r.includes('{company}'), 'the reviewer\'s built-in text names the company');
+    setCompanyName('  '); assert.equal(companyName(), 'Acme Studio', 'an empty name is ignored');
+    setCompanyName('Stackup Solutions');
+  }
+
   // ---------- flag review (R63) ----------
   {
     const { buildFlagReview, picksOf } = await import('../src/flagreview');

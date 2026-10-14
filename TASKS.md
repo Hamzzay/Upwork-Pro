@@ -91,6 +91,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 42 | Flag review: per rule, continued or skipped, the reasons picked, how the continued jobs did against clean passes, and a hint; quick reasons stored as data; review_flags for Claude (R63, migration 040) | done in code; review at 200 jobs |
 | 43 | A faster proposal: PLAN-SPEED points 1 to 11 (parts, server matching for the plugin, no gaps between steps, the review in the same job, the opening only, memory for the setup, fewer plugin turns, Ahmad's auto matching rule) (R64, plugin v0.13.0, migration 041) | done in code; to check on screen and in Claude |
 | 44 | Team guide up to date for R58 to R64: 6 pictures retaken, 6 new, the text for every changed screen and for Claude (R65) | done |
+| 45 | Setting up from zero: the guide (guide/setup.html), the starter kit (npm run seed:starter), the company name as a setting; checked on an empty database to a first proposal (R66) | done |
+| 46 | The Claude plugin for another company: replace its backup files, job gate text and profiles list with that company's (or generate them from its Upwork Pro) | open, only when another company uses the plugin |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

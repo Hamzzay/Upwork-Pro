@@ -18,6 +18,7 @@ GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backe
 | For | Open |
 | --- | --- |
 | How to use it (for the team, with pictures) | `guide/index.html` |
+| Setting up a fresh, empty copy for a company | `guide/setup.html` (and `npm run seed:starter`) |
 | The design rules every page follows | `DESIGN.md` |
 | What was built and why, change by change | `NEW-UPDATES.md` |
 | What is open and how to pick up the work | `TASKS.md` |
@@ -88,6 +89,9 @@ cp .env.example .env            # DB password, SEED_ADMIN_*, and the Z.ai key (L
 npm install
 npm run migrate                 # creates and upgrades the tables (sql/migrations 002 to 016, tracked in schema_migrations)
 npm run seed                    # first admin + gate instructions version 1 from seed/gate-instructions.md
+npm run seed:starter            # a NEW company: the company neutral starter kit (tag categories, platform tags, signals, the 8
+                                # proposal types without samples, the writing guide, settings); then follow guide/setup.html
+                                # and skip the four seed:* lines below, which load Stackup's own data
 npm run seed:library            # tags, projects, rules (with How to apply notes), profiles from seed/library.json (insert-if-missing)
 npm run seed:proposals          # signals, templates (with a starter signal mapping) and sample proposals (insert-if-missing)
 npm run seed:settings           # admin settings with their defaults from src/settings.ts (insert-if-missing)

@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { run } from '../llm';
 import { config } from '../config';
+import { companyName } from '../company';
 
 /**
  * The last step of matching (13 October): tags only build the shortlist (platform, the work, industry). This reads the job and each
- * shortlisted project's overview and case study, and orders them by how well each proves Stackup can do this job, with a reason.
+ * shortlisted project's overview and case study, and orders them by how well each proves the company can do this job, with a reason.
  * The project step shows this order; screening shows the same list, so the two never disagree.
  */
 export interface Candidate { name: string; overview: string | null; case_study: string | null; industries: string[]; platform: string; shared: string[] }
@@ -20,7 +21,7 @@ export function judgeSchema(names: string[]) {
 }
 
 export function judgePrompt(c: Candidate[], coreWork: string[], industry: string | null): string {
-  return `You choose which of Stackup's delivered projects best prove that Stackup can do one Upwork job. A person will show the first two in a proposal.
+  return `You choose which of the projects ${companyName()} has delivered best prove that ${companyName()} can do one Upwork job. A person will show the first two in a proposal.
 
 Read the job, then every project below (its overview, case study and the job tags it shares). Order ALL of them, best proof first:
 1. Most important: the project delivered the same core work the job needs (${coreWork.join(', ') || 'judge it from the post'}), in the same way: the same kind of input, output and users. A project that only shares broad features (an AI agent, a dashboard, automation) is weaker than one that did this exact job.

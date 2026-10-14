@@ -1014,6 +1014,7 @@ api.post('/admin/skill/preview', admin, async (req, res) => {
   const b = skillBody.pick({ content: true }).safeParse(req.body);
   if (!b.success) return void res.status(400).json(wrap(b.error));
   const ctx = await loadContext();
+  await getSettings(); // the company name in the prompt
   res.json({ prompt: gatePrompt(b.data.content, ctx.rules, ctx.projects), rules: ctx.rules.length, projects: ctx.projects.length });
 });
 // Dry run of draft text against sample job text. Nothing is saved.
@@ -1021,6 +1022,7 @@ api.post('/admin/skill/test', admin, async (req, res) => {
   const b = skillBody.pick({ content: true }).extend({ sample: z.string().min(120).max(60_000) }).safeParse(req.body);
   if (!b.success) return void res.status(400).json(wrap(b.error));
   try {
+    await getSettings(); // the company name in the prompt
     res.json({ report: normalizeReport(await withCallContext({ kind: 'gate_test' }, async () => screenJobText(b.data.sample, b.data.content, await loadContext()))) });
   } catch {
     res.status(502).json({ error: 'The test run failed. Check the AI service settings.' });

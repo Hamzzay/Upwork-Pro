@@ -3,6 +3,7 @@ import { htmlToPlain } from '../html';
 import type { DetectedValue } from './signals';
 import { guideBlock, type Guide } from './guide';
 import { PARTS_RULES } from './parts';
+import { companyName } from '../company';
 
 export interface ProjectFact { id?: number | null; name: string; live_link: string | null; tags: string[]; industries: string[]; notes: string | null; overview?: string | null; case_study?: string | null }
 /** The profile the proposal is sent from. `gitlab_link` is its code link: the GitLab account, or else the GitHub link. */
@@ -50,7 +51,7 @@ function signalsBlock(detected: DetectedValue[]) {
 
 export function writerSystem(a: { template: TemplateFact; detected: DetectedValue[]; samples: SampleFact[]; sender: SenderFact; projects: ProjectFact[]; clientRequirements: string[]; guide?: Guide; parts?: boolean }): string {
   return lines([
-    'You write one Upwork proposal for a freelancer at Stackup Solutions.', '',
+    `You write one Upwork proposal for a freelancer at ${companyName()}.`, '',
     GUARDRAILS, '',
     `CLIENT REQUIREMENTS (from the screening of this post)\n${a.clientRequirements.length ? a.clientRequirements.map((r) => '  - ' + r).join('\n') : '  (none found)'}`, '',
     `PROPOSAL TYPE: ${a.template.name}\nFollow this format and its rules exactly, unless a client requirement above demands otherwise.\n${htmlToPlain(a.template.body_html)}`, '',

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { cached } from './cache';
+import { setCompanyName } from './company';
 import { exec, query } from './db';
 import { PROVIDER_IDS } from './llm/ids';
 
@@ -13,6 +14,7 @@ export const SETTINGS = {
   'ai.model.glm': { label: 'GLM model', help: '', schema: modelName, def: process.env.LLM_MODEL || 'glm-5.3-flash[1m]' },
   'ai.model.claude': { label: 'Claude model', help: '', schema: modelName, def: 'claude-sonnet-5-5' },
   'ai.model.openai': { label: 'GPT model', help: '', schema: modelName, def: 'gpt-5' },
+  'company.name': { label: 'Company name', help: 'The company Upwork Pro works for. Every AI step uses it: the gate, the tagging, the signals, the project order, the writer and the reviewer.', schema: z.string().trim().min(2).max(120), def: 'Stackup Solutions' },
   'review.auto': { label: 'Review every proposal by itself', help: 'The independent reviewer scores every proposal as soon as it is written. Off: it reviews only when someone asks (the Review button, or Claude). How it reviews is set on the Reviewer page.', schema: z.boolean(), def: true },
   'matching.auto_max_flags': { label: 'Start matching by itself when a FLAG has at most this many flags', help: 'A PASS, or a FLAG with no more flags than this, is tagged and matched (and its early draft written) as soon as it is screened, before anyone clicks. More flags, or a FAIL: nothing is spent until someone continues with a reason.', schema: z.number().int().min(0).max(30), def: 2 },
   'matching.shown': { label: 'Projects shown per job', help: 'How many matching projects the Projects step lists.', schema: z.number().int().min(1).max(20), def: 5 },
@@ -53,6 +55,7 @@ async function readSettings(): Promise<Settings> {
     try { const p = d.schema.safeParse(JSON.parse(r.v)); if (p.success) out[r.k] = p.data; } catch { /* a bad row keeps the default */ }
   }
   if (out['selection.min'] > out['selection.max']) out['selection.min'] = out['selection.max'];
+  setCompanyName(out['company.name']); // every AI instruction says who it works for (company.ts)
   return out as Settings;
 }
 

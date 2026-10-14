@@ -35,7 +35,9 @@
     "setup:import:prod": "node dist/scripts/setup-data.js import",
     "backfill:postings": "ts-node scripts/backfill-postings.ts",
     "backfill:postings:prod": "node dist/scripts/backfill-postings.js",
-    "seed:examples": "ts-node scripts/seed-examples.ts"
+    "seed:examples": "ts-node scripts/seed-examples.ts",
+    "seed:starter": "ts-node scripts/seed-starter.ts && ts-node scripts/seed-proposals.ts --no-samples && ts-node scripts/seed-writing.ts && ts-node scripts/seed-settings.ts",
+    "seed:starter:prod": "node dist/scripts/seed-starter.js && node dist/scripts/seed-proposals.js --no-samples && node dist/scripts/seed-writing.js && node dist/scripts/seed-settings.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.282",

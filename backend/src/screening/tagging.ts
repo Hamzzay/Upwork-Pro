@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { run } from '../llm';
 import { config } from '../config';
 import { isWorkTag } from './matching';
+import { companyName } from '../company';
 
 export interface DictTag { id: number; name: string; category: string; weight: number; description: string | null; compliance?: boolean }
 /** core: 1 for the job's main work, 2 and 3 for the rest of its core work, null otherwise. */
@@ -33,7 +34,7 @@ export function tagSystemPrompt(dict: DictTag[]): string {
   const byCat = new Map<string, DictTag[]>();
   for (const t of dict) { if (!byCat.has(t.category)) byCat.set(t.category, []); byCat.get(t.category)!.push(t); }
   const listing = [...byCat].map(([c, ts]) => `${c}${ts[0].compliance ? ' [COMPLIANCE: only when the post states the requirement]' : ''}:\n${ts.map((t) => `  - ${t.name}${t.description ? ': ' + t.description : ''}`).join('\n')}`).join('\n');
-  return `You tag one Upwork job post with Stackup's tag dictionary, so the job can be matched to Stackup's delivered projects.
+  return `You tag one Upwork job post with the tag dictionary of ${companyName()}, so the job can be matched to the projects ${companyName()} has delivered.
 
 Choose tags ONLY from the dictionary below, using the exact tag names. Tag what the job needs, judged from the whole post.
 - There is NO limit on how many tags you choose. Tag everything the post states or the work clearly needs, in every category, and leave out only guesses.

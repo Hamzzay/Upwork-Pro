@@ -1003,6 +1003,35 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R66. Setting up from zero: a guide, a starter kit, and the company name as a setting (done, 14 October)
+
+- **The guide** (`guide/setup.html`, from `guide/setup_content.py`, built by `python3 guide/build.py`, linked both ways with the team
+  guide): for someone given a fresh, empty copy. How the pieces fit together (what each AI step reads from the setup), what
+  matters most, install and the first sign in, what the starter kit gives, the order to fill it in with time estimates, then each
+  piece field by field with how much it matters and where it has an effect: tags (the category names the matching depends on,
+  descriptions, scores, compliance), industries, projects, profiles, Loom videos, the gate instructions and rules, proposal types,
+  samples, the writing guide, signals, the reviewer, the settings that point at the company's own rules and signals, people,
+  Claude and the plugin. Then: coming from GPT or Claude (what you have and where it goes), faster ways in (Claude, sheet imports
+  with their columns, copying a whole setup), testing on real jobs, and what to look at after two weeks. Asked for by Ahmad.
+  Researched from the code by three readers, then checked against it.
+- **The company name is a setting** (Settings, Company, "Company name", default Stackup Solutions). It was written into the
+  AI's instructions in the code (the writer, the tagger, the signals, the project judge, the gate's output rules) and into a few
+  screen labels, so a fresh copy would have written as Stackup. Now every prompt and label uses the setting (`src/company.ts`,
+  set whenever the settings are read; the worker reads them before every job). The reviewer's built in text says `{company}`.
+- **The starter kit:** `npm run seed:starter` (`scripts/seed-starter.ts`, and `seed-proposals.ts --no-samples`) loads what any
+  company needs and nothing of one company's: the 10 tag categories with their exact names (compliance ticked), the 10 platform
+  tags with descriptions and "AI powered" at 0, the 22 signals, the 8 proposal types with their selection rules but without
+  Stackup's sample proposals, the writing guide, the settings. `seed:starter:prod` for a server.
+- **Checked on an empty database** (a throwaway copy, removed after): migrate, seed, seed:starter gave the admin, gate v1, 10
+  categories, 11 tags, 22 signals, 75 values, 8 types, 56 selection rules, 0 samples, 6 writing documents, every setting, and
+  no projects, profiles, rules or industries. Then the guide's smallest setup (a dozen tags with descriptions, two industries, two
+  projects, one profile, two rules, the company "Acme Studio", Claude as the AI) and one made up job: screened PASS, tagged with
+  the right core work, industry and compliance, the right project recommended with a reason in 21 s; the proposal written from
+  the early draft, in parts, and reviewed 31 s after Write; no "Stackup" anywhere in it, signed by the profile with its code link.
+  Tests for the company name; `tsc`; `node --check`.
+- Still Stackup's, said in the guide: the Claude plugin's backup copies, its job gate text and its profiles list (live data comes
+  from the company's own Upwork Pro), the plugin's name, and the first gate instructions (rewritten by the company).
+
 ### R65. The team guide brought up to date for R58 to R64, and four fixes found while taking its pictures (done, 14 October)
 
 - **Pictures retaken (6):** the decide step with the quick reasons (`screen-4-flag`), the Projects step with Skip tech stack tags

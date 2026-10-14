@@ -249,6 +249,7 @@ async function tick(): Promise<boolean> {
     const job = await nextJob(allowBackground);
     if (!job) return started;
     if (!(await job.claim())) continue; // a second worker took it: look again
+    await getSettings().catch(() => undefined); // from memory: keeps the company name (company.ts) current for this job's prompts
     inFlight++; if (job.background) bgInFlight++; started = true;
     job.run().catch((e) => console.error(job.kind + ' failed', (e as Error).message)) // a DB blip must not kill the worker
       .finally(() => { inFlight--; if (job.background) bgInFlight--; wake(); });

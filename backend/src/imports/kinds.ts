@@ -64,7 +64,7 @@ const tagDictionary: Kind = {
 // ---------- projects: name, link, tags ----------
 const projects: Kind = {
   id: 'projects', label: 'Projects', roles: ['manager', 'admin'],
-  description: 'Stackup projects with their tags (the "Project Tagging" sheet). Tags must already be in the dictionary. An existing project is never changed unless the batch allows changes; then the sheet\'s tag list replaces its tags.',
+  description: 'The delivered projects with their tags (the "Project Tagging" sheet). Tags must already be in the dictionary. An existing project is never changed unless the batch allows changes; then the sheet\'s tag list replaces its tags.',
   columns: [
     { name: 'name', aliases: ['project name', 'project', 'name'], required: true, note: 'Project name' },
     { name: 'live_link', aliases: ['live link', 'link', 'url'], note: 'https link, optional' },

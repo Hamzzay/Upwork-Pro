@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { htmlToPlain } from '../html';
 import type { Guide } from './guide';
 import type { ProjectFact, SenderFact, TemplateFact } from './writer';
+import { withCompany } from '../company';
 
 /**
  * What an admin controls on the Reviewer page (R61), kept as versions: how it reviews, what matters most, dos and don'ts, the
@@ -29,7 +30,7 @@ export type ReviewerSections = z.infer<typeof reviewerSections>;
 
 /** Version 1: the reviewer as it was written in code before the Reviewer page (R54), split into its sections. */
 export const DEFAULT_REVIEWER: ReviewerSections = {
-  method: 'You are an independent reviewer of Upwork proposals for Stackup Solutions. Someone else wrote the proposal below. You did not write it and you owe it nothing.\nYour reader is the client who posted the job: busy, reading many proposals, deciding in the first two lines whether to open this one.',
+  method: 'You are an independent reviewer of Upwork proposals for {company}. Someone else wrote the proposal below. You did not write it and you owe it nothing.\nYour reader is the client who posted the job: busy, reading many proposals, deciding in the first two lines whether to open this one.',
   concerns: [
     'The first two lines: do they speak to THIS client\'s problem in a way only this post could have produced, or could they open any proposal?',
     'Does it answer what the post actually asks, including every explicit ask, screening need and requirement below?',
@@ -74,7 +75,7 @@ export function reviewerSystem(a: { template: TemplateFact | null; signals: stri
   const list = (xs: string[]) => xs.map((x) => '- ' + x).join('\n');
   const L = r.limits;
   return lines([
-    r.method,
+    withCompany(r.method),
     '',
     `Judge the proposal on these, in this order:\n${r.concerns.map((c, i) => `${i + 1}. ${c}`).join('\n')}`,
     '',
