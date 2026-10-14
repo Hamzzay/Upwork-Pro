@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { query } from './db';
 import { htmlToPlain } from './html';
+import { answersText, separate } from './proposal/answers';
 import { COLUMN_KEYS } from './screening/contract';
 
 /**
@@ -36,14 +37,15 @@ export async function exportRows(ids: number[], stages: Map<number, string> = ne
   const post = (r: any) => { try { return r.posting_json ? JSON.parse(r.posting_json) : null; } catch { return null; } };
   const props = new Map((await query<any>(
     `SELECT p.*, (SELECT COUNT(*) FROM proposal_versions v WHERE v.proposal_id=p.id) AS versions,
-       (SELECT v.content_html FROM proposal_versions v WHERE v.proposal_id=p.id ORDER BY v.version_no DESC LIMIT 1) AS latest_html
+       (SELECT v.content_html FROM proposal_versions v WHERE v.proposal_id=p.id ORDER BY v.version_no DESC LIMIT 1) AS latest_html,
+       (SELECT v.answers_json FROM proposal_versions v WHERE v.proposal_id=p.id ORDER BY v.version_no DESC LIMIT 1) AS latest_answers
      FROM proposals p WHERE p.screening_id IN (?)`, [ids])).map((p) => [Number(p.screening_id), p]));
 
   const headers = [
     'ID', 'Date screened', 'Submitted by', 'Stage', 'Job title', 'Job URL', ...COLUMN_KEYS.map(label),
     'Verdict', 'Rule codes', 'Fail reasons', 'Flag reasons', 'Gate instructions version', 'Rules applied', 'Model', 'Proceeded', 'Override reason',
     'Job tags', 'Projects shown (score)', 'Projects chosen', 'Upwork profile', 'Signals', 'Template', 'Proposal status',
-    'Proposal versions', 'Proposal warnings', 'Final proposal', 'Proposal sent date', 'Connects spent', 'Boost (Connects)',
+    'Proposal versions', 'Proposal warnings', 'Final proposal', 'Screening answers', 'Proposal sent date', 'Connects spent', 'Boost (Connects)',
     'Client viewed', 'Chat opened', 'Interview', 'Outcome', 'Lost reason', 'Lost note', 'Notes',
     'Sent at', 'Viewed at', 'Chat opened at', 'Interview at', 'Outcome at', 'Status history', 'Change history',
     'Posting description', 'Posting skills', 'Screening questions', 'Client history',
@@ -65,7 +67,7 @@ export async function exportRows(ids: number[], stages: Map<number, string> = ne
       r.profile_name,
       (signals.get(r.id) ?? []).filter((x) => x.is_primary).map((x) => `${x.signal_name}: ${x.value_name} (${x.confidence})`).join('; ') || null,
       p?.template_name ?? null, p ? (p.finalized_at ? 'finalized' : p.status) : null, p ? Number(p.versions) : null, p ? warnings : null,
-      p?.latest_html ? htmlToPlain(p.latest_html) : null,
+      ...(() => { if (!p?.latest_html) return [null, null]; const v = separate(p.latest_html, p.latest_answers); return [htmlToPlain(v.html), v.answers.length ? answersText(v.answers) : null]; })(),
       r.proposal_sent_date ? String(dt(r.proposal_sent_date)).slice(0, 10) : null, r.connects_spent, r.boost_connects,
       r.client_viewed, r.client_replied, r.interviewed, r.outcome, r.outcome_reason, r.outcome_note, r.notes,
       dt(r.proposal_sent_at), dt(r.client_viewed_at), dt(r.client_replied_at), dt(r.interviewed_at), dt(r.outcome_at),

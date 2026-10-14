@@ -83,6 +83,9 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 34 | Live data of 13 October brought back: setup backup refreshed with live's project, tag and rule updates; matching and every job page checked on the live copy (R55) | done |
 | 35 | Team guide: new screenshots (no Tracking tab, skip popup, project step, review panel, Changes), and a section on running the setup from Claude (R57) | done |
 | 36 | Skip tech stack tags: a per job switch on the Projects step (and in the plugin, v0.8.0) that matches the projects without the Tech stack tags, the rest unchanged (R58, migration 037) | done in code; to check in the browser on job #60 or #62, and in Claude |
+| 37 | Screening answers kept apart from the proposal: own field per version, own boxes on the proposal screen, the plugin saves them apart (R59, plugin v0.9.0, migration 038) | done in code; to check on screen with a job that has screening questions |
+| 38 | Plugin: after the independent review, show it and wait, no forced options (R59) | done in the skill; to try in Claude |
+| 39 | Plugin speed: the saves and the review make each run slow (Ahmad, 14 October) | proposal written, waiting for a decision |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

@@ -8,7 +8,8 @@ import { buildReportJsonSchema, contractAddendum, COLUMN_KEYS, gatePrompt, norma
 import { screenJobText } from '../src/screening/service';
 import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
-import { jobQuestions, separateQuestions, splitAnswers } from '../src/screening/questions';
+import { jobQuestions, separateQuestions } from '../src/screening/questions';
+import { separate, splitText, storeAnswers } from '../src/proposal/answers';
 import { coreWork, DEFAULT_MATCH, jobNeeds, jobPlatform, pickLoom, projectPlatforms, rankProjects, TECH_STACK, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
@@ -243,9 +244,20 @@ const ctx = { rules, projects };
   assert.ok(!sq.jobOnly.includes('What similar AI') && sq.jobOnly.includes('leasing leads') && sq.jobOnly.includes('Skills and Expertise') && sq.jobOnly.includes('About the client'), 'the job keeps everything but the questions');
   assert.deepEqual(separateQuestions('Answer these: 1. Have you used n8n?').questions, [], 'questions inside the description are not the separate section');
   assert.deepEqual(jobQuestions('no section', { description: 'Tell me: have you used n8n?', screening_questions: ['Have you used n8n?', 'Describe your recent project'] }), ['Describe your recent project'], 'a question inside the description is not a separate one');
-  const sa = splitAnswers('Hi there.\nCover letter.\n\nScreening answers\n\n1. What tools?\nn8n and Python.\n\n2. Similar work?\nBreesy, a leasing assistant.');
-  assert.equal(sa.letter, 'Hi there.\nCover letter.'); assert.equal(sa.answers.length, 2); assert.ok(sa.answers[1].startsWith('2. Similar work?'));
-  assert.deepEqual(splitAnswers('Only a letter').answers, []);
+  // screening answers live apart from the letter (R59); old versions with them inside the text are split when read
+  const sa = splitText('Hi there.\nCover letter.\n\nScreening answers\n\n1. What tools?\nn8n and Python.\n\n2. Similar work?\nBreesy, a leasing assistant.');
+  assert.equal(sa.letter, 'Hi there.\nCover letter.');
+  assert.deepEqual(sa.answers, [{ question: 'What tools?', answer: 'n8n and Python.' }, { question: 'Similar work?', answer: 'Breesy, a leasing assistant.' }]);
+  assert.deepEqual(splitText('Only a letter').answers, []);
+  assert.deepEqual(splitText('Letter.\n\nScreening answers\n\n1. Only an answer here.\n\n2. Another one.').answers,
+    [{ question: 'Question 1', answer: 'Only an answer here.' }, { question: 'Question 2', answer: 'Another one.' }], 'numbered answers with no question line');
+  const legacy = separate('<p>Hi there.</p><p>Screening answers</p><p>1. What tools?<br>n8n and Python.</p>', null);
+  assert.equal(legacy.html, '<p>Hi there.</p>', 'an old version: the letter is cut at the Screening answers line');
+  assert.deepEqual(legacy.answers, [{ question: 'What tools?', answer: 'n8n and Python.' }]);
+  const stored = separate('<p>Hi there.</p>', storeAnswers([{ question: 'Q?', answer: 'A.' }]));
+  assert.deepEqual(stored, { html: '<p>Hi there.</p>', answers: [{ question: 'Q?', answer: 'A.' }] }, 'a new version: the letter as it is, the answers from their own field');
+  assert.deepEqual(separate('<p>Only a letter</p>', null), { html: '<p>Only a letter</p>', answers: [] });
+  assert.equal(storeAnswers([]), null, 'no answers: nothing stored');
 
   // ---- tagging through the mock provider ----
   const dict = lib.tags.map((t: any, i: number) => ({ id: i + 1, name: t.name, category: t.category, weight: t.weight, description: t.description }));
@@ -456,7 +468,7 @@ const ctx = { rules, projects };
     const ok2 = 'word '.repeat(150) + '\nBest regards,\nJane Doe\n\nScreening answers\n' + 'answer '.repeat(200);
     assert.ok(!checkProposal({ ...base2, text: ok2, banned, wordRange: [120, 200] }).some((x) => x.includes('words')), 'screening answers do not count toward the length');
     const gb = guideBlock({ rules: 'R', banned: 'B', modules: 'M', screening: 'S', checklist: 'C' });
-    assert.ok(gb.includes('NON-NEGOTIABLE RULES above win') && gb.includes('Screening answers') && gb.includes('BANNED PHRASES'));
+    assert.ok(gb.includes('NON-NEGOTIABLE RULES above win') && gb.includes('answer them apart from the cover letter') && gb.includes('BANNED PHRASES'));
     assert.ok(writerSystem({ template: { name: 'Type 3. Invite', body_html: '<p>x</p>', prompt: null }, detected: [], samples: [], sender: { name: 'J', gitlab_link: null, tagline: null }, projects: [], clientRequirements: [], guide: { rules: 'RULES TEXT', banned: null, modules: null, screening: null, checklist: null } })
       .includes('PROPOSAL TYPE: Type 3. Invite') , 'the writer gets the type');
   }

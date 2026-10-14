@@ -45,7 +45,10 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.8.0)
+## Status (v0.9.0)
+
+v0.9.0: the screening answers are saved apart from the cover letter (`save_proposal` `screening_answers`), and after the
+independent review Claude shows it and waits: no question or list of options. The person says if they want a suggestion applied.
 
 v0.8.0: "Skip tech stack tags" at the projects step. The person can match the projects again without the job's Tech stack tags;
 everything else in the matching stays the same, and the choice is saved on the job (`save_step` projects, `skip_tech_stack`).

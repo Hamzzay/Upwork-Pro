@@ -1003,6 +1003,28 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R59. Screening answers apart from the proposal; the plugin stops asking after the review (done in code, 14 October)
+
+- **What was wrong.** The answers to the client's screening questions were stored inside the proposal text, after a "Screening
+  answers" line, and the card under the editor was only a view of that text. Deleting them from the proposal deleted the card too.
+- **Now.** Each proposal version keeps the cover letter in `content_html` and the answers apart in `answers_json`
+  (`src/proposal/answers.ts`, migration `038_screening_answers_apart.sql`). The editor, its word count, Copy cover letter and the
+  chat work on the letter only. The card under the editor shows each question with its own box, Copy, and edit; Save version saves
+  whichever changed. Editing the letter, a chat revision or writing it again never touches the answers; restoring a version brings
+  back its letter and its answers. The writer returns the answers apart and the app no longer joins them to the letter.
+- **Old proposals.** Versions saved before this keep the answers inside their text: they are split when read, so nothing is lost
+  (checked on the 2 local versions that have them: both split, 7 answers, no letter keeps the section; one older plugin save had
+  numbered answers with no question line, now labelled "Question 1" and so on).
+- **Readers.** The reviewer gets the letter and the answers apart; `get_job` returns `proposal.text` (the letter) and
+  `proposal.screening_answers`; the export has a "Screening answers" column; word counts are the letter's.
+- **The plugin (v0.9.0).** `save_proposal` takes `screening_answers` apart from `text` (an older plugin that sends them inside the
+  text is split by the server). After the independent review, Claude shows it and ends with one plain line: no AskUserQuestion,
+  no list of options. The person names a suggestion if they want it applied (asked for by Ahmad, 14 October).
+- Checked: unit tests (the split, old versions, one line answers, nothing stored when there are none); `tsc` for the backend and
+  the MCP; `node --check` on `proposals.js`; the migration applied locally.
+- Not checked: the proposal screen in the browser (it needs a sign in), a proposal written by the app with the real model since
+  the change, and the plugin in a real Claude conversation.
+
 ### R58. Skip tech stack tags: match a job's projects without its Tech stack tags (done in code, 14 October)
 
 - **What it is.** On the Projects step a switch, **Skip tech stack tags**. On: the projects are matched again without the job's

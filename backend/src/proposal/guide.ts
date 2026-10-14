@@ -45,7 +45,7 @@ export function guideBlock(g: Guide): string {
     g.rules && `WRITING RULES\n${g.rules}`,
     g.banned && `BANNED PHRASES (never use them)\n${g.banned}`,
     g.modules && `MODULES (add the ones the DETECTED SIGNALS call for, one or two sentences each, where they read naturally)\n${g.modules}`,
-    g.screening && `SCREENING ANSWERS (when the post has screening questions, write them after the cover letter, under a line "Screening answers", numbered in the client's order)\n${g.screening}`,
+    g.screening && `SCREENING ANSWERS (when the post has screening questions, answer them apart from the cover letter, one answer per question in the client's order; never put the questions or their answers inside the cover letter)\n${g.screening}`,
     g.checklist && `CHECK BEFORE ANSWERING (anything that still fails goes in "warnings")\n${g.checklist}`,
   ].filter(Boolean);
   return parts.length ? `HOUSE WRITING GUIDE (shared with the Claude plugin; the NON-NEGOTIABLE RULES above win over it)\n\n${parts.join('\n\n')}` : '';

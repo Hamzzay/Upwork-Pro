@@ -82,11 +82,6 @@ ${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 - Answer each question separately in "screening_answers", in this order, one answer per question: direct, specific, true to the
   profile and the projects given, following the screening answer rules. The question itself is not repeated in the answer.`;
 }
-/** The proposal text: the cover letter, then the answers under a "Screening answers" line, each with its question. */
-export function withAnswers(letter: string, questions: string[], answers: string[]): string {
-  if (!questions.length) return letter;
-  return `${letter.trimEnd()}\n\nScreening answers\n\n${questions.map((q, i) => `${i + 1}. ${q}\n${(answers[i] ?? '').trim()}`).join('\n\n')}`;
-}
 
 export const chatSchema = {
   type: 'object',

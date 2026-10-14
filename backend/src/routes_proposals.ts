@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion, loomChoices, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { addVersion, latestVersion, loomChoices, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { qaList, separate } from './proposal/answers';
 
 export const proposals = Router();
 const admin = requireRole('admin');
@@ -296,13 +297,13 @@ export async function proposalFor(screeningId: number) {
      FROM proposals p JOIN users u ON u.id=p.created_by WHERE p.screening_id=?`, [screeningId]))[0];
   if (!p) return null;
   const versions = await query('SELECT v.version_no, v.source, v.note, v.based_on_version, v.created_at, u.name AS user_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no DESC', [p.id]);
-  const cur = (await query<any>('SELECT version_no, content_html FROM proposal_versions WHERE proposal_id=? ORDER BY version_no DESC LIMIT 1', [p.id]))[0] ?? null;
+  const cur = await latestVersion(p.id);
   const signals = await query('SELECT signal_number, signal_name, value_name, is_fallback, is_primary, confidence, evidence, reason FROM job_signals WHERE screening_id=? ORDER BY signal_number, is_primary DESC, id', [screeningId]);
   const messages = await query('SELECT m.id, m.role, m.content, m.status, m.error_message, m.based_on_version, m.result_version, m.created_at, u.name AS user_name FROM proposal_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? ORDER BY m.id', [p.id]);
   return {
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
     ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
-    current: cur ? { version_no: cur.version_no, html: cur.content_html } : null, versions, signals, messages,
+    current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers } : null, versions, signals, messages,
     review: reviewOf(p),
   };
 }
@@ -415,23 +416,27 @@ proposals.get('/screenings/:id/proposal/state', anyone, async (req, res) => {
 proposals.get('/proposals/:id/versions/:no', anyone, async (req, res) => {
   const p = (await query<any>('SELECT p.id, s.user_id FROM proposals p JOIN screenings s ON s.id=p.screening_id WHERE p.id=?', [num(req.params.id)]))[0];
   if (!p || (!canSeeAll(req.user!.role) && p.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
-  const v = (await query<any>('SELECT version_no, content_html, source, note, created_at FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, num(req.params.no)]))[0];
+  const v = (await query<any>('SELECT version_no, content_html, answers_json, source, note, created_at FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, num(req.params.no)]))[0];
   if (!v) return void res.status(404).json({ error: 'Not found' });
-  res.json({ version: v });
+  const sep = separate(v.content_html, v.answers_json);
+  res.json({ version: { version_no: v.version_no, content_html: sep.html, answers: sep.answers, source: v.source, note: v.note, created_at: v.created_at } });
 });
 
 // The person's own edit: always a new version, even if a chat revision landed while they were typing.
 proposals.post('/proposals/:id/versions', anyone, async (req, res) => {
-  const b = z.object({ html: z.string().max(200_000), based_on: z.number().int().positive().nullish() }).safeParse(req.body);
+  // the cover letter and, apart from it, the screening answers (left out: the newest version's answers stay as they are)
+  const b = z.object({ html: z.string().max(200_000), answers: qaList.optional(), based_on: z.number().int().positive().nullish() }).safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   const p = await ownedProposal(req, res); if (!p) return;
   if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
   const html = sanitizeRich(b.data.html);
   if (!htmlToPlain(html)) return void res.status(400).json({ error: 'The proposal cannot be empty' });
-  const cur = (await query<any>('SELECT version_no, content_html FROM proposal_versions WHERE proposal_id=? ORDER BY version_no DESC LIMIT 1', [p.id]))[0];
-  if (cur && htmlToPlain(cur.content_html) === htmlToPlain(html)) return void res.json({ unchanged: true, version_no: cur.version_no });
+  const cur = await latestVersion(p.id);
+  const answers = b.data.answers?.map((x) => ({ question: x.question, answer: x.answer.trim() }));
+  const answersChanged = !!answers && JSON.stringify(answers) !== JSON.stringify(cur?.answers ?? []);
+  if (cur && htmlToPlain(cur.html) === htmlToPlain(html) && !answersChanged) return void res.json({ unchanged: true, version_no: cur.version_no });
   const stale = b.data.based_on && cur && cur.version_no > b.data.based_on;
-  const no = await addVersion(p.id, html, 'manual', req.user!.id, stale ? `Edited from v${b.data.based_on}; v${cur.version_no} was saved meanwhile` : null, b.data.based_on ?? null);
+  const no = await addVersion(p.id, html, 'manual', req.user!.id, stale ? `Edited from v${b.data.based_on}; v${cur.version_no} was saved meanwhile` : null, b.data.based_on ?? null, answers);
   await audit(req.user!.id, 'proposal_edit', `proposal=${p.id} version=${no}`);
   res.status(201).json({ version_no: no });
 });
@@ -441,9 +446,10 @@ proposals.post('/proposals/:id/restore', anyone, async (req, res) => {
   if (!b.success) return void bad(res, b.error);
   const p = await ownedProposal(req, res); if (!p) return;
   if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
-  const v = (await query<any>('SELECT content_html FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, b.data.version_no]))[0];
+  const v = (await query<any>('SELECT content_html, answers_json FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, b.data.version_no]))[0];
   if (!v) return void res.status(404).json({ error: 'That version does not exist' });
-  const no = await addVersion(p.id, v.content_html, 'restore', req.user!.id, `Restored from v${b.data.version_no}`, b.data.version_no);
+  const sep = separate(v.content_html, v.answers_json); // the letter and its answers both come back
+  const no = await addVersion(p.id, sep.html, 'restore', req.user!.id, `Restored from v${b.data.version_no}`, b.data.version_no, sep.answers);
   await audit(req.user!.id, 'proposal_restore', `proposal=${p.id} from=${b.data.version_no} version=${no}`);
   res.status(201).json({ version_no: no });
 });

@@ -33,10 +33,3 @@ export function jobQuestions(jobText: string, posting?: { description?: string; 
   return (posting?.screening_questions ?? []).map((q) => String(q).trim()).filter((q) => q && !desc.includes(q.toLowerCase().replace(/\s+/g, ' ').slice(0, 60)));
 }
 
-/** The proposal text, split into the cover letter and the numbered screening answers after a "Screening answers" line. */
-export function splitAnswers(text: string): { letter: string; answers: string[] } {
-  const parts = String(text ?? '').split(/\n\s*Screening answers\s*:?\s*\n/i);
-  if (parts.length < 2) return { letter: text, answers: [] };
-  const answers = parts.slice(1).join('\n').split(/\n(?=\s*\d+[.)]\s)/).map((a) => a.trim()).filter(Boolean);
-  return { letter: parts[0].trimEnd(), answers };
-}

@@ -17,6 +17,7 @@ import { writing } from './routes_writing';
 import { setup } from './routes_setup';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
+import { separate, splitText } from './proposal/answers';
 import { buildReport, packRows } from './reports';
 import { ChangedSince, KINDS, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
@@ -292,7 +293,7 @@ export async function reportFor(req: any, f: ListFilters) {
       (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html
     ${listFrom} ${w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, REPORT_LIMIT + 1]);
   const capped = jobs.length > REPORT_LIMIT; if (capped) jobs.pop();
-  for (const j of jobs) { const t = j.html ? htmlToPlain(j.html).trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; }
+  for (const j of jobs) { const t = j.html ? splitText(htmlToPlain(j.html)).letter.trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; } // the cover letter's words
   const ids = jobs.map((j) => j.id);
   const extra = ids.length ? {
     tags: await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?)', [ids]),
@@ -545,7 +546,8 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
   const r = (await query<any>(`${pluginSelect()} WHERE s.id=? AND s.discarded_at IS NULL`, [id]))[0];
   if (!r || (!canSeeAll(req.user!.role) && r.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
-  const cur = (await query<any>('SELECT v.version_no, v.content_html FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
+  const cur0 = (await query<any>('SELECT v.version_no, v.content_html, v.answers_json FROM proposal_versions v JOIN proposals p ON p.id=v.proposal_id WHERE p.screening_id=? ORDER BY v.version_no DESC LIMIT 1', [id]))[0];
+  const cur = cur0 ? { version_no: cur0.version_no, ...separate(cur0.content_html, cur0.answers_json) } : null;
   const events = await query('SELECT status, happened_at, reason, note FROM status_events WHERE screening_id=? ORDER BY happened_at, id', [id]);
   // everything each step saved, so a job left halfway can be continued from where it stopped (in Claude or in the app)
   const s2 = (await query<any>(`SELECT s.proceeded, s.continued_at, s.skip_note, s.skip_tech_stack, s.proposal_rate, s.chosen_template_name, s.loom_video_title, s.selection_confirmed_at, s.proposal_profile_confirmed_at, s.connects_spent, s.boost_connects, s.notes,
@@ -561,7 +563,7 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
     ['type', 'the proposal type'], ['draft', 'the Loom video, then the first draft'], ['final', 'the approval of the draft']];
   const next = s2.proceeded === 'no' ? null : order.find(([k]) => !done[k]);
   const rvw = (await query<any>('SELECT review_status, review_json, review_version, review_error, reviewed_at FROM proposals WHERE screening_id=?', [id]))[0];
-  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.content_html), finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
+  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.html), screening_answers: cur.answers.length ? cur.answers : undefined, finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
     saved: { decision: s2.proceeded === 'no' ? { continue: false, reason: s2.skip_note } : s2.continued_at ? { continue: true, reason: s2.continue_reason ?? null } : null,
       tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
       signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),
@@ -623,7 +625,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   const history = group(ids.length && inc.has('history') ? await query<any>('SELECT screening_id, status, happened_at, reason FROM status_events WHERE screening_id IN (?) ORDER BY happened_at, id', [ids]) : []);
   const proposals = new Map<number, string>();
   if (ids.length) for (const v of await query<any>(`SELECT p.screening_id, v.content_html FROM proposals p JOIN proposal_versions v ON v.proposal_id=p.id
-      WHERE p.screening_id IN (?) AND v.version_no=(SELECT MAX(v2.version_no) FROM proposal_versions v2 WHERE v2.proposal_id=p.id)`, [ids])) proposals.set(v.screening_id, htmlToPlain(v.content_html).trim());
+      WHERE p.screening_id IN (?) AND v.version_no=(SELECT MAX(v2.version_no) FROM proposal_versions v2 WHERE v2.proposal_id=p.id)`, [ids])) proposals.set(v.screening_id, splitText(htmlToPlain(v.content_html)).letter.trim());
   const cut = (t: string | null | undefined) => { const x = (t ?? '').trim(); return x.length > q.data.text_chars ? x.slice(0, q.data.text_chars) + ' [cut]' : x; };
   const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (v ? String(v).slice(0, 16) : null);
   const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',

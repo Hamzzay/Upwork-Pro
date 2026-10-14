@@ -709,3 +709,7 @@ details.timeline > summary { cursor: pointer; }
 .switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .switch:disabled { opacity: .6; cursor: default; }
 .switchlbl { font-size: 13px; font-weight: 600; color: var(--muted); }
+
+/* screening answers under the proposal: one box each, kept apart from the letter (R59) */
+.qa-answer { width: 100%; min-height: 72px; margin-top: 6px; }
+.qa-answer[readonly] { background: var(--bg); }

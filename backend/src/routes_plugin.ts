@@ -4,6 +4,8 @@ import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { typeFacts } from './proposal/guide';
 import { htmlToPlain, textToHtml } from './html';
+import { qaList, splitText, storeAnswers } from './proposal/answers';
+import { latestVersion } from './proposal/pipeline';
 import { jobIdFromUrl } from './screening/jobsource';
 import { splitMobile } from './library/mobile';
 import { diff, snapshot } from './changes';
@@ -124,6 +126,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     finished: z.boolean().default(true),
     continue_reason: z.string().trim().max(2000).optional(),
     loom_video: z.string().trim().max(200).nullable().optional(),
+    screening_answers: qaList.optional(), // apart from the text; left out: the answers saved before stay
   }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
   const s = await ownJob(req, res); if (!s) return;
@@ -151,6 +154,10 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     loom = vids.find((v) => v.title.toLowerCase() === d.loom_video!.toLowerCase()) ?? undefined;
     if (!loom) return void res.status(400).json({ error: `${prof.name} has no Loom video called "${d.loom_video}". Its videos: ${vids.map((v) => v.title).join('; ') || 'none'}. Use a title from get_library (loom_videos), or leave loom_video out.`, field: 'loom_video' });
   }
+  // the cover letter alone; answers sent inside the text (plugin before v0.9.0) are taken out and kept apart
+  const sep = splitText(d.text);
+  const prior = (await query<any>('SELECT id FROM proposals WHERE screening_id=?', [s.id]))[0];
+  const answers = d.screening_answers ?? (sep.answers.length ? sep.answers : prior ? (await latestVersion(prior.id))?.answers ?? null : null);
   const lib = await query<any>('SELECT id, name FROM projects');
   const picked = (d.projects ?? []).map((n) => ({ name: n, p: lib.find((x) => x.name.toLowerCase() === n.toLowerCase()) ?? null }));
   const unknown = picked.filter((x) => !x.p).map((x) => x.name);
@@ -185,7 +192,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
         VALUES (?, 'done', 'manual', ?, ?, ?, NOW(), ?, ?, ?, 'claude-plugin', '[]')`, [s.id, tplId, tplName ?? 'Claude plugin', userId, prof.id, d.finished ? new Date() : null, d.finished ? userId : null]);
       proposalId = Number(ins.insertId);
     }
-    await conn.query(`INSERT INTO proposal_versions (proposal_id, version_no, content_html, source, note, created_by) VALUES (?,?,?,'plugin','From the Claude plugin',?)`, [proposalId, version, textToHtml(d.text), userId]);
+    await conn.query(`INSERT INTO proposal_versions (proposal_id, version_no, content_html, answers_json, source, note, created_by) VALUES (?,?,?,?,'plugin','From the Claude plugin',?)`, [proposalId, version, textToHtml(sep.letter), storeAnswers(answers), userId]);
     if (loom !== undefined) await conn.query('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [loom ? loom.id : null, loom ? loom.title : null, s.id]);
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
@@ -371,7 +378,7 @@ plugin.post('/plugin/jobs/:id/review', anyone, async (req, res) => {
   const read = async () => (await query<any>('SELECT review_status, review_json, review_version, review_error, reviewed_at FROM proposals WHERE screening_id=?', [s.id]))[0];
   for (let i = 0; i < 25; i++) { // under the connector's own one minute limit
     const p = await read();
-    if (p.review_status === 'done') return void res.json({ review: reviewOf(p), how_to_use: 'Show the score, the verdict, the problems and the suggestions as they are. Ask the person which suggestions to apply, or none. Apply only the ones they pick, save the new draft, and offer to review again. Never change the score or soften the review.' });
+    if (p.review_status === 'done') return void res.json({ review: reviewOf(p), how_to_use: 'Show the score, the verdict, the problems and the suggestions as they are. Do not ask which to apply and do not list options: the person says if they want any applied. Apply only the ones they name, save the new draft, and review it again. Never change the score or soften the review.' });
     if (p.review_status === 'error') return void res.status(502).json({ error: 'The review could not be made: ' + (p.review_error || 'the reviewer failed') + '. Try again.' });
     await new Promise((r) => setTimeout(r, 2000));
   }
