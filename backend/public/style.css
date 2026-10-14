@@ -713,3 +713,27 @@ details.timeline > summary { cursor: pointer; }
 /* screening answers under the proposal: one box each, kept apart from the letter (R59) */
 .qa-answer { width: 100%; min-height: 72px; margin-top: 6px; }
 .qa-answer[readonly] { background: var(--bg); }
+
+/* the proposal tab (R69): the proposal on the left, one card of tools beside it with a tab each (Chat, Review, Experience, Feedback) */
+.checks { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px; }
+.checks[hidden] { display: none; }
+.checks details.warnline { flex: 1; min-width: 240px; margin: 0; }
+.checkask { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--info-line); background: var(--info-bg); border-radius: var(--radius-sm); color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.checkask svg { width: 15px; height: 15px; color: var(--info); }
+div.checkask { cursor: default; font-weight: 400; color: var(--muted); }
+.sidecard { display: flex; flex-direction: column; overflow: hidden; }
+.sidetabs { padding: 0 8px; flex: none; }
+.sidetabs .tab { padding-left: 10px; padding-right: 10px; }
+.sidetabs .tab .spin { width: 11px; height: 11px; color: var(--muted); }
+.sidetabs .tab .n.PASS { color: var(--pass); } .sidetabs .tab .n.FLAG { color: var(--flag); } .sidetabs .tab .n.FAIL { color: var(--fail); }
+.sidebody { padding: 14px 16px 16px; min-height: 0; }
+.sidebody > [hidden] { display: none; }
+.sidebody .reviewpanel { border: 0; padding: 0; background: none; }
+.sidebody .chatpanel { border-top: 0; padding-top: 0; }
+@media (min-width: 1200px) {
+  .propside { position: sticky; top: 62px; align-self: start; }
+  .sidecard { max-height: calc(100vh - 82px); }
+  .sidebody { overflow-y: auto; }
+  .propside .chatlist { max-height: 42vh; }
+}

@@ -1003,6 +1003,30 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R69. The Proposal tab cleaned up: one tool at a time beside the proposal (done, 15 October)
+
+- **Why** (asked for by Ahmad): the tab had grown a card per feature. The chat, the independent review, the feedback form, the
+  experience questions and "how it was written" were all on screen at once, so the proposal itself was hard to find and the page
+  ran three screens long.
+- **Now:** the proposal on the left; beside it **one card with a tab per tool: Chat, Review, Experience and Feedback**. Only the
+  open tab is shown. The tab you used last is kept the next time. The card stays in view while you scroll the proposal (wide
+  screens); on a phone it sits under the proposal.
+  - **Review** shows the score on its tab (green, amber or red) and a spinner while it runs. **Apply this** opens the Chat tab, so
+    you see the AI working on it.
+  - **Experience** (the questions about things the client asks for that we have no record of) appears only when there are some,
+    with their count on the tab. It opens first when questions are waiting.
+  - **Feedback**: the form first; the feedback already saved for this job is folded under it.
+- **Above the proposal, one line:** the yellow "things to check before sending" (folded, as before) and, when there are open
+  questions, "2 questions about your experience", which opens the Experience tab.
+- **How this was written** (signals, the type ranking) is now a link under the proposal that opens a window, wide enough for its
+  tables. Its own "Write again with this type" button is gone: Change type at the top right does the same.
+- The word count sits under the proposal with that link; the "Written ... ago with ..." line moved into the window.
+- Front end only (`public/proposals.js`, `public/style.css`); nothing changed on the server.
+- Checked locally on job #51 at desktop and phone width, with two temporary questions: the tab badge, the line above the
+  proposal, answering No through the panel (both cleared), and the window. The temporary rows and session were removed.
+- The team guide's text for this screen is updated; its pictures still show the old layout (task 49, with the gaps and feedback
+  pictures).
+
 ### R68. Opening lines: the first two lines rules for every type, in the Writing guide (done, 15 October)
 
 - **What it is** (asked for by Ahmad): a Writing guide document, **Opening lines (all types)**, with the default rules for the first

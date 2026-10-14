@@ -149,9 +149,10 @@ function proposalSection(s, initial, matching) {
   const gapsEl = h('div', {});
   const LIB = { added: 'added to the project in the library, switched off until an admin switches it on', waiting: 'the note is on the project; the tag waits for an admin', note: 'the note is on the project', to_add: 'waits for an admin to add it to the library', none: 'said as your own experience' };
   function drawGaps() {
+    drawChecks(); drawSideTabs();
     const g = data && data.gaps; if (!g || !g.items || !g.items.length) { gapsEl.replaceChildren(); return; }
     if (g.status === 'queued' || g.status === 'running') {
-      gapsEl.replaceChildren(h('div', { class: 'card card-pad', style: 'margin:12px 0' }, h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Updating the proposal with your experience. Only those lines change.'))); return; }
+      gapsEl.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Updating the proposal with your experience. Only those lines change.')); return; }
     const open = g.items.filter((x) => x.status === 'open'), done = g.items.filter((x) => x.status !== 'open');
     const state = new Map(); // id -> { has, project_id, note, tag_name, category }
     const row = (x) => {
@@ -184,9 +185,8 @@ function proposalSection(s, initial, matching) {
       try { const r = await api('POST', `/proposals/${data.id}/gaps`, { answers }); if (r.updated) { data.gaps.status = 'queued'; drawGaps(); startPolling(); } else { const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.gaps = fresh.gaps; drawGaps(); toast('Saved. Nothing to add to the proposal.'); } }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; send.disabled = false; send.replaceChildren('Update the proposal'); }
     };
-    gapsEl.replaceChildren(h('div', { class: 'card card-pad', style: 'margin:12px 0' },
-      open.length ? [h('div', { class: 'jp-sec' }, 'The client asks for things we have no record of'),
-        h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'They were left out of the proposal. Have you done them? A Yes puts them in, explained, and teaches the library.'),
+    gapsEl.replaceChildren(h('div', {},
+      open.length ? [h('p', { class: 'jp-label', style: 'margin:0 0 10px' }, 'The client asks for these and we have no record of them, so they were left out. Have you done them? A Yes puts them in, explained, and teaches the library.'),
         h('div', { class: 'stack', style: 'gap:10px' }, open.map(row)), err, owner ? h('div', { class: 'row', style: 'margin-top:12px' }, send) : null] : null,
       done.length ? h('details', { class: 'reviewfold', style: open.length ? 'margin-top:12px' : '' }, h('summary', {}, `Answered (${done.length})`),
         h('ul', { class: 'jp-list', style: 'margin:6px 0 0' }, done.map((x) => h('li', {}, h('strong', {}, x.skill), x.status === 'no' ? ': No, left out.' : `: Yes${x.project_name ? ', ' + x.project_name : ''}${x.applied_version ? ', in version ' + x.applied_version : ''}. ${LIB[x.library] || ''}`)))) : null,
@@ -203,14 +203,16 @@ function proposalSection(s, initial, matching) {
     const chips = h('div', { class: 'chips' });
     const what = h('textarea', { rows: 3, maxlength: 4000, placeholder: 'What is wrong with it, and what it should have been.' });
     const err = h('div', { class: 'err', hidden: true });
-    const list = h('div', { class: 'stack', style: 'gap:8px;margin-top:10px' });
+    const list = h('div', { class: 'stack', style: 'gap:8px;margin-top:6px' });
+    const saved = h('details', { class: 'reviewfold', style: 'margin-top:14px', hidden: true }, h('summary', {}, 'Saved'), list);
     const save = h('button', { class: 'btn', type: 'button' }, 'Save feedback');
     const load = async () => {
       try { const r = await api('GET', `/screenings/${s.id}/feedback`);
         if (!chips.childNodes.length) chips.replaceChildren(...r.categories.map((c) => { const b = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, c); b.onclick = () => { cat = cat === c ? '' : c; chips.querySelectorAll('.tagbtn').forEach((x) => { const on = x.textContent === cat; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); }); }; return b; }));
         list.replaceChildren(...r.items.map((f) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, f.category), h('div', { class: 'jp-label' }, f.feedback),
           h('div', { class: 'faint small', style: 'white-space:pre-wrap;margin-top:4px' }, '“' + (f.excerpt.length > 220 ? f.excerpt.slice(0, 220) + '...' : f.excerpt) + '”'),
-          h('div', { class: 'faint small' }, `${f.user_name || ''}, version ${f.version_no || '-'}, ${ago(f.created_at)}`))))); }
+          h('div', { class: 'faint small' }, `${f.user_name || ''}, version ${f.version_no || '-'}, ${ago(f.created_at)}`)))));
+        saved.hidden = !r.items.length; saved.querySelector('summary').textContent = `Saved for this job (${r.items.length})`; }
       catch { /* shown next time */ }
     };
     save.onclick = async () => {
@@ -220,13 +222,45 @@ function proposalSection(s, initial, matching) {
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; }
       save.disabled = false; save.replaceChildren('Save feedback');
     };
-    el.replaceChildren(h('div', { class: 'row spread', style: 'flex-wrap:nowrap' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Feedback'), h('a', { href: '#/feedback', class: 'small' }, 'All feedback')),
-      h('p', { class: 'jp-label', style: 'margin:4px 0 8px' }, 'What is wrong in this proposal? It is kept with the proposal as it is now, to fix the setup later.'),
+    el.replaceChildren(h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:10px' }, h('p', { class: 'jp-label', style: 'margin:0 0 8px' }, 'What is wrong in this proposal? It is kept with the proposal as it is now, to fix the setup later.'),
+        h('a', { href: '#/feedback', class: 'small', style: 'white-space:nowrap' }, 'All feedback')),
       h('div', { class: 'field' }, h('div', { class: 'row spread' }, h('label', { class: 'lbl' }, 'The part'), useSel), excerpt),
       h('div', { class: 'field', style: 'margin-top:8px' }, h('label', { class: 'lbl' }, 'What kind'), chips),
       h('div', { class: 'field', style: 'margin-top:8px' }, h('label', { class: 'lbl' }, 'Your feedback'), what), err,
-      h('div', { class: 'row', style: 'margin-top:10px' }, save), list);
+      h('div', { class: 'row', style: 'margin-top:10px' }, save), saved);
     load();
+  }
+
+  // ----- the side panel: one tool at a time, so the proposal stays the main thing on screen. The tab you used last is kept.
+  const SIDE = [['chat', 'Chat'], ['review', 'Review'], ['gaps', 'Experience'], ['feedback', 'Feedback']];
+  let sideTab = 'chat', gapsShown = false;
+  try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { /* storage blocked */ }
+  const hasGaps = () => !!(data && data.gaps && data.gaps.items && data.gaps.items.length);
+  const openGaps = () => (hasGaps() ? data.gaps.items.filter((x) => x.status === 'open').length : 0);
+  function showSide(k) { sideTab = k; try { localStorage.setItem('prop.side', k); } catch { /* storage blocked */ } drawSideTabs(); }
+  function drawSideTabs() {
+    const bar = box.querySelector('.sidetabs'); if (!bar) return;
+    if (!SIDE.some(([k]) => k === sideTab) || (sideTab === 'gaps' && !hasGaps())) sideTab = 'chat';
+    const rv = data.review, n = openGaps();
+    const badge = {
+      chat: chatBusy() ? h('span', { class: 'spin' }) : null,
+      review: reviewBusy() ? h('span', { class: 'spin' }) : rv && rv.score ? h('span', { class: 'n ' + (rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL') }, String(rv.score)) : null,
+      gaps: gapsBusy() ? h('span', { class: 'spin' }) : n ? h('span', { class: 'n FLAG' }, String(n)) : null,
+    };
+    bar.replaceChildren(...SIDE.filter(([k]) => k !== 'gaps' || hasGaps()).map(([k, label]) => h('button', { type: 'button', role: 'tab', class: 'tab' + (k === sideTab ? ' on' : ''), 'aria-selected': k === sideTab, onclick: () => showSide(k) }, label, badge[k] || null)));
+    SIDE.forEach(([k]) => { const el = box.querySelector('.side-' + k); if (el) el.hidden = k !== sideTab; });
+  }
+  // ----- above the editor, one line: what to check before sending, and the questions about our experience
+  const checksEl = h('div', { class: 'checks' });
+  function drawChecks() {
+    if (!data || !data.current) return;
+    const w = data.warnings || [], n = openGaps();
+    checksEl.replaceChildren(...[
+      w.length ? h('details', { class: 'warnline' }, h('summary', {}, icon('warn'), `${w.length} thing${w.length === 1 ? '' : 's'} to check before sending`), h('ul', {}, w.map((x) => h('li', {}, x.text)))) : null,
+      gapsBusy() ? h('div', { class: 'checkask' }, h('span', { class: 'spin' }), 'Updating the proposal with your experience')
+        : n ? h('button', { type: 'button', class: 'checkask', onclick: () => { showSide('gaps'); box.querySelector('.sidecard')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } }, icon('info'), `${n} question${n === 1 ? '' : 's'} about your experience`) : null,
+    ].filter(Boolean));
+    checksEl.hidden = !checksEl.childNodes.length;
   }
 
   const bannerEl = h('div', { class: 'newer', hidden: true });
@@ -382,13 +416,6 @@ function proposalSection(s, initial, matching) {
 
   function explain() {
     const t = data.template, rk = data.ranking;
-    const sel = h('select', { id: 'pt-sel', 'aria-label': 'Proposal type to write with' }, templates.map((x) => h('option', { value: x.id, selected: t && x.id === t.id }, x.name)));
-    const again = h('button', { class: 'btn', type: 'button' }, 'Write again with this type');
-    again.onclick = async () => {
-      if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Write it again?', 'You have unsaved changes. Writing again adds a new version and loads it in their place.', 'Write again'))) return;
-      btnBusy(again, 'Starting');
-      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: Number(sel.value) }); await reload(); drawAll(); startPolling(); } catch (x) { toast(x.message, true); again.disabled = false; again.replaceChildren('Write again with this type'); }
-    };
     const rankRow = (r) => h('tr', {}, h('td', { class: 'muted' }, r.rank), h('td', {}, r.name), h('td', {}, h('strong', {}, r.score)),
       h('td', { class: 'small muted' }, [r.qualified === false ? 'Does not qualify' : null,
         r.matched.length ? r.matched.map((m) => `${m.label} (${m.role === 'required' ? 'required' : m.role === 'supporting' ? '+1' : '+' + m.weight})`).join('; ') : 'None',
@@ -399,13 +426,13 @@ function proposalSection(s, initial, matching) {
       h('td', {}, h('strong', {}, x.value_name), ' ', x.is_fallback ? h('span', { class: 'chip' }, 'Default') : h('span', { class: 'chip brand' }, x.confidence), x.signal_number === 7 && x.is_primary ? h('span', { class: 'chip', style: 'margin-left:4px' }, 'Primary') : null),
       h('td', { class: 'small muted' }, x.evidence ? h('span', {}, h('em', {}, `"${x.evidence}"`), ' ' + (x.reason || '')) : (x.reason || '-')));
     const sigTable = h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['#', 'Signal', 'Value', 'Why'].map((x) => h('th', {}, x)))), h('tbody', {}, data.signals.map(sigRow))));
-    const how = t ? 'Chosen by you' : '';
-    return h('details', { class: 'explain' }, h('summary', {}, 'How this proposal was written: signals, proposal type and samples'),
-      h('div', { class: 'explain-body' },
+    modal({ title: 'How this proposal was written', wide: true, noConfirm: true,
+      body: h('div', {},
+        h('p', { class: 'jp-label', style: 'margin:0 0 16px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${t ? ' with ' + t.name : ''}. Every save, chat revision and restore is kept as a version. To write it with another type, use Change type at the top right.`),
         t ? h('div', {}, h('h3', { class: 'section-title' }, 'Proposal type'),
-          h('p', {}, h('strong', {}, t.name), ' ', h('span', { class: 'chip' }, t.choice === 'manual' ? how : rk && rk.defaulted ? 'Default: no signal matched' : 'Best fit for the signals'), ' ', h('span', { class: 'faint' }, `Score ${t.score ?? 0}`)),
-          rankTable, owner ? h('div', { class: 'row', style: 'margin-top:12px' }, sel, again) : null) : null,
-        h('div', { style: 'margin-top:18px' }, h('h3', { class: 'section-title' }, `Signals detected (${new Set(data.signals.map((x) => x.signal_number)).size})`), sigTable)));
+          h('p', {}, h('strong', {}, t.name), ' ', h('span', { class: 'chip' }, t.choice === 'manual' ? 'Chosen by you' : rk && rk.defaulted ? 'Default: no signal matched' : 'Best fit for the signals'), ' ', h('span', { class: 'faint' }, `Score ${t.score ?? 0}`)),
+          rankTable) : null,
+        h('div', { style: 'margin-top:18px' }, h('h3', { class: 'section-title' }, `Signals detected (${new Set(data.signals.map((x) => x.signal_number)).size})`), sigTable)) });
   }
 
   // ----- the independent review: a score, why, and two or three suggestions the person can apply through the chat
@@ -417,27 +444,28 @@ function proposalSection(s, initial, matching) {
         try { await api('POST', `/screenings/${s.id}/proposal/review`, {}); data.review = { ...(data.review || {}), status: 'queued' }; drawReview(); startPolling(); }
         catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren(label); } };
       return b; };
-    const head = (right) => h('div', { class: 'row spread', style: 'flex-wrap:nowrap' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Independent review'), right || null);
+    drawSideTabs();
+    const head = (right) => (right ? h('div', { class: 'row', style: 'justify-content:flex-end' }, right) : null);
     if (!rv || (!rv.score && rv.status !== 'queued' && rv.status !== 'running' && rv.status !== 'error')) {
-      el.replaceChildren(head(canAsk ? ask('Review this proposal', true) : null), h('p', { class: 'jp-label', style: 'margin:6px 0 0' }, 'A separate reader scores the proposal out of 10 and suggests two or three changes, before you copy it.')); return; }
+      el.replaceChildren(h('p', { class: 'jp-label', style: 'margin:0' }, 'A separate reader scores the proposal out of 10 and suggests two or three changes, before you copy it.'), ...(canAsk ? [h('div', {}, ask('Review this proposal', true))] : [])); return; }
     if (rv.status === 'queued' || rv.status === 'running') {
-      el.replaceChildren(head(), h('div', { class: 'row muted small', style: 'margin-top:8px' }, h('span', { class: 'spin' }), 'An independent reviewer is reading the proposal. This takes about a minute.')); return; }
+      el.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'An independent reviewer is reading the proposal. This takes about a minute.')); return; }
     if (rv.status === 'error' && !rv.score) {
-      el.replaceChildren(head(canAsk ? ask('Try again', true) : null), h('p', { class: 'err' }, icon('x'), 'The review could not be made' + (rv.error ? ': ' + rv.error : '.'))); return; }
+      el.replaceChildren(...[head(canAsk ? ask('Try again', true) : null), h('p', { class: 'err' }, icon('x'), 'The review could not be made' + (rv.error ? ': ' + rv.error : '.'))].filter(Boolean)); return; }
     const tone = rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL';
     const stale = loaded && rv.version && rv.version < loaded;
     const apply = (sg) => { const b = h('button', { class: 'btn sm', type: 'button', disabled: chatBusy() || null }, 'Apply this');
       b.onclick = async () => {
         if (editor && (editor.isDirty() || answersDirty()) && !(await ask2('Apply the suggestion?', 'You have unsaved changes. The AI revises the last saved version, so save yours first if you want to keep them.', 'Apply anyway'))) return;
         btnBusy(b, 'Sending');
-        try { await api('POST', `/proposals/${data.id}/messages`, { content: sg.instruction }); const stt = (await api('GET', `/screenings/${s.id}/proposal/state`)).state; data.messages = stt.messages; drawChat(); drawReview(); startPolling(); toast('Sent to the AI. The revised proposal is saved as a new version.'); }
+        try { await api('POST', `/proposals/${data.id}/messages`, { content: sg.instruction }); const stt = (await api('GET', `/screenings/${s.id}/proposal/state`)).state; data.messages = stt.messages; drawChat(); drawReview(); startPolling(); showSide('chat'); toast('Sent to the AI. The revised proposal is saved as a new version.'); }
         catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren('Apply this'); } };
       return b; };
     // the points are folded: the score, the verdict and the suggestions are what a person acts on, and the chat must stay in reach below
     const listOf = (title, items) => (items && items.length ? h('details', { class: 'reviewfold' }, h('summary', {}, `${title} (${items.length})`), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, items.map((x) => h('li', {}, x)))) : null);
     el.replaceChildren(...[
-      head(canAsk ? ask(stale ? 'Review this version' : 'Review again', !!stale) : null),
-      h('div', { class: 'reviewscore ' + tone }, h('span', { class: 'num' }, String(rv.score)), h('span', { class: 'of' }, 'out of 10'), h('span', { class: 'ver' }, `Version ${rv.version || ''}${rv.at ? ' · ' + ago(rv.at) : ''}`)),
+      h('div', { class: 'reviewscore ' + tone }, h('span', { class: 'num' }, String(rv.score)), h('span', { class: 'of' }, 'out of 10'), h('span', { class: 'ver' }, `Version ${rv.version || ''}${rv.at ? ' · ' + ago(rv.at) : ''}`),
+        canAsk ? ask(stale ? 'Review this version' : 'Review again', !!stale) : null),
       stale ? h('div', { class: 'notice' }, icon('info'), `This review is of version ${rv.version}. You are on version ${loaded}: review it again to score the change.`) : null,
       h('p', { class: 'jp-body', style: 'margin:0' }, rv.verdict),
       rv.suggestions && rv.suggestions.length ? h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, owner ? 'Suggestions. Apply the ones you agree with; each is sent to the AI and saved as a new version.' : 'Suggestions'),
@@ -470,7 +498,8 @@ function proposalSection(s, initial, matching) {
     };
     send.onclick = go; input.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') go(); });
     const quick = ['Make it shorter', 'More technical', 'Warmer tone', 'Add a closing question'].map((q) => h('button', { type: 'button', class: 'chip qchip', disabled: !owner || chatBusy(), onclick: () => { input.value = q; input.focus(); } }, q));
-    el.replaceChildren(h('h3', { class: 'section-title' }, 'Chat with the AI'), list, owner ? h('div', {}, h('div', { class: 'chips', style: 'margin:8px 0' }, quick), input, h('div', { class: 'row', style: 'margin-top:8px;justify-content:space-between' }, h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), send)) : h('p', { class: 'hint' }, 'Only the person who submitted this job can chat with the AI.'));
+    drawSideTabs();
+    el.replaceChildren(list, owner ? h('div', {}, h('div', { class: 'chips', style: 'margin:8px 0' }, quick), input, h('div', { class: 'row', style: 'margin-top:8px;justify-content:space-between' }, h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), send)) : h('p', { class: 'hint' }, 'Only the person who submitted this job can chat with the AI.'));
     list.scrollTop = list.scrollHeight;
   }
 
@@ -520,19 +549,23 @@ function proposalSection(s, initial, matching) {
       loomSel.replaceChildren(h('option', { value: '' }, 'No Loom video'), ...vids.map((v) => h('option', { value: v.id, selected: r.loom.chosen === v.id }, v.title + (v.best ? ' (best fit)' : ''))));
       loomSel.onchange = async () => { try { await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: loomSel.value ? Number(loomSel.value) : null }); s.loom_video_id = loomSel.value ? Number(loomSel.value) : null; data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawParts(); startPolling(); } catch (x) { toast(x.message, true); } };
     }).catch(() => loomSel.replaceWith(h('span', { class: 'faint small' }, '')));
-    const warns = data.warnings.length ? h('details', { class: 'warnline' }, h('summary', {}, icon('warn'), `${data.warnings.length} thing${data.warnings.length === 1 ? '' : 's'} to check before sending`), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
-    count(); drawAnswers(cur.answers, owner); drawParts(); drawGaps();
+    // open questions about our experience: their tab is shown first, once
+    if (!gapsShown && owner && openGaps()) { sideTab = 'gaps'; gapsShown = true; }
+    count(); drawAnswers(cur.answers, owner); drawParts();
     // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
-    return h('div', { class: 'propgrid' },
+    // the proposal on the left; beside it (below it on a narrow screen) one card with a tab per tool
+    const grid = h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' },
         staleBox,
-        warns,
-        gapsEl,
-        h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px;flex-wrap:wrap' }, vsel, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
+        checksEl,
+        h('div', { class: 'row', style: 'margin:0 0 8px;gap:8px;flex-wrap:wrap' }, vsel, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
         partsEl,
-        viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader), counter, answersBox,
-        h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
-      h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), h('div', { class: 'reviewpanel' }), h('div', { class: 'feedbackpanel card card-pad' }), explain())); // the chat first: it is short and used most; the review's score shows right under it
+        viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader),
+        h('div', { class: 'row spread', style: 'margin-top:6px' }, counter, h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')),
+        answersBox),
+      h('div', { class: 'propside' }, h('div', { class: 'card sidecard' }, h('div', { class: 'tabs sidetabs', role: 'tablist', 'aria-label': 'Proposal tools' }),
+        h('div', { class: 'sidebody' }, h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
+    return grid;
   }
 
   function drawAll() {
@@ -551,7 +584,7 @@ function proposalSection(s, initial, matching) {
     }
     box.replaceChildren(...[data && data.status === 'error' && data.current ? h('div', { class: 'err', style: 'margin:0 0 10px' }, icon('x'), 'The last attempt failed: ' + (data.error || '')) : null, body].filter(Boolean)); // replaceChildren prints a null as the word
     drawActions();
-    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); drawFeedback(); }
+    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); drawFeedback(); drawGaps(); }
   }
   box.replaceChildren(h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' }));
   reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });

@@ -73,10 +73,10 @@ SECTIONS = [
     'The proposal: the cover letter only. Edit it like any document.',
     'Every save, chat change, update and restore is kept as a version. Pick an older one here to see it or bring it back.',
     '<b>Loom video</b>: pick another video, or none, at any time. Only the video line changes, at once; nothing is written again.',
-    '<b>Chat with the AI</b> to change it: "make it shorter", "add a question about their calendar". Each answer is saved as a new version.',
-    'The <b>independent review</b>: a second reader scores the proposal out of 10. See below.',
+    'Beside the proposal, one card with a tab for each tool. <b>Chat</b> with the AI to change it: "make it shorter", "add a question about their calendar". Each answer is saved as a new version. <b>Feedback</b> records what is wrong in it, to fix the setup later.',
+    '<b>Review</b>: a second reader scores the proposal out of 10, and the score shows on the tab. See below. <b>Experience</b> appears when the client asks for something we have no record of: answer Yes or No there.',
     '<b>Copy cover letter</b> puts the letter on your clipboard. <b>Change type</b> writes it again as another proposal type. <b>Save and mark sent</b> when it is submitted on Upwork.'],
-    'Above the text, a yellow line lists things to check before sending (for example a figure the writer could not find in our facts).'),
+    'Above the text, a yellow line lists things to check before sending (for example a figure the writer could not find in our facts), and a blue button says how many questions about our experience are waiting. Under the text, <b>How this was written</b> opens the signals and the proposal type ranking.'),
   shot('job-answers.jpg', 'The screening answers, apart from the proposal', 'When the client asks questions in Upwork\'s own questions section, each is answered apart from the cover letter, under the editor. Editing or removing text in the proposal never touches them.', [
     'The questions and how many.', 'The answer, in its own box. Edit it here; <b>Save version</b> saves the letter and the answers together.', '<b>Copy</b> each answer into its own box on Upwork.']),
   shot('job-parts.jpg', 'Changing the projects, the profile or the video after writing', 'A proposal is made of parts: the letter, one block per project, the video line and the sign off. Change the projects or the profile on their tabs, or the video here, and only that part is redone, as a new version: a new project takes a few seconds, a video or a profile no time at all. The letter stays as it was. To write the letter again in another profile\'s voice, use <b>Change type</b> or write it again.', [
