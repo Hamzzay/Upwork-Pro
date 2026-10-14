@@ -347,6 +347,7 @@ const NAV = [
     { key: 'new', icon: 'screen', label: 'Screen a job' },
     { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
     { key: 'reports', icon: 'chart', label: 'Reports' },
+    { key: 'feedback', icon: 'audit', label: 'Proposal feedback' },
     { key: 'connect', icon: 'link', label: 'Connect Claude' },
     { href: '/guide/', icon: 'info', label: 'Guide' }] }, // the team guide, served beside the app; it opens in its own tab
   { label: 'Library', links: [
@@ -2453,6 +2454,35 @@ async function rulesView() {
       render: (slice) => dataTable(['Code', 'Type', 'Rule', 'Fired on', 'Status', ''], slice.map(row), 'rulestable') })], true);
 }
 
+// ---------- Proposal feedback (R67): what people said was wrong in proposals, to read the patterns and fix the setup ----------
+async function feedbackView() {
+  const r = await api('GET', '/feedback');
+  const total = r.counts.reduce((n, c) => n + Number(c.n), 0);
+  const counts = h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `${total} feedback entr${total === 1 ? 'y' : 'ies'}`),
+    h('div', { class: 'chips', style: 'margin-top:8px' }, r.counts.length ? r.counts.map((c) => h('span', { class: 'chip' }, `${c.category} ${c.n}`)) : h('span', { class: 'faint' }, 'None yet. Add feedback from the proposal page, beside the review.')),
+    h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'After 20 or 30 proposals, read these by category: a wrong fact means a project or profile to fix; a wrong project means tags; tone, length and openings mean the proposal type or the writing guide; a banned phrase means the banned phrases list.'));
+  const row = (f) => h('tr', {},
+    h('td', { class: 'nowrap' }, full(f.created_at), h('div', { class: 'small muted' }, f.user_name || '')),
+    h('td', { style: 'white-space:normal;min-width:180px' }, h('a', { href: `#/s/${f.screening_id}/proposal` }, f.job_title || ('Job #' + f.screening_id)), h('div', { class: 'small muted' }, [f.profile_name, f.template_name, f.version_no ? 'version ' + f.version_no : null].filter(Boolean).join(' · '))),
+    h('td', {}, h('span', { class: 'chip' }, f.category)),
+    h('td', { style: 'white-space:pre-wrap;min-width:220px;max-width:360px' }, f.excerpt.length > 400 ? f.excerpt.slice(0, 400) + '...' : f.excerpt),
+    h('td', { style: 'white-space:pre-wrap;min-width:200px;max-width:320px' }, f.feedback));
+  const waiting = r.waiting && r.waiting.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Experience waiting for the library'), h('span', { class: 'sub' }, String(r.waiting.length))),
+    h('div', { class: 'card-pad stack', style: 'gap:8px' }, h('p', { class: 'jp-label', style: 'margin:0' }, 'Confirmed on a proposal, not yet a tag on the project: an existing tag that would change the matching, or an answer by someone who cannot change the library.'),
+      r.waiting.map((g) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, `${g.tag_name || g.skill} on ${g.project_name || 'no project'}`), h('div', { class: 'jp-label' }, g.note || ''),
+        h('div', { class: 'faint small' }, `${g.user_name || ''}, job #${g.screening_id}`)),
+        me.role === 'admin' && g.project_name ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Adding'); try { await api('POST', `/admin/gaps/${g.id}/link`, {}); toast('Added to the project'); route(); } catch (x) { toast(x.message, true); route(); } } }, 'Add to library') : null)))) : null;
+  shell('feedback', [pageHead('Proposal feedback', 'What was wrong in proposals, each kept with the proposal as it was. Read it by category to see what to fix in the setup.'),
+    counts, waiting,
+    listCard({ items: r.items, paged: true, icon: 'audit', emptyTitle: 'No feedback yet', emptyText: 'On a proposal, use the Feedback card beside the review.',
+      search: { placeholder: 'Search the text, the feedback and the job', text: (f) => [f.excerpt, f.feedback, f.job_title, f.projects].join(' ') },
+      filters: [{ key: 'category', label: 'Any category', options: r.categories.map((c) => [c, c]), test: (f, v) => f.category === v },
+        { key: 'profile', label: 'Any profile', options: [...new Set(r.items.map((f) => f.profile_name).filter(Boolean))].map((x) => [x, x]), test: (f, v) => f.profile_name === v },
+        { key: 'type', label: 'Any type', options: [...new Set(r.items.map((f) => f.template_name).filter(Boolean))].map((x) => [x, x]), test: (f, v) => f.template_name === v },
+        { key: 'person', label: 'Anyone', options: [...new Set(r.items.map((f) => f.user_name).filter(Boolean))].map((x) => [x, x]), test: (f, v) => f.user_name === v }],
+      render: (slice) => dataTable(['When', 'Job', 'What kind', 'The part', 'Feedback'], slice.map(row), 'rulestable') })], true);
+}
+
 // ---------- Flag review (R63): per rule, what people did when it fired and how those jobs went; for relaxing rules with evidence ----------
 const FR_HINT = { relax: ['Candidate to relax', 'PASS'], keep: ['Keep it', 'FAIL'], working: ['Doing its job', ''], mixed: ['Mixed', 'FLAG'], too_few: ['Too few jobs yet', 'wait'] };
 async function flagReviewView() {
@@ -2730,6 +2760,7 @@ async function route() {
     if (a === 'users' && me.role === 'admin') return await usersView();
     if (a === 'skill' && me.role === 'admin') return await skillView();
     if (a === 'reviewer') return await reviewerView();
+    if (a === 'feedback') return await feedbackView();
     if (a === 'rules' && me.role === 'admin') return await rulesView();
     if (a === 'flagreview' && (me.role === 'admin' || me.role === 'manager')) return await flagReviewView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();

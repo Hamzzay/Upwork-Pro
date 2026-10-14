@@ -599,6 +599,18 @@ const ctx = { rules, projects };
     setCompanyName('Stackup Solutions');
   }
 
+  // ---------- experience gaps (R67) ----------
+  {
+    const { gapsRule, gapsOut, writerSchema: ws } = await import('../src/proposal/writer');
+    const { partsSchema: ps, partsOut: po } = await import('../src/proposal/parts');
+    const rule = gapsRule(['Tech stack', 'AI models and platforms']);
+    assert.ok(rule.includes('never say you lack it') && rule.includes('Tech stack, AI models and platforms'), 'the writer leaves gaps out and names the categories');
+    assert.ok((ws as any).required.includes('gaps') && (ps(0) as any).required.includes('gaps'), 'both answers carry the gaps');
+    assert.equal(gapsOut.parse([{ skill: 'Grok', ask: 'Experience building bots on Grok', quote: 'must have built a Grok bot', category: 'AI models and platforms' }]).length, 1);
+    assert.ok(!gapsOut.safeParse(Array(9).fill({ skill: 'x', ask: 'y', quote: '', category: '' })).success, 'at most 8');
+    assert.ok(po.safeParse({ letter: 'x'.repeat(50), proof: [], warnings: [], gaps: [] }).success, 'parts with no gaps');
+  }
+
   // ---------- flag review (R63) ----------
   {
     const { buildFlagReview, picksOf } = await import('../src/flagreview');

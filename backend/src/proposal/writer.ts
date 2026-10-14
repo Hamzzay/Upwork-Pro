@@ -49,7 +49,21 @@ function signalsBlock(detected: DetectedValue[]) {
   return lines(['DETECTED SIGNALS (apply each move)', ...rows.map((d) => `  - ${d.signal_name}: ${d.value_name}${d.is_fallback ? ' (default: nothing stated in the post)' : ''}${d.move ? '\n    Move: ' + d.move : ''}`)]);
 }
 
-export function writerSystem(a: { template: TemplateFact; detected: DetectedValue[]; samples: SampleFact[]; sender: SenderFact; projects: ProjectFact[]; clientRequirements: string[]; guide?: Guide; parts?: boolean }): string {
+/**
+ * Experience gaps (R67): what the client asks for that the facts do not show. The writer lists them apart and leaves them out of the
+ * proposal (it neither claims nor denies them); the person then answers Yes or No on the proposal page, and a Yes updates it.
+ */
+export const gapsRule = (categories: string[]) => `GAPS
+- In "gaps", list every specific thing the client asks the freelancer to have done, used or know (a tool, platform, AI model,
+  integration, certification, industry, kind of work) that SENDER and PROJECTS do not show. For each: "skill", a short name as a
+  tag would say it ("Grok", "HubSpot", "HIPAA compliance"); "ask", one sentence on what the client wants; "quote", the client's own
+  words, at most 20 words; "category", the closest of: ${categories.join(', ') || 'Tech stack'}.
+- Leave each gap out of the proposal: never claim it, and never say you lack it or have not done it. The person confirms it later.
+- At most 8. An empty list when the facts cover every ask.`;
+export const gapsSchema = { type: 'array', maxItems: 8, items: { type: 'object', properties: { skill: { type: 'string' }, ask: { type: 'string' }, quote: { type: 'string' }, category: { type: 'string' } }, required: ['skill', 'ask', 'quote', 'category'], additionalProperties: false } } as const;
+export const gapsOut = z.array(z.object({ skill: z.string().trim().min(1).max(120), ask: z.string().trim().min(1).max(400), quote: z.string().trim().max(400), category: z.string().trim().max(120) })).max(8);
+
+export function writerSystem(a: { template: TemplateFact; detected: DetectedValue[]; samples: SampleFact[]; sender: SenderFact; projects: ProjectFact[]; clientRequirements: string[]; guide?: Guide; parts?: boolean; gapCategories?: string[] }): string {
   return lines([
     `You write one Upwork proposal for a freelancer at ${companyName()}.`, '',
     GUARDRAILS, '',
@@ -62,19 +76,20 @@ export function writerSystem(a: { template: TemplateFact; detected: DetectedValu
     a.samples.length ? `SAMPLE PROPOSALS (tone and structure only; they are about other jobs, other people and other projects)\n${a.samples.map((s, i) => `--- Sample ${i + 1}: ${s.title}\n${s.content}`).join('\n\n')}\n` : '',
     facts(a.sender, a.projects),
     a.parts ? '\n' + PARTS_RULES : '',
+    '\n' + gapsRule(a.gapCategories ?? []),
   ]);
 }
 
 export const writerSchema = {
   type: 'object',
-  properties: { proposal: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } } },
-  required: ['proposal', 'warnings'], additionalProperties: false,
+  properties: { proposal: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } }, gaps: gapsSchema },
+  required: ['proposal', 'warnings', 'gaps'], additionalProperties: false,
 } as const;
-export const writerOut = z.object({ proposal: z.string().min(40), warnings: z.array(z.string()), screening_answers: z.array(z.string()).optional() });
+export const writerOut = z.object({ proposal: z.string().min(40), warnings: z.array(z.string()), screening_answers: z.array(z.string()).optional(), gaps: gapsOut.optional() });
 /** When the client used Upwork's separate questions section: the answers come back apart from the cover letter, one per question. */
 export function writerSchemaWithAnswers(count: number) {
   return { type: 'object', properties: { proposal: { type: 'string' }, warnings: { type: 'array', items: { type: 'string' } },
-    screening_answers: { type: 'array', items: { type: 'string' }, minItems: count, maxItems: count } }, required: ['proposal', 'warnings', 'screening_answers'], additionalProperties: false };
+    screening_answers: { type: 'array', items: { type: 'string' }, minItems: count, maxItems: count }, gaps: gapsSchema }, required: ['proposal', 'warnings', 'screening_answers', 'gaps'], additionalProperties: false };
 }
 /** The prompt part for those questions. */
 export function questionsPrompt(questions: string[]): string {

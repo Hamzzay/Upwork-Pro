@@ -61,6 +61,10 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   for (const n of job?.proposal_notes ?? []) if (n && !/^mock provider/i.test(n)) requirements.push(String(n));
   const passOn = new Set((await getSettings())['writer.requirement_rules']); // flags the writer must treat as client requirements (admin setting)
   for (const f of job?.flags ?? []) if (passOn.has(f.code)) requirements.push(`${f.rule}: ${f.value}`);
+  // experience the sender confirmed on the proposal page (R67): true, and it wins over any screening note that it cannot be claimed
+  const confirmed = await query<any>(`SELECT g.skill, g.note, pr.name AS project_name FROM proposal_gaps g JOIN proposals p ON p.id=g.proposal_id LEFT JOIN projects pr ON pr.id=g.project_id
+    WHERE p.screening_id=? AND g.status='yes' ORDER BY g.id`, [screeningId]);
+  if (confirmed.length) requirements.push(`CONFIRMED BY THE SENDER after the screening (true; it overrides any screening note above that it cannot be claimed or answered): ${confirmed.map((c) => `${c.skill}${c.project_name ? ' (in ' + c.project_name + ')' : ''}${c.note ? ': ' + c.note : ''}`).join('; ')}.`);
   let posting: any = null; try { posting = s.posting_json ? JSON.parse(s.posting_json) : null; } catch { /* none */ }
   const jobText = (s.job_text ?? s.raw_input) as string;
   // Upwork's separate questions: answered apart from the cover letter, and the letter is written from the job without them
@@ -223,7 +227,8 @@ export async function suggestedTypeId(screeningId: number): Promise<number | nul
 
 type Facts = Awaited<ReturnType<typeof loadFacts>>;
 /** `text` is the cover letter only; `answers` the screening answers apart (missing in early drafts written before R59: then they are in `text`). */
-interface Draft { template: { id: number; name: string; score: number; choice: 'auto' | 'manual'; ranking: string }; text: string; answers?: QA[]; parts?: Parts | null; warnings: { source: string; text: string }[]; model: string }
+export interface Gap { skill: string; ask: string; quote: string; category: string }
+interface Draft { template: { id: number; name: string; score: number; choice: 'auto' | 'manual'; ranking: string }; text: string; answers?: QA[]; parts?: Parts | null; gaps?: Gap[]; warnings: { source: string; text: string }[]; model: string }
 
 /** Signals, template, writing and checks for one set of facts. Stores nothing about the proposal, so an early draft can use it too. */
 async function compose(screeningId: number, f: Facts, opts: { templateId?: number | null; stillWanted: () => boolean; stage?: (s: string) => Promise<void>; onTemplate?: (t: Draft['template']) => Promise<void> }): Promise<Draft | null> {
@@ -267,7 +272,8 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   if (structured) requirements.push('The post demands a structured submission: follow its structure exactly, first, before anything else.');
   // in parts (PLAN-SPEED point 1), except a structured submission: the client's own structure is written whole
   const inParts = !structured;
-  const system = writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide, parts: inParts });
+  const gapCategories = (await query<any>('SELECT name FROM tag_categories WHERE name<>? ORDER BY sort_order, name', ['Industry'])).map((r) => r.name as string);
+  const system = writerSystem({ template, detected, samples, sender: f.sender, projects: f.projects, clientRequirements: requirements, guide, parts: inParts, gapCategories });
   const jobPart = f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}` : `<job_page>\n${f.jobText}\n</job_page>`;
   const w = await run({ label: 'writing', system, prompt: `${jobPart}\n\nWrite the proposal now.`,
     schema: inParts ? partsSchema(f.questions.length) : f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
@@ -275,11 +281,13 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   let answers: QA[] = [];
   let writerWarnings: string[] = [];
   let parts: Parts | null = null;
+  let gaps: Gap[] = [];
   let text: string;
   if (inParts) {
     const po = partsOut.safeParse(w.data);
     if (!po.success) throw new Error('invalid_output');
     writerWarnings = po.data.warnings;
+    gaps = po.data.gaps ?? [];
     if (f.questions.length) answers = pair(f.questions, po.data.screening_answers);
     // each chosen project's block, by its name; a block the writer left out is written on its own
     const written = new Map(po.data.proof.map((x) => [x.project.trim().toLowerCase(), x.text]));
@@ -294,6 +302,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
     const parsed = writerOut.safeParse(w.data);
     if (!parsed.success) throw new Error('invalid_output');
     writerWarnings = parsed.data.warnings;
+    gaps = parsed.data.gaps ?? [];
     text = splitText(parsed.data.proposal).letter; // a stray "Screening answers" section the model added is cut off
     if (f.questions.length) answers = pair(f.questions, parsed.data.screening_answers);
   }
@@ -320,7 +329,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   // 4. check what the writer cannot be trusted to check
   const warnings = [...openingIssues.map((x) => ({ source: 'check', text: `First two lines: ${x}. Rewrite them before sending; Upwork shows them in the preview.` })), ...writerWarnings.map((t) => ({ source: 'writer', text: t })),
     ...(await checksFor(text, f, template, guide, allNames))];
-  return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text, answers, parts, warnings, model: lastUsed()?.model ?? config.llm.model };
+  return { template: { id: chosen.id, name: chosen.name, score: chosen.score, choice, ranking }, text, answers, parts, gaps, warnings, model: lastUsed()?.model ?? config.llm.model };
 }
 
 /** The automatic checks of a finished text. */
@@ -472,10 +481,74 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
   if (!d || !stillWanted()) return;
   if (early) await saveTemplate(d.template);
   const written = d.answers ? { letter: d.text, answers: d.answers } : splitText(d.text); // an early draft from before R59 has them in the text
-  await addVersion(proposalId, textToHtml(written.letter), 'ai', null, `Written with "${d.template.name}"${early ? ' (drafted early)' : ''}`, null, written.answers, d.parts ?? null);
+  const versionNo = await addVersion(proposalId, textToHtml(written.letter), 'ai', null, `Written with "${d.template.name}"${early ? ' (drafted early)' : ''}`, null, written.answers, d.parts ?? null);
+  await saveGaps(proposalId, p.screening_id, versionNo, d.gaps ?? []);
   // the independent review follows every written proposal by itself (worker.ts picks it up), unless an admin turned that off
   const auto = (await getSettings())['review.auto'];
   await exec(`UPDATE proposals SET status='done', stage=NULL, warnings=?, model=?, error_code=NULL, error_message=NULL, finished_at=NOW(), review_status=IF(?, 'queued', review_status), review_error=IF(?, NULL, review_error) WHERE id=?`, [JSON.stringify(d.warnings), d.model, auto ? 1 : 0, auto ? 1 : 0, proposalId]);
+}
+
+/**
+ * The experience gaps of a newly written version (R67). Open gaps of an earlier write are replaced; a gap the person already
+ * answered stays answered, and the same skill found again is not asked twice.
+ */
+export async function saveGaps(proposalId: number, screeningId: number, versionNo: number, gaps: Gap[]) {
+  await exec(`DELETE FROM proposal_gaps WHERE proposal_id=? AND status='open'`, [proposalId]);
+  const answered = new Set((await query<any>(`SELECT skill FROM proposal_gaps WHERE proposal_id=?`, [proposalId])).map((r) => String(r.skill).toLowerCase()));
+  const seen = new Set<string>();
+  for (const g of gaps) {
+    const key = g.skill.trim().toLowerCase(); if (!key || answered.has(key) || seen.has(key)) continue; seen.add(key);
+    await exec('INSERT INTO proposal_gaps (proposal_id, screening_id, version_no, skill, ask, quote, category) VALUES (?,?,?,?,?,?,?)',
+      [proposalId, screeningId, versionNo, g.skill.trim().slice(0, 120), g.ask.trim().slice(0, 400), (g.quote || '').trim().slice(0, 400) || null, (g.category || '').trim().slice(0, 120) || null]);
+  }
+}
+
+/**
+ * The proposal brought up to date with the experience the person confirmed (R67). Only the lines about it change, as a new
+ * version: a skill confirmed on one of this proposal's projects is explained in that project's block (how it was used there);
+ * a skill confirmed as the sender's own experience gets a sentence in the letter. The rest stays word for word.
+ */
+export async function runGapUpdate(proposalId: number) {
+  const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
+  const cur = p ? await latestVersion(p.id) : null;
+  if (!p || !cur) return;
+  const yes = await query<any>(`SELECT g.*, pr.name AS project_name FROM proposal_gaps g LEFT JOIN projects pr ON pr.id=g.project_id WHERE g.proposal_id=? AND g.status='yes' AND g.applied_version IS NULL`, [p.id]);
+  if (!yes.length) { await exec(`UPDATE proposals SET gaps_status='done' WHERE id=?`, [p.id]); return; }
+  const f = await loadFacts(p.screening_id); // fresh: the projects' notes now hold what was confirmed
+  const template = p.template_id ? await loadTemplate(p.template_id) : null;
+  if (!template) throw new Error('no_template');
+  const guide = await loadGuide();
+  const cfg = await getSettings();
+  const detected = await storedSignals(p.screening_id);
+  const inParts = !!cur.parts;
+  const system = writerSystem({ template, detected, samples: [], sender: f.sender, projects: f.projects, clientRequirements: f.requirements, guide, parts: inParts, gapCategories: [] });
+  const inProposal = new Set(f.projects.map((x) => x.name.toLowerCase()));
+  const confirmed = yes.map((g) => {
+    const onProject = g.project_name && inProposal.has(String(g.project_name).toLowerCase());
+    return `- ${g.skill} (the client asks: ${g.ask}). ${onProject ? `Done in the project ${g.project_name}, one of this proposal's projects: explain in that project's block, in one or two sentences, how ${g.skill} was used there${g.note ? ' (' + g.note + ')' : ''}.` : `The sender's own experience${g.note ? ': ' + g.note : ''}. Say it in one sentence in the letter where it fits${g.project_name ? `; it was done in ${g.project_name}, which is not one of this proposal's projects, so do not name that project` : ''}.`}`;
+  }).join('\n');
+  const current = inParts
+    ? `THE LETTER\n${cur.parts!.letter}\n\nTHE PROJECT BLOCKS\n${cur.parts!.proof.map((b) => `[${b.name}]\n${b.text}`).join('\n\n')}`
+    : `THE PROPOSAL\n${htmlToPlain(cur.html)}`;
+  const jobPart = f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>` : `<job_page>\n${f.jobText}\n</job_page>`;
+  const r = await run({ label: 'writing: confirmed experience', system, timeoutMs: config.llm.timeoutMs, schema: inParts ? partsSchema(0) : writerSchema,
+    prompt: `${jobPart}\n\nTHE CURRENT PROPOSAL\n${current}\n\nTHE SENDER CONFIRMS THIS EXPERIENCE (it is true: use it)\n${confirmed}\n\nWrite the proposal again with only that added, each where it belongs, and keep every other sentence word for word. Where the proposal answers a question the client asks about one of these (for example "what you built with it"), answer it with the confirmed experience, plainly and specifically. Take out anything that says the sender lacks it, has not done it, or that it would be new. ${inParts ? 'Return the whole letter (with its [[PROOF]] and [[VIDEO]] lines where they are) and every project block, in the same order; "gaps" an empty list.' : 'Return the whole proposal; "gaps" an empty list.'}` });
+  let parts: Parts | null = null, text: string;
+  if (inParts) {
+    const o = partsOut.safeParse(r.data); if (!o.success) throw new Error('invalid_output');
+    const byName = new Map(o.data.proof.map((x) => [x.project.trim().toLowerCase(), x.text]));
+    parts = { ...cur.parts!, letter: cleanLetter(o.data.letter), proof: cur.parts!.proof.map((b, i) => ({ ...b, text: byName.get(b.name.toLowerCase()) ?? o.data.proof[i]?.text ?? b.text })) };
+    text = assembleParts(parts, cfg['writer.loom_line']);
+  } else {
+    const o = writerOut.safeParse(r.data); if (!o.success) throw new Error('invalid_output');
+    text = splitText(o.data.proposal).letter;
+  }
+  const no = await addVersion(p.id, textToHtml(text), 'ai', null, `Updated with your experience: ${yes.map((g) => g.skill).join(', ')}`, cur.version_no, undefined, parts);
+  await exec(`UPDATE proposal_gaps SET applied_version=? WHERE id IN (?)`, [no, yes.map((g) => g.id)]);
+  let old: { source: string; text: string }[] = []; try { old = JSON.parse(p.warnings || '[]'); } catch { old = []; }
+  const kept = old.filter((w) => w.source === 'writer' && !yes.some((g) => w.text.toLowerCase().includes(String(g.skill).toLowerCase())));
+  await exec(`UPDATE proposals SET warnings=?, gaps_status='done', review_status=IF(?, 'queued', review_status) WHERE id=?`,
+    [JSON.stringify([...kept, ...(await checksFor(text, f, template, guide))]), cfg['review.auto'] ? 1 : 0, p.id]);
 }
 
 /** Bring a written proposal up to date after its projects, profile or video changed (PLAN-SPEED point 1). Nothing to do: nothing queued. */

@@ -16,6 +16,7 @@ import { plugin } from './routes_plugin';
 import { writing } from './routes_writing';
 import { setup } from './routes_setup';
 import { reviewer } from './routes_reviewer';
+import { feedback } from './routes_feedback';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
@@ -38,6 +39,7 @@ api.use(plugin);
 api.use(writing);
 api.use(setup);
 api.use(reviewer); // the Reviewer page (R61)
+api.use(feedback); // experience gaps and proposal feedback (R67)
 api.use(oauthApi);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);

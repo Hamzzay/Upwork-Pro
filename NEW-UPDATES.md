@@ -1003,6 +1003,39 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R67. Experience gaps answered on the proposal, and feedback on proposals (done, 14 October)
+
+Asked for by Ahmad (the Grok example: a client asked for Grok experience we have, the library did not show it, and the proposal
+said "Grok would be new for me").
+- **The writer reports its gaps.** Every write also returns what the client asks for that the facts do not show (a tool, platform,
+  AI model, integration, certification, industry, kind of work): a short skill name, the ask, the client's words and the closest
+  tag category. It leaves each gap out of the proposal, never claiming it and never saying it is lacking (`gapsRule` in
+  `src/proposal/writer.ts`; kept in `proposal_gaps`, migration 042; open gaps are replaced by a new write, answered ones stay).
+- **The person answers on the proposal page**, in a card above the editor: Yes or No per gap; a Yes can name the project where it
+  was done (this proposal's projects first) and say how it was used. **Update the proposal** writes only those lines again, as a
+  new version (one short call, about 15 s): a skill done in one of this proposal's projects is explained in that project's block;
+  otherwise it is a sentence in the letter; a question the client asks about it is answered with it; anything saying it is
+  lacking goes. What was confirmed is then a fact for the reviewer, the chat and any rewrite, and wins over the gate's note that
+  it could not be claimed.
+- **The library learns it, without changing the matching** (Ahmad): the note (how it was used) goes into the project's notes, where
+  the writer reads it. A new tag is made **switched off** and put on the project: it counts in tagging and matching only once an
+  admin switches it on in the Tag dictionary. An existing tag that is on is not linked (the link alone would change the matching):
+  it waits for an admin on the Proposal feedback page, with **Add to library**. A manager's Yes adds the note (only an admin makes
+  tags); an employee's waits for an admin. Each change is a change set on the Changes page, so it can be put back.
+- **Feedback on proposals:** a Feedback card beside the review: the part of the text (paste it, or select it and press Use
+  selected text), a category (Wrong fact, Wrong project, Tone, Too long, Opening, Banned phrase, Other) and what is wrong. Kept with
+  the job, the version, the profile, the type and the projects (`proposal_feedback`). The **Proposal feedback** page (Work) lists
+  it all with counts per category, search and filters, and the experience waiting for the library. Claude reads it with
+  `list_feedback`, to review the patterns and propose fixes.
+- **Tested on the local app with a made up Grok job** (a temporary account; everything, library changes included, removed after):
+  the gate flagged G9 and G11; the writer found the gap (Grok, AI models and platforms) but the G11 requirement still made it write
+  "Grok would be new for me"; answering Yes on Innspeed made a switched off "Grok" tag on Innspeed, the note in its notes, and
+  change sets 77 and 78; the update (15 s) answered "What you built with Grok" with the Innspeed fact and explained it in
+  Innspeed's block, with no denial left. The review first scored it 4 ("cannot honestly claim that"); with the confirmed fact
+  passed to the reviewer it scored 7, "the Grok ask is answered honestly with the confirmed Innspeed fact". A feedback entry was
+  saved and shown on the job and on the Proposal feedback page.
+- Not yet: the Claude plugin (it asks the same questions next), and the team guide's pictures of the new cards.
+
 ### R66. Setting up from zero: a guide, a starter kit, and the company name as a setting (done, 14 October)
 
 - **The guide** (`guide/setup.html`, from `guide/setup_content.py`, built by `python3 guide/build.py`, linked both ways with the team

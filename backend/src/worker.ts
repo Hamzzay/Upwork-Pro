@@ -13,7 +13,7 @@ import { applyJudgement, judgeProjects } from './screening/judge';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
-import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
+import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
 import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
@@ -215,6 +215,10 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const ch = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM proposal_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
   if (ch.length) return { kind: 'chat', claim: async () => !!(await exec(`UPDATE proposal_messages SET status='running' WHERE id=? AND status='queued'`, [ch[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'chat', proposalId: ch[0].proposal_id, screeningId: ch[0].screening_id }, () => processChat(ch[0].id)) };
+  // the proposal updated with experience the person confirmed (R67)
+  const gp = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE gaps_status='queued' AND status='done' ORDER BY id LIMIT 1`);
+  if (gp.length) return { kind: 'gaps', claim: async () => !!(await exec(`UPDATE proposals SET gaps_status='running' WHERE id=? AND gaps_status='queued'`, [gp[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'proposal', proposalId: gp[0].id, screeningId: gp[0].screening_id }, () => processGaps(gp[0].id)) };
   // a written proposal brought up to date after its projects, profile or video changed (only those parts are redone)
   const pa = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE parts_status='queued' AND status='done' ORDER BY id LIMIT 1`);
   if (pa.length) return { kind: 'parts', claim: async () => !!(await exec(`UPDATE proposals SET parts_status='running' WHERE id=? AND parts_status='queued'`, [pa[0].id])).affectedRows,
@@ -261,6 +265,15 @@ let wakeUp: (() => void) | null = null;
 const wake = () => { const w = wakeUp; wakeUp = null; w?.(); };
 const idle = (ms: number) => new Promise<void>((r) => { const t = setTimeout(() => { wakeUp = null; r(); }, ms); wakeUp = () => { clearTimeout(t); r(); }; });
 
+/** The proposal updated with the experience the person confirmed. */
+async function processGaps(id: number) {
+  try { await runGapUpdate(id); }
+  catch (e) {
+    console.error('gaps update failed', (e as Error).message);
+    await exec(`UPDATE proposals SET gaps_status=?, gaps_error=? WHERE id=?`, [stopping ? 'queued' : 'error', String((e as Error).message).slice(0, 300), id]).catch(() => undefined);
+  }
+}
+
 /** The parts of a written proposal brought up to date. */
 async function processParts(id: number) {
   try { await runPartsRefresh(id); }
@@ -291,6 +304,7 @@ async function shutdown() {
   await exec(`UPDATE proposals SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET review_status='queued' WHERE review_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET parts_status='queued' WHERE parts_status='running'`).catch(() => undefined);
+  await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
@@ -308,6 +322,7 @@ async function main() {
   await exec(`UPDATE proposals SET status='queued' WHERE status='running'`);
   await exec(`UPDATE proposals SET review_status='queued' WHERE review_status='running'`);
   await exec(`UPDATE proposals SET parts_status='queued' WHERE parts_status='running'`);
+  await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);

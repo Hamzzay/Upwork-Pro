@@ -93,6 +93,9 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 44 | Team guide up to date for R58 to R64: 6 pictures retaken, 6 new, the text for every changed screen and for Claude (R65) | done |
 | 45 | Setting up from zero: the guide (guide/setup.html), the starter kit (npm run seed:starter), the company name as a setting; checked on an empty database to a first proposal (R66) | done |
 | 46 | The Claude plugin for another company: replace its backup files, job gate text and profiles list with that company's (or generate them from its Upwork Pro) | open, only when another company uses the plugin |
+| 47 | Experience gaps answered on the proposal (the library learns them, switched off), and proposal feedback with its page and list_feedback for Claude (R67, migration 042) | done in the app |
+| 48 | The same in the Claude plugin: ask the gaps after the draft, save the answers, update; save feedback from the chat | next |
+| 49 | Team guide: pictures and text for the gaps card, the feedback card and the Proposal feedback page | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

@@ -32,11 +32,13 @@ export function partsSchema(questions: number) {
     letter: { type: 'string' },
     proof: { type: 'array', items: { type: 'object', properties: { project: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'text'], additionalProperties: false } },
     warnings: { type: 'array', items: { type: 'string' } },
+    gaps: { type: 'array', maxItems: 8, items: { type: 'object', properties: { skill: { type: 'string' }, ask: { type: 'string' }, quote: { type: 'string' }, category: { type: 'string' } }, required: ['skill', 'ask', 'quote', 'category'], additionalProperties: false } },
   };
   if (questions) base.screening_answers = { type: 'array', items: { type: 'string' }, minItems: questions, maxItems: questions };
-  return { type: 'object', properties: base, required: ['letter', 'proof', 'warnings', ...(questions ? ['screening_answers'] : [])], additionalProperties: false };
+  return { type: 'object', properties: base, required: ['letter', 'proof', 'warnings', 'gaps', ...(questions ? ['screening_answers'] : [])], additionalProperties: false };
 }
-export const partsOut = z.object({ letter: z.string().min(40), proof: z.array(z.object({ project: z.string(), text: z.string().min(5) })), warnings: z.array(z.string()), screening_answers: z.array(z.string()).optional() });
+export const partsOut = z.object({ letter: z.string().min(40), proof: z.array(z.object({ project: z.string(), text: z.string().min(5) })), warnings: z.array(z.string()), screening_answers: z.array(z.string()).optional(),
+  gaps: z.array(z.object({ skill: z.string().trim().min(1).max(120), ask: z.string().trim().min(1).max(400), quote: z.string().trim().max(400), category: z.string().trim().max(120) })).max(8).optional() });
 
 /** One project's proof block, written on its own (a project added after the proposal was written). */
 export const proofSchema = { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false } as const;

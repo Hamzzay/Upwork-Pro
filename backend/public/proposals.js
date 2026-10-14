@@ -90,6 +90,7 @@ function proposalSection(s, initial, matching) {
   const reviewBusy = () => !!(data && data.review && (data.review.status === 'queued' || data.review.status === 'running'));
   // the parts of a written proposal being brought up to date after a change of projects, profile or video (PLAN-SPEED point 1)
   const partsBusy = () => !!(data && data.parts && (data.parts.status === 'queued' || data.parts.status === 'running'));
+  const gapsBusy = () => !!(data && data.gaps && (data.gaps.status === 'queued' || data.gaps.status === 'running'));
   let templates = [];
   // the stepper asks these before it leaves the step or finishes it
   box.__dirty = () => !!(editor && (editor.isDirty() || answersDirty()));
@@ -129,16 +130,105 @@ function proposalSection(s, initial, matching) {
       if ((st.parts_status || null) !== ((data.parts && data.parts.status) || null)) {
         const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.parts = fresh.parts; drawParts();
       }
+      // the experience update finished (or failed): its new version is picked up above; the gaps card shows the answers
+      if ((st.gaps_status || null) !== ((data.gaps && data.gaps.status) || null)) {
+        const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.gaps = fresh.gaps; drawGaps();
+      }
       // the independent review arrived (or started): fetch it and redraw only its panel
       if ((st.review_status || null) !== ((data.review && data.review.status) || null) || (st.review_version || null) !== ((data.review && data.review.version) || null)) {
         data.review = (await api('GET', `/screenings/${s.id}/proposal`)).proposal.review; drawReview();
       }
     } catch (e) { /* try again next time */ }
-    if (busy() || chatBusy() || reviewBusy() || partsBusy()) timer = setTimeout(poll, 1000);
+    if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy()) timer = setTimeout(poll, 1000);
   }
   const startPolling = () => { clearTimeout(timer); timer = setTimeout(poll, 1000); };
 
   // ----- pieces
+  // ----- experience gaps (R67): what the client asks for that our facts do not show. Yes (with the project and how it was used)
+  // or No; a Yes updates only those lines of the proposal, and teaches the library (a new tag is made switched off)
+  const gapsEl = h('div', {});
+  const LIB = { added: 'added to the project in the library, switched off until an admin switches it on', waiting: 'the note is on the project; the tag waits for an admin', note: 'the note is on the project', to_add: 'waits for an admin to add it to the library', none: 'said as your own experience' };
+  function drawGaps() {
+    const g = data && data.gaps; if (!g || !g.items || !g.items.length) { gapsEl.replaceChildren(); return; }
+    if (g.status === 'queued' || g.status === 'running') {
+      gapsEl.replaceChildren(h('div', { class: 'card card-pad', style: 'margin:12px 0' }, h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Updating the proposal with your experience. Only those lines change.'))); return; }
+    const open = g.items.filter((x) => x.status === 'open'), done = g.items.filter((x) => x.status !== 'open');
+    const state = new Map(); // id -> { has, project_id, note, tag_name, category }
+    const row = (x) => {
+      const st = { has: null, project_id: null, note: '', tag_name: x.skill, category: x.category || '' }; state.set(x.id, st);
+      const more = h('div', { class: 'stack', style: 'gap:8px;margin-top:8px', hidden: true });
+      const projSel = h('select', { 'aria-label': 'Project where it was done' }, h('option', { value: '' }, 'No project: my own experience'), ...g.projects.map((p) => h('option', { value: p.id }, p.name + (Number(p.in_proposal) ? ' (in this proposal)' : ''))));
+      const noteLbl = h('label', { class: 'lbl' }, 'A few words on your experience');
+      const note = h('textarea', { rows: 2, maxlength: 600, placeholder: 'For example: built the support bot on Grok, with function calls into the booking system.' });
+      const tagIn = h('input', { type: 'text', value: x.skill, maxlength: 120, 'aria-label': 'Tag name' });
+      const catSel = h('select', { 'aria-label': 'Tag category' }, ...g.categories.map((c) => h('option', { value: c, selected: c === x.category }, c)));
+      const tagRow = h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap', hidden: true }, h('span', { class: 'jp-label' }, 'Tag'), tagIn, h('span', { class: 'jp-label' }, 'in'), catSel,
+        h('span', { class: 'faint small' }, 'Made switched off: it does not count in matching until an admin switches it on.'));
+      projSel.onchange = () => { st.project_id = projSel.value ? Number(projSel.value) : null; tagRow.hidden = !st.project_id; noteLbl.textContent = st.project_id ? 'How it was used in this project' : 'A few words on your experience'; };
+      note.oninput = () => { st.note = note.value; }; tagIn.oninput = () => { st.tag_name = tagIn.value; }; catSel.onchange = () => { st.category = catSel.value; };
+      more.append(h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Where'), projSel), h('div', { class: 'field' }, noteLbl, note), tagRow);
+      const yes = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, 'Yes'), no = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, 'No');
+      const pick = (v) => { st.has = st.has === v ? null : v; yes.classList.toggle('on', st.has === true); no.classList.toggle('on', st.has === false); yes.setAttribute('aria-pressed', String(st.has === true)); no.setAttribute('aria-pressed', String(st.has === false)); more.hidden = st.has !== true; };
+      yes.onclick = () => pick(true); no.onclick = () => pick(false);
+      return h('div', { class: 'qa' }, h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:10px' },
+        h('div', {}, h('strong', {}, x.skill), h('div', { class: 'jp-label' }, x.ask), x.quote ? h('div', { class: 'faint small' }, 'The client: “' + x.quote + '”') : null),
+        owner ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' }, yes, no) : null), more);
+    };
+    const err = h('div', { class: 'err', hidden: true });
+    const send = h('button', { class: 'btn primary', type: 'button' }, 'Update the proposal');
+    send.onclick = async () => {
+      const answers = [...state.entries()].filter(([, v]) => v.has !== null).map(([id, v]) => ({ id, has: v.has, project_id: v.has ? v.project_id : null, note: v.has ? v.note.trim() || undefined : undefined, tag_name: v.has ? v.tag_name.trim() || undefined : undefined, category: v.has ? v.category || undefined : undefined }));
+      if (!answers.length) { err.replaceChildren(icon('x'), 'Answer Yes or No first.'); err.hidden = false; return; }
+      if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Update the proposal?', 'You have unsaved changes. The update starts from the last saved version, so save yours first to keep them.', 'Update anyway'))) return;
+      btnBusy(send, 'Saving');
+      try { const r = await api('POST', `/proposals/${data.id}/gaps`, { answers }); if (r.updated) { data.gaps.status = 'queued'; drawGaps(); startPolling(); } else { const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.gaps = fresh.gaps; drawGaps(); toast('Saved. Nothing to add to the proposal.'); } }
+      catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; send.disabled = false; send.replaceChildren('Update the proposal'); }
+    };
+    gapsEl.replaceChildren(h('div', { class: 'card card-pad', style: 'margin:12px 0' },
+      open.length ? [h('div', { class: 'jp-sec' }, 'The client asks for things we have no record of'),
+        h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'They were left out of the proposal. Have you done them? A Yes puts them in, explained, and teaches the library.'),
+        h('div', { class: 'stack', style: 'gap:10px' }, open.map(row)), err, owner ? h('div', { class: 'row', style: 'margin-top:12px' }, send) : null] : null,
+      done.length ? h('details', { class: 'reviewfold', style: open.length ? 'margin-top:12px' : '' }, h('summary', {}, `Answered (${done.length})`),
+        h('ul', { class: 'jp-list', style: 'margin:6px 0 0' }, done.map((x) => h('li', {}, h('strong', {}, x.skill), x.status === 'no' ? ': No, left out.' : `: Yes${x.project_name ? ', ' + x.project_name : ''}${x.applied_version ? ', in version ' + x.applied_version : ''}. ${LIB[x.library] || ''}`)))) : null,
+      g.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The update failed' + (g.error ? ': ' + g.error : '.') + ' Answer again to try again.') : null));
+  }
+
+  // ----- feedback on the proposal (R67): the part of the text, a category and what is wrong, kept for later review
+  function drawFeedback() {
+    const el = box.querySelector('.feedbackpanel'); if (!el) return;
+    const excerpt = h('textarea', { rows: 3, maxlength: 8000, placeholder: 'Paste the part of the proposal, or select it in the text and press Use selected text.' });
+    const useSel = h('button', { class: 'btn sm', type: 'button' }, 'Use selected text');
+    useSel.onclick = () => { const t = String(window.getSelection() || '').trim(); if (!t) return toast('Select the part in the proposal text first.', true); excerpt.value = t; };
+    let cat = '';
+    const chips = h('div', { class: 'chips' });
+    const what = h('textarea', { rows: 3, maxlength: 4000, placeholder: 'What is wrong with it, and what it should have been.' });
+    const err = h('div', { class: 'err', hidden: true });
+    const list = h('div', { class: 'stack', style: 'gap:8px;margin-top:10px' });
+    const save = h('button', { class: 'btn', type: 'button' }, 'Save feedback');
+    const load = async () => {
+      try { const r = await api('GET', `/screenings/${s.id}/feedback`);
+        if (!chips.childNodes.length) chips.replaceChildren(...r.categories.map((c) => { const b = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, c); b.onclick = () => { cat = cat === c ? '' : c; chips.querySelectorAll('.tagbtn').forEach((x) => { const on = x.textContent === cat; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); }); }; return b; }));
+        list.replaceChildren(...r.items.map((f) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, f.category), h('div', { class: 'jp-label' }, f.feedback),
+          h('div', { class: 'faint small', style: 'white-space:pre-wrap;margin-top:4px' }, '“' + (f.excerpt.length > 220 ? f.excerpt.slice(0, 220) + '...' : f.excerpt) + '”'),
+          h('div', { class: 'faint small' }, `${f.user_name || ''}, version ${f.version_no || '-'}, ${ago(f.created_at)}`))))); }
+      catch { /* shown next time */ }
+    };
+    save.onclick = async () => {
+      if (!cat) { err.replaceChildren(icon('x'), 'Pick what kind of problem it is.'); err.hidden = false; return; }
+      err.hidden = true; btnBusy(save, 'Saving');
+      try { await api('POST', `/screenings/${s.id}/feedback`, { excerpt: excerpt.value, category: cat, feedback: what.value }); excerpt.value = ''; what.value = ''; cat = ''; chips.querySelectorAll('.tagbtn').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-pressed', 'false'); }); toast('Feedback saved'); await load(); }
+      catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; }
+      save.disabled = false; save.replaceChildren('Save feedback');
+    };
+    el.replaceChildren(h('div', { class: 'row spread', style: 'flex-wrap:nowrap' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Feedback'), h('a', { href: '#/feedback', class: 'small' }, 'All feedback')),
+      h('p', { class: 'jp-label', style: 'margin:4px 0 8px' }, 'What is wrong in this proposal? It is kept with the proposal as it is now, to fix the setup later.'),
+      h('div', { class: 'field' }, h('div', { class: 'row spread' }, h('label', { class: 'lbl' }, 'The part'), useSel), excerpt),
+      h('div', { class: 'field', style: 'margin-top:8px' }, h('label', { class: 'lbl' }, 'What kind'), chips),
+      h('div', { class: 'field', style: 'margin-top:8px' }, h('label', { class: 'lbl' }, 'Your feedback'), what), err,
+      h('div', { class: 'row', style: 'margin-top:10px' }, save), list);
+    load();
+  }
+
   const bannerEl = h('div', { class: 'newer', hidden: true });
   // the parts: "updating" while they are redone, and the parts offered when the person's own text was not changed for them
   const partsEl = h('div', {});
@@ -431,17 +521,18 @@ function proposalSection(s, initial, matching) {
       loomSel.onchange = async () => { try { await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: loomSel.value ? Number(loomSel.value) : null }); s.loom_video_id = loomSel.value ? Number(loomSel.value) : null; data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawParts(); startPolling(); } catch (x) { toast(x.message, true); } };
     }).catch(() => loomSel.replaceWith(h('span', { class: 'faint small' }, '')));
     const warns = data.warnings.length ? h('details', { class: 'warnline' }, h('summary', {}, icon('warn'), `${data.warnings.length} thing${data.warnings.length === 1 ? '' : 's'} to check before sending`), h('ul', {}, data.warnings.map((w) => h('li', {}, w.text)))) : null;
-    count(); drawAnswers(cur.answers, owner); drawParts();
+    count(); drawAnswers(cur.answers, owner); drawParts(); drawGaps();
     // the editor on the left; the chat and "how it was written" beside it on a wide screen, below it on a narrow one
     return h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' },
         staleBox,
         warns,
+        gapsEl,
         h('div', { class: 'row', style: 'margin:12px 0 8px;gap:8px;flex-wrap:wrap' }, vsel, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
         partsEl,
         viewing, bannerEl, h('div', { class: 'busywrap' }, editor.el, chatLoader), counter, answersBox,
         h('div', { class: 'faint small', style: 'margin-top:6px' }, `Written ${data.finished_at ? ago(data.finished_at) : ''}${data.template ? ' with ' + data.template.name : ''}. Every save, chat revision and restore is kept as a version.`)),
-      h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), h('div', { class: 'reviewpanel' }), explain())); // the chat first: it is short and used most; the review's score shows right under it
+      h('div', { class: 'propside' }, h('div', { class: 'chatpanel' }), h('div', { class: 'reviewpanel' }), h('div', { class: 'feedbackpanel card card-pad' }), explain())); // the chat first: it is short and used most; the review's score shows right under it
   }
 
   function drawAll() {
@@ -460,10 +551,10 @@ function proposalSection(s, initial, matching) {
     }
     box.replaceChildren(...[data && data.status === 'error' && data.current ? h('div', { class: 'err', style: 'margin:0 0 10px' }, icon('x'), 'The last attempt failed: ' + (data.error || '')) : null, body].filter(Boolean)); // replaceChildren prints a null as the word
     drawActions();
-    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); }
+    if (data && data.current && !busy()) { drawReview(); drawChat(); drawBanner(); drawFeedback(); }
   }
   box.replaceChildren(h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%' }));
-  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy() || partsBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
+  reload().then(() => { drawAll(); if (busy() || chatBusy() || reviewBusy() || partsBusy() || gapsBusy()) startPolling(); }).catch((e) => { box.replaceChildren(h('div', { class: 'card-pad' }, emptyState('x', 'Could not load the proposal', e.message, null))); });
   return box;
 }
 
