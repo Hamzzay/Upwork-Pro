@@ -95,9 +95,9 @@ Apply the `job-gate` skill to the job data. Then show the person, as one visible
 **Save the job now, in the same message as Decision 1** (step 4 below, without `decision`), so it is in Upwork Pro as "Decision pending" even if the person stops here.
 
 **Decision 1.** Only after that message is visible, ask: **Continue** or **Stop**. Put the verdict and the main flags in the question text, for example "FLAG (G3 avg hourly $8, G14 20 Connects). Continue?"
-* On Continue after a Flag or Fail, ask for the override reason with the quick picks: Invite, Strong client history, Strong project fit, Low workload, Other.
-* On Stop, ask why in one line (budget or rate too low, client history or hire rate, outside our services, scope unclear, too much competition, or their own words), then call `record_decision` with `continue: false` and that reason, and end.
-* On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason, written as "Quick pick: Invite. <their note>"; never invent a note), in the same message as the first call of step 5 (`get_library`).
+* On Continue after a Flag or Fail, ask for the reason with the quick picks from `plugin_options` (`continue_reasons`, the same ones the app offers), multi select, plus Other for their own words. Several picks and a note can go together.
+* On Stop, ask why in one line (the quick picks from `plugin_options` `skip_reasons`, or their own words), then call `record_decision` with `continue: false`, that reason, and `picks` with the quick reason they picked, and end.
+* On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason: the picks as sentences, then their note, for example "Invited by the client. Strong client history. They asked for us by name."; never invent a note; and `picks`, the quick reasons they picked exactly as listed), in the same message as the first call of step 5 (`get_library`).
 
 ## Step 4. Save the job (done inside step 3, right after the gate)
 

@@ -19,6 +19,7 @@ import { reviewer } from './routes_reviewer';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
+import { buildFlagReview, picksOf } from './flagreview';
 import { buildReport, packRows } from './reports';
 import { ChangedSince, KINDS, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
@@ -305,6 +306,17 @@ export async function reportFor(req: any, f: ListFilters) {
   return { ...buildReport(jobs, extra, (await getSettings())['tracking.loss_outcomes']), capped, limit: REPORT_LIMIT };
 }
 // Reports: every trend we can count, for the jobs the filters match. Every row carries the Jobs list link that shows its jobs.
+// Flag review (R63): per gate rule, what people did when it fired and how those jobs went (flagreview.ts). Managers and admins.
+export async function flagReview() {
+  const cfg = await getSettings();
+  const jobs = await query<any>(`SELECT s.id, s.verdict, s.rule_codes, s.proceeded, s.continued_at IS NOT NULL AS continued, s.skip_reason, s.skip_note,
+      o.reason AS override_reason, o.reason_picks, ${sentSql} AS sent, s.client_viewed='yes' AS viewed, s.client_replied='yes' AS chat, s.interviewed='yes' AS interview, s.outcome
+    FROM screenings s LEFT JOIN overrides o ON o.screening_id=s.id WHERE s.discarded_at IS NULL AND s.status='done' AND s.verdict IS NOT NULL`);
+  const rules = await query<any>('SELECT code, type, rule, active FROM rules ORDER BY code');
+  return buildFlagReview(jobs, rules, cfg['override.reasons'], cfg['tracking.loss_outcomes']);
+}
+api.get('/reports/flag-review', requireRole('admin', 'manager'), async (_req, res) => { res.json(await flagReview()); });
+
 api.get('/reports', requireRole(), async (req, res) => {
   const f = listFilters.safeParse(req.query);
   if (!f.success) return void res.status(400).json({ error: f.error.issues[0].message });
@@ -835,7 +847,7 @@ api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
 // Continue anyway on FAIL or FLAG: a reason is required and kept.
 api.post('/screenings/:id/override', requireRole(), async (req, res) => {
   const minReason = (await getSettings())['override.min_reason'];
-  const b = z.object({ reason: z.string().trim().min(minReason, `Give a reason of at least ${minReason} characters`).max(2000) }).safeParse(req.body);
+  const b = z.object({ reason: z.string().trim().min(minReason, `Give a reason of at least ${minReason} characters`).max(2000), picks: z.array(z.string().trim().min(1).max(160)).max(20).optional() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const id = Number(req.params.id);
   const rows = await query<any>('SELECT user_id, status, verdict FROM screenings WHERE id=?', [id]);
@@ -845,7 +857,9 @@ api.post('/screenings/:id/override', requireRole(), async (req, res) => {
     return void res.status(409).json({ error: 'Only a finished FAIL or FLAG screening needs an override' });
   }
   try {
-    await exec('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason) VALUES (?,?,?,?)', [id, req.user!.id, s.verdict, b.data.reason]);
+    // the quick reasons picked, kept as a list so the Flag review can count them per rule (else found in the text)
+    const picks = b.data.picks ?? picksOf(null, b.data.reason, (await getSettings())['override.reasons']);
+    await exec('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason, reason_picks) VALUES (?,?,?,?,?)', [id, req.user!.id, s.verdict, b.data.reason, picks.length ? JSON.stringify(picks) : null]);
   } catch (e: any) {
     if (e?.code === 'ER_DUP_ENTRY') return void res.status(409).json({ error: 'Already continued with a reason' });
     throw e;

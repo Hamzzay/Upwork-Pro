@@ -362,6 +362,7 @@ const NAV = [
   { label: 'Admin', links: [
     { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
     { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
+    { key: 'flagreview', icon: 'audit', label: 'Flag review', roles: STAFF },
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
     { key: 'changes', icon: 'back', label: 'Changes', roles: ADMIN },
@@ -1597,12 +1598,25 @@ async function jobPage(id, want) {
       const ta = needReason ? h('textarea', { id: 'why', style: 'min-height:84px', placeholder: 'For example: the client has a strong history with us, and the scope was clarified on a call.' }) : null;
       const err = h('div', { class: 'err', hidden: true });
       const fail = (msg) => { err.replaceChildren(icon('x'), msg); err.hidden = false; if (ta) ta.focus(); };
-      if (ta) ta.oninput = () => { err.hidden = true; };
+      // quick reasons (admin setting): a click writes one into the box, a second click takes it out; words can be added around them
+      const picks = needReason ? h('div', { class: 'chips', style: 'margin-bottom:8px' }, cfg('override.reasons', []).map((r) => {
+        const b = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, r);
+        b.onclick = () => {
+          const parts = ta.value.split(/(?<=\.)\s+/).map((x) => x.trim()).filter(Boolean), at = parts.findIndex((x) => x.replace(/\.$/, '') === r);
+          if (at >= 0) parts.splice(at, 1); else { if (parts.length && !/[.!?]$/.test(parts[parts.length - 1])) parts[parts.length - 1] += '.'; parts.push(r + '.'); }
+          ta.value = parts.join(' ') + (parts.length ? ' ' : ''); ta.dispatchEvent(new Event('input')); ta.focus();
+        };
+        return b;
+      })) : null;
+      const markPicks = () => picks && picks.querySelectorAll('.tagbtn').forEach((x) => { const on = ta.value.split(/(?<=\.)\s+/).some((p) => p.trim().replace(/\.$/, '') === x.textContent); x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+      if (ta) ta.oninput = () => { err.hidden = true; markPicks(); };
       const cont = actBtn('Continue', async (e) => {
         const reason = ta ? ta.value.trim() : '';
         if (needReason && reason.length < minLen) return fail(`Write why you continue (at least ${minLen} characters). It stays on record.`);
         const b = e.currentTarget; btnBusy(b, 'Continuing');
-        try { await api('POST', `/screenings/${s.id}/${needReason ? 'override' : 'continue'}`, needReason ? { reason } : {}); await stepCtx.advanceTo(1); }
+        // the quick reasons in the box are sent as a list too, so the Flag review can count them per rule
+        const picked = needReason ? cfg('override.reasons', []).filter((r) => reason.split(/(?<=\.)\s+/).some((p) => p.trim().replace(/\.$/, '') === r)) : [];
+        try { await api('POST', `/screenings/${s.id}/${needReason ? 'override' : 'continue'}`, needReason ? { reason, picks: picked } : {}); await stepCtx.advanceTo(1); }
         catch (x) { fail(x.message); b.disabled = false; b.replaceChildren('Continue'); }
       }, true);
       // skipping asks why: a quick reason, a note, or both, kept with the job for reports
@@ -1628,8 +1642,8 @@ async function jobPage(id, want) {
       parts.push(h('div', { class: 'card card-pad' },
         h('div', { class: 'jp-sec' }, s.proceeded === 'no' ? 'You skipped this job. Continue anyway?' : needReason ? `Continue despite the ${vword(j.verdict)}?` : 'Continue with this job?'),
         s.proceeded === 'no' ? h('p', { class: 'jp-body', style: 'margin:4px 0 6px' }, 'Skipped because: ' + skipWhy(s)) : null,
-        h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, needReason ? 'Write why. The reason stays on record, visible to managers and admins. Continue and Skip are at the top right.' : 'Continue to match it with projects, or skip it. The buttons are at the top right.'),
-        ta, err));
+        h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, needReason ? 'Pick a quick reason, write your own, or both. The reason stays on record, visible to managers and admins. Continue and Skip are at the top right.' : 'Continue to match it with projects, or skip it. The buttons are at the top right.'),
+        picks, ta, err));
     }
     if (j.fails.length) parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, `Failed rules (${j.fails.length})`), issues(j.fails, 'fail'),
       j.override_note ? h('p', { class: 'jp-label', style: 'margin-top:10px' }, j.override_note) : null));
@@ -2429,7 +2443,7 @@ async function rulesView() {
     h('td', {}, activeSwitch(r.active, { name: r.code, url: '/admin/rules/' + r.code, no: 'Retired', offText: 'New screenings no longer use it. Jobs it already fired on keep it.' })),
     acts(h('button', { class: 'btn sm', onclick: () => edit(r) }, 'Edit')));
   shell('rules', [pageHead('Rules', 'The fail and flag rules the gate applies. Codes are never renumbered or reused: a rule is reworded or retired, and a new meaning gets a new code.',
-      [h('button', { class: 'btn', onclick: () => add('flag') }, icon('screen'), 'Add flag rule'), h('button', { class: 'btn primary', onclick: () => add('fail') }, icon('screen'), 'Add fail rule')]),
+      [h('a', { class: 'btn', href: '#/flagreview' }, icon('audit'), 'Flag review'), h('button', { class: 'btn', onclick: () => add('flag') }, icon('screen'), 'Add flag rule'), h('button', { class: 'btn primary', onclick: () => add('fail') }, icon('screen'), 'Add fail rule')]),
     h('div', { class: 'notice' }, icon('info'), h('span', {}, 'Every active rule, with its "How to apply" note, is added after the ', h('a', { href: '#/skill' }, 'Gate instructions'), ' for every job. A change here applies from the next job on, and each job keeps the rules it was screened against.')),
     listCard({ items: rules, paged: false, icon: 'warn', emptyTitle: 'No rules yet', emptyText: 'Add the first fail or flag rule.',
       search: { placeholder: 'Search rules', text: (r) => r.code + ' ' + r.rule + ' ' + (r.details || '') },
@@ -2437,6 +2451,48 @@ async function rulesView() {
         { key: 'status', label: 'Any status', options: [['1', 'Active'], ['0', 'Retired']], test: (r, v) => String(Number(!!r.active)) === v },
         { key: 'fired', label: 'Fired or not', options: [['1', 'Fired on a job'], ['0', 'Never fired']], test: (r, v) => String(Number(r.fired > 0)) === v }],
       render: (slice) => dataTable(['Code', 'Type', 'Rule', 'Fired on', 'Status', ''], slice.map(row), 'rulestable') })], true);
+}
+
+// ---------- Flag review (R63): per rule, what people did when it fired and how those jobs went; for relaxing rules with evidence ----------
+const FR_HINT = { relax: ['Candidate to relax', 'PASS'], keep: ['Keep it', 'FAIL'], working: ['Doing its job', ''], mixed: ['Mixed', 'FLAG'], too_few: ['Too few jobs yet', 'wait'] };
+async function flagReviewView() {
+  const r = await api('GET', '/reports/flag-review');
+  const pct = (n, d) => (d ? Math.round((n / d) * 100) + '%' : '-');
+  const b = r.baseline;
+  const progress = Math.min(100, Math.round((r.screened / r.target) * 100));
+  const summary = h('div', { class: 'card card-pad stack', style: 'gap:10px' },
+    h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, `${r.screened} of ${r.target} jobs screened`), h('span', { class: 'jp-label' }, r.screened >= r.target ? 'Enough to review' : 'Keep going: the hints get reliable with volume')),
+    h('div', { class: 'bar', role: 'img', 'aria-label': `${progress}% of the way to ${r.target} jobs` }, h('i', { style: `width:${Math.max(2, progress)}%` })),
+    h('div', { class: 'jp-label' }, `Quick reasons recorded on ${r.overrides_with_picks} of the ${r.overrides} jobs continued past a flag or fail. `,
+      `The comparison is clean passes: ${b.sent} sent, ${pct(b.viewed, b.sent)} viewed, ${pct(b.chat, b.sent)} got a chat, ${pct(b.interview, b.sent)} an interview, ${pct(b.hired, b.sent)} hired.`),
+    h('div', { class: 'jp-label' }, `A hint needs a rule to have fired on at least ${r.enough.fired} jobs, and for "relax" or "keep" at least ${r.enough.sent} of the continued proposals sent. The hint is a starting point: read the reasons and open the jobs before you change a rule.`));
+  const reasons = (xs, none) => (xs.length ? h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, xs.map((x) => h('li', {}, `${x.reason} (${x.jobs})`))) : h('div', { class: 'faint small' }, none));
+  const row = (x) => {
+    const decided = x.continued + x.skipped, f = x.continued_funnel, [hl, ht] = FR_HINT[x.hint.key];
+    return h('tr', { class: x.active ? '' : 'retired' },
+      h('td', {}, h('span', { class: 'code ' + (x.type === 'fail' ? 'F' : 'G') }, x.code)),
+      h('td', { style: 'white-space:normal;min-width:260px' }, x.rule, x.active ? null : h('span', { class: 'faint small' }, ' (retired)'),
+        h('details', { class: 'reviewfold', style: 'margin-top:6px' }, h('summary', {}, 'Reasons and details'),
+          h('div', { class: 'stack', style: 'gap:8px;margin-top:6px' },
+            h('div', {}, h('div', { class: 'jp-label' }, 'Why people continued'), reasons(x.continue_reasons, 'No quick reason picked yet.'), x.own_words_only ? h('div', { class: 'small muted' }, `Own words only: ${x.own_words_only}`) : null),
+            h('div', {}, h('div', { class: 'jp-label' }, 'Why people skipped'), reasons(x.skip_reasons, 'Not skipped yet.')),
+            h('div', {}, h('div', { class: 'jp-label' }, 'When it was the only rule that fired'),
+              h('div', { class: 'small' }, `${x.alone.fired} jobs: ${x.alone.continued} continued, ${x.alone.skipped} skipped; of the continued, ${x.alone.funnel.sent} sent, ${pct(x.alone.funnel.chat, x.alone.funnel.sent)} got a chat, ${x.alone.funnel.hired} hired.`))))),
+      h('td', { class: 'nowrap' }, x.fired ? h('a', { href: `#/history?rule=${x.code}` }, `${x.fired} job${x.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
+      h('td', { class: 'nowrap' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, `${x.continued} on, ${x.skipped} skipped${x.undecided ? ', ' + x.undecided + ' open' : ''}`) : null),
+      h('td', { style: 'white-space:normal;max-width:220px' }, x.continue_reasons.length ? x.continue_reasons.slice(0, 2).map((c) => h('div', { class: 'small' }, `${c.reason} (${c.jobs})`)) : h('span', { class: 'faint small' }, 'None yet')),
+      h('td', { class: 'nowrap' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, `${f.sent} sent, ${f.hired} hired · passes ${pct(b.chat, b.sent)}`) : null),
+      h('td', { style: 'white-space:normal;min-width:220px' }, h('span', { class: 'pill ' + ht }, hl), h('div', { class: 'small muted', style: 'margin-top:4px' }, x.hint.text)));
+  };
+  shell('flagreview', [pageHead('Flag review', 'For every gate rule: what people did when it fired and how those jobs went. Use it to relax a rule with evidence, without losing the ones that protect you.',
+      me.role === 'admin' ? [h('a', { class: 'btn', href: '#/rules' }, icon('warn'), 'Rules')] : null),
+    summary,
+    listCard({ items: r.rules, paged: false, icon: 'warn', emptyTitle: 'No rules yet', emptyText: 'Rules appear here once they exist.',
+      search: { placeholder: 'Search rules', text: (x) => x.code + ' ' + x.rule },
+      filters: [{ key: 'hint', label: 'Any hint', options: Object.entries(FR_HINT).map(([k, [l]]) => [k, l]), test: (x, v) => x.hint.key === v },
+        { key: 'type', label: 'Fail and flag', options: [['fail', 'Fail rules'], ['flag', 'Flag rules']], test: (x, v) => x.type === v },
+        { key: 'status', label: 'Any status', options: [['1', 'Active'], ['0', 'Retired']], test: (x, v) => String(Number(!!x.active)) === v }],
+      render: (slice) => dataTable(['Code', 'Rule', 'Fired on', 'Decided', 'Top reasons to continue', 'Continued and sent', 'Hint'], slice.map(row), 'rulestable') })], true);
 }
 
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
@@ -2567,7 +2623,7 @@ async function settingsView() {
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     group('Independent reviewer', [onoff('review.auto')]),
     group('Project matching', [onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
-    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
+    group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
 }
@@ -2673,6 +2729,7 @@ async function route() {
     if (a === 'skill' && me.role === 'admin') return await skillView();
     if (a === 'reviewer') return await reviewerView();
     if (a === 'rules' && me.role === 'admin') return await rulesView();
+    if (a === 'flagreview' && (me.role === 'admin' || me.role === 'manager')) return await flagReviewView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();
     if (a === 'connect') return await connectView();
     if (a === 'changes' && me.role === 'admin') return await changesView();

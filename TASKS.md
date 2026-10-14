@@ -87,6 +87,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 38 | Plugin: after the independent review, show it and wait, no forced options (R59) | done in the skill; to try in Claude |
 | 39 | Plugin speed: saves in parallel with the next step, the review started with the draft, no post in fields, type and video in one question (R60, plugin v0.10.0) | done in code; time one real run in Claude before and after |
 | 40 | The Reviewer page: full control of the independent reviewer (sections, versions, try, full prompt, activate), and from Claude as setup kind reviewer_instructions (R61, plugin v0.11.0, migration 039) | done in code; to check on screen, try a draft with the real model, and try it from Claude |
+| 41 | Quick reasons to continue past a FLAG or FAIL: one click fillers above the reason box, an admin setting, shared with the plugin (R62, plugin v0.12.0) | done in code; to check on screen |
+| 42 | Flag review: per rule, continued or skipped, the reasons picked, how the continued jobs did against clean passes, and a hint; quick reasons stored as data; review_flags for Claude (R63, migration 040) | done in code; review at 200 jobs |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

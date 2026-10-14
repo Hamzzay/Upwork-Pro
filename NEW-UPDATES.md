@@ -1003,6 +1003,40 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R63. Flag review: which rules to relax, with evidence (done in code, 14 October)
+
+- **Why.** After a couple of hundred jobs, the reasons people give for continuing past a FLAG or FAIL should say which rules are too
+  strict, without relaxing one that protects us. That needs the reasons counted, not only read (asked for by Ahmad).
+- **The picks are data now.** The quick reasons picked when continuing are saved as a list with the reason (`overrides.reason_picks`,
+  migration 040), from the app and from Claude (`record_decision` `picks`). Reasons given before this are read for the quick
+  reasons their text contains. Skipping from Claude now keeps its quick reason too, as the app's Skip does.
+- **The page:** Admin, **Flag review** (managers and admins; a button on the Rules page). At the top, how many jobs are screened
+  against the target of 200, and the clean passes to compare with (sent, viewed, chat, interview, hired). Per rule: the jobs it fired
+  on (a link to them), how many were continued and skipped, the quick reasons picked each way, how the continued jobs did once sent
+  against clean passes, the same counts for jobs where it was the only rule that fired, and a hint:
+  - Too few jobs yet: fired on fewer than 20 jobs (or for "relax" and "keep", fewer than 10 of the continued proposals sent).
+  - Candidate to relax: continued 70% of the time or more, and those proposals got a chat at least 80% as often as clean passes.
+  - Keep it: continued half the time or more, but those proposals got a chat less than half as often as clean passes.
+  - Doing its job: skipped 80% of the time or more. Mixed: anything else. A fail rule is never "relax" without "with care".
+  The hint is a starting point: read the reasons and open the jobs before changing a rule.
+- **From Claude:** `review_flags` (read only) gives the same review; the `job-trends` skill uses it for "which flags can I relax".
+  Changing a rule is still the `setup-admin` skill, admins only.
+- New `src/flagreview.ts` (pure, tested); the route is `GET /reports/flag-review`.
+- Checked: tests (counting, picks stored and found in old text, a rule alone, each hint); `tsc`; `node --check`; migration 040
+  locally; the review run on the 30 local jobs (every rule "too few jobs yet", 6 of 20 older reasons matched a quick reason).
+  Not checked: the page on screen (needs a sign in).
+
+### R62. Quick reasons to continue past a FLAG or FAIL (done in code, 14 October)
+
+- **What it is.** Continuing with a flagged or failed job asks for a reason. Above the reason box there are now quick reasons, one
+  click each: a click writes it into the box as a sentence, a second click takes it out, several can be picked, and words can be
+  added around them. The shortest reason setting still applies. Asked for by Ahmad.
+- **Setting:** Settings, Screening and tracking, "Quick reasons to continue past a FLAG or FAIL" (admin). Defaults: Invited by the
+  client; Strong client history; Strong fit with our past projects; The flag does not apply to this job; Low workload, worth the Connects.
+- **The plugin (v0.12.0)** reads the same list from `plugin_options` (`continue_reasons`, and `skip_reasons` for skipping) instead
+  of its own fixed picks, so the app and Claude offer the same ones.
+- Checked: `tsc` for the backend and the MCP, `node --check`, the tests. Not checked: the chips on screen (needs a sign in).
+
 ### R61. The Reviewer page: full control of the independent reviewer, in the app and from Claude (done in code, 14 October)
 
 - **What it is.** A page, Proposal setup, **Reviewer**, for how the independent reviewer scores every proposal (asked for by Ahmad).

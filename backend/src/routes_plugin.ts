@@ -6,6 +6,7 @@ import { typeFacts } from './proposal/guide';
 import { htmlToPlain, textToHtml } from './html';
 import { qaList, splitText, storeAnswers } from './proposal/answers';
 import { latestVersion } from './proposal/pipeline';
+import { picksOf } from './flagreview';
 import { jobIdFromUrl } from './screening/jobsource';
 import { splitMobile } from './library/mobile';
 import { diff, snapshot } from './changes';
@@ -85,7 +86,8 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
         d.client_country ?? null, d.budget ?? null, d.hire_rate ?? null, d.job_type ?? null, post ? JSON.stringify(post) : null, post ? 'done' : 'queued', // no post in fields: the worker reads it, so Claude does not have to
         cont === undefined ? null : cont ? 'yes' : 'no', cont ? new Date() : null, cont === false ? d.decision?.reason ?? null : null]);
     id = Number(r.insertId);
-    if (cont && d.verdict !== 'PASS') await conn.query('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason) VALUES (?,?,?,?)', [id, user.id, d.verdict, d.decision!.reason]);
+    if (cont && d.verdict !== 'PASS') { const picks = picksOf(null, d.decision!.reason ?? null, cfg['override.reasons']);
+      await conn.query('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason, reason_picks) VALUES (?,?,?,?,?)', [id, user.id, d.verdict, d.decision!.reason, picks.length ? JSON.stringify(picks) : null]); }
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
   await audit(user.id, 'plugin_job_save', `screening=${id} verdict=${d.verdict}${codes.length ? ' codes=' + codes.join(',') : ''}${cont === undefined ? '' : cont ? ' continued' : ' skipped'}`);
@@ -94,10 +96,11 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
 
 /** Record the decision on a job saved earlier: continue (a FLAG or FAIL needs a reason) or skip. */
 plugin.post('/plugin/jobs/:id/decision', anyone, async (req, res) => {
-  const b = z.object({ continue: z.boolean(), reason: z.string().trim().max(2000).optional() }).safeParse(req.body);
+  const b = z.object({ continue: z.boolean(), reason: z.string().trim().max(2000).optional(), picks: z.array(z.string().trim().min(1).max(160)).max(20).optional() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const s = await ownJob(req, res); if (!s) return;
   if (s.continued_at || s.proceeded) return void res.status(409).json({ error: 'The decision on this job is already recorded' });
+  (s as any).picks = b.data.picks;
   const min = (await getSettings())['override.min_reason'];
   if (b.data.continue && s.verdict !== 'PASS' && (b.data.reason ?? '').length < min) return void res.status(400).json({ error: `Continuing past a ${s.verdict} needs a reason of at least ${min} characters` });
   await decide(s, b.data.continue, b.data.reason, req.user!.id);
@@ -111,8 +114,14 @@ async function ownJob(req: any, res: any) {
   return s;
 }
 async function decide(s: any, cont: boolean, reason: string | undefined, userId: number) {
-  if (cont && s.verdict !== 'PASS') await exec('INSERT IGNORE INTO overrides (screening_id, user_id, verdict_at_time, reason) VALUES (?,?,?,?)', [s.id, userId, s.verdict, reason]);
-  await exec(`UPDATE screenings SET proceeded=?, continued_at=${cont ? 'COALESCE(continued_at, NOW())' : 'continued_at'}, skip_note=? WHERE id=?`, [cont ? 'yes' : 'no', cont ? null : reason ?? null, s.id]);
+  const cfg = await getSettings();
+  // the quick reasons picked, kept as data so the Flag review can count them (else found in the text, as the app does)
+  const picks: string[] = s.picks ?? picksOf(null, reason ?? null, cont ? cfg['override.reasons'] : cfg['skip.reasons']);
+  if (cont && s.verdict !== 'PASS') await exec('INSERT IGNORE INTO overrides (screening_id, user_id, verdict_at_time, reason, reason_picks) VALUES (?,?,?,?,?)', [s.id, userId, s.verdict, reason, picks.length ? JSON.stringify(picks) : null]);
+  // skipping keeps one quick reason, as the app's Skip does
+  const skipPick = !cont ? picks.find((p) => cfg['skip.reasons'].includes(p)) ?? null : null;
+  await exec(`UPDATE screenings SET proceeded=?, continued_at=${cont ? 'COALESCE(continued_at, NOW())' : 'continued_at'}, skip_note=?, skip_reason=${cont ? 'skip_reason' : '?'} WHERE id=?`,
+    cont ? ['yes', null, s.id] : ['no', reason ?? null, skipPick, s.id]);
   await audit(userId, cont ? 'plugin_continue' : 'plugin_skip', `screening=${s.id}`);
 }
 
@@ -404,7 +413,7 @@ plugin.get('/plugin/options', anyone, async (_req, res) => {
       .map((p) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null && v !== ''))),
     projects: (await query<any>('SELECT name FROM projects WHERE active=1 ORDER BY name')).map((p) => p.name),
     rules: await query("SELECT code, type, rule, details FROM rules WHERE active=1 ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
-    statuses: ['Sent', 'Viewed', 'Chat opened', 'Interview'], outcomes: cfg['tracking.outcomes'], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'],
+    statuses: ['Sent', 'Viewed', 'Chat opened', 'Interview'], outcomes: cfg['tracking.outcomes'], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'], continue_reasons: cfg['override.reasons'], skip_reasons: cfg['skip.reasons'],
     min_continue_reason: cfg['override.min_reason'],
   });
 });

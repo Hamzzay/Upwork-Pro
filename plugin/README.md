@@ -45,7 +45,11 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.11.0)
+## Status (v0.12.0)
+
+v0.12.0: the quick reasons to continue past a FLAG or FAIL, and to skip a job, come from Upwork Pro (`plugin_options`
+`continue_reasons` and `skip_reasons`), the same ones the app offers. Several can be picked, with a note. The picks are sent
+with `record_decision` (`picks`) so they can be counted, and `review_flags` gives the Flag review: which rules to relax or keep.
 
 v0.11.0: admins change the independent reviewer from Claude (`setup-admin`, kind `reviewer_instructions`): how it reviews, key
 concerns, dos and don'ts, the score guide and limits, how many of each, and what it reads. A new version, then activate.

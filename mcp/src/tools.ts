@@ -66,7 +66,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
 7. update_status only after it happened on Upwork: Sent first, then Viewed, Chat opened, Interview, then an outcome. "When" is now unless the person says otherwise.
    A lost outcome needs one of the loss reasons, and the person's own words as the note if they gave any.`;
 
-  T('plugin_options', `The values Upwork Pro accepts from the Claude plugin: active Upwork profiles (with their details), project names, rule codes, statuses, outcomes and loss reasons. Call this first.\n\n${PLUGIN_RULES}`, {}, { readOnlyHint: true, openWorldHint: false },
+  T('plugin_options', `The values Upwork Pro accepts from the Claude plugin: active Upwork profiles (with their details), project names, rule codes, statuses, outcomes, loss reasons, and the quick reasons to continue past a FLAG or FAIL (continue_reasons) or to skip a job (skip_reasons). Call this first.\n\n${PLUGIN_RULES}`, {}, { readOnlyHint: true, openWorldHint: false },
     async () => api.call('GET', '/plugin/options'));
 
   T('find_jobs', 'Look up jobs already in Upwork Pro: by Upwork link (url) or job id, by text (q), or by phase. Use it before save_job so the same job is not saved twice.',
@@ -117,7 +117,11 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
     }, { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => api.call('POST', '/plugin/jobs', a));
 
   T('record_decision', 'Record the person\'s decision on a saved job: continue (a FLAG or FAIL needs their reason) or skip (give the reason they skip, too).',
-    { id: z.number().int(), continue: z.boolean(), reason: z.string().optional() }, { readOnlyHint: false, destructiveHint: false }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/decision`, { continue: a.continue, reason: a.reason }));
+    { id: z.number().int(), continue: z.boolean(), reason: z.string().optional(), picks: z.array(z.string()).optional().describe('The quick reasons the person picked, exactly as in plugin_options (continue_reasons when continuing, skip_reasons when skipping). Kept as data for the Flag review') },
+    { readOnlyHint: false, destructiveHint: false }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/decision`, { continue: a.continue, reason: a.reason, picks: a.picks }));
+
+  T('review_flags', `The Flag review from Upwork Pro, for deciding which gate rules to relax and which to keep (managers and admins). For every rule: the jobs it fired on, how many were continued past it or skipped, the quick reasons picked each way, how the continued jobs did once sent (viewed, chat, interview, hired) against clean passes, the same counts when it was the only rule that fired, and a hint (relax, keep, doing its job, mixed, too few jobs yet). Also how many jobs are screened against the target of 200. Present it as a short table, most fired first, and say plainly that a hint is a starting point: a rule is changed only by an admin, through setup (kind rule), after reading the reasons.`,
+    {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/reports/flag-review'));
 
   T('save_step', `Save one step of a job as soon as the person answers it, so Upwork Pro always shows where the job stands and it can be continued later. Call it after each of these, never all at the end:
 - read: the job tags (with a reason each, and core_rank 1 to 3 on the core work tags), the one job industry, and the signals with the words from the post that show each.

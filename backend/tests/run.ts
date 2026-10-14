@@ -558,5 +558,37 @@ const ctx = { rules, projects };
     assert.equal(parseSections(JSON.stringify({ dos: ['Be kind'] })).dos[0], 'Be kind', 'a stored version missing parts keeps the built-in parts');
   }
 
+  // ---------- flag review (R63) ----------
+  {
+    const { buildFlagReview, picksOf } = await import('../src/flagreview');
+    const known = ['Invited by the client', 'Strong client history'];
+    assert.deepEqual(picksOf('["Strong client history"]', 'anything', known), ['Strong client history'], 'stored picks win');
+    assert.deepEqual(picksOf(null, 'Invited by the client. And more.', known), ['Invited by the client'], 'older reasons: found in the text');
+    let n = 0;
+    const J = (o: any) => ({ id: ++n, verdict: 'FLAG', rule_codes: 'G3', proceeded: 'yes', continued: 1, skip_reason: null, skip_note: null, override_reason: 'Invited by the client.', reason_picks: null,
+      sent: 1, viewed: 1, chat: 0, interview: 0, outcome: null, ...o });
+    const rules = [{ code: 'G3', type: 'flag', rule: 'Low average rate', active: 1 }, { code: 'G7', type: 'flag', rule: 'Many proposals', active: 1 }, { code: 'F1', type: 'fail', rule: 'Off platform', active: 1 }];
+    const pass = Array.from({ length: 20 }, (_, i) => J({ verdict: 'PASS', rule_codes: null, override_reason: null, chat: i % 4 === 0 ? 1 : 0 })); // passes: 25% chat
+    // G3: 24 continued (chat 25%, same as passes) and 1 skipped: a candidate to relax
+    const g3 = [...Array.from({ length: 24 }, (_, i) => J({ chat: i % 4 === 0 ? 1 : 0 })), J({ continued: 0, proceeded: 'no', skip_reason: 'Budget or rate too low', sent: 0 })];
+    // G7: 15 continued with no chats at all: keep it
+    const g7 = Array.from({ length: 15 }, () => J({ rule_codes: 'G7', reason_picks: '["Strong client history"]', chat: 0 }));
+    // F1: 22 fired, 20 skipped: doing its job
+    const f1 = [...Array.from({ length: 20 }, () => J({ verdict: 'FAIL', rule_codes: 'F1', continued: 0, proceeded: 'no', sent: 0 })), ...Array.from({ length: 2 }, () => J({ verdict: 'FAIL', rule_codes: 'F1' }))];
+    const g7more = Array.from({ length: 6 }, () => J({ rule_codes: 'G7', continued: 0, proceeded: 'no', sent: 0, skip_note: 'too crowded' }));
+    const rv = buildFlagReview([...pass, ...g3, ...g7, ...g7more, ...f1, J({ rule_codes: 'G3, G7', chat: 1 })], rules, known, ['Not hired']);
+    const by = Object.fromEntries(rv.rules.map((r) => [r.code, r]));
+    assert.equal(rv.baseline.sent, 20); assert.equal(rv.baseline.chat, 5);
+    assert.equal(by.G3.fired, 26); assert.equal(by.G3.continued, 25); assert.equal(by.G3.skipped, 1);
+    assert.equal(by.G3.alone.fired, 25, 'the job with two rules does not count as G3 alone');
+    assert.equal(by.G3.continue_reasons[0].reason, 'Invited by the client'); assert.equal(by.G3.skip_reasons[0].reason, 'Budget or rate too low');
+    assert.equal(by.G3.hint.key, 'relax', by.G3.hint.text);
+    assert.equal(by.G7.hint.key, 'keep', by.G7.hint.text);
+    assert.equal(by.G7.continue_reasons[0].reason, 'Strong client history'); assert.equal(by.G7.skip_reasons[0].reason, 'Own words');
+    assert.equal(by.F1.hint.key, 'working', by.F1.hint.text);
+    assert.equal(buildFlagReview(g3.slice(0, 5), rules, known, []).rules.find((r) => r.code === 'G3')!.hint.key, 'too_few', 'five jobs are too few');
+    assert.equal(rv.screened, pass.length + g3.length + g7.length + g7more.length + f1.length + 1);
+  }
+
   console.log('all tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

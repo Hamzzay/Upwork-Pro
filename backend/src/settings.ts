@@ -26,6 +26,8 @@ export const SETTINGS = {
     schema: z.array(z.string().trim().min(1).max(60)).max(20), def: ['Not hired', 'No response', 'Withdrawn', 'Job closed'] },
   'tracking.loss_reasons': { label: 'Reasons a client did not go ahead', help: 'Required when the outcome is lost, so lost jobs can be reported on. A note is always allowed too.',
     schema: z.array(z.string().trim().min(1).max(120)).min(1).max(30), def: ['Budget too low', 'Hired someone else', 'Went quiet after chat', 'Scope or timeline did not fit', 'Job cancelled by client', 'We withdrew', 'Other'] },
+  'override.reasons': { label: 'Quick reasons to continue past a FLAG or FAIL', help: 'Offered as one click fillers above the reason box, in the app and in Claude. Several can be picked, and words added. The shortest reason above still applies.',
+    schema: z.array(z.string().trim().min(1).max(160)).min(1).max(20), def: ['Invited by the client', 'Strong client history', 'Strong fit with our past projects', 'The flag does not apply to this job', 'Low workload, worth the Connects'] },
   'skip.reasons': { label: 'Quick reasons to skip a job', help: 'Offered when someone skips a job after its screening. A note can be written as well, or instead.',
     schema: z.array(z.string().trim().min(1).max(120)).min(1).max(20), def: ['Budget or rate too low', 'Client history or hire rate', 'Outside our services', 'Scope unclear', 'Too much competition'] },
   'tracking.quiet_days': { label: 'Days before a submitted proposal counts as "gone quiet"', help: 'A submitted proposal with no status update for this many days shows under Submitted, Gone quiet.',
