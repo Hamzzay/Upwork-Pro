@@ -1003,6 +1003,18 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R95. Missing tags on the Projects step, added right there (done, 16 October)
+
+- **Why** (Ahmad): a card said "Missing 1 compliance tag this job needs" without saying which, and there was no way to fix the
+  project from the job.
+- **Each project card** now lists what it shares with the job, then the job's tags it is missing, by name: a compliance tag the job
+  needs in amber, the others on one line. **Add tags** opens them as tick boxes; tick the ones the project really has and add them.
+- They are saved to the project in the library (a change on Admin, Changes, which can be put back), so every later job gains too.
+  Then the projects are matched again; a choice already confirmed is kept (when those projects are still shown). Once a proposal is
+  written its projects stay as they are, and only the card is brought up to date.
+- At the top, a box lists any of the job's tags that no project shown has.
+- The job's owner, managers and admins can add tags from a job. Only the job's own tags can be added. Migration 054.
+
 ### R94. Discard many jobs at once (done, 16 October)
 
 - **Why** (Ahmad): the first jobs were all tests, and discarding them one by one is slow.

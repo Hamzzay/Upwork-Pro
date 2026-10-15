@@ -25,7 +25,7 @@ import { separate, splitText } from './proposal/answers';
 import { buildFlagReview, picksOf } from './flagreview';
 import { applySendParts, queueEarlyDraft, queueParts, sendPartsNow } from './proposal/pipeline';
 import { buildReport, packRows } from './reports';
-import { ChangedSince, KINDS, recordSetupChanges, revert } from './changesets';
+import { ChangedSince, KINDS, raw, record as recordChange, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
 import { testCall } from './llm';
@@ -533,7 +533,7 @@ async function matchingFor(id: number) {
     skip_tech_stack: !!s.skip_tech_stack, has_proposal: !!s.has_proposal };
   if (s.tagging_status !== 'done') return base;
   base.tags = await query(
-    `SELECT jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
+    `SELECT jt.tag_id AS id, jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
      WHERE jt.screening_id=? ORDER BY COALESCE(c.sort_order, 999), jt.weight DESC, jt.tag_name`, [id]);
   const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   base.matches = rows.map((r) => ({
@@ -974,6 +974,43 @@ api.put('/screenings/:id/skip-tech-stack', requireRole(), async (req, res) => {
   const r = await setSkipTechStack(s.id, b.data.skip, 'projects step', req.user!.id);
   if (r.error) return void res.status(409).json({ error: r.error });
   res.json({ ok: true, changed: r.changed });
+});
+
+/**
+ * R95 (Ahmad): add tags the job has to a project, from the job's Projects step: the compliance tag a project was missing, or any other
+ * job tag it really has. It is a change to the library (recorded and revertible like an edit on the Projects page), so every later
+ * job benefits. Then the projects are matched again; a confirmed choice is kept. Once a proposal exists its projects stay as they
+ * are, so only this project's card is brought up to date.
+ */
+api.post('/screenings/:id/projects/:pid/tags', requireRole(), async (req, res) => {
+  const b = z.object({ tag_ids: z.array(z.number().int().positive()).min(1, 'Tick at least one tag').max(30) }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const id = Number(req.params.id), pid = Number(req.params.pid);
+  const s = (await query<any>('SELECT id, user_id, tagging_status, selection_confirmed_at, selection_confirmed_by FROM screenings WHERE id=? AND discarded_at IS NULL', [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  if (req.user!.role === 'employee' && s.user_id !== req.user!.id) return void res.status(403).json({ error: 'Only the person who submitted this job can add tags from it' });
+  if (s.tagging_status !== 'done') return void res.status(409).json({ error: 'Wait until project matching has finished' });
+  const row = (await query<any>('SELECT id, shared_tags, score, compliance_gap FROM job_matches WHERE screening_id=? AND project_id=?', [id, pid]))[0];
+  if (!row) return void res.status(404).json({ error: 'That project is not one of this job\'s matches' });
+  const jobTags = await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance FROM job_tags jt
+    LEFT JOIN tag_categories c ON c.name=jt.category_name WHERE jt.screening_id=? AND jt.tag_id IN (?)`, [id, b.data.tag_ids]);
+  if (jobTags.length !== new Set(b.data.tag_ids).size) return void res.status(400).json({ error: 'Only this job\'s own tags can be added from here' });
+  const before = await raw('project', pid); if (!before) return void res.status(404).json({ error: 'That project is no longer in the library' });
+  await exec('INSERT IGNORE INTO project_tags (project_id, tag_id) VALUES ?', [jobTags.map((t) => [pid, t.tag_id])]);
+  await recordChange({ userId: req.user!.id, source: 'app', kind: 'project', id: pid, before, after: await raw('project', pid), reason: `Tags added on the Projects step of job #${id}` });
+  await audit(req.user!.id, 'project_tags_from_job', `screening=${id} project=${pid} tags=${jobTags.map((t) => t.tag_name).join(', ')}`);
+  const hasProposal = (await query<any>('SELECT 1 FROM proposals WHERE screening_id=? LIMIT 1', [id])).length > 0;
+  if (hasProposal) { // this card only: the shared tags, the score and the compliance gap
+    const shared: any[] = JSON.parse(row.shared_tags || '[]'), have = new Set(shared.map((t) => t.id));
+    const added = jobTags.filter((t) => !have.has(t.tag_id));
+    shared.push(...added.map((t) => ({ id: t.tag_id, name: t.tag_name, category: t.category_name, weight: Number(t.weight), compliance: !!Number(t.compliance), core: t.core_rank })));
+    await exec('UPDATE job_matches SET shared_tags=?, score=score+?, compliance_gap=GREATEST(0, compliance_gap-?) WHERE id=?',
+      [JSON.stringify(shared), added.reduce((n, t) => n + Number(t.weight), 0), added.filter((t) => Number(t.compliance)).length, row.id]);
+    return void res.json({ ok: true, rematch: false });
+  }
+  const keep = s.selection_confirmed_at ? JSON.stringify({ ids: (await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND selected=1', [id])).map((r) => r.project_id), by: s.selection_confirmed_by, at: s.selection_confirmed_at }) : null;
+  await exec(`UPDATE screenings SET rematch_only=1, rematch_keep=?, tagging_status='queued', tagging_error_code=NULL, tagging_error_message=NULL WHERE id=? AND tagging_status='done'`, [keep, id]);
+  res.json({ ok: true, rematch: true });
 });
 
 // Small and cheap, so the page can poll it without rebuilding itself.

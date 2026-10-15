@@ -91,13 +91,15 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
  *  The proposal's signals depend only on the job text, so they are read at the same time; the proposal reuses them. */
 async function processTagging(id: number) {
   try {
-    const s = (await query<any>('SELECT job_text, raw_input, sample_match, skip_tech_stack, rematch_only, source FROM screenings WHERE id=?', [id]))[0];
+    const s = (await query<any>('SELECT job_text, raw_input, sample_match, skip_tech_stack, rematch_only, rematch_keep, source FROM screenings WHERE id=?', [id]))[0];
     const fromClaude = s.source === 'claude_plugin'; // Claude reads the signals and writes the proposal itself: only the matching is wanted
     const jobText: string = (s.job_text ?? s.raw_input) + (await docsBlock(id)); // with the client's documents (R74)
     // "Skip tech stack tags" was switched: score the tags this job already has again, without reading it a second time
     const saved = s.rematch_only ? await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.reason, jt.core_rank, c.is_compliance FROM job_tags jt
       LEFT JOIN tag_categories c ON c.name=jt.category_name WHERE jt.screening_id=? AND jt.tag_id IS NOT NULL`, [id]) : [];
     const rematch = saved.length > 0;
+    let keep: { ids: number[]; by: number | null; at: string } | null = null, kept = false;
+    try { keep = s.rematch_keep ? JSON.parse(s.rematch_keep) : null; } catch { keep = null; }
     // not awaited: the projects show as soon as tagging is done, and a proposal started meanwhile waits for these signals
     if (!fromClaude && !(await query<any>('SELECT 1 FROM job_signals WHERE screening_id=? LIMIT 1', [id])).length) {
       detectSignals(id, jobText, () => !stopping).catch((e) => console.error('signals failed, the proposal will read them itself:', (e as Error).message));
@@ -135,11 +137,20 @@ async function processTagging(id: number) {
         [final.map((m) => [id, m.project_id, m.project_name, m.rank, m.score, m.max_score, m.compliance_gap, m.recommended ? 1 : 0, JSON.stringify(m.shared), m.pool, m.alternative ? 1 : 0, m.platform,
           m.proves_work ? 1 : 0, m.named_in_screening ? 1 : 0, m.extra ? 1 : 0, m.ai_reason ?? null, m.ai_fits == null ? null : m.ai_fits ? 1 : 0])]);
       await conn.query(`UPDATE screenings SET tagging_status='done', tagging_error_code=NULL, tagging_error_message=NULL, tagging_model=IF(?, tagging_model, ?), tagged_at=NOW(),
-        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=?, matching_order=?, rematch_only=0 WHERE id=?`, [rematch ? 1 : 0, lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, order, id]);
+        selection_confirmed_at=NULL, selection_confirmed_by=NULL, job_needs=?, matching_order=?, rematch_only=0, rematch_keep=NULL WHERE id=?`, [rematch ? 1 : 0, lastUsed()?.model ?? config.llm.model, jobNeeds(jobTags) || null, order, id]);
+      // R95: matched again after tags were added on the Projects step: the confirmed choice comes back, when those projects are still shown
+      if (keep && keep.ids.length) {
+        const shownIds = new Set(final.map((m) => m.project_id)), back = keep.ids.filter((x) => shownIds.has(x));
+        if (back.length >= cfg['selection.min'] && back.length <= cfg['selection.max']) {
+          await conn.query('UPDATE job_matches SET selected=(project_id IN (?)) WHERE screening_id=?', [back, id]);
+          await conn.query('UPDATE screenings SET selection_confirmed_at=?, selection_confirmed_by=? WHERE id=?', [new Date(keep.at), keep.by, id]);
+          kept = true;
+        }
+      }
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });
-    if (fromClaude) return;
+    if (fromClaude || kept) return; // a kept choice goes on from where it was: no new early draft
     if (await autoAfterMatching(id)) return; // auto mode (R75): the proposal itself is written next, no early draft
     await queueEarlyDraft(id).catch((e) => console.error('early draft not queued:', (e as Error).message)); // a missed early draft only costs time
     // and it starts right here, as soon as the projects are matched, instead of waiting at the back of the queue (PLAN-SPEED point 1)

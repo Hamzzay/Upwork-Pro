@@ -1477,6 +1477,40 @@ function matchingSection(s, initial) {
   const setActions = actionsFor();
   const box = h('div', {});
   let m = initial, timer = null, picked = null, showMore = false;
+  // R95 (Ahmad): the job's tags a project is missing, named, and added to the project right here (compliance first)
+  const gapOpen = new Set(), gapTicks = new Map();
+  const canTeach = owner || me.role === 'admin' || me.role === 'manager';
+  const missingOf = (r) => { const have = new Set((r.shared || []).map((t) => t.id)); return (m.tags || []).filter((t) => t.id && !have.has(t.id) && (Number(t.weight) > 0 || Number(t.compliance))); };
+  function gapBlock(r) {
+    const miss = missingOf(r); if (!miss.length || !r.project_id) return null;
+    const comp = miss.filter((t) => Number(t.compliance)), other = miss.filter((t) => !Number(t.compliance));
+    const ticks = gapTicks.get(r.project_id) || new Set();
+    const stop = (e) => e.stopPropagation(); // the card itself picks the project
+    if (!gapOpen.has(r.project_id) || !canTeach) {
+      return h('div', { class: 'mgap', onclick: stop },
+        comp.length ? h('div', { class: 'mcomp short' }, h('div', { class: 't' }, icon('warn'), `Missing compliance: ${comp.map((t) => t.name).join(', ')}`)) : null,
+        h('div', { class: 'fold' }, h('span', {}, 'Missing ', h('b', {}, String(miss.length)), ` of the job's tags: ${miss.map((t) => t.name).join(', ')}`),
+          canTeach && !busy() ? h('button', { type: 'button', class: 'btn sm', onclick: () => { gapOpen.add(r.project_id); draw(); } }, 'Add tags') : null));
+    }
+    const chip = (t) => { const on = ticks.has(t.id);
+      return h('button', { type: 'button', class: 'tgadd' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', title: t.reason || t.category,
+        onclick: () => { if (on) ticks.delete(t.id); else ticks.add(t.id); gapTicks.set(r.project_id, ticks); draw(); } }, h('span', { class: 'pl', 'aria-hidden': 'true' }, on ? '✓' : '+'), t.name, h('span', { class: 'cat' }, t.category)); };
+    const save = h('button', { type: 'button', class: 'btn sm primary', disabled: !ticks.size || null }, ticks.size ? `Add ${ticks.size} tag${ticks.size === 1 ? '' : 's'} to ${r.project_name}` : 'Tick the tags it has');
+    save.onclick = async () => {
+      btnBusy(save, 'Adding');
+      try {
+        const res = await api('POST', `/screenings/${s.id}/projects/${r.project_id}/tags`, { tag_ids: [...ticks] });
+        gapTicks.delete(r.project_id); gapOpen.delete(r.project_id);
+        if (res.rematch) { toast(`Added to ${r.project_name}. Matching the projects again.`); picked = null; m = { ...m, status: 'queued', error: null }; draw(); timer = setTimeout(poll, 1000); }
+        else { toast(`Added to ${r.project_name}. The proposal keeps its projects.`); m = (await api('GET', `/screenings/${s.id}/matching`)).matching; draw(); }
+      } catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren(`Add ${ticks.size} tags to ${r.project_name}`); }
+    };
+    return h('div', { class: 'mgap', onclick: stop },
+      h('div', { class: 'mghead' }, h('span', {}, `Missing ${miss.length} of the job's tags. Tick the ones ${r.project_name} really has.`), h('button', { type: 'button', class: 'linkbtn small', onclick: () => { gapOpen.delete(r.project_id); draw(); } }, 'Hide')),
+      comp.length ? h('div', { class: 'mcomp' }, h('div', { class: 't' }, icon('warn'), 'Compliance this job needs'), h('div', { class: 's' }, 'Without it this project ranks below projects that have it. Tick it only if the project really handled this.'), h('div', { class: 'chips' }, comp.map(chip))) : null,
+      other.length ? h('div', { class: 'chips' }, other.map(chip)) : null,
+      h('div', { class: 'addrow' }, h('span', {}, m.has_proposal ? 'Added to the project in the library. The proposal keeps its projects.' : 'Added to the project in the library; the projects are matched again' + (m.confirmed_at ? ', keeping your choice.' : '.')), save));
+  }
   const busy = () => m.status === 'queued' || m.status === 'running';
   const dateTxt = (d) => full(d);
 
@@ -1549,6 +1583,11 @@ function matchingSection(s, initial) {
     const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended && !r.alternative && !r.extra), alt = rows.filter((r) => r.alternative);
     const extra = rows.filter((r) => r.extra), moreOpen = showMore || extra.some((r) => picked.has(r.project_id));
     const POOL = { same: 'Same industry', related: 'Related industry', other: 'Other industry' };
+    // R95: the job's tags none of the projects shown has (a later step can still write about them from the post)
+    const noneHas = () => { const shown = rows.filter((r) => !r.extra && r.project_id); if (!shown.length) return null;
+      const none = (m.tags || []).filter((t) => t.id && (Number(t.weight) > 0 || Number(t.compliance)) && shown.every((r) => !(r.shared || []).some((x) => x.id === t.id)));
+      return none.length ? h('div', { class: 'gapsum' }, h('strong', {}, `No project shown has: ${none.map((t) => t.name).join(', ')}`),
+        h('div', { class: 'small muted' }, canTeach ? 'If one of these projects did this work, add the tag on its card. A tag no project has can still be written about from the job post.' : 'A tag no project has can still be written about from the job post.')) : null; };
     const card = (r) => {
       const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= pmax && !on);
       const cb = h('input', { type: 'checkbox', id: 'mp' + r.rank, checked: on, disabled: locked, 'aria-label': 'Select ' + r.project_name });
@@ -1564,13 +1603,15 @@ function matchingSection(s, initial) {
         POOL[r.pool] || r.platform ? h('div', { class: 'jp-label' }, [POOL[r.pool], r.platform && r.platform !== 'not known' ? 'Runs on ' + r.platform : null].filter(Boolean).join(' · ')) : null,
         h('div', { class: 'mscore' }, h('div', { class: 'bar', role: 'img', 'aria-label': `Score ${r.score} of ${r.max_score}` }, h('i', { style: `width:${Math.max(3, r.percent)}%` })),
           h('span', { class: 'sc' }, h('strong', {}, r.score), ` of ${r.max_score} · ${r.percent}%`)),
-        r.compliance_gap ? h('div', { class: 'cgap' }, icon('warn'), `Missing ${r.compliance_gap} compliance tag${r.compliance_gap > 1 ? 's' : ''} this job needs`) : null,
-        h('div', { class: 'chips' }, r.shared.map((t) => h('span', { class: 'chip', title: `${t.category}, weight ${t.weight}` }, t.name, h('span', { class: 'faint' }, ' ×' + t.weight)))));
+        r.shared.length ? h('div', { class: 'sharedlbl' }, 'Shares with the job') : null,
+        h('div', { class: 'chips' }, r.shared.map((t) => h('span', { class: 'chip', title: `${t.category}, weight ${t.weight}` }, t.name, h('span', { class: 'faint' }, ' ×' + t.weight)))),
+        gapBlock(r)); // R95: what it is missing, named, with Add tags (it replaced "Missing N compliance tags")
     };
     return h('div', { class: 'stack' },
       h('div', { class: 'card card-pad' },
         h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, owner && !m.confirmed_at ? `Choose ${range} project${pmax === 1 ? '' : 's'} for the proposal` : 'Projects for the proposal'), owner ? count : null),
         m.job_needs ? h('p', { class: 'jp-body', style: 'margin:2px 0 4px' }, h('strong', {}, 'Job needs: '), m.job_needs) : null,
+        noneHas(),
         h('div', { class: 'jp-label', style: 'margin:2px 0 12px' }, m.confirmed_at ? `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} ${dateTxt(m.confirmed_at)}.${owner ? ' Pick others to change it.' : ''}`
           : owner ? 'The recommended ones are ticked. Swap them if you like, then confirm at the top right.' : 'Only the person who submitted this job can choose the projects.'),
         err,

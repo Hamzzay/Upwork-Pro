@@ -124,6 +124,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 76 | Rank the opening templates by hand (Change ranking); word shortcuts library with the short word always used (R92) | done |
 | 77 | Platform review: every page and the main pop-ups checked on wide and phone screens, and what was cut off, squeezed or misaligned fixed (R93) | done |
 | 78 | Discard many jobs at once on the Jobs list, for the main admin (R94) | done |
+| 79 | Projects step: the missing tags named (compliance first), added to the project from the job, then matched again (R95) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

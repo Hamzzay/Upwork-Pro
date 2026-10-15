@@ -55,6 +55,7 @@ SECTIONS = [
     'The other matches. Click a card to tick or untick it. To swap, untick one first.',
     'What the job needs. Press <b>Confirm and continue</b> at the top right; the count there says how many you have picked out of how many you may.'],
     'The list is the same one the Screening tab shows under "Projects that fit", so the two never disagree.'),
+  note('<b>Missing tags.</b> Each card names the job\'s tags the project does not have, with a compliance tag the job needs in amber. If the project really did that work, press <b>Add tags</b>, tick the tags and add them: they are saved to the project in the library (Admin, Changes can put it back) and the projects are matched again, keeping a choice you already confirmed. Once a proposal is written its projects stay; only the card is brought up to date. The box at the top lists any tag no project shown has.'),
   shot('job-projects-more.jpg', 'Not there? Show more', 'Scroll to the end of the list.', [
     '<b>Show 10 more projects</b> lists the next best matches.', 'Open this to see the tags the job was given, and so why these projects came up.']),
   shot('job-profile.jpg', '4. Pick the profile', 'Which Upwork profile sends this proposal. The proposal is written in that profile\'s voice, with its rate, links and rules.', [
