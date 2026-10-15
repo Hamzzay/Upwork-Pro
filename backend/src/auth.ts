@@ -5,7 +5,7 @@ import { exec, query } from './db';
 import { config } from './config';
 
 export type Role = 'admin' | 'manager' | 'employee';
-export interface AuthUser { id: number; name: string; email: string; role: Role }
+export interface AuthUser { id: number; name: string; email: string; role: Role; /** rows per page in lists (R82) */ page_size?: number }
 
 declare module 'express-serve-static-core' {
   interface Request { user?: AuthUser; viaToken?: boolean }
@@ -22,13 +22,13 @@ export const checkPassword = (pw: string, hash: string) => bcrypt.compare(pw, ha
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 
 export async function login(email: string, password: string): Promise<{ token: string; user: AuthUser } | null> {
-  const rows = await query<any>('SELECT id, name, email, role, active, password_hash FROM users WHERE email=? LIMIT 1', [email.toLowerCase().trim()]);
+  const rows = await query<any>('SELECT id, name, email, role, active, password_hash, page_size FROM users WHERE email=? LIMIT 1', [email.toLowerCase().trim()]);
   const u = rows[0];
   const ok = await checkPassword(password, u ? u.password_hash : DUMMY_HASH);
   if (!u || !ok || !u.active) return null;
   const token = randomBytes(32).toString('hex');
   await exec('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?,?, DATE_ADD(NOW(), INTERVAL ? DAY))', [sha(token), u.id, SESSION_DAYS]);
-  return { token, user: { id: u.id, name: u.name, email: u.email, role: u.role } };
+  return { token, user: { id: u.id, name: u.name, email: u.email, role: u.role, page_size: u.page_size } };
 }
 
 export const setSessionCookie = (res: Response, token: string) =>
@@ -74,7 +74,7 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
     if (prepared) (req as any).changeReason = prepared.reason; // kept with the change set (changesets.ts)
     {
       const rows = await query<any>(
-        `SELECT u.id, u.name, u.email, u.role, k.id AS kid FROM api_tokens k JOIN users u ON u.id=k.user_id
+        `SELECT u.id, u.name, u.email, u.role, u.page_size, k.id AS kid FROM api_tokens k JOIN users u ON u.id=k.user_id
          WHERE k.token_hash=? AND k.revoked_at IS NULL AND k.expires_at > NOW() AND u.active=1`, [sha(bearer)]);
       if (rows[0]) {
         const { kid, ...u } = rows[0];
@@ -87,7 +87,7 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
   const t = req.cookies?.[COOKIE];
   if (t) {
     const rows = await query<any>(
-      `SELECT u.id, u.name, u.email, u.role FROM sessions s JOIN users u ON u.id=s.user_id
+      `SELECT u.id, u.name, u.email, u.role, u.page_size FROM sessions s JOIN users u ON u.id=s.user_id
        WHERE s.token_hash=? AND s.expires_at > NOW() AND u.active=1`, [sha(t)]);
     if (rows[0]) req.user = rows[0];
   }

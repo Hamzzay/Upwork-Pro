@@ -14,6 +14,8 @@ export interface ReportJob {
   connects_spent: number | null; boost_connects: number | null; created_at: string;
   client_country: string | null; job_type: string | null; experience_level: string | null;
   loom_video_id: number | null; loom_video_title: string | null; secs_to_proposal: number | null; words: number | null;
+  /** R82: auto mode, the review score, the opening sent, versions, documents, experience questions and feedback */
+  auto_mode?: any; review_score?: number | string | null; opening?: string | null; versions?: number | null; docs?: number | null; gaps_asked?: number | null; gaps_yes?: number | null; feedback_n?: number | null;
 }
 export interface ReportExtras {
   tags: { screening_id: number; tag_name: string; category_name: string }[];
@@ -72,7 +74,8 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
   const total = C();
   const d: Record<string, Counter> = {};
   for (const k of ['profile', 'person', 'type', 'type_choice', 'project', 'project_count', 'industry', 'tag', 'signal', 'rule', 'verdict', 'decision', 'source', 'loom', 'loom_video',
-    'country', 'job_type', 'experience', 'boost', 'connects', 'length', 'speed', 'week', 'sent_weekday', 'sent_time', 'loss_reason', 'outcome']) d[k] = C();
+    'country', 'job_type', 'experience', 'boost', 'connects', 'length', 'speed', 'week', 'sent_weekday', 'sent_time', 'loss_reason', 'outcome',
+    'mode', 'opening', 'review', 'versions', 'documents', 'gaps', 'feedback']) d[k] = C();
   const byJob = <T extends { screening_id: number }>(rows: T[]) => { const m = new Map<number, T[]>(); for (const r of rows) { const a = m.get(r.screening_id); if (a) a.push(r); else m.set(r.screening_id, [r]); } return m; };
   const tags = byJob(extra.tags), projects = byJob(extra.projects), signals = byJob(extra.signals);
   const toView: number[] = [], toChat: number[] = [], toClose: number[] = [], toProposal: number[] = [];
@@ -103,6 +106,17 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
       toProposal.push(Number(j.secs_to_proposal));
       d.speed.add(bucket(Number(j.secs_to_proposal), [[300, '1'], [900, '2'], [3600, '3']], '4'), bucket(Number(j.secs_to_proposal), [[300, 'Proposal ready within 5 minutes'], [900, 'Within 15 minutes'], [3600, 'Within an hour']], 'Over an hour'), j);
     }
+    // R82: how it was made, and how good the AI judged it
+    d.mode.add(on(j.auto_mode) ? 'auto' : 'steps', on(j.auto_mode) ? 'Auto mode' : 'Step by step', j);
+    d.documents.add(Number(j.docs) > 0 ? 'yes' : 'no', Number(j.docs) > 0 ? 'With attached documents' : 'No documents', j);
+    if (on(j.written)) {
+      const sc = j.review_score == null ? null : Number(j.review_score);
+      if (sc != null && !Number.isNaN(sc)) d.review.add(sc >= 9 ? '1' : sc >= 7 ? '2' : sc >= 5 ? '3' : '4', sc >= 9 ? 'Review score 9 to 10' : sc >= 7 ? 'Review score 7 to 8' : sc >= 5 ? 'Review score 5 to 6' : 'Review score below 5', j);
+      const v = Number(j.versions) || 0;
+      if (v) d.versions.add(v >= 3 ? '3' : String(v), v === 1 ? '1 version (sent as written)' : v === 2 ? '2 versions' : '3 or more versions', j);
+      d.gaps.add(Number(j.gaps_yes) > 0 ? '1' : Number(j.gaps_asked) > 0 ? '2' : '3', Number(j.gaps_yes) > 0 ? 'Experience confirmed and added' : Number(j.gaps_asked) > 0 ? 'Asked, nothing confirmed' : 'No experience questions', j);
+      d.feedback.add(Number(j.feedback_n) > 0 ? 'yes' : 'no', Number(j.feedback_n) > 0 ? 'Feedback left on it' : 'No feedback', j);
+    }
     if (j.words) d.length.add(bucket(j.words, [[120, '1'], [180, '2'], [240, '3'], [320, '4']], '5'), bucket(j.words, [[120, 'Up to 120 words'], [180, '121 to 180 words'], [240, '181 to 240 words'], [320, '241 to 320 words']], 'Over 320 words'), j);
     const created = day(j.created_at);
     if (created) { const ws = weekStart(created); const end = new Date(ws + 'T00:00:00'); end.setDate(end.getDate() + 6); d.week.add(ws, 'Week of ' + ws, j, { from: ws, to: ymd(end) }); }
@@ -122,6 +136,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
         if (o && j.outcome && j.outcome !== 'Pending' && o >= sent) toClose.push((o.getTime() - sent.getTime()) / 86_400_000);
       }
       if (j.outcome && j.outcome !== 'Pending') d.outcome.add(j.outcome, j.outcome, j, { outcome: j.outcome });
+      if (j.opening) d.opening.add(j.opening, j.opening, j);
       if (j.outcome && lossOutcomes.includes(j.outcome)) d.loss_reason.add(j.outcome_reason || 'none', j.outcome_reason || 'No reason recorded', j);
     }
   }
@@ -154,6 +169,13 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
     dim('experience', 'Experience level', 'The level the client asked for.'),
     dim('outcome', 'Outcome', 'How sent proposals ended.', 'sent'),
     dim('loss_reason', 'Why lost', 'The reason recorded for each lost proposal.', 'sent'),
+    dim('mode', 'Auto mode', 'Jobs screened and written in auto mode against those done step by step.', 'jobs', 'key'),
+    dim('opening', 'Opening sent', 'Sent proposals by the opening they went out with: the style picked, or as written.', 'sent'),
+    dim('review', 'Review score', 'The independent review\'s score of the newest version.', 'jobs', 'key'),
+    dim('versions', 'Versions', 'How many versions the proposal went through before it was sent.', 'jobs', 'key'),
+    dim('documents', 'Attached documents', 'Jobs with the client\'s documents attached against those without.', 'jobs', 'key'),
+    dim('gaps', 'Experience questions', 'Whether the client asked for experience we had no record of, and whether it was confirmed.', 'jobs', 'key'),
+    dim('feedback', 'Proposal feedback', 'Proposals someone left feedback on against the rest.', 'jobs', 'key'),
     dim('week', 'Week', 'By the week the job was screened.', 'jobs', 'key', 104),
   ];
   const round = (v: number | null, digits = 1) => (v == null ? null : Math.round(v * 10 ** digits) / 10 ** digits);

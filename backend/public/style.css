@@ -880,3 +880,7 @@ select.sm, .ss.sm .ss-btn { padding: 5px 30px 5px 10px; font-size: 13px; line-he
 .docfoot .counter-line { margin: 0; }
 .checks { margin-bottom: 12px; }
 .checks details.warnline, .checks .checkask { min-height: 38px; }
+/* the dashboard's Proposal quality row (R82) */
+.qrow { display: grid; gap: 8px; }
+.qhead { display: flex; align-items: baseline; gap: 10px; }
+.qhead h2 { font-size: 15px; font-weight: 600; margin: 0; }

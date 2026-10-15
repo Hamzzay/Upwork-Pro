@@ -1003,6 +1003,34 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R82. Dashboard and Reports up to date; everything readable from Claude; rows per page (done, 15 October)
+
+- **Reports** (asked for by Ahmad: up to date with everything built since): seven new reports, each counted from screened to hired
+  like the others: **Auto mode** (against step by step), **Opening sent** (the opening style a sent proposal went out with, or as
+  written), **Review score** (by score band), **Versions** (sent as written, or after changes), **Attached documents**, **Experience
+  questions** (none asked, asked, confirmed) and **Proposal feedback**.
+- **Dashboard:** a **Proposal quality** row under the main numbers: the average review score, jobs in auto mode (written and
+  stopped), openings picked, experience confirmed and questions still waiting, feedback left, and jobs with documents. Each opens
+  its report (or the Proposal feedback page).
+- **Everything readable from Claude** (plugin v0.15.0), so trends can be found there and the setup fixed through the setup-admin
+  skill after a yes:
+  - `get_dashboard`: the Dashboard for any period, with the quality numbers.
+  - `get_proposal_record`: one job's every version with its text and how it was made, the review in full, the openings, the
+    experience questions and answers, the feedback, the comparisons, and what the AI read from the client's documents.
+  - `get_activity` (managers and admins): AI calls by step and model with failures and times, and what people did.
+  - `analyze_jobs`: every row now has the mode, review score, opening sent, versions, documents, experience and feedback counts;
+    new extras on request: review, feedback, experience, documents, openings.
+  - `get_trends`: the seven new reports.
+  - Already there: `list_feedback` (the feedback and confirmed experience), `review_flags` (the Flag review), `setup_list`,
+    `setup_get` and `setup_history` (the whole setup and its changes). The job-trends skill says which tool answers which
+    question, and how a finding becomes a change.
+- **Rows per page:** every list has **Rows per page: 20, 50, 100 or 200** at the bottom. The choice is kept with the person's account
+  (migration `048_page_size.sql`), so it is the same on every list and every device; the lists the server pages (Jobs, Changes, Logs,
+  AI calls) follow it too.
+- Checked: tests; every new route called (the dashboard, the report with the new groups, the jobs with every new extra, a proposal
+  record, the activity); the Dashboard on screen; 50 rows picked on Jobs, then a new page load of Projects showing 50 (the account
+  was set back to 20 after).
+
 ### R81. Compare versions: a picker over each column, and notes that say plainly what they are (done, 15 October)
 
 - **Pickers over their columns** (asked for by Ahmad): the left version's picker sits on top of the left column (marked LEFT), the

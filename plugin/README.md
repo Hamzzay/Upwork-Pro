@@ -45,7 +45,14 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.14.0)
+## Status (v0.15.0)
+
+v0.15.0: everything can be read from Claude to find trends and fix the setup: `get_dashboard` (the Dashboard with its proposal
+quality numbers), `get_proposal_record` (one job's versions, review, openings, experience, feedback, comparisons and documents),
+`get_activity` (AI calls and what people did), and `analyze_jobs` and `get_trends` with auto mode, the opening sent, the review
+score, versions, documents, experience questions and feedback. The job-trends skill says when to use each, and how a finding
+becomes a change through the setup-admin skill.
+
 
 v0.14.0: the first two lines follow the Writing guide's "Opening lines" (`opening_lines`, every type), then the type's own rules,
 which win where they differ.

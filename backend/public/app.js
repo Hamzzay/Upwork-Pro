@@ -249,7 +249,9 @@ new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNo
   .observe(document.documentElement, { childList: true, subtree: true });
 
 // ---------- pagination ----------
-const PAGE_SIZE = 20;
+// Rows per page (R82): each person picks 20, 50, 100 or 200 at the bottom of any list; it is kept with their account.
+const PAGE_SIZES = [20, 50, 100, 200];
+const pageSize = () => (me && PAGE_SIZES.includes(Number(me.page_size)) ? Number(me.page_size) : 20);
 function hashParams() { return Object.fromEntries(new URLSearchParams(location.hash.split('?')[1] || '')); }
 function setHashParams(patch) { // keeps page and filters in the URL so Back from a record returns to the same list, without re-running the route
   const next = { ...hashParams(), ...patch }; const sp = new URLSearchParams();
@@ -259,13 +261,21 @@ function setHashParams(patch) { // keeps page and filters in the URL so Back fro
 const lastList = { history: '#/history', projects: '#/projects', industries: '#/industries' };
 function pager(total, page, onPage) {
   if (!total) return null;
-  const pages = Math.ceil(total / PAGE_SIZE), from = (page - 1) * PAGE_SIZE + 1, to = Math.min(total, page * PAGE_SIZE);
+  const pages = Math.ceil(total / pageSize()), from = (page - 1) * pageSize() + 1, to = Math.min(total, page * pageSize());
   const want = new Set([1, pages, page - 1, page, page + 1].filter((n) => n >= 1 && n <= pages));
   const nums = []; let prev = 0;
   for (const n of [...want].sort((a, b) => a - b)) { if (n - prev > 1) nums.push('…'); nums.push(n); prev = n; }
   const go = (n) => () => { onPage(n); window.scrollTo({ top: 0 }); };
   const btn = (label, n, disabled, cur) => h('button', { type: 'button', class: 'pg' + (cur ? ' on' : ''), disabled, 'aria-label': cur ? `Page ${n}, current page` : /^\d+$/.test(label) ? `Page ${n}` : label, 'aria-current': cur ? 'page' : null, onclick: go(n) }, label);
-  return h('div', { class: 'pager' }, h('span', { class: 'muted small' }, `Showing ${from.toLocaleString()} to ${to.toLocaleString()} of ${total.toLocaleString()}`),
+  // how many rows a page shows: saved with the person's account, then the list is drawn again from its first page
+  const sizeSel = h('select', { class: 'sm', 'aria-label': 'Rows per page', 'data-plain': '' }, PAGE_SIZES.map((n) => h('option', { value: n, selected: n === pageSize() }, String(n))));
+  sizeSel.onchange = async () => {
+    const n = Number(sizeSel.value);
+    try { await api('PUT', '/me/page-size', { size: n }); me.page_size = n; setHashParams({ page: 1 }); route(); }
+    catch (x) { toast(x.message, true); sizeSel.value = pageSize(); }
+  };
+  return h('div', { class: 'pager' }, h('span', { class: 'row muted small', style: 'gap:12px' }, `Showing ${from.toLocaleString()} to ${to.toLocaleString()} of ${total.toLocaleString()}`,
+    h('label', { class: 'row', style: 'gap:6px' }, 'Rows per page', sizeSel)),
     pages > 1 ? h('nav', { class: 'pgs', 'aria-label': 'Pagination' }, btn('Previous', page - 1, page <= 1),
       nums.map((n) => (n === '…' ? h('span', { class: 'gap' }, '…') : btn(String(n), n, false, n === page))), btn('Next', page + 1, page >= pages)) : null);
 }
@@ -273,8 +283,8 @@ function pager(total, page, onPage) {
 function clientPaged(items, render) {
   const box = h('div', {}); let page = Math.max(1, Number(hashParams().page) || 1);
   const draw = () => {
-    page = Math.min(page, Math.max(1, Math.ceil(items.length / PAGE_SIZE)));
-    box.replaceChildren(render(items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)), pager(items.length, page, (n) => { page = n; setHashParams({ page: n }); draw(); }));
+    page = Math.min(page, Math.max(1, Math.ceil(items.length / pageSize())));
+    box.replaceChildren(render(items.slice((page - 1) * pageSize(), page * pageSize())), pager(items.length, page, (n) => { page = n; setHashParams({ page: n }); draw(); }));
   };
   draw(); return box;
 }
@@ -314,7 +324,7 @@ function listCard(o) {
   const filters = o.filters || [], hp = hashParams();
   const st = { q: hp.q || '', page: Math.max(1, Number(hp.page) || 1) };
   for (const f of filters) st[f.key] = hp[f.key] || '';
-  const size = o.paged === false ? Infinity : PAGE_SIZE;
+  const size = o.paged === false ? Infinity : pageSize();
   const body = h('div', {});
   const reset = () => { st.page = 1; draw(); };
   const searchEl = o.search ? fSearch(o.search.placeholder, st.q, (v) => { st.q = v; reset(); }) : null;
@@ -635,6 +645,15 @@ async function dashboardView() {
         kpi('Sent', c.sent, c.connects ? `${c.connects} Connects` : 'Connects not recorded', jobsLink()),
         kpi('Hired', c.hired, `${pct(c.hired, c.sent)} of sent`, jobsLink({ outcome: 'Hired' }), 'PASS'),
         kpi('Needs action', needs, 'Waiting on someone', jobsLink({ stage: 'needs_action' }), 'NEED')),
+      // R82: how proposals are made now, and how good the review judged them (each opens its report or page)
+      d.quality ? h('div', { class: 'qrow' }, h('div', { class: 'qhead' }, h('h2', {}, 'Proposal quality'), h('span', { class: 'faint small' }, 'For the jobs in this period')),
+        h('div', { class: 'stats six' },
+          kpi('Review score', d.quality.avg_review != null ? d.quality.avg_review + ' / 10' : '-', d.quality.reviewed ? `average of ${d.quality.reviewed} reviewed` : 'No reviews yet', '#/reports?dim=review'),
+          kpi('Auto mode', d.quality.auto, d.quality.auto ? `${d.quality.auto_written} written · ${d.quality.auto_stopped} stopped` : 'No jobs in auto mode', '#/reports?dim=mode'),
+          kpi('Opening picked', d.quality.opening_used, `${pct(d.quality.opening_used, c.proposals)} of proposals used another opening`, '#/reports?dim=opening'),
+          kpi('Experience', d.quality.gaps_yes, d.quality.gaps_open ? `confirmed · ${d.quality.gaps_open} question${d.quality.gaps_open === 1 ? '' : 's'} waiting` : 'confirmed · none waiting', '#/reports?dim=gaps'),
+          kpi('Feedback', d.quality.feedback, 'notes on proposals, to fix the setup', '#/feedback'),
+          kpi('Documents', d.quality.with_docs, 'jobs with the client\'s files attached', '#/reports?dim=documents'))) : null,
       h('div', { class: 'dgrid' },
         panel('Funnel', 'From screening to hire', h('div', { class: 'hbars' }, funnel.map(([l, v, ex]) => hbar(l, v, c.screened, pct(v, c.screened), jobsLink(ex))))),
         panel('Speed', 'Paste to proposal ready', h('div', {},

@@ -61,6 +61,13 @@ api.post('/login', async (req, res) => {
 });
 api.post('/logout', async (req, res) => { await logout(req, res); res.json({ ok: true }); });
 api.get('/me', (req, res) => res.json({ user: req.user ?? null }));
+// Rows per page in every list (R82): kept with the person's account.
+api.put('/me/page-size', requireRole(), async (req, res) => {
+  const b = z.object({ size: z.coerce.number().int().refine((n) => (PAGE_SIZES as readonly number[]).includes(n), 'Pick 20, 50, 100 or 200') }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  await exec('UPDATE users SET page_size=? WHERE id=?', [b.data.size, req.user!.id]);
+  res.json({ ok: true, size: b.data.size });
+});
 // Change your own password: needs the current one. Every other session of yours is signed out; this one stays.
 api.post('/me/password', requireRole(), async (req, res) => {
   if (req.viaToken) return void res.status(403).json({ error: 'Sign in on the website to change your password' });
@@ -165,7 +172,9 @@ const listSelect = `SELECT s.id, s.user_id, s.notes, s.skip_reason, s.skip_note,
   ${statusSql} AS current_status, ${statusAtSql} AS status_at
   ${listFrom}`;
 
-const PAGE_SIZE = 20;
+/** Rows per page in the lists: each person's own choice (R82), 20 unless they picked another. */
+const PAGE_SIZES = [20, 50, 100, 200] as const;
+const ps = (req: any): number => (PAGE_SIZES as readonly number[]).includes(Number(req.user?.page_size)) ? Number(req.user.page_size) : 20;
 const likeEsc = (v: string) => v.replace(/[\\%_]/g, (c) => '\\' + c);
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const listFilters = z.object({
@@ -228,10 +237,10 @@ api.get('/screenings', requireRole(), async (req, res) => {
   const f = listFilters.extend({ page: z.coerce.number().int().min(1).default(1), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
   const w = listWhere(req, f, (await getSettings())['tracking.quiet_days']);
   const total = Number((await query<any>(`SELECT COUNT(*) AS n ${listFrom} ${w.sql}`, w.p))[0].n);
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / ps(req)));
   const page = Math.min(f.page, pages);
-  const rows = await query(`${listSelect} ${w.sql} ${orderBy(f.sort, f.dir)} LIMIT ? OFFSET ?`, [...w.p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
-  res.json({ screenings: rows, total, page, pages, page_size: PAGE_SIZE });
+  const rows = await query(`${listSelect} ${w.sql} ${orderBy(f.sort, f.dir)} LIMIT ? OFFSET ?`, [...w.p, ps(req), (page - 1) * ps(req)]);
+  res.json({ screenings: rows, total, page, pages, page_size: ps(req) });
 });
 
 // Counts for the summary tiles: every filter applies except the verdict, so the tiles can switch between verdicts.
@@ -254,7 +263,8 @@ api.get('/screenings/stats', requireRole(), async (req, res) => {
 
 // The dashboard: counts, the funnel, timings, what needs attention, and who does what, for a period.
 // Built on the same filters as the Jobs list, so a number here is the same number there.
-api.get('/dashboard', requireRole(), async (req, res) => {
+/** The Dashboard's numbers: the page, and Claude (get_dashboard). */
+const dashboard = async (req: any, res: any) => {
   const f = listFilters.pick({ from: true, to: true, profile: true, user: true, mine: true }).parse(req.query);
   const w = listWhere(req, f);
   const one = async (sql: string, p: any[] = []) => (await query<any>(sql, [...p, ...w.p]))[0];
@@ -268,7 +278,14 @@ api.get('/dashboard', requireRole(), async (req, res) => {
       MAX(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS max_to_proposal,
       AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, COALESCE(s.started_at, s.created_at), s.finished_at))) AS avg_screening,
       AVG(TIMESTAMPDIFF(SECOND, s.continued_at, s.tagged_at)) AS avg_matching,
-      AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, p.created_at, p.finished_at))) AS avg_writing
+      AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, p.created_at, p.finished_at))) AS avg_writing,
+      SUM(s.auto_mode=1) AS auto_n, SUM(s.auto_mode=1 AND p.finished_at IS NOT NULL) AS auto_written, SUM(s.auto_mode=1 AND s.auto_state='stopped') AS auto_stopped,
+      AVG(IF(p.finished_at IS NOT NULL, JSON_EXTRACT(p.review_json, '$.score'), NULL)) AS avg_review, SUM(p.finished_at IS NOT NULL AND JSON_EXTRACT(p.review_json, '$.score') IS NOT NULL) AS reviewed,
+      SUM(JSON_EXTRACT(p.openings_json, '$.used') IS NOT NULL) AS opening_used,
+      SUM((SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) > 0) AS with_docs,
+      SUM((SELECT COUNT(*) FROM proposal_feedback fb WHERE fb.screening_id=s.id)) AS feedback_n,
+      SUM((SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='open')) AS gaps_open,
+      SUM((SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes')) AS gaps_yes
     ${listFrom} ${w.sql}`);
   const stages = await query<any>(`SELECT (${stageSql}) AS stage, COUNT(*) AS n ${listFrom} ${w.sql} GROUP BY 1`, w.p);
   const waiting = await query<any>(`SELECT s.id, s.title, s.user_id, u.name AS user_name, s.created_at, (${stageSql}) AS stage ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} (${stageSql}) IN (?)
@@ -294,13 +311,66 @@ api.get('/dashboard', requireRole(), async (req, res) => {
     timings: { avg_to_proposal: c.avg_to_proposal == null ? null : Math.round(c.avg_to_proposal), min_to_proposal: c.min_to_proposal, max_to_proposal: c.max_to_proposal,
       avg_screening: c.avg_screening == null ? null : Math.round(c.avg_screening), avg_matching: c.avg_matching == null ? null : Math.round(c.avg_matching),
       avg_writing: c.avg_writing == null ? null : Math.round(c.avg_writing) },
+    // R82: how proposals are made now, and how good the review judged them
+    quality: { auto: n(c.auto_n), auto_written: n(c.auto_written), auto_stopped: n(c.auto_stopped), avg_review: c.avg_review == null ? null : Math.round(Number(c.avg_review) * 10) / 10,
+      reviewed: n(c.reviewed), opening_used: n(c.opening_used), with_docs: n(c.with_docs), feedback: n(c.feedback_n), gaps_open: n(c.gaps_open), gaps_yes: n(c.gaps_yes) },
     stages: Object.fromEntries(stages.map((r) => [r.stage, n(r.n)])), needs_action: NEEDS_ACTION, waiting,
     daily: daily.reverse().map((r) => ({ day: String(r.d instanceof Date ? r.d.toLocaleDateString('sv') : r.d).slice(0, 10), screened: n(r.screened), continued: n(r.continued), proposals: n(r.proposals) })),
     by_user: canSeeAll(req.user!.role) ? await by('s.user_id', 'u.name') : [], by_profile: await by('s.upwork_profile_id', 'pr.name'),
     rules: [...rules.values()].sort((a, b) => b.fired - a.fired).slice(0, 12).map((r) => ({ ...r, type: ruleText.get(r.code)?.type ?? null, rule: ruleText.get(r.code)?.rule ?? null })),
   });
+};
+api.get('/dashboard', requireRole(), dashboard);
+api.get('/plugin/dashboard', requireRole(), dashboard);
+
+/**
+ * One job's whole proposal record for Claude (R82): every version with its text and how it was made, the screening answers, the
+ * independent review in full, the openings offered and the one used, the experience questions and their answers, the feedback
+ * left on it, the comparisons made, and the client's documents (what the AI reads from them).
+ */
+api.get('/plugin/proposal-record/:id', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const s = (await query<any>('SELECT id, user_id, title, auto_mode, auto_state, auto_note FROM screenings WHERE id=? AND discarded_at IS NULL', [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  const p = (await query<any>('SELECT id, status, template_name, template_choice, review_json, review_version, openings_json, finished_at, finalized_at FROM proposals WHERE screening_id=?', [id]))[0];
+  const docs = await query<any>(`SELECT file_name, kind, status, read_by, text_content FROM job_attachments WHERE screening_id=? ORDER BY id`, [id]);
+  if (!p) return void res.json({ job: { id: s.id, title: s.title, auto_mode: !!Number(s.auto_mode) }, proposal: null, documents: docs });
+  const versions = (await query<any>(`SELECT v.version_no, v.source, v.note, v.created_at, v.content_html, v.answers_json, u.name AS by_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by
+    WHERE v.proposal_id=? ORDER BY v.version_no`, [p.id])).map((v) => { const sp = separate(v.content_html, v.answers_json);
+    return { version: v.version_no, made_by: v.source, by: v.by_name, note: v.note, at: v.created_at, text: htmlToPlain(sp.html), screening_answers: sp.answers }; });
+  const parse = (x: string | null) => { try { return x ? JSON.parse(x) : null; } catch { return null; } };
+  const gaps = await query<any>(`SELECT g.skill, g.ask, g.quote, g.status, g.note, g.library, (SELECT GROUP_CONCAT(pr.name SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS projects
+    FROM proposal_gaps g WHERE g.proposal_id=? ORDER BY g.id`, [p.id]);
+  const feedback = await query<any>('SELECT f.version_no, f.category, f.feedback, f.excerpt, f.created_at, u.name AS by_name FROM proposal_feedback f LEFT JOIN users u ON u.id=f.user_id WHERE f.screening_id=? ORDER BY f.id', [id]);
+  const comparisons = (await query<any>(`SELECT version_a, version_b, result_json FROM proposal_comparisons WHERE proposal_id=? AND status='done' ORDER BY id`, [p.id])).map((c) => ({ left: c.version_a, right: c.version_b, ...parse(c.result_json) }));
+  await audit(req.user!.id, 'analysis_read', `proposal record of job #${id}`);
+  res.json({ job: { id: s.id, title: s.title, auto_mode: !!Number(s.auto_mode), auto_state: s.auto_state, auto_note: s.auto_note },
+    proposal: { status: p.status, type: p.template_name, type_chosen: p.template_choice, written_at: p.finished_at, finished_at: p.finalized_at, versions,
+      review: p.review_json ? { of_version: p.review_version, ...parse(p.review_json) } : null, openings: parse(p.openings_json), experience: gaps, feedback, comparisons },
+    documents: docs.map((d) => ({ file: d.file_name, kind: d.kind, status: d.status, read_by: d.read_by, text: d.text_content })) });
 });
 
+/**
+ * Activity for Claude (managers and admins, R82): the AI calls of a period by step and model (how many, failures, average time),
+ * the latest failures, and what people did, counted by action and person.
+ */
+api.get('/plugin/activity', requireRole('admin', 'manager'), async (req, res) => {
+  const q = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).safeParse(req.query);
+  if (!q.success) return void res.status(400).json({ error: 'from and to are YYYY-MM-DD' });
+  const from = q.data.from ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10), to = q.data.to ?? new Date().toISOString().slice(0, 10);
+  const range = (t: string) => `${t}.created_at >= ? AND ${t}.created_at < DATE_ADD(?, INTERVAL 1 DAY)`;
+  const calls = await query<any>(`SELECT kind, step, model, COUNT(*) AS calls, SUM(ok=0) AS failed, ROUND(AVG(ms)) AS avg_ms FROM llm_calls c WHERE ${range('c')} GROUP BY kind, step, model ORDER BY calls DESC LIMIT 200`, [from, to]);
+  const failures = await query<any>(`SELECT c.created_at, c.kind, c.step, c.model, c.error, c.screening_id FROM llm_calls c WHERE c.ok=0 AND ${range('c')} ORDER BY c.id DESC LIMIT 50`, [from, to]);
+  const actions = await query<any>(`SELECT a.action, u.name AS person, COUNT(*) AS times FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE ${range('a')} GROUP BY a.action, u.name ORDER BY times DESC LIMIT 300`, [from, to]);
+  res.json({ from, to, ai_calls: calls.map((r) => ({ ...r, calls: Number(r.calls), failed: Number(r.failed), avg_ms: Number(r.avg_ms) })), latest_failures: failures, actions: actions.map((r) => ({ ...r, times: Number(r.times) })) });
+});
+
+/** Which opening a proposal went out with (R73): the style of the one used, "As written" when openings were offered and none used. */
+export function openingUsed(json: string | null): string | null {
+  if (!json) return null;
+  try { const o = JSON.parse(json); if (!o || !Array.isArray(o.items) || !o.items.length) return null;
+    return o.used != null && o.items[o.used] ? String(o.items[o.used].style || `Opening ${Number(o.used) + 1}`) : 'As written'; } catch { return null; }
+}
 /** The jobs the filters match, as the reports read them, with their tags, projects and signals. Shared by the Reports page and the plugin. */
 export const REPORT_LIMIT = 10000;
 export async function reportFor(req: any, f: ListFilters) {
@@ -311,10 +381,15 @@ export async function reportFor(req: any, f: ListFilters) {
       s.outcome, s.outcome_reason, s.outcome_at, s.client_viewed_at AS viewed_at, s.client_replied_at AS chat_at, s.connects_spent, s.boost_connects, s.created_at,
       s.client_country, s.job_type, s.experience_level, s.loom_video_id, s.loom_video_title,
       TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal,
-      (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html
+      (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html,
+      s.auto_mode, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json,
+      (SELECT COUNT(*) FROM proposal_versions pv2 WHERE pv2.proposal_id=p.id) AS versions,
+      (SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) AS docs,
+      (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id) AS gaps_asked, (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes') AS gaps_yes,
+      (SELECT COUNT(*) FROM proposal_feedback fb WHERE fb.screening_id=s.id) AS feedback_n
     ${listFrom} ${w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, REPORT_LIMIT + 1]);
   const capped = jobs.length > REPORT_LIMIT; if (capped) jobs.pop();
-  for (const j of jobs) { const t = j.html ? splitText(htmlToPlain(j.html)).letter.trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; } // the cover letter's words
+  for (const j of jobs) { const t = j.html ? splitText(htmlToPlain(j.html)).letter.trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; j.opening = openingUsed(j.openings_json); delete j.openings_json; } // the cover letter's words; the opening sent
   const ids = jobs.map((j) => j.id);
   const extra = ids.length ? {
     tags: await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?)', [ids]),
@@ -623,7 +698,7 @@ async function analysisWhere(req: any, f: z.infer<typeof analysisFilters>) {
   }
   return f;
 }
-const INCLUDES = ['tags', 'signals', 'flags', 'description', 'proposal', 'history', 'client'] as const;
+const INCLUDES = ['tags', 'signals', 'flags', 'description', 'proposal', 'history', 'client', 'review', 'feedback', 'experience', 'documents', 'openings'] as const;
 /**
  * Many jobs in one call, for comparing what worked. One row per job as a list of cells (the column names come once, in
  * `columns`), newest first. The answer is cut at a character budget and says whether more are left: ask again with
@@ -647,8 +722,13 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at, s.client_viewed, s.client_viewed_at, s.client_replied, s.client_replied_at, s.interviewed, s.interviewed_at,
       s.outcome, s.outcome_at, s.outcome_reason, s.outcome_note, s.connects_spent, s.boost_connects, s.loom_video_title,
       s.client_country, s.budget, s.job_type, s.experience_level, s.hire_rate, s.total_spent, s.payment_verified, s.client_rating, s.avg_hourly_paid, s.proposals AS proposals_on_job, s.posted,
-      TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, s.notes
-      ${inc.has('flags') || inc.has('description') ? ', s.report_json, s.posting_json, s.job_text' : ''}
+      TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, s.notes,
+      s.auto_mode, s.auto_state, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json,
+      (SELECT COUNT(*) FROM proposal_versions pv2 WHERE pv2.proposal_id=p.id) AS versions,
+      (SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) AS docs,
+      (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes') AS gaps_yes, (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='open') AS gaps_open,
+      (SELECT COUNT(*) FROM proposal_feedback fb WHERE fb.screening_id=s.id) AS feedback_n
+      ${inc.has('flags') || inc.has('description') ? ', s.report_json, s.posting_json, s.job_text' : ''}${inc.has('review') ? ', p.review_json' : ''}
     ${listFrom} ${q.data.after ? and('s.id < ?') : w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, ...(q.data.after ? [q.data.after] : []), q.data.limit]);
   const ids = list.map((r) => r.id);
   const group = (rows: any[]) => { const m = new Map<number, any[]>(); for (const r of rows) (m.get(r.screening_id) ?? m.set(r.screening_id, []).get(r.screening_id)!).push(r); return m; };
@@ -660,13 +740,22 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   if (ids.length) for (const v of await query<any>(`SELECT p.screening_id, v.content_html FROM proposals p JOIN proposal_versions v ON v.proposal_id=p.id
       WHERE p.screening_id IN (?) AND v.version_no=(SELECT MAX(v2.version_no) FROM proposal_versions v2 WHERE v2.proposal_id=p.id)`, [ids])) proposals.set(v.screening_id, splitText(htmlToPlain(v.content_html)).letter.trim());
   const cut = (t: string | null | undefined) => { const x = (t ?? '').trim(); return x.length > q.data.text_chars ? x.slice(0, q.data.text_chars) + ' [cut]' : x; };
+  // R82: the feedback, the experience questions and the client's documents, each only when asked for
+  const fbs = group(ids.length && inc.has('feedback') ? await query<any>('SELECT screening_id, category, feedback, excerpt, version_no FROM proposal_feedback WHERE screening_id IN (?) ORDER BY id', [ids]) : []);
+  const gapRows = group(ids.length && inc.has('experience') ? await query<any>(`SELECT g.screening_id, g.skill, g.ask, g.status, g.note, (SELECT GROUP_CONCAT(pr.name SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS projects
+    FROM proposal_gaps g WHERE g.screening_id IN (?) ORDER BY g.id`, [ids]) : []);
+  const docRows = group(ids.length && inc.has('documents') ? await query<any>(`SELECT screening_id, file_name, kind, text_content FROM job_attachments WHERE status='done' AND screening_id IN (?) ORDER BY id`, [ids]) : []);
+  const review = (r: any) => { try { const v = JSON.parse(r.review_json || 'null'); return v ? `${v.score}/10: ${v.verdict ?? ''}${(v.suggestions ?? []).length ? ' | Suggestions: ' + v.suggestions.map((x: any) => x.title).join('; ') : ''}${(v.problems ?? []).length ? ' | Hurts it: ' + v.problems.join('; ') : ''}` : null; } catch { return null; } };
+  const openingsOf = (r: any) => { try { const o = JSON.parse(r.openings_json || 'null'); return o?.items?.length ? o.items.map((x: any, i: number) => `${x.style || 'Opening ' + (i + 1)}${o.used === i ? ' (used)' : ''}: ${x.text}`).join(' || ') : null; } catch { return null; } };
   const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (v ? String(v).slice(0, 16) : null);
   const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',
     'proposal_words', 'loom_video', 'connects', 'boost', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
     'client_country', 'budget', 'job_type', 'experience_level', 'secs_to_proposal',
+    'mode', 'review_score', 'opening_sent', 'versions', 'documents', 'experience_confirmed', 'experience_waiting', 'feedback_count',
     ...(inc.has('client') ? ['hire_rate', 'total_spent', 'payment_verified', 'client_rating', 'avg_hourly_paid', 'proposals_on_job', 'posted'] : []),
     ...(inc.has('tags') ? ['tags'] : []), ...(inc.has('signals') ? ['signals'] : []), ...(inc.has('flags') ? ['flags'] : []), ...(inc.has('history') ? ['status_history', 'continue_reason', 'outcome_note', 'notes'] : []),
-    ...(inc.has('description') ? ['description'] : []), ...(inc.has('proposal') ? ['proposal'] : [])];
+    ...(inc.has('description') ? ['description'] : []), ...(inc.has('proposal') ? ['proposal'] : []),
+    ...(inc.has('review') ? ['review'] : []), ...(inc.has('feedback') ? ['feedback'] : []), ...(inc.has('experience') ? ['experience'] : []), ...(inc.has('documents') ? ['documents'] : []), ...(inc.has('openings') ? ['openings'] : [])];
   const rows = list.map((r) => {
     const t = tags.get(r.id) ?? [], prop = proposals.get(r.id) ?? '';
     let rep: any = null, post: any = null;
@@ -675,12 +764,19 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       r.template_name, r.template_name ? r.template_choice : null, (projects.get(r.id) ?? []).map((x) => x.project_name).join('; ') || null, t.filter((x) => /^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null,
       prop ? prop.split(/\s+/).length : null, r.loom_video_title, r.connects_spent, r.boost_connects, when(r.sent_at), yes(r.client_viewed), when(r.client_viewed_at), yes(r.client_replied), when(r.client_replied_at),
       yes(r.interviewed), when(r.interviewed_at), r.outcome, when(r.outcome_at), r.outcome_reason, r.client_country, r.budget, r.job_type, r.experience_level, r.secs_to_proposal,
+      Number(r.auto_mode) ? 'auto' + (r.auto_state === 'stopped' ? ' (stopped)' : '') : 'steps', r.review_score == null ? null : Number(r.review_score), openingUsed(r.openings_json),
+      Number(r.versions) || null, Number(r.docs) || 0, Number(r.gaps_yes) || 0, Number(r.gaps_open) || 0, Number(r.feedback_n) || 0,
       ...(inc.has('client') ? [r.hire_rate, r.total_spent, r.payment_verified, r.client_rating, r.avg_hourly_paid, r.proposals_on_job, r.posted] : []),
       ...(inc.has('tags') ? [t.filter((x) => !/^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null] : []),
       ...(inc.has('signals') ? [(signals.get(r.id) ?? []).map((x) => `${x.signal_name}: ${x.value_name}`).join('; ') || null] : []),
       ...(inc.has('flags') ? [rep ? [...rep.fails, ...rep.flags].map((x: any) => `${x.code ?? ''} ${x.rule}: ${x.value}`.trim()).join(' | ') || null : null] : []),
       ...(inc.has('history') ? [(history.get(r.id) ?? []).map((x) => `${x.status} ${when(x.happened_at)}${x.reason ? ' (' + x.reason + ')' : ''}`).join('; ') || null, r.continue_reason, r.outcome_note, r.notes] : []),
-      ...(inc.has('description') ? [cut(post?.description || r.job_text)] : []), ...(inc.has('proposal') ? [cut(prop) || null] : [])];
+      ...(inc.has('description') ? [cut(post?.description || r.job_text)] : []), ...(inc.has('proposal') ? [cut(prop) || null] : []),
+      ...(inc.has('review') ? [cut(review(r)) || null] : []),
+      ...(inc.has('feedback') ? [(fbs.get(r.id) ?? []).map((x) => `[${x.category}, v${x.version_no ?? '-'}] ${x.feedback} (on: "${String(x.excerpt).slice(0, 160)}")`).join(' || ') || null] : []),
+      ...(inc.has('experience') ? [(gapRows.get(r.id) ?? []).map((x) => `${x.skill}: ${x.status}${x.projects ? ' in ' + x.projects : ''}${x.note ? ' (' + x.note + ')' : ''}`).join('; ') || null] : []),
+      ...(inc.has('documents') ? [cut((docRows.get(r.id) ?? []).map((x) => `[${x.file_name}] ${x.text_content}`).join('\n')) || null] : []),
+      ...(inc.has('openings') ? [cut(openingsOf(r)) || null] : [])];
   });
   const packed = packRows(rows, q.data.budget);
   const last = packed.rows.length ? (packed.rows[packed.rows.length - 1][0] as number) : null;
@@ -965,7 +1061,7 @@ api.get('/admin/changes', admin, async (req, res) => {
   const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets c ${w}`, p))[0].n);
   const rows = await query<any>(`SELECT c.id, c.user_id, u.name AS user_name, c.source, c.entity, c.entity_id, c.entity_name, c.action, c.changes_json, c.reason, c.status, c.needs_review, c.reviewed_at, ru.name AS reviewed_by_name,
       c.reverted_at, vu.name AS reverted_by_name, c.reverted_by_set, c.reverts_set, c.created_at
-    FROM change_sets c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN users ru ON ru.id=c.reviewed_by LEFT JOIN users vu ON vu.id=c.reverted_by ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, PAGE_SIZE, (d.page - 1) * PAGE_SIZE]);
+    FROM change_sets c LEFT JOIN users u ON u.id=c.user_id LEFT JOIN users ru ON ru.id=c.reviewed_by LEFT JOIN users vu ON vu.id=c.reverted_by ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, ps(req), (d.page - 1) * ps(req)]);
   const main = await mainAdminId();
   res.json({ total, page: d.page, i_am_main: main === req.user!.id, to_review: Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets WHERE needs_review=1 AND status='applied'`))[0].n),
     kinds: Object.entries(KINDS).map(([k, v]) => ({ key: k, label: v.label })), people: await query('SELECT DISTINCT u.id, u.name FROM change_sets c JOIN users u ON u.id=c.user_id ORDER BY u.name'),
@@ -1068,13 +1164,13 @@ api.get('/admin/audit', admin, async (req, res) => {
   logDates('a.created_at', f, where, p);
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM audit_log a ${w}`, p))[0].n);
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / ps(req)));
   const page = Math.min(f.page, pages);
   const log = await query(
     `SELECT a.id, a.action, a.detail, a.changes, a.created_at, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id=a.user_id ${w} ORDER BY a.id DESC LIMIT ? OFFSET ?`,
-    [...p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
+    [...p, ps(req), (page - 1) * ps(req)]);
   const actions = (await query<any>('SELECT DISTINCT action FROM audit_log ORDER BY action')).map((r) => r.action);
-  res.json({ log, total, page, pages, page_size: PAGE_SIZE, actions });
+  res.json({ log, total, page, pages, page_size: ps(req), actions });
 });
 api.get('/admin/calls', admin, async (req, res) => {
   const f = z.object({ page: z.coerce.number().int().min(1).default(1), kind: z.string().max(30).optional(), ok: z.enum(['0', '1']).optional(),
@@ -1087,13 +1183,13 @@ api.get('/admin/calls', admin, async (req, res) => {
   logDates('c.created_at', f, where, p);
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM llm_calls c ${w}`, p))[0].n);
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / ps(req)));
   const page = Math.min(f.page, pages);
-  const calls = await query(`SELECT c.*, s.title FROM llm_calls c LEFT JOIN screenings s ON s.id=c.screening_id ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, PAGE_SIZE, (page - 1) * PAGE_SIZE]);
+  const calls = await query(`SELECT c.*, s.title FROM llm_calls c LEFT JOIN screenings s ON s.id=c.screening_id ${w} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, ps(req), (page - 1) * ps(req)]);
   const summary = await query<any>(`SELECT c.kind, c.step, c.model, COUNT(*) AS calls, SUM(c.ok=0) AS errors, ROUND(AVG(c.ms)) AS avg_ms, MAX(c.ms) AS max_ms
     FROM llm_calls c ${w} GROUP BY c.kind, c.step, c.model ORDER BY calls DESC`, p);
   const facets = { kinds: (await query<any>('SELECT DISTINCT kind FROM llm_calls ORDER BY kind')).map((r) => r.kind), models: (await query<any>('SELECT DISTINCT model FROM llm_calls WHERE model IS NOT NULL ORDER BY model')).map((r) => r.model) };
-  res.json({ calls, total, page, pages, page_size: PAGE_SIZE, summary: summary.map((r) => ({ ...r, calls: Number(r.calls), errors: Number(r.errors), avg_ms: Number(r.avg_ms) })), ...facets });
+  res.json({ calls, total, page, pages, page_size: ps(req), summary: summary.map((r) => ({ ...r, calls: Number(r.calls), errors: Number(r.errors), avg_ms: Number(r.avg_ms) })), ...facets });
 });
 
 // One job's history in time order: every step, who did it, and every model call it made.
