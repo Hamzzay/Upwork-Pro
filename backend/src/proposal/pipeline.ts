@@ -288,6 +288,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   const jobPart = f.questions.length ? `<job_page>\n${f.jobOnly}\n</job_page>\n\n${questionsPrompt(f.questions)}` : `<job_page>\n${f.jobText}\n</job_page>`;
   const w = await run({ label: 'writing', system, prompt: `${jobPart}\n\nWrite the proposal now.`,
     schema: inParts ? partsSchema(f.questions.length) : f.questions.length ? writerSchemaWithAnswers(f.questions.length) : writerSchema, timeoutMs: config.llm.timeoutMs });
+  await stage('checking'); // R97: the letter is in; its parts, proof and checks are next (shown on the page as a step)
   const pair = (qs: string[], a: string[] = []): QA[] => qs.map((q, i) => ({ question: q, answer: String(a[i] ?? '').trim() }));
   let answers: QA[] = [];
   let writerWarnings: string[] = [];

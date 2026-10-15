@@ -589,9 +589,54 @@ function proposalSection(s, initial, matching) {
     return el;
   }
 
+  /**
+   * R97 (Ahmad): while the proposal is written, what is being done: each step with its state, a bar that keeps moving, the time
+   * so far and about how long is left (from how long the last proposals took here). Redrawn in place; nothing else on the page.
+   */
+  const PSTEPS = [
+    ['queued', 'Waiting for a free slot', 'Another job is being worked on. This one is next.'],
+    ['signals', 'Reading the job', 'What the client asks for, how they write, and what they will judge the proposal on.'],
+    ['template', 'Choosing the proposal type', 'The type the signals point to, with its format and length.'],
+    ['writing', 'Writing the letter and the answers', 'The opening, your projects as proof, the approach, and any screening answers.'],
+    ['checking', 'Checking it', 'The proof, the sign off and the writing rules, before it is saved.'],
+  ];
+  // where each step sits on the bar, and its share of the usual time
+  const BAND = { queued: [0, 6, 0.05], signals: [6, 28, 0.2], template: [28, 40, 0.1], writing: [40, 88, 0.5], checking: [88, 97, 0.15] };
+  const prog = { at: 0, stage: null, since: 0, pct: 0, tick: null };
+  const stageNow = () => (data.status === 'queued' ? 'queued' : data.stage && BAND[data.stage] ? data.stage : 'signals');
+  const fmtSecs = (n) => (n < 60 ? `${Math.max(5, Math.round(n / 5) * 5)} s` : `${Math.floor(n / 60)} min${n % 60 >= 30 ? ' 30 s' : ''}`);
+  function progressView() {
+    prog.at = Date.now() - (Number(data.elapsed_seconds) || 0) * 1000; prog.stage = null; prog.pct = 0;
+    const el = h('div', { class: 'propprogress pgx', role: 'status', 'aria-live': 'polite' },
+      h('div', { class: 'pgtop' }, h('div', {}, h('div', { class: 'pgtitle' }, 'Writing your proposal'), h('div', { class: 'pgsub' }, 'You can leave this page. It carries on, and the proposal is saved when it is done.')),
+        h('div', { class: 'pgtime' }, h('strong', { class: 'pgleft' }, ''), h('span', { class: 'pgelapsed' }, ''))),
+      h('div', { class: 'pgbar' }, h('i', {})),
+      h('ol', { class: 'pgsteps' }),
+      h('div', { class: 'pgdraft', 'aria-hidden': 'true' }, h('span', {}), h('span', {}), h('span', {}), h('span', {}), h('span', {})));
+    clearInterval(prog.tick);
+    prog.tick = setInterval(() => { if (!el.isConnected || !busy()) { clearInterval(prog.tick); return; } drawProgress(); }, 500);
+    requestAnimationFrame(drawProgress);
+    return el;
+  }
   function drawProgress() {
-    const el = box.querySelector('.propprogress');
-    if (el) el.querySelector('strong').textContent = data.status === 'queued' ? 'Waiting for a free slot' : (STAGE_TEXT[data.stage] || 'Working');
+    const el = box.querySelector('.pgx'); if (!el) return;
+    const st = stageNow(), now = Date.now(), elapsed = (now - prog.at) / 1000, T = Number(data.typical_seconds) || 120;
+    if (st !== prog.stage) { prog.stage = st; prog.since = now; }
+    const [from, to, share] = BAND[st], inStage = (now - prog.since) / 1000;
+    const pct = from + (to - from) * (1 - Math.exp(-inStage / Math.max(4, share * T))) * 0.95; // eases towards the end of its step
+    prog.pct = Math.max(prog.pct, pct); // never goes back
+    el.querySelector('.pgbar i').style.width = prog.pct.toFixed(1) + '%';
+    const left = T - elapsed;
+    el.querySelector('.pgleft').textContent = !data.typical_seconds ? 'Usually a couple of minutes' : left > 8 ? `About ${fmtSecs(left)} left` : 'Almost done';
+    el.querySelector('.pgelapsed').textContent = `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, '0')} so far` + (data.typical_seconds && left < -30 ? ', a little longer than usual' : '');
+    const idx = PSTEPS.findIndex((x) => x[0] === st);
+    const ol = el.querySelector('.pgsteps');
+    const sig = PSTEPS.map((x, i) => (i < idx ? 'd' : i === idx ? 'a' : 'w')).join('');
+    if (ol.dataset.sig === sig) return; // only redrawn when a step changes
+    ol.dataset.sig = sig;
+    ol.replaceChildren(...PSTEPS.filter((x, i) => i > 0 || st === 'queued').map((x) => { const i = PSTEPS.indexOf(x), state = i < idx ? 'done' : i === idx ? 'now' : 'next';
+      return h('li', { class: state }, h('span', { class: 'pgdot' }, state === 'done' ? icon('check') : state === 'now' ? h('span', { class: 'spin' }) : String(i)),
+        h('div', {}, h('div', { class: 'pgname' }, x[1]), state === 'now' ? h('div', { class: 'pghint' }, x[2]) : null)); }));
   }
 
   function explain() {
@@ -796,8 +841,7 @@ function proposalSection(s, initial, matching) {
     if (!data) {
       body = typeChooser();
     } else if (busy()) {
-      body = h('div', { class: 'progress propprogress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', { style: 'font-size:17px' }, data.status === 'queued' ? 'Waiting for a free slot' : (STAGE_TEXT[data.stage] || 'Working')),
-        h('p', { class: 'muted', style: 'margin-top:4px' }, 'Detecting the signals, choosing a proposal type and writing takes a few minutes with the real model (two AI calls). You can leave this page; the result is saved.'));
+      body = progressView(); // R97: the steps, a moving bar and the time left
     } else if (data.status === 'error' && !data.current) {
       body = h('div', {}, h('div', { class: 'jp-sec' }, 'The proposal could not be written'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, data.error || 'Something went wrong.'));
     } else if (data.current) {

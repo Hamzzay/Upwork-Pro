@@ -382,6 +382,10 @@ export async function proposalFor(screeningId: number) {
   const signals = await query('SELECT signal_number, signal_name, value_name, is_fallback, is_primary, confidence, evidence, reason FROM job_signals WHERE screening_id=? ORDER BY signal_number, is_primary DESC, id', [screeningId]);
   const messages = await query('SELECT m.id, m.role, m.content, m.status, m.error_message, m.based_on_version, m.result_version, m.created_at, u.name AS user_name FROM proposal_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? ORDER BY m.id', [p.id]);
   return {
+    // R97: how long a proposal usually takes here, start to finish (the last 30, leaving out odd ones), for the time left on screen
+    typical_seconds: p.status === 'done' || p.status === 'error' ? null : Number((await query<any>(`SELECT ROUND(AVG(d)) AS s FROM (SELECT TIMESTAMPDIFF(SECOND, created_at, finished_at) AS d FROM proposals
+      WHERE finished_at IS NOT NULL AND status='done' AND (model IS NULL OR model<>'claude-plugin') AND TIMESTAMPDIFF(SECOND, created_at, finished_at) BETWEEN 15 AND 1800 ORDER BY id DESC LIMIT 30) x`))[0]?.s) || null,
+    elapsed_seconds: p.status === 'done' || p.status === 'error' ? null : Number((await query<any>('SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS s FROM proposals WHERE id=?', [p.id]))[0]?.s ?? 0),
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
     ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
     current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers, in_parts: !!cur.parts } : null, versions, signals, messages,

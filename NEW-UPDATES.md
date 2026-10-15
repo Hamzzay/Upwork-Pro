@@ -1003,6 +1003,16 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R97. Watching a proposal being written (done, 16 October)
+
+- **Why** (Ahmad): while a proposal was written, the page showed one spinning ring and a line of text, so nobody could tell where
+  it stood or how long it would take.
+- **Now** the page shows the steps as they happen: waiting for a free slot (when another job is ahead), reading the job, choosing
+  the proposal type, writing the letter and the answers, and checking it. Done steps are ticked, the current one says what it is
+  doing. Above them, a bar that keeps moving, the time so far, and about how long is left, worked out from how long the last 30
+  proposals took here (a slow one says it is taking a little longer than usual). Lines of a draft shimmer underneath.
+- A new "checking" step is reported once the letter is in (the parts, proof and checks run after it). Only that box redraws.
+
 ### R96. Reasons to continue written from the job's fit; adding tags no longer reloads the Projects step (done, 16 October)
 
 - **Why** (Ahmad): the quick reasons to continue past a FLAG or FAIL were stock phrases, so the reason on record said little; and
