@@ -15,6 +15,8 @@ import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { runOpenings } from './proposal/openings';
+import { autoAfterMatching, autoAfterProposal, autoAfterScreening } from './autopilot';
+import { runCompare } from './proposal/compare';
 import { docsBlock, runAttachmentRead } from './screening/attachments';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
@@ -76,6 +78,7 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
       [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, JSON.stringify(ctx.rules), lastUsed()?.model ?? config.llm.model, lastUsed()?.provider ?? 'mock',
        v.fail_reasons || null, v.flag_reasons || null, v.rule_codes || null, ...COLUMN_KEYS.map((k) => v.columns[k]), autoMatch ? 1 : 0, row.id],
     );
+    await autoAfterScreening(row.id); // auto mode (R75): goes on by itself, or stops on a FAIL
   } catch (e) {
     if (stopping) { await exec(`UPDATE screenings SET status='queued' WHERE id=?`, [row.id]); return; } // killed by a deploy: run again
     const info = errorInfo(e);
@@ -137,6 +140,7 @@ async function processTagging(id: number) {
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });
     if (fromClaude) return;
+    if (await autoAfterMatching(id)) return; // auto mode (R75): the proposal itself is written next, no early draft
     await queueEarlyDraft(id).catch((e) => console.error('early draft not queued:', (e as Error).message)); // a missed early draft only costs time
     // and it starts right here, as soon as the projects are matched, instead of waiting at the back of the queue (PLAN-SPEED point 1)
     if (!stopping && (await exec(`UPDATE early_drafts SET status='running' WHERE screening_id=? AND status='queued'`, [id])).affectedRows) {
@@ -168,6 +172,8 @@ async function processProposal(id: number) {
   try {
     await runProposal(id, () => !stopping);
     if (stopping) { await exec(`UPDATE proposals SET status='queued' WHERE id=? AND status='running'`, [id]); return; }
+    const sc = (await query<any>('SELECT screening_id FROM proposals WHERE id=?', [id]))[0]?.screening_id;
+    if (sc) await autoAfterProposal(sc, true);
     // the review starts right here, in the same job, instead of waiting for the next look at the queues (PLAN-SPEED point 6)
     if ((await exec(`UPDATE proposals SET review_status='running' WHERE id=? AND review_status='queued' AND status='done'`, [id])).affectedRows) {
       const sid = (await query<any>('SELECT screening_id FROM proposals WHERE id=?', [id]))[0]?.screening_id ?? null;
@@ -178,6 +184,8 @@ async function processProposal(id: number) {
     const info = errorInfo(e);
     await exec(`UPDATE proposals SET status='error', stage=NULL, error_code=?, error_message=? WHERE id=?`, [info.code, info.message, id]);
     await audit(null, 'proposal_error', `id=${id} code=${info.code}`);
+    const sc = (await query<any>('SELECT screening_id FROM proposals WHERE id=?', [id]))[0]?.screening_id;
+    if (sc) await autoAfterProposal(sc, false, info.message).catch(() => undefined);
   }
 }
 
@@ -222,6 +230,10 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const ch = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM proposal_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
   if (ch.length) return { kind: 'chat', claim: async () => !!(await exec(`UPDATE proposal_messages SET status='running' WHERE id=? AND status='queued'`, [ch[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'chat', proposalId: ch[0].proposal_id, screeningId: ch[0].screening_id }, () => processChat(ch[0].id)) };
+  // two versions compared for a person looking at them (R76)
+  const cm = await query<{ id: number; proposal_id: number }>(`SELECT id, proposal_id FROM proposal_comparisons WHERE status='queued' ORDER BY id LIMIT 1`);
+  if (cm.length) return { kind: 'compare', claim: async () => !!(await exec(`UPDATE proposal_comparisons SET status='running' WHERE id=? AND status='queued'`, [cm[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'proposal', proposalId: cm[0].proposal_id, screeningId: null as any }, () => processCompare(cm[0].id)) };
   // the proposal updated with experience the person confirmed (R67)
   const gp = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE gaps_status='queued' AND status='done' ORDER BY id LIMIT 1`);
   if (gp.length) return { kind: 'gaps', claim: async () => !!(await exec(`UPDATE proposals SET gaps_status='running' WHERE id=? AND gaps_status='queued'`, [gp[0].id])).affectedRows,
@@ -312,6 +324,15 @@ async function processAttachment(id: number) {
   }
 }
 
+/** Two versions compared (R76). */
+async function processCompare(id: number) {
+  try { await runCompare(id); }
+  catch (e) {
+    console.error('compare failed', (e as Error).message);
+    await exec(`UPDATE proposal_comparisons SET status=?, error=? WHERE id=?`, [stopping ? 'queued' : 'error', String((e as Error).message).slice(0, 300), id]).catch(() => undefined);
+  }
+}
+
 /** The three openings (R73). */
 async function processOpenings(id: number) {
   try { await runOpenings(id); }
@@ -336,6 +357,7 @@ async function shutdown() {
   await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`).catch(() => undefined);
   await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
@@ -356,6 +378,7 @@ async function main() {
   await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`);
   await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`);
   await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);

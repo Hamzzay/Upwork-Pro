@@ -23,7 +23,7 @@ import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
 import { buildFlagReview, picksOf } from './flagreview';
-import { queueEarlyDraft, queueParts } from './proposal/pipeline';
+import { applySendParts, queueEarlyDraft, queueParts, sendPartsNow } from './proposal/pipeline';
 import { buildReport, packRows } from './reports';
 import { ChangedSince, KINDS, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
@@ -84,6 +84,7 @@ api.post('/screenings', requireRole(), async (req, res) => {
     input: z.string(),
     job_url: z.string().trim().max(500).nullish(),
     files: uploadBody.shape.files.optional(), // documents the client attached to the job (R74)
+    auto: z.boolean().optional(), // auto mode (R75): screened and written with no questions in between
   }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: 'Paste a job link or the job page text' });
   let parsed;
@@ -102,9 +103,9 @@ api.post('/screenings', requireRole(), async (req, res) => {
   try {
     await conn.beginTransaction();
     const [r]: any = await conn.query(
-      `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status) VALUES (?,?,?,?,?,?,'queued')`,
+      `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status, auto_mode, auto_state) VALUES (?,?,?,?,?,?,'queued',?,?)`,
       [req.user!.id, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
-       b.data.input.trim(), parsed.type === 'text' ? parsed.text : null]);
+       b.data.input.trim(), parsed.type === 'text' ? parsed.text : null, b.data.auto ? 1 : 0, b.data.auto ? 'running' : null]);
     id = Number(r.insertId);
     await recordFiles((sql, p) => conn.query(sql, p as any[]), id, req.user!.id, ready, false);
     await conn.commit();
@@ -786,7 +787,7 @@ api.post('/screenings/:id/continue', requireRole(), async (req, res) => {
   const s = await ownedDone(req, res); if (!s) return;
   if (s.verdict !== 'PASS') return void res.status(409).json({ error: 'A ' + s.verdict + ' job needs a reason to continue' });
   const r = await exec(
-    `UPDATE screenings SET continued_at=NOW(), proceeded='yes', tagging_status=COALESCE(tagging_status, 'queued') WHERE id=? AND continued_at IS NULL`, [s.id]);
+    `UPDATE screenings SET continued_at=NOW(), proceeded='yes', tagging_status=COALESCE(tagging_status, 'queued'), auto_state=IF(auto_mode=1, 'running', auto_state), auto_note=IF(auto_mode=1, NULL, auto_note) WHERE id=? AND continued_at IS NULL`, [s.id]);
   if (r.affectedRows) await audit(req.user!.id, 'continue', `screening=${s.id}`);
   res.json({ ok: true, already: !r.affectedRows });
 });
@@ -854,15 +855,21 @@ api.put('/screenings/:id/proposal-profile', requireRole(), async (req, res) => {
   const prof = (await query<any>('SELECT id, active FROM upwork_profiles WHERE id=?', [b.data.profile_id]))[0];
   if (!prof) return void res.status(400).json({ error: 'That profile does not exist' });
   if (!prof.active) return void res.status(400).json({ error: 'That profile is disabled' });
+  const before = s.proposal_profile_id ? await sendPartsNow(s.id) : null;
   await exec('UPDATE screenings SET proposal_profile_id=?, upwork_profile_id=?, proposal_profile_confirmed_at=NOW(), proposal_profile_confirmed_by=? WHERE id=?', [prof.id, prof.id, req.user!.id, s.id]);
+  // a Loom video belongs to one profile: a video of the profile it was before does not go with the new one
+  await exec('UPDATE screenings SET loom_video_id=NULL, loom_video_title=NULL WHERE id=? AND loom_video_id IS NOT NULL AND loom_video_id NOT IN (SELECT id FROM loom_videos WHERE profile_id=?)', [s.id, prof.id]);
   // nothing is written yet: the person chooses the proposal type next (Proposal tab), and that starts the writing
   const existing = (await query<any>('SELECT id, profile_id, status FROM proposals WHERE screening_id=?', [s.id]))[0];
   const started = false;
   await audit(req.user!.id, 'proposal_profile', `screening=${s.id} profile=${prof.id}`);
   // a profile changed after the proposal was written: only the sign off is redone (PLAN-SPEED point 1); the letter stays, and
   // "Write it again" is there for the new profile's voice. Before any proposal, an early draft starts now if none was guessed.
-  if (existing) await queueParts(s.id); else await queueEarlyDraft(s.id).catch(() => undefined);
-  res.json({ ok: true, started, needs_rewrite: false });
+  // R78: a written proposal gets the new sign off (and loses a video of the old profile) where it stands, at once, as no new version
+  let updated: string | null = null;
+  if (existing) { updated = before ? await applySendParts(s.id, before) : 'offer'; if (updated === 'offer') await queueParts(s.id); }
+  else await queueEarlyDraft(s.id).catch(() => undefined);
+  res.json({ ok: true, started, needs_rewrite: false, updated });
 });
 
 // Continue anyway on FAIL or FLAG: a reason is required and kept.
@@ -885,7 +892,7 @@ api.post('/screenings/:id/override', requireRole(), async (req, res) => {
     if (e?.code === 'ER_DUP_ENTRY') return void res.status(409).json({ error: 'Already continued with a reason' });
     throw e;
   }
-  await exec(`UPDATE screenings SET proceeded='yes', continued_at=COALESCE(continued_at, NOW()), tagging_status=COALESCE(tagging_status, 'queued') WHERE id=?`, [id]);
+  await exec(`UPDATE screenings SET proceeded='yes', continued_at=COALESCE(continued_at, NOW()), tagging_status=COALESCE(tagging_status, 'queued'), auto_state=IF(auto_mode=1, 'running', auto_state), auto_note=IF(auto_mode=1, NULL, auto_note) WHERE id=?`, [id]);
   await audit(req.user!.id, 'override', `screening=${id} verdict=${s.verdict}`);
   res.status(201).json({ ok: true });
 });

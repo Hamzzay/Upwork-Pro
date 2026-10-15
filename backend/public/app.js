@@ -23,6 +23,7 @@ const ICONS = {
   x: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   link: '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
+  compare: '<rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/>',
   clip: '<path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
   doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
   back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
@@ -342,45 +343,75 @@ const dataTable = (heads, rows, cls) => h('div', { class: 'tablewrap' }, h('tabl
 const APP_NAME = 'Upwork Pro';
 const STAFF = ['manager', 'admin'], ADMIN = ['admin'];
 /** The sidebar, in order. A link without roles is for everyone. */
+// The sidebar (R80, Ahmad): the daily work, then four sections (Library, Writing, Screening, Admin), each a row with an arrow that
+// opens and closes its pages under it, one at a time: opening one closes the others, and the open one can be closed too. The
+// section you are in and the page you are on are both lit. The open section is kept in this browser; going to a page opens its own. Guide and Connect Claude sit in a small row above your name.
 const NAV = [
-  { label: 'Work', links: [
-    { key: 'dashboard', icon: 'home', label: 'Dashboard' },
-    { key: 'new', icon: 'screen', label: 'Screen a job' },
-    { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
-    { key: 'reports', icon: 'chart', label: 'Reports' },
-    { key: 'feedback', icon: 'audit', label: 'Proposal feedback' },
-    { key: 'connect', icon: 'link', label: 'Connect Claude' },
-    { href: '/guide/', icon: 'info', label: 'Guide' }] }, // the team guide, served beside the app; it opens in its own tab
-  { label: 'Library', links: [
+  { key: 'dashboard', icon: 'home', label: 'Dashboard' },
+  { key: 'new', icon: 'screen', label: 'Screen a job' },
+  { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
+  { key: 'reports', icon: 'chart', label: 'Reports' },
+  { key: 'feedback', icon: 'audit', label: 'Proposal feedback' },
+  { key: 'flagreview', icon: 'warn', label: 'Flag review', roles: STAFF },
+];
+const SETUP = [
+  { label: 'Library', icon: 'folder', links: [
     { key: 'projects', icon: 'folder', label: 'Projects' },
     { key: 'industries', icon: 'building', label: 'Industries' },
     { key: 'dictionary', icon: 'tag', label: 'Tag dictionary', roles: ADMIN },
     { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN },
     { key: 'looms', icon: 'video', label: 'Loom videos', roles: ADMIN }] },
-  { label: 'Proposal setup', links: [
-    { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
+  { label: 'Writing', icon: 'doc', links: [
     { key: 'writing', icon: 'doc', label: 'Writing guide' },
+    { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
     { key: 'reviewer', icon: 'skill', label: 'Reviewer' }] },
-  { label: 'Admin', links: [
+  { label: 'Screening', icon: 'warn', links: [
     { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
-    { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN },
-    { key: 'flagreview', icon: 'audit', label: 'Flag review', roles: STAFF },
+    { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN }] },
+  { label: 'Admin', icon: 'gear', links: [
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
     { key: 'changes', icon: 'back', label: 'Changes', roles: ADMIN },
     { key: 'audit', icon: 'audit', label: 'Logs', roles: ADMIN }] },
 ];
+const allowed = (l) => !l.roles || l.roles.includes(me.role);
+const NAV_FOOT = [{ key: 'connect', icon: 'link', label: 'Connect Claude' }, { href: '/guide/', icon: 'info', label: 'Guide' }]; // the guide opens in its own tab
+let navOpen = null; // the sections open in this browser
+const navOpenSet = () => { if (!navOpen) { try { navOpen = new Set(JSON.parse(localStorage.getItem('nav.open2') || '[]')); } catch { navOpen = new Set(); } } return navOpen; };
+const saveNavOpen = () => { try { localStorage.setItem('nav.open2', JSON.stringify([...navOpen])); } catch { /* storage blocked */ } };
+let navLastActive = null;
+
 function shell(active, content, wide) {
   const a = ([key, ic, label]) => (key.startsWith('/') ? h('a', { href: key, target: '_blank', rel: 'noopener' }, icon(ic), h('span', {}, label))
     : h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label)));
-  const groups = NAV.map((g) => [g.label, g.links.filter((l) => !l.roles || l.roles.includes(me.role)).map((l) => [l.href || l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label])])
-    .filter(([, links]) => links.length);
+  const linksOf = (ls) => ls.filter(allowed).map((l) => [l.href || l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label]);
+  const navLink = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label));
+  const opened = navOpenSet();
+  const sections = SETUP.map((g) => ({ ...g, links: linksOf(g.links) })).filter((g) => g.links.length);
+  // going to a page opens its section, and only it (once per page, so the person can still close it)
+  const here = sections.find((g) => g.links.some(([k]) => k === active));
+  if (here && navLastActive !== active) { opened.clear(); opened.add(here.label); saveNavOpen(); }
+  navLastActive = active;
+  const section = (g) => {
+    const isHere = g === here, isOpen = opened.has(g.label);
+    const body = h('div', { class: 'nav-sub', hidden: !isOpen }, g.links.map(navLink));
+    const head = h('button', { type: 'button', class: 'nav-sec' + (isHere ? ' here' : ''), 'aria-expanded': String(isOpen) }, icon(g.icon), h('span', {}, g.label), h('span', { class: 'nav-chev', 'aria-hidden': 'true' }));
+    head.onclick = () => {
+      const open = body.hidden;
+      // one section at a time: opening this one closes the others
+      if (open) head.closest('.nav').querySelectorAll('.nav-sec[aria-expanded="true"]').forEach((x) => { x.setAttribute('aria-expanded', 'false'); x.nextElementSibling.hidden = true; });
+      body.hidden = !open; head.setAttribute('aria-expanded', String(open));
+      opened.clear(); if (open) opened.add(g.label); saveNavOpen();
+    };
+    return h('div', { class: 'nav-group' }, head, body);
+  };
   const menu = h('button', { class: 'btn sm navtoggle', type: 'button', 'aria-expanded': 'false', onclick: () => { const open = menu.closest('.shell').classList.toggle('navopen'); menu.setAttribute('aria-expanded', String(open)); } }, icon('list'), 'Menu');
   $app.replaceChildren(h('div', { class: 'shell' },
     h('aside', { class: 'side' },
       h('a', { class: 'brand', href: '#/dashboard', style: 'color:inherit;text-decoration:none' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
       menu,
-      h('nav', { class: 'nav', 'aria-label': 'Main' }, groups.map(([label, links]) => [h('div', { class: 'nav-label' }, label), links.map(a)])),
+      h('nav', { class: 'nav', 'aria-label': 'Main' }, linksOf(NAV).map(navLink), sections.length ? [h('div', { class: 'nav-sep' }), sections.map(section)] : null),
+      h('div', { class: 'nav-foot' }, linksOf(NAV_FOOT).map(a)),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
         h('button', { class: 'iconbtn', title: 'Change your password', 'aria-label': 'Change your password', onclick: changePassword }, icon('key')),
@@ -503,7 +534,9 @@ async function newView() {
   const box = h('textarea', { id: 'jobin', 'aria-label': 'Job link or page text', placeholder: 'Paste an Upwork job link, or copy the whole job page and paste it here.\n\nInclude the "About the client" section: the screening depends on it.' });
   const chip = h('span', { class: 'chip' }, 'Waiting for input');
   const err = h('div', { class: 'err', hidden: true });
-  const btn = h('button', { class: 'btn primary', type: 'button' }, 'Screen this job');
+  const btn = h('button', { class: 'btn', type: 'button' }, 'Screen this job');
+  // auto mode (R75): screened and written with no questions in between; the finished proposal opens at the end
+  const autoBtn = h('button', { class: 'btn primary', type: 'button', title: 'Screens the job, picks the recommended projects, a profile and the proposal type, and writes the proposal. A FAIL stops for you to decide.' }, 'Auto: screen and write');
   const urlIn = h('input', { type: 'text', id: 'joburl', placeholder: 'https://www.upwork.com/jobs/...' });
   const detect = () => {
     const v = box.value.trim();
@@ -512,23 +545,24 @@ async function newView() {
     else chip.replaceChildren(icon('doc'), `Pasted text, ${v.length.toLocaleString()} characters`), chip.className = 'chip brand';
   };
   box.addEventListener('input', detect);
-  const submit = async () => {
-    err.hidden = true; btnBusy(btn, 'Sending');
+  const submit = async (auto) => {
+    const b = auto ? autoBtn : btn, label = b.textContent;
+    err.hidden = true; btnBusy(b, 'Sending');
     try {
       const files = picker.files().length ? await readFiles(picker.files()) : undefined;
-      const r = await api('POST', '/screenings', { input: box.value, job_url: urlIn.value.trim() || null, files });
+      const r = await api('POST', '/screenings', { input: box.value, job_url: urlIn.value.trim() || null, files, auto: !!auto });
       if (r.files && r.files.errors.length) toast('Not attached: ' + r.files.errors.join(' · '), true);
-      location.hash = '#/s/' + r.id + '/screening'; // a new job opens on its Screening tab
-    } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Screen this job'); }
+      location.hash = '#/s/' + r.id + (auto ? '/overview' : '/screening'); // a new job opens on its Screening tab; in auto mode on its progress
+    } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; b.disabled = false; b.replaceChildren(label); }
   };
-  btn.onclick = submit;
+  btn.onclick = () => submit(false); autoBtn.onclick = () => submit(true);
   box.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit(); });
   const composer = h('div', { class: 'card composer' });
   const picker = filePicker(composer); // the client's attached documents (R74): read with the job post
   shell('new', [
     pageHead('Screen a job', 'Check an Upwork job against the SOP before anyone spends Connects on it.'),
     (composer.append(box, picker.list, picker.input,
-      h('div', { class: 'composer-bar' }, chip, picker.btn, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to send' : 'Ctrl + Enter to send'), btn)), composer),
+      h('div', { class: 'composer-bar' }, chip, picker.btn, h('span', { class: 'grow' }), h('span', { class: 'faint small' }, (navigator.platform || '').startsWith('Mac') ? 'Cmd + Enter to screen' : 'Ctrl + Enter to screen'), btn, autoBtn)), composer),
     h('div', { class: 'field', style: 'max-width:520px' }, h('label', { class: 'lbl', for: 'joburl' }, 'Job link (optional)'), urlIn, h('div', { class: 'hint' }, 'Saved with the record when you paste text instead of a link.')),
     err,
     h('div', { class: 'steps' },
@@ -1545,7 +1579,7 @@ async function jobPage(id, want) {
   const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin' || me.role === 'manager';
   let st = stepState(matching, proposal), stage = stageOf(s, matching, proposal);
   const stepOf = (k) => STEP_TAB.indexOf(k);
-  const defaultTab = () => (s.status !== 'done' ? 'screening' : (owner && TAB_OF_STAGE[stage]) || 'overview');
+  const defaultTab = () => (Number(s.auto_mode) && s.auto_state === 'running' ? 'overview' : s.status !== 'done' ? 'screening' : (owner && TAB_OF_STAGE[stage]) || 'overview');
   let tab = JOBPAGE_TABS.some(([k]) => k === want) ? want : defaultTab();
   if (stepOf(tab) > 0 && stepOf(tab) < 4 && !st.unlocked[stepOf(tab)]) tab = defaultTab();
   const tabsEl = h('div', { class: 'jobtabs', role: 'tablist', 'aria-label': 'Job sections' });
@@ -1621,11 +1655,37 @@ async function jobPage(id, want) {
       ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
     ].filter(([, v]) => v);
     return h('div', { class: 'stack' },
+      Number(s.auto_mode) && s.auto_state ? autoCard() : null,
       s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
         h('div', { style: 'margin-top:4px' }, `It is hidden from every list, count, report and export, and from Claude. Discarded ${full(s.discarded_at)}${s.discarded_by_name ? ' by ' + s.discarded_by_name : ''}${s.discard_reason ? ': ' + s.discard_reason : '.'}`)) : null,
       next[0] ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
       facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null,
       ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
+  }
+
+  // ---- auto mode (R75): each step as it is done for you; the proposal opens by itself when it is written
+  function autoCard() {
+    const chosen = matching && matching.confirmed_at ? matching.matches.filter((x) => x.selected).map((x) => x.project_name) : [];
+    const pstat = proposal ? proposal.status : null;
+    const step = (done, busy, title, detail) => h('li', { class: 'autostep' + (done ? ' done' : busy ? ' busy' : '') },
+      h('span', { class: 'autoicon' }, done ? icon('check') : busy ? h('span', { class: 'spin' }) : h('span', { class: 'dot' })), h('div', {}, h('strong', {}, title), detail ? h('div', { class: 'jp-label' }, detail) : null));
+    const screened = s.status === 'done', continued = !!(matching && matching.continued);
+    const matched = !!(matching && matching.confirmed_at), profiled = !!(matching && matching.proposal_profile), written = pstat === 'done';
+    const stopped = s.auto_state === 'stopped';
+    const card = h('div', { class: 'card card-pad autocard' + (stopped ? ' stopped' : '') },
+      h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, stopped ? 'Auto mode stopped' : s.auto_state === 'done' ? 'Written in auto mode' : 'Auto mode: writing the proposal for you'),
+        s.auto_state === 'done' ? actBtn('Open the proposal', () => setTab('proposal'), true) : null),
+      stopped && s.auto_note ? h('div', { class: 'warnbox', style: 'margin:8px 0' }, h('strong', {}, icon('warn'), s.auto_note)) : null,
+      h('ol', { class: 'autosteps' },
+        step(screened, !screened, 'Screening', screened ? `${cap(vword(s.verdict))}${s.rule_codes ? ' · ' + s.rule_codes : ''}${s.verdict === 'FLAG' && continued ? ': continued by auto mode' : ''}` : 'Checking the job against the rules'),
+        step(matched, screened && continued && !matched && !stopped, 'Projects', matched ? chosen.join(', ') : 'The recommended projects'),
+        step(profiled && matched, false, 'Profile', profiled && matched ? matching.proposal_profile.name : 'The profile whose services fit the job'),
+        step(written, matched && !written && !stopped, 'Proposal', written ? (proposal.template ? proposal.template.name : 'Written') : pstat === 'error' ? 'Could not be written' : 'The suggested proposal type, then the writing')));
+    if (s.auto_state === 'running') {
+      const tick = async () => { if (!card.isConnected) return; try { await refresh(); if (s.auto_state === 'done' && tab === 'overview') return void setTab('proposal'); if (tab === 'overview') drawContent(); } catch { setTimeout(tick, 4000); } };
+      setTimeout(tick, 2500);
+    }
+    return card;
   }
 
   // ---- what happened after sending: the status history, Connects, boost, the Loom video and notes (on Overview)
@@ -2877,6 +2937,7 @@ async function route() {
     if (a === 'rules' && me.role === 'admin') return await rulesView();
     if (a === 'flagreview' && (me.role === 'admin' || me.role === 'manager')) return await flagReviewView();
     if (a === 'settings' && me.role === 'admin') return await settingsView();
+    if (a === 'setup') { location.hash = '#/dashboard'; return; } // the Setup page of R79 became the sidebar's sections
     if (a === 'connect') return await connectView();
     if (a === 'changes' && me.role === 'admin') return await changesView();
     if (a === 'audit' && me.role === 'admin') return await auditView();

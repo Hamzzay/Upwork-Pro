@@ -71,51 +71,77 @@ function richEditor(html, opts = {}) {
   };
 }
 
-// ---------- comparing two versions (R72) ----------
-/** A word diff of two texts: [kind, text] pieces, kind '=' (both), '-' (only in a) or '+' (only in b). Spaces and line breaks are
- *  kept as their own pieces, so each side can be shown with its paragraphs. */
-function wordDiff(a, b) {
-  const A = a.split(/(\s+)/).filter(Boolean), B = b.split(/(\s+)/).filter(Boolean), n = A.length, m = B.length;
-  if ((n + 1) * (m + 1) > 6e6) return [['-', a], ['+', b]]; // far too long to compare word by word: shown whole
-  const L = new Int32Array((n + 1) * (m + 1)), w = m + 1;
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i * w + j] = A[i] === B[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
-  const out = []; let i = 0, j = 0;
-  const push = (k, t) => { const last = out[out.length - 1]; if (last && last[0] === k) last[1] += t; else out.push([k, t]); };
-  while (i < n && j < m) { if (A[i] === B[j]) { push('=', A[i]); i++; j++; } else if (L[(i + 1) * w + j] >= L[i * w + j + 1]) push('-', A[i++]); else push('+', B[j++]); }
-  while (i < n) push('-', A[i++]); while (j < m) push('+', B[j++]);
-  return out;
-}
-/** One side of the comparison: the shared text plain, and this side's own words marked. */
-const diffSide = (pieces, side) => h('div', { class: 'cmptext' }, pieces.filter(([k]) => k === '=' || k === side).map(([k, t]) => (k === '=' ? t : h(side === '-' ? 'del' : 'ins', {}, t))));
-const wordCount = (pieces, k) => pieces.filter((x) => x[0] === k).reduce((n, x) => n + (x[1].trim() ? x[1].trim().split(/\s+/).length : 0), 0);
-
-/** Two versions of a proposal side by side, any two picked, with what changed between them marked. */
-async function compareVersions(proposalId, versions, left, right) {
+// ---------- comparing two versions (R72, R76, R78, R81) ----------
+/**
+ * Two versions side by side on a full screen. Each column has its version picker on top (left over left, right over right, a line
+ * between them with the swap button on it), then the AI's notes on that version, then the whole text. The notes say plainly what
+ * this version does better and worse than the other one, and what is worth bringing into it. Above the columns, the AI's
+ * recommendation and why. Close (or Esc) goes back. `opts.latest`: the newest version; `opts.send`: sends a chat request.
+ */
+async function compareVersions(proposalId, versions, left, right, opts = {}) {
   const cache = new Map();
   const get = async (no) => { if (!cache.has(no)) cache.set(no, (await api('GET', `/proposals/${proposalId}/versions/${no}`)).version); return cache.get(no); };
   const label = (v) => `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`;
-  const pick = (val) => h('select', { 'aria-label': 'Version' }, versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === val }, label(v))));
-  const selA = pick(left), selB = pick(right);
-  const sum = h('div', { class: 'small muted' }), colA = h('div', { class: 'cmpcol' }), colB = h('div', { class: 'cmpcol' });
-  const draw = async () => {
-    const [a, b] = await Promise.all([get(Number(selA.value)), get(Number(selB.value))]);
-    const d = wordDiff(htmlToPlainText(a.content_html), htmlToPlainText(b.content_html));
-    const added = wordCount(d, '+'), removed = wordCount(d, '-');
-    sum.textContent = a.version_no === b.version_no ? 'The same version on both sides.' : !added && !removed ? 'The cover letters are the same.' : `From v${a.version_no} to v${b.version_no}: ${added} word${added === 1 ? '' : 's'} added, ${removed} taken out.`;
-    // the screening answers, each compared with the one in the same place
-    const qa = (side) => { const xs = (side === '-' ? a : b).answers || [], ys = (side === '-' ? b : a).answers || [];
-      return xs.length ? h('div', { class: 'cmpqa' }, h('div', { class: 'jp-sec' }, `Screening answers (${xs.length})`), xs.map((x, i) => {
-        const other = ys[i] ? ys[i].answer : ''; const dd = side === '-' ? wordDiff(x.answer, other) : wordDiff(other, x.answer);
-        return h('div', {}, h('div', { class: 'jp-label' }, `${i + 1}. ${x.question}`), diffSide(dd, side)); })) : null; };
-    colA.replaceChildren(...[h('div', { class: 'cmphead' }, selA, note(a)), diffSide(d, '-'), qa('-')].filter(Boolean));
-    colB.replaceChildren(...[h('div', { class: 'cmphead' }, selB, note(b)), diffSide(d, '+'), qa('+')].filter(Boolean));
+  const pick = (val, name) => h('select', { class: 'sm', 'aria-label': name }, versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === val }, label(v))));
+  const sels = [pick(left, 'Left version'), pick(right, 'Right version')];
+  const swap = h('button', { class: 'fvswap', type: 'button', title: 'Swap the two sides', 'aria-label': 'Swap the two sides', onclick: () => { const x = sels[0].value; sels[0].value = sels[1].value; sels[1].value = x; draw(); } }, '⇄');
+  const verdict = h('div', { class: 'fvverdict' });
+  // each column: a header that stays (its picker never moves), and a body drawn again for each pair
+  const metas = [h('div', { class: 'fvmeta' }), h('div', { class: 'fvmeta' })];
+  const bodies = [h('div', { class: 'fvscroll' }), h('div', { class: 'fvscroll' })];
+  const cols = [0, 1].map((i) => h('section', { class: 'fvcol' }, h('header', { class: 'fvhead' }, h('div', { class: 'fvside' }, i ? 'Right' : 'Left'), sels[i], metas[i]), bodies[i]));
+  let gen = 0, timer = null, shown = [null, null];
+  const words = (t) => (t.trim() ? t.trim().split(/\s+/).length : 0);
+  const column = (i, v, notes) => {
+    const t = htmlToPlainText(v.content_html), other = shown[1 - i], vs = `v${v.version_no}`, ov = other ? `v${other.version_no}` : 'the other';
+    metas[i].replaceChildren(...[notes && notes.stronger ? h('span', { class: 'pill PASS' }, 'Recommended') : notes && notes.weaker ? h('span', { class: 'pill wait' }, 'Not recommended') : null,
+      h('span', { class: 'faint small' }, [v.note, `${words(t)} words`].filter(Boolean).join(' · '))].filter(Boolean));
+    const list = (kind, title, items) => (items && items.length ? h('div', { class: 'fvblock ' + kind }, h('div', { class: 'fvblockhead' }, h('span', { class: 'fvmark' }, kind === 'good' ? '✓' : '!'), title),
+      h('ul', {}, items.map((x) => h('li', {}, x)))) : null);
+    const bring = (x) => {
+      const copy = h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(x.instruction); toast(ok ? 'Copied. Paste it into the chat.' : 'Could not copy', !ok); } }, 'Copy');
+      const send = opts.send && opts.latest === v.version_no ? h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { const b = e.currentTarget; btnBusy(b, 'Sending'); try { await opts.send(x.instruction); dlg.close(); } catch (err) { toast(err.message, true); b.disabled = false; b.replaceChildren('Send to the chat'); } } }, 'Send to the chat') : null;
+      return h('div', { class: 'fvbring' }, h('strong', {}, x.what), h('div', { class: 'fvinstr' }, h('span', { class: 'fvinstrlbl' }, 'For the chat'), x.instruction), h('div', { class: 'row', style: 'gap:6px' }, copy, send)); };
+    const notesEl = notes === 'busy' ? h('div', { class: 'fvnotes' }, h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), `The AI is comparing ${vs} with ${ov}.`))
+      : notes ? h('div', { class: 'fvnotes' + (notes.stronger ? ' best' : '') },
+        h('div', { class: 'fvnoteshead' }, h('strong', {}, `${vs} compared with ${ov}`)),
+        list('good', `Where ${vs} is better`, notes.good), list('weak', `Where ${vs} is weaker`, notes.weak),
+        notes.bring.length ? h('div', { class: 'fvblock bring' }, h('div', { class: 'fvblockhead' }, h('span', { class: 'fvmark' }, '+'), `Worth bringing into ${vs} from ${ov}`), notes.bring.map(bring),
+          opts.send && opts.latest !== v.version_no ? h('div', { class: 'faint small' }, `The chat changes the newest version (v${opts.latest}). Copy these to use them there.`) : null) : null,
+        !notes.good.length && !notes.weak.length && !notes.bring.length ? h('div', { class: 'faint small' }, 'Nothing to note.') : null) : null;
+    bodies[i].replaceChildren(...[notesEl, h('div', { class: 'fvtextlbl' }, `The proposal, ${vs}`), h('div', { class: 'fvtext' }, t),
+      (v.answers || []).length ? h('div', { class: 'fvqa' }, h('div', { class: 'jp-sec' }, `Screening answers (${v.answers.length})`), v.answers.map((x, k) => h('div', {}, h('div', { class: 'jp-label' }, `${k + 1}. ${x.question}`), h('div', { class: 'fvtext' }, x.answer)))) : null].filter(Boolean));
   };
-  const note = (v) => (v.note ? h('div', { class: 'faint small' }, v.note) : null);
-  selA.onchange = draw; selB.onchange = draw;
-  const dlg = modal({ title: 'Compare versions', noConfirm: true, body: h('div', {}, h('div', { class: 'row spread', style: 'margin-bottom:10px;gap:10px' }, sum,
-    h('div', { class: 'row small', style: 'gap:12px' }, h('span', {}, h('del', {}, 'taken out')), h('span', {}, h('ins', {}, 'added')))), h('div', { class: 'cmpgrid' }, colA, colB)) });
-  dlg.classList.add('xwide');
-  try { await draw(); } catch (x) { sum.textContent = x.message; }
+  const intro = 'The AI read both versions for this job. Each column says what that version does better and worse than the other one, and what is worth bringing into it.';
+  const drawNotes = (r) => {
+    const [a, b] = shown; if (!a || !b) return;
+    if (!r || r.status === 'queued' || r.status === 'running') { verdict.replaceChildren(h('span', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Comparing them. About a minute.')); column(0, a, 'busy'); column(1, b, 'busy'); return; }
+    if (r.status === 'error' || !r.result) { verdict.replaceChildren(h('span', { class: 'err' }, icon('x'), 'The comparison could not be made' + (r.error ? ': ' + r.error : '.')), h('button', { class: 'btn sm', type: 'button', onclick: () => ask_(a.version_no, b.version_no) }, 'Try again')); column(0, a, null); column(1, b, null); return; }
+    const c = r.result, best = c.stronger === 'left' ? a : c.stronger === 'right' ? b : null;
+    verdict.replaceChildren(h('div', { class: 'fvrec' }, h('span', { class: 'fvreclbl' }, 'Recommendation'), h('span', { class: 'pill ' + (best ? 'PASS' : 'wait') }, best ? `Send v${best.version_no}` : 'Either one')),
+      h('div', { class: 'fvwhy' }, c.verdict, h('div', { class: 'faint small', style: 'margin-top:4px' }, intro)));
+    column(0, a, { good: c.left.good, weak: c.left.weak, bring: c.bring_over.filter((x) => x.to === 'left'), stronger: c.stronger === 'left', weaker: c.stronger === 'right' });
+    column(1, b, { good: c.right.good, weak: c.right.weak, bring: c.bring_over.filter((x) => x.to === 'right'), stronger: c.stronger === 'right', weaker: c.stronger === 'left' });
+  };
+  const ask_ = async (a, b) => { const my = gen; drawNotes(null);
+    try { let r = await api('POST', `/proposals/${proposalId}/compare`, { a, b });
+      const poll = async () => { if (my !== gen) return; drawNotes(r); if (r.status === 'queued' || r.status === 'running') timer = setTimeout(async () => { try { r = await api('GET', `/proposals/${proposalId}/compare?a=${a}&b=${b}`); } catch { /* next time */ } poll(); }, 2500); };
+      poll(); } catch (x) { verdict.replaceChildren(h('span', { class: 'err' }, x.message)); } };
+  const draw = async () => {
+    const my = ++gen; clearTimeout(timer);
+    const a = Number(sels[0].value), b = Number(sels[1].value);
+    const [va, vb] = await Promise.all([get(a), get(b)]); if (my !== gen) return;
+    shown = [va, vb];
+    if (a === b) { verdict.replaceChildren(h('span', { class: 'jp-label' }, 'Pick two different versions to compare.')); column(0, va, null); column(1, vb, null); } else ask_(a, b);
+  };
+  sels[0].onchange = draw; sels[1].onchange = draw;
+  const dlg = h('dialog', { class: 'fullview', 'aria-label': 'Compare versions' },
+    h('div', { class: 'fvbar' }, h('div', { class: 'fvtitle' }, h('strong', {}, 'Compare versions'), opts.title ? h('span', { class: 'faint small' }, opts.title) : null),
+      h('button', { class: 'btn sm', type: 'button', onclick: () => dlg.close() }, icon('x'), 'Close')),
+    verdict, h('div', { class: 'fvgrid' }, cols[0], h('div', { class: 'fvmid' }, swap), cols[1]));
+  dlg.addEventListener('close', () => { gen++; clearTimeout(timer); dlg.remove(); });
+  document.body.append(dlg); dlg.showModal();
+  try { await draw(); } catch (x) { verdict.replaceChildren(h('span', { class: 'err' }, x.message)); }
 }
 
 // ---------- step 4: the proposal ----------
@@ -657,10 +683,9 @@ function proposalSection(s, initial, matching) {
     const letterPane = h('div', {}), answersPane = h('div', {}, answersBox);
     const drawMainTabs = () => {
       const n = shownAnswers.length; if (!n) mainTab = 'letter';
-      mainTabs.hidden = !n;
       const tab = (k, label, ...extra) => h('button', { type: 'button', role: 'tab', class: 'tab' + (mainTab === k ? ' on' : ''), 'aria-selected': mainTab === k, onclick: () => { mainTab = k; drawMainTabs(); } }, label, ...extra.filter(Boolean));
-      mainTabs.replaceChildren(tab('letter', 'Cover letter', editor && editor.isDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null),
-        tab('answers', 'Screening answers', h('span', { class: 'n' }, String(n)), answersDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null));
+      mainTabs.replaceChildren(...[tab('letter', 'Cover letter', editor && editor.isDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null),
+        n ? tab('answers', 'Screening answers', h('span', { class: 'n' }, String(n)), answersDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null) : null].filter(Boolean));
       letterPane.hidden = mainTab !== 'letter'; answersPane.hidden = mainTab !== 'answers';
     };
     chatLoader = h('div', { class: 'busycover', hidden: !chatBusy(), role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', {}, 'The AI is working on your request'),
@@ -684,45 +709,71 @@ function proposalSection(s, initial, matching) {
     editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); drawMainTabs(); } dirtyChip.hidden = !d; count(); } });
     let wasDirty = false;
     const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
-    const vsel = h('select', { id: 'ver-sel', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`)));
+    const vsel = h('select', { id: 'ver-sel', class: 'sm', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`)));
     // with two or more versions: any two side by side (the one shown and the one before it, to start)
     const cmpBtn = data.versions.length > 1 ? h('button', { class: 'btn sm', type: 'button', onclick: () => {
       const shown = Number(vsel.value), nos = data.versions.map((v) => v.version_no).sort((x, y) => x - y);
       const before = nos.filter((x) => x < shown).pop() ?? nos.find((x) => x !== shown);
-      compareVersions(data.id, data.versions, Math.min(before, shown), Math.max(before, shown)); } }, 'Compare versions') : null;
-    const viewing = h('div', { class: 'small muted' });
+      compareVersions(data.id, data.versions, Math.min(before, shown), Math.max(before, shown), { latest: Math.max(...nos), title: s.title,
+        send: owner ? async (text) => { await api('POST', `/proposals/${data.id}/messages`, { content: text }); const st = (await api('GET', `/screenings/${s.id}/proposal/state`)).state; data.messages = st.messages; drawChat(); showSide('chat'); startPolling(); toast('Sent to the chat. The revised proposal is saved as a new version.'); } : null }); } }, icon('compare'), 'Compare') : null;
+    const viewing = h('div', { class: 'docnote', hidden: true });
     vsel.onchange = async () => {
       const no = Number(vsel.value);
-      if (no === cur.version_no) { editor.setHtml(cur.html); viewing.textContent = ''; drawAnswers(cur.answers, owner); drawActions(); previewIdx = 0; viewingOther = false; drawOpenings(); return; }
+      if (no === cur.version_no) { editor.setHtml(cur.html); viewing.hidden = true; viewing.textContent = ''; drawAnswers(cur.answers, owner); drawActions(); previewIdx = 0; viewingOther = false; drawOpenings(); return; }
       if ((editor.isDirty() || answersDirty()) && !(await ask('Show the other version?', 'You have unsaved changes. They are lost when the other version is shown.', 'Show it', true))) { vsel.value = cur.version_no; return; }
       const v = (await api('GET', `/proposals/${data.id}/versions/${no}`)).version; editor.setHtml(v.content_html); drawAnswers(v.answers, false); drawActions();
       previewIdx = 0; viewingOther = true; drawOpenings(); // the openings are for the newest version only
-      viewing.replaceChildren(...[`Showing version ${no}. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null].filter(Boolean));
+      viewing.hidden = false;
+      viewing.replaceChildren(...[icon('info'), `You are looking at version ${no}, not the newest. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null, h('a', { onclick: () => { vsel.value = cur.version_no; vsel.dispatchEvent(new Event('change')); } }, 'Back to the newest')].filter(Boolean));
     };
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id && !partsBusy();
-    const staleBox = stale ? h('div', { class: 'newer', style: 'margin-bottom:12px' }, icon('info'), h('span', {}, `The sending profile was changed to ${matching.proposal_profile.name}. ${cur.in_parts ? 'The sign off is being updated; the letter stays.' : 'Your edited text was kept: the new sign off is offered below.'} To write the letter again in this profile's voice, use Write again at the top right.`)) : null;
+    const staleBox = stale ? h('div', { class: 'docnote' }, icon('info'), h('span', {}, `Sent from ${matching.proposal_profile.name} now: the sign off is theirs. The letter was written in another profile's voice; to write it again in theirs, use Write it again at the top.`)) : null;
+    // the sending profile can be changed here too (R75): the sign off and the video follow, the letter stays (Write it again for
+    // the new profile's voice); the page stays on the proposal
+    const profs = matching && matching.profiles ? matching.profiles.filter((p) => Number(p.active) || (matching.proposal_profile && p.id === matching.proposal_profile.id)) : [];
+    const profSel = owner && profs.length > 1 ? h('select', { class: 'sm', 'aria-label': 'Sent from' }, profs.map((p) => h('option', { value: p.id, selected: matching.proposal_profile && p.id === matching.proposal_profile.id }, p.name))) : null;
+    if (profSel) profSel.onchange = async () => {
+      if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Change the profile?', 'You have unsaved changes. The sign off is updated from the last saved version, so save yours first to keep them.', 'Change it'))) { profSel.value = matching.proposal_profile.id; return; }
+      profSel.disabled = true;
+      try { const r = await api('PUT', `/screenings/${s.id}/proposal-profile`, { profile_id: Number(profSel.value) });
+        toast(r.updated === 'in_place' ? 'Sent from ' + profSel.options[profSel.selectedIndex].textContent + ' now. The sign off changed.' : 'Profile changed. The new sign off is offered beside your edited text.');
+        route(); }
+      catch (x) { toast(x.message, true); profSel.disabled = false; profSel.value = matching.proposal_profile.id; }
+    };
     // the Loom video can be changed after writing: only its line changes, no new write
-    const loomSel = owner ? h('select', { 'aria-label': 'Loom video', style: 'max-width:280px' }, h('option', { value: '' }, 'Loading videos')) : null;
+    const loomSel = owner ? h('select', { class: 'sm', 'aria-label': 'Loom video' }, h('option', { value: '' }, 'Loading...')) : null;
+    const loomBox = h('span', { class: 'docset' }, h('span', { class: 'docsetlbl' }, 'Loom video'), loomSel || h('span', { class: 'faint' }, s.loom_video_title || 'None'));
+    const noLoom = (text) => loomBox.replaceChildren(h('span', { class: 'docsetlbl' }, 'Loom video'), h('span', { class: 'faint' }, text));
     if (loomSel) api('GET', `/screenings/${s.id}/proposal/types`).then((r) => {
       const vids = (r.loom && r.loom.videos) || [];
-      if (!vids.length) { loomSel.replaceWith(h('span', { class: 'faint small' }, 'No Loom videos on this profile')); return; }
+      if (!vids.length) return noLoom('None on this profile');
       loomSel.replaceChildren(h('option', { value: '' }, 'No Loom video'), ...vids.map((v) => h('option', { value: v.id, selected: r.loom.chosen === v.id }, v.title + (v.best ? ' (best fit)' : ''))));
-      loomSel.onchange = async () => { try { await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: loomSel.value ? Number(loomSel.value) : null }); s.loom_video_id = loomSel.value ? Number(loomSel.value) : null; data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawParts(); startPolling(); } catch (x) { toast(x.message, true); } };
-    }).catch(() => loomSel.replaceWith(h('span', { class: 'faint small' }, '')));
+      loomSel.onchange = async () => {
+        if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Change the video?', 'You have unsaved changes. The video line is changed in the last saved version, so save yours first to keep them.', 'Change it'))) { loomSel.value = r.loom.chosen ?? ''; return; }
+        loomSel.disabled = true;
+        try { const res = await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: loomSel.value ? Number(loomSel.value) : null }); s.loom_video_id = loomSel.value ? Number(loomSel.value) : null;
+          if (res.updated === 'in_place') { await reload(); drawAll(); toast(loomSel.value ? 'The video line is in.' : 'The video line is out.'); }
+          else { data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawParts(); startPolling(); } }
+        catch (x) { toast(x.message, true); loomSel.disabled = false; } };
+    }).catch(() => noLoom('Could not load the videos'));
     // open questions about our experience: their tab is shown first, once
     if (!gapsShown && owner && openGaps()) { sideTab = 'gaps'; gapsShown = true; }
     count(); drawAnswers(cur.answers, owner); drawParts();
     // the proposal on the left; beside it (below it on a narrow screen) one card with a tab per tool
     previewIdx = 0; viewingOther = false;
-    letterPane.append(partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader),
-      h('div', { class: 'row spread', style: 'margin-top:6px' }, counter, h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')));
+    letterPane.append(partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader));
     drawMainTabs();
+    // one card holds the proposal: its parts and version on top, what it is sent with under that, the text, then its numbers
+    const profName = matching && matching.proposal_profile ? matching.proposal_profile.name : '';
+    const doc = h('div', { class: 'doccard' },
+      h('div', { class: 'dochead' }, mainTabs, h('div', { class: 'docver' }, vsel, cmpBtn)),
+      h('div', { class: 'docbar' },
+        h('span', { class: 'docset' }, h('span', { class: 'docsetlbl' }, 'Sent from'), profSel || h('span', {}, profName)),
+        loomBox),
+      h('div', { class: 'docbody' }, ...[staleBox, viewing, bannerEl, letterPane, answersPane].filter(Boolean)),
+      h('div', { class: 'docfoot' }, h('div', { class: 'row', style: 'gap:8px' }, counter, dirtyChip), h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')));
     const grid = h('div', { class: 'propgrid' },
-      h('div', { class: 'propmain' },
-        staleBox,
-        checksEl,
-        h('div', { class: 'row', style: 'margin:0 0 8px;gap:8px;flex-wrap:wrap' }, vsel, cmpBtn, dirtyChip, loomSel ? h('label', { class: 'row small', style: 'gap:6px;margin-left:auto' }, h('span', { class: 'muted' }, 'Loom video'), loomSel) : null),
-        viewing, bannerEl, mainTabs, letterPane, answersPane),
+      h('div', { class: 'propmain' }, checksEl, doc),
       h('div', { class: 'propside' }, h('div', { class: 'card sidecard' }, h('div', { class: 'tabs sidetabs', role: 'tablist', 'aria-label': 'Proposal tools' }),
         h('div', { class: 'sidebody' }, h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
     return grid;

@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion, latestVersion, loomChoices, queueParts, readParts, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { addVersion, applySendParts, latestVersion, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
 import { queueOpenings, readOpenings, useOpening } from './proposal/openings';
+import { compareOf, queueCompare } from './proposal/compare';
 
 export const proposals = Router();
 const admin = requireRole('admin');
@@ -387,15 +388,18 @@ proposals.put('/screenings/:id/loom', anyone, async (req, res) => {
   const b = z.object({ loom_video_id: z.number().int().positive().nullable() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: 'Choose a video, or none' });
   const s = await ownedScreening(req, res); if (!s) return;
+  const before = await sendPartsNow(s.id);
   if (b.data.loom_video_id === null) await exec('UPDATE screenings SET loom_video_id=NULL, loom_video_title=NULL WHERE id=?', [s.id]);
   else {
     const v = (await query<any>('SELECT id, title FROM loom_videos WHERE id=? AND profile_id=?', [b.data.loom_video_id, s.proposal_profile_id]))[0];
     if (!v) return void res.status(400).json({ error: 'That Loom video does not belong to the sending profile' });
     await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, s.id]);
   }
-  await queueParts(s.id);
-  await audit(req.user!.id, 'proposal_loom', `screening=${s.id} video=${b.data.loom_video_id ?? 'none'}`);
-  res.json({ ok: true });
+  // only the video line changes, in the version as it is, at once (R78); text edited past recognition gets the line offered
+  const r = await applySendParts(s.id, before);
+  if (r === 'offer') await queueParts(s.id);
+  await audit(req.user!.id, 'proposal_loom', `screening=${s.id} video=${b.data.loom_video_id ?? 'none'} ${r}`);
+  res.json({ ok: true, updated: r });
 });
 // A part offered beside an edited proposal is dismissed.
 proposals.post('/proposals/:id/parts-offer/dismiss', anyone, async (req, res) => {
@@ -453,6 +457,25 @@ proposals.get('/proposals/:id/versions/:no', anyone, async (req, res) => {
 });
 
 // The person's own edit: always a new version, even if a chat revision landed while they were typing.
+// Two versions compared by the AI (R76): asked for when the Compare window opens on a pair; then read until it is done.
+const cmpBody = z.object({ a: z.number().int().positive(), b: z.number().int().positive() });
+async function seenProposal(req: any, res: any) {
+  const p = (await query<any>('SELECT p.id, s.user_id FROM proposals p JOIN screenings s ON s.id=p.screening_id WHERE p.id=?', [num(req.params.id)]))[0];
+  if (!p || (!canSeeAll(req.user!.role) && p.user_id !== req.user!.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  return p;
+}
+proposals.post('/proposals/:id/compare', anyone, async (req, res) => {
+  const b = cmpBody.safeParse(req.body); if (!b.success || b.data.a === b.data.b) return void res.status(400).json({ error: 'Pick two different versions' });
+  const p = await seenProposal(req, res); if (!p) return;
+  const have = await query<any>('SELECT version_no FROM proposal_versions WHERE proposal_id=? AND version_no IN (?)', [p.id, [b.data.a, b.data.b]]);
+  if (have.length !== 2) return void res.status(404).json({ error: 'That version does not exist' });
+  res.json(await queueCompare(p.id, b.data.a, b.data.b, req.user!.id));
+});
+proposals.get('/proposals/:id/compare', anyone, async (req, res) => {
+  const p = await seenProposal(req, res); if (!p) return;
+  res.json((await compareOf(p.id, num(req.query.a as string), num(req.query.b as string))) ?? { status: null });
+});
+
 // Three openings (R73): write them again, or use one (a new version with only the first paragraph changed).
 proposals.post('/proposals/:id/openings', anyone, async (req, res) => {
   const p = await ownedProposal(req, res); if (!p) return;

@@ -105,6 +105,12 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 56 | Documents attached to a job, read by the AI with the post in every step; images and scans read by the AI once (R74, migration 046) | done |
 | 57 | Opening styles in Settings: two to four base instructions, one opening per style (R73) | done |
 | 58 | The Claude plugin: show and use the openings, attach a job's documents when saving it | open |
+| 59 | Auto mode: screen and write with no questions in between; the profile can be changed on the proposal page (R75, migration 047) | done |
+| 60 | Compare versions: side by side as they read, with the AI's view (better, weaker, which is stronger, what to bring over); picker bug fixed (R76) | done |
+| 61 | The sidebar: the daily work, then Library, Writing, Screening and Admin as sections that open one at a time; Guide and Connect Claude in a small row (R77, R79, then R80) | done |
+| 62 | Team guide pictures: the layout and sidebar, Screen a job (two buttons), the auto mode card, the compare window, the proposal card (R78) | open |
+| 63 | The proposal screen in one card; profile and Loom video change in place, no new version; compare on a full screen with notes per version (R78) | done |
+| 64 | Compare versions: a picker over each column with the swap on a center line; notes titled per version, better, weaker, worth bringing in (R81) | done |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

@@ -1003,6 +1003,91 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R81. Compare versions: a picker over each column, and notes that say plainly what they are (done, 15 October)
+
+- **Pickers over their columns** (asked for by Ahmad): the left version's picker sits on top of the left column (marked LEFT), the
+  right one's on the right (RIGHT), with a dashed line down the middle and the swap button on it.
+- **Clearer notes:** above the columns, **Recommendation: Send v2** and why, with a line on what the screen shows. Each column says
+  **Recommended** or **Not recommended** next to its picker, and its notes are titled "v2 compared with v3": a green **Where v2 is
+  better**, an amber **Where v2 is weaker**, and a blue **Worth bringing into v2 from v3**, each suggestion a card with the exact
+  instruction **For the chat** and Copy (and Send to the chat for the newest version). Then **The proposal, v2**, whole.
+- Checked on a temporary copy of job #51 (removed afterwards): the notes, the swap (everything follows at once), phone width.
+
+### R80. The sidebar: the daily work, then four sections that open one at a time (done, 15 October; replaces R77 and R79)
+
+- **Ahmad's design:** the daily work first (**Dashboard, Screen a job, Jobs, Reports, Proposal feedback, Flag review**), then four
+  sections, **Library, Writing, Screening, Admin**, each a row with its icon and an arrow. Clicking a section opens its pages under
+  it, indented; opening one closes the others (only the open one takes space), and the open one can be closed too. The section you
+  are in and the page you are on are both lit. Going to a page opens its section. The open section is kept in that browser.
+  Guide and Connect Claude stay in the small row above your name. The Setup page of R79 is gone (its address opens the Dashboard).
+
+### R79. The sidebar: the daily work, and one Setup page (done, 15 October; replaced the same day by R80)
+
+- **Ahmad's pick**, after the folding groups did not work for him: the sidebar holds only the daily work, **Dashboard, Screen a
+  job, Jobs, Reports, Proposal feedback, Flag review**, then one link, **Setup**. Guide and Connect Claude stay in the small row
+  above your name.
+- **The Setup page** has every page that sets the system up as a tile with a line on what it is for, in four groups: **Library**
+  (Projects, Industries, Tag dictionary, Upwork profiles, Loom videos), **Writing** (Writing guide, Signals, Reviewer),
+  **Screening** (Gate instructions, Rules) and **Admin** (Settings, Users, Changes, Logs). Each person sees only what their role
+  opens. On any of those pages Setup stays lit in the sidebar, and a **Setup** link above the title goes back.
+- Checked at desktop and phone width (the Menu button shows the same short list).
+
+### R78. The proposal screen standardized; profile and video change in place; compare on a full screen (done, 15 October)
+
+- **The proposal is one card** (asked for by Ahmad, the screen had grown scattered): on top, the **Cover letter** and **Screening
+  answers** tabs, and on the right the version and **Compare**; under them, **Sent from** (the profile) and **Loom video**; then the
+  openings and the text; at the bottom the word count, unsaved changes and **How this was written**. Every control in it is the
+  same small size. The checks and the experience questions stay above the card, the tools beside it. When an older version is shown,
+  a note says so, with **Restore it** and **Back to the newest**.
+- **Fixed:** the Loom video showed "Loading videos" and "No Loom videos on this profile" at once (the dropdown's box was left behind);
+  the bar above the text spilled onto two lines.
+- **Profile and Loom video change in place:** no new version and no AI call. The sign off and the video line are made in code, so
+  they are changed in the version you are on, at once. Text you edited yourself gets its old sign off and old video line swapped
+  where they are found word for word; only when they cannot be found are the new lines offered beside the editor, as before. A new
+  type, an opening or a chat request still make a new version.
+- **Compare on a full screen:** both versions whole, each in its own column you can read to the end, and the AI's **notes attached
+  to each one** on top of it (better than the other, weaker than the other, worth bringing into it, with Copy and Send to the chat),
+  with which one to send and why above them. **Close** (or Esc) goes back to the proposal. Quotes from the AI show plainly.
+- Checked on a temporary copy of job #51 (removed afterwards; #51 itself was not touched): profile to Hamza, video on, video off,
+  profile back, with no new version at any step and the sign off and the video line right each time; the card at desktop and phone
+  width; the compare screen with its notes (the AI found the double sign off in the hand edited version and said to send v2).
+
+### R77. The sidebar, cleaned up (done, 15 October)
+
+- **Why** (asked for by Ahmad): 22 links in four long lists.
+- **Now:** **Dashboard, Screen a job and Jobs** are always shown. The rest are in folding groups: **Insights** (Reports, Proposal
+  feedback, Flag review), **Library**, **Writing** (Writing guide, Signals, Reviewer) and **Admin**. A group opens with one click and
+  stays open in that browser; the group of the page you are on is always open. **Connect Claude** and **Guide** moved to a small
+  row above your name. On a phone the Menu button shows the same.
+
+### R76. Compare versions: the two as they read, and the AI's view beside them (done, 15 October)
+
+- **Changed** (asked for by Ahmad): no more struck out and green words. The two versions sit side by side as they read, and
+  beside them the AI says which one is stronger and why, and what is **better** and **weaker** in each one against the other.
+  **Worth bringing over** lists what to take from one into the other, each with **Copy**, and **Send to the chat** when it is for the
+  newest version (the chat revises the newest version, as a new version).
+- **Fixed:** changing a version picker made both pickers vanish (the pickers were moved into the columns on every change and lost
+  their dropdown). They now sit in a fixed bar above, with a swap button.
+- A worker job, kept per pair of versions: opening the same two again, or swapping the sides, costs nothing. The AI names the
+  versions by number. Migration `047_auto_mode.sql` (also R75); `src/proposal/compare.ts`.
+- Checked with the real model on job #51 (v1 against v2: v2 stronger, three points worth bringing over into v2); the swap shows the
+  same result mirrored at once; the pickers stay after every change.
+
+### R75. Auto mode: screen a job and write its proposal with no questions in between (done, 15 October)
+
+- **What it is** (asked for by Ahmad): **Screen a job** now has two buttons: **Screen this job** (as before) and **Auto: screen
+  and write**. In auto mode the job is screened; a PASS or a FLAG goes straight on (a FLAG is recorded as continued by auto mode,
+  with its flags, like any override); the recommended projects are confirmed; a profile is chosen (the one whose services fit the
+  job's tags best, else the one you used last, else the only one); a Loom video only when the post asks for one; and the proposal
+  is written with the type the signals suggest. The Overview shows each step as it is done, then the proposal opens by itself.
+- **A FAIL stops** and says so: continue it with a reason on the Screening tab and auto mode goes on, or skip it. It also stops,
+  with the reason, when no project fits or there is no active profile.
+- **At the end, everything can still change on the proposal page:** the type (Change type), the opening (the openings card), the
+  Loom video, and now also **the profile** (a new Profile picker next to the Loom video: the sign off follows, a video of the old
+  profile is taken off, and the page stays on the proposal).
+- Checked with the real model and a made up job: PASS, two projects, a profile, Type 1, written in about a minute and a half
+  with no question asked; the openings and the review followed. The job was removed afterwards.
+
 ### R74. Documents attached to a job, read by the AI (done, 15 October)
 
 - **What it is** (asked for by Ahmad): the client's files (briefs, specs, screenshots, mockups) can be attached to a job: on

@@ -604,6 +604,58 @@ export async function runPartsRefresh(proposalId: number) {
   await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=?, profile_id=? WHERE id=?`, [offer.length ? JSON.stringify(offer) : null, f.profileId, p.id]);
 }
 
+/**
+ * The sending profile or the Loom video changed (R78, Ahmad): the newest version is updated where it stands, at once and with no
+ * AI call, because the sign off and the video line are made in code. No new version: they change nothing else in the proposal.
+ * A version made from parts gets its parts put together again. A version edited by hand gets its old sign off and old video line
+ * swapped for the new ones where they are found word for word; when they are not, nothing is changed and 'offer' is returned, so
+ * the new lines are offered beside the editor as before. `before` is what the sign off and the video were.
+ */
+export async function applySendParts(screeningId: number, before: { signoff: string | null; loomUrl: string | null }): Promise<'none' | 'in_place' | 'offer'> {
+  const p = (await query<any>(`SELECT id, status FROM proposals WHERE screening_id=?`, [screeningId]))[0];
+  const cur = p && p.status === 'done' ? await latestVersion(p.id) : null;
+  if (!cur) return 'none';
+  const f = await loadFacts(screeningId);
+  const cfg = await getSettings();
+  const newSign = signoff(f.sender);
+  const loom = f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null;
+  const newLoomLine = loomLine(cfg['writer.loom_line'], loom);
+  let html: string, parts: Parts | null = null;
+  if (cur.parts) {
+    parts = { ...cur.parts, loom, profile_id: f.profileId, signoff: newSign };
+    html = textToHtml(assembleParts(parts, cfg['writer.loom_line']));
+  } else {
+    let text = htmlToPlain(cur.html);
+    // the old video line: the paragraph with the old link (the whole paragraph, so its words go with it)
+    if (before.loomUrl && before.loomUrl !== loom?.url) {
+      const paras = text.split(/\n{2,}/); const i = paras.findIndex((x) => x.includes(before.loomUrl!));
+      if (i < 0) return 'offer';
+      if (newLoomLine) paras[i] = newLoomLine; else paras.splice(i, 1);
+      text = paras.join('\n\n');
+    } else if (!before.loomUrl && loom) {
+      // a video added to edited text: before the sign off, where the app puts it
+      const at = before.signoff ? text.lastIndexOf(before.signoff.trim()) : -1;
+      if (at < 0) return 'offer';
+      text = `${text.slice(0, at).trimEnd()}\n\n${newLoomLine}\n\n${text.slice(at)}`;
+    }
+    if (before.signoff && before.signoff.trim() !== newSign.trim()) {
+      const at = text.lastIndexOf(before.signoff.trim());
+      if (at < 0) return 'offer';
+      text = text.slice(0, at) + newSign + text.slice(at + before.signoff.trim().length);
+    }
+    html = textToHtml(text);
+  }
+  await exec('UPDATE proposal_versions SET content_html=?, parts_json=IF(? IS NULL, parts_json, ?) WHERE proposal_id=? AND version_no=?',
+    [html, parts ? 1 : null, parts ? JSON.stringify(parts) : null, p.id, cur.version_no]);
+  await exec(`UPDATE proposals SET profile_id=?, parts_offer_json=NULL, updated_at=NOW() WHERE id=?`, [f.profileId, p.id]);
+  return 'in_place';
+}
+/** What the sign off and the video line are now, before a change (for applySendParts). */
+export async function sendPartsNow(screeningId: number) {
+  const f = await loadFacts(screeningId);
+  return { signoff: f.sender.name ? signoff(f.sender) : null, loomUrl: f.sender.loom?.url ?? null };
+}
+
 /** What the reviewer gets for a job's newest proposal version, with the given reviewer sections: the instructions and the facts. */
 export async function reviewInput(proposalId: number, sections: ReviewerSections) {
   const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
