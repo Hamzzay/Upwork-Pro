@@ -114,6 +114,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 65 | Dashboard and Reports up to date (seven new reports, a Proposal quality row); everything readable from Claude (get_dashboard, get_proposal_record, get_activity, more in analyze_jobs and get_trends; plugin v0.15.0); rows per page kept per person (R82, migration 048) | done |
 | 66 | A document viewer: attached documents open in the app, previous and next to go through them (R83) | done |
 | 67 | Auto mode stops on too many flags and on the stop rules (G15, G18) and when the paste is not a job page (R84) | done |
+| 68 | Jobs list columns: order them (drag or arrows), hide and show, kept per person (R85, migration 049) | done |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

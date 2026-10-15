@@ -60,7 +60,24 @@ api.post('/login', async (req, res) => {
   res.json({ user: r.user });
 });
 api.post('/logout', async (req, res) => { await logout(req, res); res.json({ ok: true }); });
-api.get('/me', (req, res) => res.json({ user: req.user ?? null }));
+api.get('/me', async (req, res) => {
+  if (!req.user) return void res.json({ user: null });
+  // the person's own view settings (R85), with the user
+  let prefs: Record<string, unknown> = {};
+  try { prefs = JSON.parse((await query<any>('SELECT prefs_json FROM users WHERE id=?', [req.user.id]))[0]?.prefs_json || '{}') || {}; } catch { prefs = {}; }
+  res.json({ user: { ...req.user, prefs } });
+});
+// One view setting of the person's own (R85): the Jobs list's columns of one tab, shown and in order. null puts the tab's own back.
+const PREF_KEY = /^jobs_cols\.(all|in_progress|submitted|closed|not_pursued)$/;
+api.put('/me/prefs', requireRole(), async (req, res) => {
+  const b = z.object({ key: z.string().regex(PREF_KEY, 'Not a setting that can be kept'), value: z.array(z.string().trim().regex(/^[a-z_]{1,30}$/)).max(40).nullable() }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const row = (await query<any>('SELECT prefs_json FROM users WHERE id=?', [req.user!.id]))[0];
+  let prefs: Record<string, unknown> = {}; try { prefs = JSON.parse(row?.prefs_json || '{}') || {}; } catch { prefs = {}; }
+  if (b.data.value === null) delete prefs[b.data.key]; else prefs[b.data.key] = [...new Set(b.data.value)];
+  await exec('UPDATE users SET prefs_json=? WHERE id=?', [JSON.stringify(prefs), req.user!.id]);
+  res.json({ ok: true, prefs });
+});
 // Rows per page in every list (R82): kept with the person's account.
 api.put('/me/page-size', requireRole(), async (req, res) => {
   const b = z.object({ size: z.coerce.number().int().refine((n) => (PAGE_SIZES as readonly number[]).includes(n), 'Pick 20, 50, 100 or 200') }).safeParse(req.body);

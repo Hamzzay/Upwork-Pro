@@ -1003,6 +1003,19 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R85. The Jobs list's columns: shown, hidden and in your own order, kept per person (done, 15 October)
+
+- **What it is** (asked for by Ahmad): **Columns** on the Jobs list now opens your columns for that tab in order. Drag one by its
+  handle, or use the arrows, to move it; **Hide** takes it off; the hidden columns are listed under it, and a click shows one again
+  (at the end). **Reset to default** puts the tab's own set back. Every change applies at once.
+- **Straight in the table too** (asked for by Ahmad the same day): drag a column's header onto another header and the column moves
+  there (a line shows where it will go); it is saved the same way. Clicking a header still sorts.
+- **Per person:** each tab's columns are kept with the person's account (migration `049_user_prefs.sql`, a small `prefs_json` on
+  users), so they are the same on every device and are theirs alone: one person's order never changes anyone else's. A choice made
+  in a browser before this is taken over the first time.
+- Checked: a column moved up twice, one hidden, one added; a header dragged onto another; after a reload the table showed them in
+  that order; another user's columns were untouched. The test account was put back to the default afterwards.
+
 ### R84. Auto mode stops where a person would stop (fixed, 15 October)
 
 - **What went wrong** (found by Ahmad on job #79): a paste that was a writing prompt plus an old contract was flagged by the

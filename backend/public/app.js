@@ -449,7 +449,7 @@ function loginView() {
     h('h1', {}, 'Welcome back'), h('p', { class: 'jp-label', style: 'margin-bottom:22px' }, 'Sign in to screen Upwork jobs and write proposals.'),
     h('form', { onsubmit: async (e) => {
       e.preventDefault(); err.hidden = true; btnBusy(btn, 'Signing in');
-      try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; location.hash = '#/dashboard'; route(); }
+      try { me = (await api('POST', '/login', { email: email.value, password: pw.value })).user; me = (await api('GET', '/me')).user || me; location.hash = '#/dashboard'; route(); }
       catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; btn.disabled = false; btn.replaceChildren('Sign in'); }
     } }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'em' }, 'Email'), email),
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'pw' }, 'Password'), withShow(pw)), err, btn))));
@@ -1087,9 +1087,22 @@ const JOB_TABS = [
   { key: 'closed', label: 'Closed', cols: ['outcome', 'close', 'sent', 'verdict', 'profile', 'user', 'country'] },
   { key: 'not_pursued', label: 'Not pursued', cols: ['progress', 'why', 'verdict', 'country', 'budget', 'user', 'created'], stages: ['skipped', 'failed'] },
 ];
+/** A tab's columns as this person keeps them (R85): which are shown, in their order. Kept with their account; the tab's own set until
+ *  they change it (a choice kept in this browser before R85 is taken over once). */
+const colsKey = (tab) => 'jobs_cols.' + (tab || 'all');
+const tabCols = (tab) => (JOB_TABS.find((t) => t.key === tab) || JOB_TABS[0]).cols;
 function savedCols(tab) {
-  try { const v = JSON.parse(localStorage.getItem('jobs.cols2.' + (tab || 'all')) || 'null'); if (Array.isArray(v)) return new Set(v); } catch { /* storage blocked */ }
-  return new Set((JOB_TABS.find((t) => t.key === tab) || JOB_TABS[0]).cols);
+  const known = new Set(JOB_COLS.map((c) => c.key));
+  const mine = me && me.prefs && me.prefs[colsKey(tab)];
+  if (Array.isArray(mine)) return mine.filter((k) => known.has(k));
+  try { const v = JSON.parse(localStorage.getItem('jobs.cols2.' + (tab || 'all')) || 'null'); if (Array.isArray(v)) { const order = tabCols(tab); return [...order.filter((k) => v.includes(k)), ...v.filter((k) => !order.includes(k) && known.has(k))]; } } catch { /* storage blocked */ }
+  return [...tabCols(tab)];
+}
+async function saveCols(tab, cols) {
+  const value = cols ? [...cols] : null;
+  const r = await api('PUT', '/me/prefs', { key: colsKey(tab), value });
+  me.prefs = r.prefs;
+  try { localStorage.removeItem('jobs.cols2.' + (tab || 'all')); } catch { /* storage blocked */ }
 }
 const NEEDS_ACTION_STAGES = ['decide', 'projects', 'profile', 'type', 'review', 'ready'];
 /** What the person does next, as a button label, for each step that waits on them. */
@@ -1151,11 +1164,36 @@ async function historyView() {
   const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
   const outcomes = [...new Set([...outcomeList(), ...opts.outcomes])];
   const colBtn = h('button', { class: 'btn', type: 'button' }, 'Columns');
-  colBtn.onclick = () => modal({ title: `Columns to show in ${tab().label}`, noConfirm: true, body: h('div', { class: 'colpick' }, JOB_COLS.map((c) => {
-    const cb = h('input', { type: 'checkbox', id: 'col-' + c.key, checked: cols.has(c.key) });
-    cb.onchange = () => { if (cb.checked) cols.add(c.key); else cols.delete(c.key); try { localStorage.setItem('jobs.cols2.' + (st.tab || 'all'), JSON.stringify([...cols])); } catch { /* storage blocked */ } load(); };
-    return h('label', { for: 'col-' + c.key, class: 'row small' }, cb, c.label);
-  })) });
+  // the columns of this tab, the person's own (R85): drag (or the arrows) to order, Hide and Show; saved at once, for them alone
+  colBtn.onclick = () => {
+    const shownEl = h('ol', { class: 'colorder' }), hiddenEl = h('div', { class: 'colhidden' });
+    let dragFrom = null;
+    const commit = async () => { draw(); try { await saveCols(st.tab, cols); } catch (x) { toast(x.message, true); } load(); };
+    const move = (i, j) => { if (j < 0 || j >= cols.length) return; const [k] = cols.splice(i, 1); cols.splice(j, 0, k); commit(); };
+    const label = (k) => (JOB_COLS.find((c) => c.key === k) || {}).label || k;
+    const draw = () => {
+      shownEl.replaceChildren(...cols.map((k, i) => {
+        const li = h('li', { class: 'colitem', draggable: 'true' }, h('span', { class: 'colgrip', title: 'Drag to move', 'aria-hidden': 'true' }, '⋮⋮'), h('span', { class: 'colname' }, label(k)),
+          h('span', { class: 'row', style: 'gap:4px' },
+            h('button', { type: 'button', class: 'btn sm', 'aria-label': `Move ${label(k)} up`, disabled: i === 0, onclick: () => move(i, i - 1) }, '↑'),
+            h('button', { type: 'button', class: 'btn sm', 'aria-label': `Move ${label(k)} down`, disabled: i === cols.length - 1, onclick: () => move(i, i + 1) }, '↓'),
+            h('button', { type: 'button', class: 'btn sm', disabled: cols.length === 1, onclick: () => { cols.splice(i, 1); commit(); } }, 'Hide')));
+        li.addEventListener('dragstart', (e) => { dragFrom = i; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+        li.addEventListener('dragend', () => { li.classList.remove('dragging'); shownEl.querySelectorAll('.over').forEach((x) => x.classList.remove('over')); });
+        li.addEventListener('dragover', (e) => { e.preventDefault(); li.classList.add('over'); });
+        li.addEventListener('dragleave', () => li.classList.remove('over'));
+        li.addEventListener('drop', (e) => { e.preventDefault(); if (dragFrom != null && dragFrom !== i) move(dragFrom, i); dragFrom = null; });
+        return li;
+      }));
+      const rest = JOB_COLS.filter((c) => !cols.includes(c.key));
+      hiddenEl.replaceChildren(...(rest.length ? rest.map((c) => h('button', { type: 'button', class: 'chip qchip', onclick: () => { cols.push(c.key); commit(); } }, '+ ' + c.label)) : [h('span', { class: 'faint small' }, 'Every column is shown.')]));
+    };
+    draw();
+    modal({ title: `Columns in ${tab().label}`, noConfirm: true, body: h('div', { class: 'stack', style: 'gap:12px' },
+      h('p', { class: 'jp-label', style: 'margin:0' }, 'Drag a column by its handle, or use the arrows, to put it where you want it. You can also drag a column header in the table itself. Your order is kept for you alone, on every device.'),
+      shownEl, h('div', {}, h('div', { class: 'lbl', style: 'margin-bottom:6px' }, 'Hidden columns'), hiddenEl)),
+      extra: () => h('button', { type: 'button', class: 'linkbtn', onclick: async () => { cols = [...tabCols(st.tab)]; draw(); try { await saveCols(st.tab, null); } catch (x) { toast(x.message, true); } load(); } }, 'Reset to default') });
+  };
   const clearBtn = h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } }, 'Clear filters');
   // the export uses the filters on screen, so "last month's lost jobs" is two clicks
   const exportBtn = h('button', { class: 'btn', type: 'button' }, icon('doc'), 'Export');
@@ -1206,15 +1244,33 @@ async function historyView() {
     b.onclick = () => { if (on) st.dir = st.dir === 'asc' ? 'desc' : 'asc'; else { st.sort = sortKey; st.dir = sortKey === 'created' || sortKey === 'time' ? 'desc' : 'asc'; } load(); };
     return h('th', { 'aria-sort': on ? (st.dir === 'asc' ? 'ascending' : 'descending') : null }, b);
   }
+  // a column header can be dragged onto another to move the column there (R85): saved for this person, as in the Columns window
+  let dragCol = null;
+  function movableHead(c) {
+    const th = headCell(c.label, c.sort);
+    th.draggable = true; th.classList.add('movable'); th.title = 'Drag to move this column';
+    th.addEventListener('dragstart', (e) => { dragCol = c.key; th.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.key); });
+    th.addEventListener('dragend', () => { dragCol = null; th.classList.remove('dragging'); document.querySelectorAll('table.jobs th.dropl, table.jobs th.dropr').forEach((x) => x.classList.remove('dropl', 'dropr')); });
+    th.addEventListener('dragover', (e) => {
+      if (!dragCol || dragCol === c.key) return; e.preventDefault();
+      const after = cols.indexOf(dragCol) < cols.indexOf(c.key); th.classList.toggle('dropr', after); th.classList.toggle('dropl', !after); });
+    th.addEventListener('dragleave', () => th.classList.remove('dropl', 'dropr'));
+    th.addEventListener('drop', async (e) => {
+      e.preventDefault(); th.classList.remove('dropl', 'dropr');
+      if (!dragCol || dragCol === c.key) return;
+      const from = cols.indexOf(dragCol), to = cols.indexOf(c.key); const [k] = cols.splice(from, 1); cols.splice(to, 0, k); dragCol = null;
+      load(); try { await saveCols(st.tab, cols); } catch (x) { toast(x.message, true); }
+    });
+    return th;
+  }
   function drawRows(rows, total) {
-    const order = tab().cols; // the tab's own order first, then any extra column the person added
-    const shown = JOB_COLS.filter((c) => cols.has(c.key)).sort((a, b) => (order.includes(a.key) ? order.indexOf(a.key) : 99) - (order.includes(b.key) ? order.indexOf(b.key) : 99));
+    const shown = cols.map((k) => JOB_COLS.find((c) => c.key === k)).filter(Boolean); // in the person's own order (R85)
     const filtered = FILTER_KEYS.some((k) => k !== 'tab' && st[k]);
     if (fbar) fbar.setActive(filtered);
     const empty = { in_progress: 'Nothing in progress', submitted: 'Nothing submitted yet', closed: 'Nothing closed yet', not_pursued: 'Nothing skipped or failed' }[st.tab] || 'No jobs yet';
     const table = !rows.length
       ? emptyState('list', filtered ? 'No matches' : empty, filtered ? 'Try different filters.' : st.tab ? 'Jobs move here as they progress.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : st.tab ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
-      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map((c) => headCell(c.label, c.sort)), h('th', { class: 'pin' }, ''))),
+      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map(movableHead), h('th', { class: 'pin' }, ''))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
           h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
           shown.map((c) => h('td', {}, c.cell(r))),
