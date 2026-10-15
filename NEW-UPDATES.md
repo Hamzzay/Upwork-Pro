@@ -1003,6 +1003,17 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R98. Edit an opening before using it, and the openings learn from it (done, 16 October)
+
+- **Why** (Ahmad): an opening is often nearly right; it should be fixable right there, and each fix should teach the next ones.
+- **Edit** on every opening in the carousel (the one in the proposal too) opens its words in place; the proposal below shows the edit
+  as it is typed. **Save and use** puts it in (a new version, as your own edit, only the first paragraph changed) and marks it the
+  opening in use.
+- **It is kept as an example** on that opening template, under **Learned from your edits** (the five newest, apart from the up to
+  five examples written by hand, so those are never pushed out). The writer reads them as openings the team edited and sent, the
+  best guide to what works, and the "Like the examples" score counts them. Any of them can be removed in the opening's window. The
+  plugin (0.20.0) reads them as `team_edits`. Migration 056.
+
 ### R97. Watching a proposal being written (done, 16 October)
 
 - **Why** (Ahmad): while a proposal was written, the page showed one spinning ring and a line of text, so nobody could tell where
@@ -1012,6 +1023,9 @@ screen.
   doing. Above them, a bar that keeps moving, the time so far, and about how long is left, worked out from how long the last 30
   proposals took here (a slow one says it is taking a little longer than usual). Lines of a draft shimmer underneath.
 - A new "checking" step is reported once the letter is in (the parts, proof and checks run after it). Only that box redraws.
+- **Auto mode too.** While a job runs in auto mode, its Overview shows the same: screening, projects, profile and the proposal with
+  its own steps, a moving bar, the time so far and about how long is left (from how long jobs in auto mode took here, paste to
+  proposal). Only that card updates; the separate "being written" note is hidden meanwhile.
 
 ### R96. Reasons to continue written from the job's fit; adding tags no longer reloads the Projects step (done, 16 October)
 

@@ -12,7 +12,7 @@ import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
 import { bannedPatterns, loadGuide } from './guide';
 import { GUARDRAILS } from './writer';
-import { activeOpenings, OPENINGS_BATCH, templateBlock, type OpeningTemplate } from './opening_templates';
+import { activeOpenings, addLearned, OPENINGS_BATCH, templateBlock, type OpeningTemplate } from './opening_templates';
 import { addVersion, assembleParts, latestVersion, loadFacts, loadTemplate } from './pipeline';
 import { PROOF, VIDEO, type Parts } from './parts';
 import { activeShortcuts, shortenText } from './shortcuts';
@@ -64,14 +64,15 @@ const judgeSchema = { type: 'object', properties: { scores: { type: 'array', ite
  * grade its own work. Shape is judged, not facts: the facts come from another job and are meant to differ. Never fails the job.
  */
 export async function scoreAgainstExamples(list: { text: string; template: OpeningTemplate }[]): Promise<({ score: number; note: string } | null)[]> {
-  const todo = list.map((x, i) => ({ ...x, i })).filter((x) => x.template.examples.length && x.text.trim());
+  const exOf = (t: OpeningTemplate) => [...t.examples, ...(t.learned ?? []).filter((x) => !t.examples.includes(x))]; // R98: the team's edits count as examples
+  const todo = list.map((x, i) => ({ ...x, i })).filter((x) => exOf(x.template).length && x.text.trim());
   const out: ({ score: number; note: string } | null)[] = list.map(() => null);
   if (!todo.length) return out;
   const system = ['You judge how closely a written opening (the first paragraph of an Upwork proposal) follows the example openings it was meant to resemble.',
     'Judge the shape, not the facts: structure and sentence order, length and rhythm, the kind of first words, and the wording patterns. The facts (the client, their problem, their stack) come from a different job and are meant to differ: never lower a score for that.',
     'Score 0 to 10 against the closest example: 10 is the same shape with only the facts changed; 8 to 9 follows it closely with small changes in wording or order; 5 is the same idea in a clearly different shape; 0 is nothing alike.',
     '"note": one short sentence on what matches or what differs most. Give one score per opening, in the order given.'].join('\n');
-  const prompt = todo.map((x, k) => `<opening n="${k + 1}">\n${x.text.trim()}\n</opening>\n<examples n="${k + 1}">\n${x.template.examples.map((e, j) => `Example ${j + 1}:\n${e}`).join('\n\n')}\n</examples>`).join('\n\n') + `\n\nScore all ${todo.length} now.`;
+  const prompt = todo.map((x, k) => `<opening n="${k + 1}">\n${x.text.trim()}\n</opening>\n<examples n="${k + 1}">\n${exOf(x.template).map((e, j) => `Example ${j + 1}:\n${e}`).join('\n\n')}\n</examples>`).join('\n\n') + `\n\nScore all ${todo.length} now.`;
   try {
     const r = await run({ label: 'opening match', system, prompt, schema: judgeSchema, timeoutMs: config.llm.timeoutMs });
     const o = z.object({ scores: z.array(z.object({ score: z.number().int().min(0).max(10), note: z.string().max(400) })) }).safeParse(r.data);
@@ -102,7 +103,7 @@ export async function runOpenings(proposalId: number) {
   const done = writtenFor(adding ? prev!.items : [], active);
   const styles = active.filter((x) => (!def || x.id !== def.id) && !done.has(x.id)).slice(0, OPENINGS_BATCH);
   const base: Openings = adding ? prev! : { version: cur.version_no, first, items: [], used: null, default: def?.name ?? null, default_id: def?.id ?? null };
-  if (!adding && def?.examples.length) { const [m] = await scoreAgainstExamples([{ text: first, template: def }]); base.first_match = m?.score ?? null; base.first_match_note = m?.note ?? null; }
+  if (!adding && def && (def.examples.length || def.learned?.length)) { const [m] = await scoreAgainstExamples([{ text: first, template: def }]); base.first_match = m?.score ?? null; base.first_match_note = m?.note ?? null; }
   const save = async (data: Openings) => exec(`UPDATE proposals SET openings_status='done', openings_json=?, openings_error=NULL, openings_more=0 WHERE id=?`, [JSON.stringify(data), p.id]);
   if (!styles.length) { await save(base); return { stale: false }; }
   const system = [
@@ -168,5 +169,35 @@ export async function useOpening(proposalId: number, index: number, userId: numb
   // the openings now belong to the new version: the one in use is shown as it, the others stay to try
   // R91: a proposal already finalized now went out with this opening, so the ranking counts this one
   await exec('UPDATE proposals SET openings_json=?, final_opening_id=IF(finalized_at IS NULL, final_opening_id, COALESCE(?, final_opening_id)) WHERE id=?', [JSON.stringify({ ...o, version: no, first: pick.text.trim(), used: index }), pick.template_id ?? null, proposalId]);
+  return { version_no: no };
+}
+
+/**
+ * R98 (Ahmad): an opening edited on the proposal before it is used. The edited text becomes the first paragraph (a new version, as the
+ * person's own edit), it is the opening in use, and it is kept on its opening template as a learned example, so later openings from that
+ * template learn from what the team changed. index: an alternative; null: the opening in the proposal now.
+ */
+export async function editOpening(proposalId: number, index: number | null, text: string, userId: number): Promise<{ version_no?: number; error?: string }> {
+  const p = (await query<any>('SELECT id, openings_json FROM proposals WHERE id=?', [proposalId]))[0];
+  const o = readOpenings(p?.openings_json); if (!o) return { error: 'There are no openings for this proposal' };
+  const pick = index == null ? null : o.items[index]; if (index != null && !pick) return { error: 'There is no such opening' };
+  const cur = await latestVersion(proposalId); if (!cur) return { error: 'There is no proposal yet' };
+  if (norm(openingOf(cur)) !== norm(o.first)) return { error: 'The first paragraph was changed since these openings were written. Write new ones.' };
+  const t = text.replace(/\r\n/g, '\n').trim();
+  if (t.length < 10) return { error: 'Write the opening (at least a sentence)' };
+  if (/\n\s*\n/.test(t)) return { error: 'An opening is one paragraph: take out the blank line' };
+  const cfg = await getSettings();
+  const usedNow = o.used != null ? o.items[o.used] : null;
+  const templateId = pick ? pick.template_id : usedNow?.template_id ?? o.default_id ?? null;
+  const note = `Opening edited${pick ? `: ${pick.style || pick.angle}` : ''}`;
+  let no: number;
+  if (cur.parts) {
+    const parts: Parts = { ...cur.parts, letter: replaceFirstParagraph(cur.parts.letter, t) };
+    no = await addVersion(proposalId, textToHtml(assembleParts(parts, cfg['writer.loom_line'])), 'manual', userId, note, cur.version_no, undefined, parts);
+  } else no = await addVersion(proposalId, replaceFirstHtmlParagraph(cur.html, t), 'manual', userId, note, cur.version_no);
+  const items = o.items.map((x, i) => (i === index ? { ...x, text: t, edited: true } : x));
+  await exec('UPDATE proposals SET openings_json=?, final_opening_id=IF(finalized_at IS NULL, final_opening_id, COALESCE(?, final_opening_id)) WHERE id=?',
+    [JSON.stringify({ ...o, items, version: no, first: t, used: index ?? o.used ?? null }), templateId, proposalId]);
+  if (templateId) await addLearned(templateId, t);
   return { version_no: no };
 }

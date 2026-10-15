@@ -116,6 +116,7 @@ async function detail(kind: string, id: string | number): Promise<Record<string,
   for (const [field, rows] of Object.entries(r.rows)) out[field] = rows;
   // R91: an opening template's examples read as the list the body takes
   if (kind === 'opening_template' && 'examples_json' in out) { try { out.examples = JSON.parse(String(out.examples_json ?? '[]')) ?? []; } catch { out.examples = []; } delete out.examples_json; out.match_examples = !!Number(out.match_examples); }
+  if (kind === 'opening_template' && 'learned_json' in out) { try { out.learned = JSON.parse(String(out.learned_json ?? '[]')) ?? []; } catch { out.learned = []; } delete out.learned_json; } // R98
   return out;
 }
 

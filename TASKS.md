@@ -127,6 +127,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 79 | Projects step: the missing tags named (compliance first), added to the project from the job, then matched again (R95) | done |
 | 80 | Reasons to continue written per job from the fit summary; adding tags on the Projects step updates in the background (R96) | done |
 | 81 | While a proposal is written: the steps, a moving bar, time so far and time left (R97) | done |
+| 82 | The same for a job in auto mode, on its Overview (R97) | done |
+| 83 | Edit an opening in place before using it; the edit is kept as a learned example on its template (R98) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

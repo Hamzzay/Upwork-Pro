@@ -568,7 +568,12 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
   res.json({
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
       posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null, gate_rules: s.gate_rules ? JSON.parse(s.gate_rules) : null,
-      fit_reasons_json: undefined, fit_reasons: readFitReasons(s.fit_reasons_json) },
+      fit_reasons_json: undefined, fit_reasons: readFitReasons(s.fit_reasons_json),
+      // R97: while auto mode runs, how long it has been going and how long a job in auto mode usually takes, paste to proposal
+      ...(Number(s.auto_mode) && s.auto_state === 'running' ? {
+        auto_elapsed_seconds: Number((await query<any>('SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS d FROM screenings WHERE id=?', [id]))[0]?.d ?? 0),
+        auto_typical_seconds: Number((await query<any>(`SELECT ROUND(AVG(d)) AS t FROM (SELECT TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS d FROM screenings s JOIN proposals p ON p.screening_id=s.id
+          WHERE s.auto_mode=1 AND s.auto_state='done' AND p.finished_at IS NOT NULL ORDER BY s.id DESC LIMIT 20) x WHERE d BETWEEN 30 AND 3600`))[0]?.t) || null } : {}) },
     override: ov[0] ?? null,
     matching: await matchingFor(id),
     proposal: await proposalFor(id),

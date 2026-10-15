@@ -45,7 +45,11 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.19.0)
+## Status (v0.20.0)
+
+v0.20.0: opening templates carry `team_edits`, openings the team edited on proposals and sent, to learn from.
+
+## Earlier (v0.19.0)
 
 v0.19.0: on Continue after a Flag or Fail, Claude first offers reasons written for the job from its fit summary, as the app
 now does, then the stock quick picks.

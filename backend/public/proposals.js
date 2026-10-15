@@ -373,7 +373,7 @@ function proposalSection(s, initial, matching) {
   // ----- three openings (R73): each a different direction, tone and line of thought. Swipe through them: the proposal below shows
   // each one in place (a preview, not saved); Use this opening saves it as a new version.
   const openEl = h('div', {});
-  let previewIdx = 0, slides = [], viewingOther = false;
+  let previewIdx = 0, slides = [], viewingOther = false, editing = null; // editing (R98): the opening being edited in place
   const NOT_OPENING = new Set(['[[PROOF]]', '[[VIDEO]]']);
   const firstPara = (html) => htmlToPlainText(html).split(/\n{2,}/).map((x) => x.trim()).find((x) => x && !NOT_OPENING.has(x)) || '';
   const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim();
@@ -398,6 +398,21 @@ function proposalSection(s, initial, matching) {
       ? shell(h('div', { class: 'row spread' }, h('span', { class: 'err' }, icon('x'), 'The openings could not be written' + (o.error ? ': ' + o.error : '.')), writeBtn('Try again')))
       : owner ? shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Openings to choose from: one per opening template that is on, each its own direction and tone.'), writeBtn('Write the openings'))) : openEl.replaceChildren();
     const curFirst = firstPara(data.current.html);
+    // R98: an opening edited in place before it is used; the proposal below shows the edit as it is typed
+    if (editing && norm(curFirst) === norm(o.first)) {
+      const ed = editing, ta = h('textarea', { class: 'openedit', rows: 4, maxlength: 1500, 'aria-label': 'The opening' }); ta.value = ed.text;
+      const show = () => { if (editor && !editor.isDirty()) editor.setHtml(withOpening(data.current.html, ta.value.trim() || ed.text)); };
+      ta.oninput = show;
+      const save = h('button', { class: 'btn sm primary', type: 'button' }, 'Save and use');
+      save.onclick = async () => { btnBusy(save, 'Saving');
+        try { await api('POST', `/proposals/${data.id}/openings/edit`, { index: ed.index, text: ta.value }); editing = null; toast(ed.label ? `Used, and kept as an example for ${ed.label}` : 'Used'); await reload(); newer = null; previewIdx = 0; drawAll(); }
+        catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren('Save and use'); } };
+      const cancel = h('button', { class: 'btn sm', type: 'button', onclick: () => { editing = null; if (editor && !editor.isDirty()) editor.setHtml(previewIdx > 0 && slides[previewIdx] ? withOpening(data.current.html, slides[previewIdx].text) : data.current.html); drawOpenings(); } }, 'Cancel');
+      shell(h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('strong', {}, `Edit the opening${ed.label ? ': ' + ed.label : ''}`), h('span', { class: 'row', style: 'gap:6px' }, cancel, save)), ta,
+        h('div', { class: 'faint small', style: 'margin-top:6px' }, ed.label ? `Your version goes into the proposal and is kept as an example for ${ed.label}, so later openings learn from it.` : 'Your version goes into the proposal.'));
+      requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); show(); });
+      return;
+    }
     if (norm(curFirst) !== norm(o.first)) return shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'The openings were written for an earlier first paragraph.'), writeBtn('Write new ones')));
     // As written first (the one in use, when one was used), then the others
     // the first slide is the opening in the proposal now: the type's default template (R88), or the one picked
@@ -417,8 +432,9 @@ function proposalSection(s, initial, matching) {
         sl.match != null ? h('span', { class: 'chip matchsc ' + (sl.match >= 8 ? 'hi' : sl.match >= 5 ? 'mid' : 'lo'), title: 'How close it is to the opening template\'s examples' + (sl.match_note ? ': ' + sl.match_note : '') }, `Like the examples ${sl.match}/10`) : null].filter(Boolean));
       dots.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === previewIdx));
       prev.disabled = previewIdx === 0; next.disabled = previewIdx === slides.length - 1;
-      act.replaceChildren(...(sl.index != null && owner ? [h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
-        try { await useOpening(); toast('Saved as a new version'); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); head(); } } }, 'Use this opening')] : []));
+      act.replaceChildren(...[owner ? h('button', { class: 'btn sm', type: 'button', title: 'Change the words, then use it. Your version is kept as an example, so later openings learn from it.', onclick: () => { editing = { index: sl.index, label: sl.style || (sl.index == null ? (usedIt ? usedIt.style : o.default) : sl.label), text: sl.text }; drawOpenings(); } }, 'Edit') : null,
+        sl.index != null && owner ? h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
+        try { await useOpening(); toast('Saved as a new version'); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); head(); } } }, 'Use this opening') : null].filter(Boolean));
     };
     const go = (i) => { i = Math.max(0, Math.min(slides.length - 1, i)); previewTo(i); track.scrollTo({ left: previewIdx * track.clientWidth, behavior: 'smooth' }); head(); };
     // swiping: the slide that comes to rest is the one shown in the proposal

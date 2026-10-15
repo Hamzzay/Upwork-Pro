@@ -7,7 +7,7 @@ import { htmlToPlain, sanitizeRich } from './html';
 import { addVersion, applySendParts, latestVersion, loadTemplate, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
 import { allOpenings, MAX_EXAMPLES, MAX_OPENINGS, openingInUse } from './proposal/opening_templates';
-import { openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
+import { editOpening, openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
 import { compareOf, queueCompare } from './proposal/compare';
 
 export const proposals = Router();
@@ -179,6 +179,7 @@ export const openingBody = z.object({
   // R91: up to five example openings, and whether to write the opening very close to them
   examples: z.array(z.string().trim().max(1500)).max(MAX_EXAMPLES, `At most ${MAX_EXAMPLES} examples`).optional(), match_examples: z.boolean().optional(),
   rank_boost: z.number().int().min(0).max(100000).optional(), // R92: points added by hand to its ranking
+  learned: z.array(z.string().trim().max(1500)).max(MAX_EXAMPLES).optional(), // R98: the learned examples (to remove one)
 });
 const examplesJson = (a: string[] | undefined) => { const l = (a ?? []).filter(Boolean); return l.length ? JSON.stringify(l) : null; };
 proposals.get('/opening-templates', anyone, async (_req, res) => {
@@ -209,6 +210,7 @@ proposals.patch('/opening-templates/:id', editor, async (req, res) => {
   if ('starts' in d) { sets.push('starts=?'); p.push(d.starts || null); }
   for (const k of ['may_greet', 'may_talk_about_us', 'active', 'match_examples']) if (k in d) { sets.push(`${k}=?`); p.push(d[k] ? 1 : 0); }
   if ('examples' in d) { sets.push('examples_json=?'); p.push(examplesJson(d.examples)); }
+  if ('learned' in d) { sets.push('learned_json=?'); p.push(examplesJson(d.learned)); }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   try { const r = await exec(`UPDATE opening_templates SET ${sets.join(',')} WHERE id=?`, [...p, id]); if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' }); }
   catch (e) { if (dup(e)) return void res.status(409).json({ error: 'An opening template with that name already exists' }); throw e; }
@@ -576,6 +578,17 @@ proposals.post('/proposals/:id/openings', anyone, async (req, res) => {
   if (err) return void res.status(409).json({ error: err });
   await audit(req.user!.id, 'proposal_openings', `proposal=${p.id}${more ? ' more' : ''}`);
   res.status(202).json({ ok: true });
+});
+// R98: an opening edited before it is used; the edit is kept on its opening template as a learned example
+proposals.post('/proposals/:id/openings/edit', anyone, async (req, res) => {
+  const b = z.object({ index: z.number().int().min(0).nullable(), text: z.string().max(1500) }).safeParse(req.body ?? {});
+  if (!b.success) return void bad(res, b.error);
+  const p = await ownedProposal(req, res); if (!p) return;
+  if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
+  const r = await editOpening(p.id, b.data.index, b.data.text, req.user!.id);
+  if (r.error) return void res.status(409).json({ error: r.error });
+  await audit(req.user!.id, 'proposal_opening_edited', `proposal=${p.id} opening=${b.data.index == null ? 'in use' : b.data.index + 1} version=${r.version_no}`);
+  res.json({ version_no: r.version_no });
 });
 proposals.post('/proposals/:id/openings/:i/use', anyone, async (req, res) => {
   const p = await ownedProposal(req, res); if (!p) return;

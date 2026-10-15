@@ -4,10 +4,10 @@
  * first words, whether it may greet, whether it may talk about us. Every proposal type has one default template: the proposal is
  * written with it, and one opening per other active template is written beside it to pick from (openings.ts).
  */
-import { query } from '../db';
+import { exec, query } from '../db';
 
 export interface OpeningTemplate { id: number; name: string; instructions: string; starts: string | null; may_greet: boolean; may_talk_about_us: boolean; active: boolean;
-  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number }
+  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** R98: openings the team edited on a proposal and used, newest first (at most 5) */ learned: string[]; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number }
 export const MAX_OPENINGS = 20; // R91 (was 10): they are written three at a time now, so more can be kept
 export const MAX_EXAMPLES = 5;
 export const OPENINGS_BATCH = 3;
@@ -15,7 +15,7 @@ export const OPENINGS_BATCH = 3;
 const readExamples = (json: unknown): string[] => { try { const a = JSON.parse(String(json ?? '[]')); return Array.isArray(a) ? a.map((x) => String(x).trim()).filter(Boolean).slice(0, MAX_EXAMPLES) : []; } catch { return []; } };
 const shape = (r: any): OpeningTemplate => ({ id: Number(r.id), name: r.name, instructions: String(r.instructions ?? ''), starts: r.starts || null,
   may_greet: !!Number(r.may_greet), may_talk_about_us: !!Number(r.may_talk_about_us), active: !!Number(r.active),
-  examples: readExamples(r.examples_json), match_examples: !!Number(r.match_examples), rank: Number(r.sent_n ?? 0) + Number(r.rank_boost ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0) });
+  examples: readExamples(r.examples_json), learned: readExamples(r.learned_json), match_examples: !!Number(r.match_examples), rank: Number(r.sent_n ?? 0) + Number(r.rank_boost ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0) });
 /** How many finalized proposals went out with each template, plus the points added by hand: its ranking (R91, R92). */
 const SENT = '(SELECT COUNT(*) FROM proposals p WHERE p.final_opening_id=o.id AND p.finalized_at IS NOT NULL)';
 /** R92: the ranking is the proposals sent with it plus its manual points. */
@@ -50,8 +50,11 @@ export function templateBlock(o: OpeningTemplate): string {
 
 /** The template's example openings (R91): to follow closely when "match the examples" is on, else for the feel only. */
 export function examplesBlock(o: OpeningTemplate): string {
-  if (!o.examples.length) return '';
-  const list = o.examples.map((x, i) => `Example ${i + 1}:\n${x}`).join('\n\n');
+  const learned = (o.learned ?? []).filter((x) => !o.examples.includes(x));
+  if (!o.examples.length && !learned.length) return '';
+  const all = [...o.examples, ...learned];
+  const list = all.map((x, i) => `${i < o.examples.length ? 'Example' : 'Edited by the team'} ${i + 1}:\n${x}`).join('\n\n')
+    + (learned.length ? '\n(The ones "edited by the team" are openings a person rewrote on a real proposal and sent: they show what the team wants. Learn from what they changed.)' : '');
   return o.match_examples
     ? `MATCH THE EXAMPLES (strict): write this opening 80 to 90 percent like the examples below. Take the example closest to this job and follow it line by line: the same structure and sentence order, the same length and rhythm, the same kind of first words and the same wording patterns. Change only what this job needs: the client's own words, their problem, their stack and their situation. Never carry over a fact, name, number or claim from an example that is not true for this job; the rules about facts still apply.\n${list}`
     : `EXAMPLES of this opening (for its feel and direction; follow the instructions above, not these word for word, and never take a fact from them):\n${list}`;
@@ -79,4 +82,12 @@ export async function openingInUse(proposalId: number, fallback: OpeningTemplate
   const p = (await query<any>('SELECT openings_json FROM proposals WHERE id=?', [proposalId]))[0];
   try { const o = JSON.parse(p?.openings_json || 'null'); const it = o && o.used != null ? o.items?.[o.used] : null; if (it?.template_id) return (await openingTemplate(it.template_id)) ?? fallback ?? null; } catch { /* none */ }
   return fallback ?? null;
+}
+
+/** R98: an opening edited on a proposal and used, kept on its template as a learned example (newest first, the last five). */
+export async function addLearned(templateId: number, text: string) {
+  const t = text.trim(); if (!t) return;
+  const cur = readExamples((await query<any>('SELECT learned_json FROM opening_templates WHERE id=?', [templateId]))[0]?.learned_json);
+  const next = [t, ...cur.filter((x) => x.replace(/\s+/g, ' ') !== t.replace(/\s+/g, ' '))].slice(0, MAX_EXAMPLES);
+  await exec('UPDATE opening_templates SET learned_json=? WHERE id=?', [JSON.stringify(next), templateId]);
 }

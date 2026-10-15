@@ -1958,7 +1958,7 @@ async function jobPage(id, want) {
       Number(s.auto_mode) && s.auto_state ? autoCard() : null,
       s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
         h('div', { style: 'margin-top:4px' }, `It is hidden from every list, count, report and export, and from Claude. Discarded ${full(s.discarded_at)}${s.discarded_by_name ? ' by ' + s.discarded_by_name : ''}${s.discard_reason ? ': ' + s.discard_reason : '.'}`)) : null,
-      next[0] ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
+      next[0] && !(Number(s.auto_mode) && s.auto_state === 'running') ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
       facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null,
       ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
   }
@@ -1981,10 +1981,58 @@ async function jobPage(id, want) {
         step(matched, screened && continued && !matched && !stopped, 'Projects', matched ? chosen.join(', ') : 'The recommended projects'),
         step(profiled && matched, false, 'Profile', profiled && matched ? matching.proposal_profile.name : 'The profile whose services fit the job'),
         step(written, matched && !written && !stopped, 'Proposal', written ? (proposal.template ? proposal.template.name : 'Written') : pstat === 'error' ? 'Could not be written' : 'The suggested proposal type, then the writing')));
-    if (s.auto_state === 'running') {
-      const tick = async () => { if (!card.isConnected) return; try { await refresh(); if (s.auto_state === 'done' && tab === 'overview') return void setTab('proposal'); if (tab === 'overview') drawContent(); } catch { setTimeout(tick, 4000); } };
-      setTimeout(tick, 2500);
-    }
+    if (s.auto_state === 'running') return autoProgress(); // R97: the steps, a moving bar and the time left, as on the proposal page
+    return card;
+  }
+  /**
+   * R97 (Ahmad): auto mode as it happens: screening, projects, profile and the proposal (with its own steps), a bar that keeps moving,
+   * the time so far and about how long is left (from how long jobs in auto mode took here). Only this card is redrawn.
+   */
+  let autoProg = { key: null, since: 0, pct: 0, at: 0 };
+  function autoProgress() {
+    const P = [['screening', 0, 22, 0.25], ['projects', 22, 48, 0.25], ['p:queued', 48, 52, 0.02], ['p:signals', 52, 62, 0.1], ['p:template', 62, 68, 0.05], ['p:writing', 68, 90, 0.25], ['p:checking', 90, 97, 0.08]];
+    const SUB = [['p:signals', 'Reading the job'], ['p:template', 'Choosing the proposal type'], ['p:writing', 'Writing the letter and the answers'], ['p:checking', 'Checking it']];
+    const screened = s.status === 'done', matched = !!(matching && matching.confirmed_at);
+    const key = !screened ? 'screening' : !matched || !proposal ? 'projects' : 'p:' + (proposal.status === 'queued' ? 'queued' : proposal.stage && P.some((x) => x[0] === 'p:' + proposal.stage) ? proposal.stage : 'signals');
+    if (!autoProg.at) autoProg.at = Date.now() - (Number(s.auto_elapsed_seconds) || 0) * 1000;
+    if (autoProg.key !== key) { autoProg.key = key; autoProg.since = Date.now(); }
+    const idx = P.findIndex((x) => x[0] === key);
+    const T = Number(s.auto_typical_seconds) || 180;
+    const chosen = matched ? matching.matches.filter((x) => x.selected).map((x) => x.project_name) : [];
+    const li = (state, title, detail, kids) => h('li', { class: state }, h('span', { class: 'pgdot' }, state === 'done' ? icon('check') : state === 'now' ? h('span', { class: 'spin' }) : ''),
+      h('div', {}, h('div', { class: 'pgname' }, title), detail ? h('div', { class: 'pghint' }, detail) : null, kids || null));
+    const at = (k) => P.findIndex((x) => x[0] === k), st = (from, to) => (idx > to ? 'done' : idx >= from ? 'now' : 'next');
+    const subList = idx >= at('p:queued') ? h('ol', { class: 'pgsteps pgsub' }, SUB.map(([k, t]) => li(idx > at(k) ? 'done' : idx === at(k) ? 'now' : 'next', t))) : null;
+    const left = h('strong', { class: 'pgleft' }), so = h('span', { class: 'pgelapsed' }), bar = h('i', {});
+    const card = h('div', { class: 'card card-pad pgx autopg', role: 'status', 'aria-live': 'polite' },
+      h('div', { class: 'pgtop' }, h('div', {}, h('div', { class: 'pgtitle' }, 'Auto mode: writing the proposal for you'), h('div', { class: 'pgsub' }, 'You can leave this page. It carries on, and the proposal opens here when it is written.')),
+        h('div', { class: 'pgtime' }, left, so)),
+      h('div', { class: 'pgbar' }, bar),
+      h('ol', { class: 'pgsteps' },
+        li(st(0, 0), 'Screening', screened ? `${cap(vword(s.verdict))}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : 'Checking the job against the rules'),
+        li(st(1, 1), 'Projects', matched ? chosen.join(', ') : 'Tagging the job and picking the projects that prove the work'),
+        li(matched ? 'done' : 'next', 'Profile', matched && matching.proposal_profile ? matching.proposal_profile.name : 'The profile whose services fit the job'),
+        li(st(2, 6), 'Proposal', idx < 2 ? 'The suggested proposal type, then the writing' : proposal && proposal.status === 'queued' ? 'Waiting for a free slot' : null, subList)));
+    const paint = () => {
+      const [, from, to, share] = P[idx], now = Date.now(), inStage = (now - autoProg.since) / 1000, elapsed = (now - autoProg.at) / 1000;
+      autoProg.pct = Math.max(autoProg.pct, from + (to - from) * (1 - Math.exp(-inStage / Math.max(4, share * T))) * 0.95);
+      bar.style.width = autoProg.pct.toFixed(1) + '%';
+      const l = T - elapsed;
+      left.textContent = !s.auto_typical_seconds ? 'Usually a few minutes' : l > 8 ? `About ${l < 60 ? Math.max(5, Math.round(l / 5) * 5) + ' s' : Math.floor(l / 60) + ' min' + (l % 60 >= 30 ? ' 30 s' : '')} left` : 'Almost done';
+      so.textContent = `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, '0')} so far` + (s.auto_typical_seconds && l < -30 ? ', a little longer than usual' : '');
+    };
+    paint();
+    const anim = setInterval(() => { if (!card.isConnected) return clearInterval(anim); paint(); }, 500);
+    // the data every few seconds; only this card is swapped, the rest of the page stays as it is
+    const tick = async () => {
+      if (!card.isConnected) return;
+      try { await refresh(); } catch { return void setTimeout(tick, 4000); }
+      if (!card.isConnected) return;
+      if (s.auto_state === 'done' && tab === 'overview') { autoProg = { key: null, since: 0, pct: 0, at: 0 }; return void setTab('proposal'); }
+      if (s.auto_state !== 'running') return void drawContent(); // stopped: the summary, with why
+      card.replaceWith(autoProgress());
+    };
+    setTimeout(tick, 3000);
     return card;
   }
 
@@ -3016,6 +3064,11 @@ function openingEditor(o, after) {
   };
   const exBox = (v) => { const ta = h('textarea', { rows: 3, maxlength: 1500, placeholder: 'An opening that worked, as it was sent (no client names).' }); ta.value = v || ''; ta.oninput = () => { f.match.disabled = false; }; return ta; };
   for (const x of (o && o.examples) || []) exBoxes.push(exBox(x));
+  // R98: openings the team edited on proposals and used, kept here by themselves (the newest five); one can be taken out
+  const learned = [...((o && o.learned) || [])], learnedList = h('div', { class: 'stack', style: 'gap:8px' });
+  const drawLearned = () => learnedList.replaceChildren(...(learned.length ? learned.map((x, i) => h('div', { class: 'learnrow' }, h('div', { class: 'txt' }, x),
+    h('button', { class: 'linkbtn small', type: 'button', onclick: () => { learned.splice(i, 1); drawLearned(); } }, 'Remove'))) : [h('div', { class: 'faint small' }, 'None yet. When someone edits this opening on a proposal and uses it, their version is kept here.')]));
+  drawLearned();
   exAdd.onclick = () => { if (exBoxes.length < MAXEX) { exBoxes.push(exBox('')); exDraw(); exBoxes[exBoxes.length - 1].focus(); } };
   exDraw();
   modal({ title: o ? 'Change ' + o.name : 'Add an opening template', confirm: o ? 'Save' : 'Add opening template', wide: true,
@@ -3029,11 +3082,12 @@ function openingEditor(o, after) {
       h('div', { class: 'exbox' },
         h('div', { class: 'row spread' }, h('div', {}, h('strong', {}, `Examples (up to ${MAXEX})`), h('div', { class: 'hint', style: 'margin:2px 0 0' }, 'Openings that worked, to show the AI what this one sounds like. Each new opening gets a score out of 10 for how close it is to them.')), exAdd),
         exList,
-        h('label', { class: 'row', for: 'omatch', style: 'gap:10px;align-items:flex-start;flex-wrap:nowrap' }, f.match, h('span', {}, h('strong', {}, 'Match the examples'), h('span', { class: 'hint', style: 'display:block;margin:2px 0 0' }, 'The opening is written 80 to 90 percent like the closest example: its structure, sentence order, length and wording, with only this job\'s facts changed.'))))),
+        h('label', { class: 'row', for: 'omatch', style: 'gap:10px;align-items:flex-start;flex-wrap:nowrap' }, f.match, h('span', {}, h('strong', {}, 'Match the examples'), h('span', { class: 'hint', style: 'display:block;margin:2px 0 0' }, 'The opening is written 80 to 90 percent like the closest example: its structure, sentence order, length and wording, with only this job\'s facts changed.')))),
+      o ? h('div', { class: 'exbox' }, h('div', {}, h('strong', {}, `Learned from your edits (${learned.length})`), h('div', { class: 'hint', style: 'margin:2px 0 0' }, 'Openings someone edited on a proposal and used, newest first. The writer learns from them along with the examples above.')), learnedList) : null),
     onConfirm: async () => {
       const examples = exBoxes.map((ta) => ta.value.trim()).filter(Boolean);
       const body = { name: f.name.value.trim(), instructions: f.ins.value.trim(), starts: f.starts.value.trim() || null, may_greet: f.greet.checked, may_talk_about_us: f.us.checked, active: f.active.checked,
-        examples, match_examples: !!examples.length && f.match.checked };
+        examples, match_examples: !!examples.length && f.match.checked, ...(o ? { learned } : {}) };
       if (o) await api('PATCH', '/opening-templates/' + o.id, body); else await api('POST', '/opening-templates', body);
       toast(o ? 'Opening template saved' : 'Opening template added'); after();
     } });
@@ -3117,7 +3171,8 @@ function openingsSection(data, staff) {
     h('div', { class: 'jp-label clamp2' }, o.instructions),
     h('div', { class: 'chips' }, ...[o.used_by ? h('span', { class: 'chip brand' }, 'Default of ' + o.used_by.replace(/Type (\d+)\. /g, 'Type $1 ')) : h('span', { class: 'chip' }, 'Alternative only'),
       o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null, o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null,
-      o.examples && o.examples.length ? h('span', { class: 'chip' }, `${o.examples.length} example${o.examples.length === 1 ? '' : 's'}${o.match_examples ? ', matched' : ''}`) : null].filter(Boolean)));
+      o.examples && o.examples.length ? h('span', { class: 'chip' }, `${o.examples.length} example${o.examples.length === 1 ? '' : 's'}${o.match_examples ? ', matched' : ''}`) : null,
+      o.learned && o.learned.length ? h('span', { class: 'chip brand' }, `${o.learned.length} learned from edits`) : null].filter(Boolean)));
   return h('div', { class: 'stack', style: 'gap:12px' },
     data.rules_doc_id ? h('a', { class: 'card card-pad cardlink rulesrow', href: '#/wg/' + data.rules_doc_id }, h('div', { class: 'row', style: 'gap:10px' }, icon('doc'), h('div', {}, h('strong', {}, 'Rules for every opening'), h('div', { class: 'jp-label' }, 'What every opening must and must not do. A template can make the exceptions its options allow.')))) : null,
     data.items.length ? h('div', { class: 'grid3' }, data.items.map(card)) : emptyState('doc', 'No opening templates yet', 'Add the first one: what the opening does, and its first words if it has any.'));

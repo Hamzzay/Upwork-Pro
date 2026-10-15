@@ -1099,3 +1099,14 @@ table.jobs tr.picked td { background: var(--fail-bg); }
 .pgtime { flex: none; justify-items: end; }
 .propcard .pgx { border: 0; padding: 8px 4px; margin: 0 auto; }
 @media (max-width: 640px) { .pgtop { flex-wrap: wrap; } .pgtime { justify-items: start; text-align: left; } }
+/* auto mode as it happens (R97) */
+.pgx.autopg { max-width: none; margin: 0; }
+.pgsteps.pgsub { margin-top: 8px; gap: 2px; }
+.pgsteps.pgsub li { padding: 4px 6px; }
+.pgsteps.pgsub li.now { background: var(--surface); }
+.pgsteps.pgsub .pgdot { width: 18px; height: 18px; font-size: 10px; }
+.pgsteps.pgsub .pgname { font-size: 13px; font-weight: 500; }
+/* an opening edited in place (R98) */
+.openedit { margin-top: 8px; min-height: 0; font-size: 15px; line-height: 1.6; background: var(--surface); }
+.learnrow { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; }
+.learnrow .txt { font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; }

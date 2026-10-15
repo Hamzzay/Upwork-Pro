@@ -671,7 +671,7 @@ const ctx = { rules, projects };
   }
   // R88: the opening is the opening template's, with the rules for every opening; its exceptions are fields
   {
-    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true, examples: [] as string[], match_examples: false, rank: 0, sent: 0, boost: 0 };
+    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true, examples: [] as string[], learned: [] as string[], match_examples: false, rank: 0, sent: 0, boost: 0 };
     const txt = openingRules('No greeting. No talk about us.', tpl);
     assert.ok(txt.indexOf('RULES FOR EVERY OPENING') < txt.indexOf('THE OPENING TO WRITE'), 'the rules first, then the template');
     assert.ok(txt.includes('must begin with "Understood."'), 'the first words are said');
@@ -688,6 +688,11 @@ const ctx = { rules, projects };
     const strict = examplesBlock({ ...ex, match_examples: true });
     assert.ok(strict.startsWith('MATCH THE EXAMPLES') && strict.includes('80 to 90 percent') && strict.includes('Example 2:'), 'matched closely, every example listed');
     assert.ok(templateBlock({ ...ex, match_examples: true }).includes('MATCH THE EXAMPLES'), 'the template carries its examples to the writer');
+    // R98: openings the team edited on proposals are examples too, marked as theirs; none written by hand is enough
+    const learnedOnly = examplesBlock({ ...tpl, learned: ['Understood. Four clinics, one missed call each night.'] });
+    assert.ok(learnedOnly.includes('Edited by the team 1:') && learnedOnly.includes('rewrote on a real proposal'), 'a learned example alone is given, as the team\'s');
+    const both = examplesBlock({ ...ex, learned: [ex.examples[0], 'Understood. Orders stall at the warehouse.'] });
+    assert.ok(both.includes('Edited by the team 3:') && both.split(ex.examples[0]).length === 2, 'a learned example already written by hand is not repeated');
   }
   // R92: word shortcuts swap the main word in text, never in a link, an address or a longer word
   {
