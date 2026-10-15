@@ -4,6 +4,7 @@
  * so it does not grade the writer's work the way the writer would. It never rewrites the proposal: it scores it, says why,
  * and suggests two or three changes the person can ask for in the chat.
  */
+import { templateBlock } from './opening_templates';
 import { z } from 'zod';
 import { htmlToPlain } from '../html';
 import type { Guide } from './guide';
@@ -98,7 +99,7 @@ export function reviewerSystem(a: { template: TemplateFact | null; signals: stri
     '',
     r.context.signals && a.signals.length ? `WHAT THE POST SIGNALS\n${a.signals.map((s) => '  - ' + s).join('\n')}` : '',
     '',
-    r.context.writing_rules && a.guide?.rules ? `WRITING RULES\n${a.guide.rules}` : '', r.context.writing_rules && a.guide?.opening ? `\nOPENING LINES (every type; the type's own rules win)\n${a.guide.opening}` : '', r.context.banned_phrases && a.guide?.banned ? `\nBANNED PHRASES\n${a.guide.banned}` : '', r.context.checklist && a.guide?.checklist ? `\nCHECKLIST\n${a.guide.checklist}` : '',
+    r.context.writing_rules && a.guide?.rules ? `WRITING RULES\n${a.guide.rules}` : '', r.context.writing_rules && a.guide?.opening ? `\nOPENING LINES (every opening; the opening template below may make its own exceptions)\n${a.guide.opening}` : '', r.context.writing_rules && a.template?.opening ? `\nTHE OPENING TEMPLATE THIS PROPOSAL'S OPENING FOLLOWS (judge the opening by it; its exceptions are allowed)\n${templateBlock(a.template.opening)}` : '', r.context.banned_phrases && a.guide?.banned ? `\nBANNED PHRASES\n${a.guide.banned}` : '', r.context.checklist && a.guide?.checklist ? `\nCHECKLIST\n${a.guide.checklist}` : '',
     '',
     'THE FACTS THE WRITER HAD (anything in the proposal beyond these is invented)',
     `  Sender: ${a.sender.name}${a.sender.tagline ? ', ' + a.sender.tagline : ''}`,

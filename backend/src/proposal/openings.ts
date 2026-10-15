@@ -11,12 +11,13 @@ import { getSettings } from '../settings';
 import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
 import { bannedPatterns, loadGuide } from './guide';
-import { GUARDRAILS, openingSection } from './writer';
+import { GUARDRAILS } from './writer';
+import { activeOpenings, templateBlock } from './opening_templates';
 import { addVersion, assembleParts, latestVersion, loadFacts, loadTemplate } from './pipeline';
 import { PROOF, VIDEO, type Parts } from './parts';
 
-export interface Opening { angle: string; tone: string; why: string; text: string; style?: string }
-export interface Openings { version: number; first: string; items: Opening[]; used?: number | null }
+export interface Opening { angle: string; tone: string; why: string; text: string; style?: string; /** the opening template it was written from (R88) */ template_id?: number }
+export interface Openings { version: number; first: string; items: Opening[]; used?: number | null; /** the opening template the proposal itself was written with (R88) */ default?: string | null; default_id?: number | null }
 
 /** One opening per style (Settings: Opening styles), in the styles' order. */
 const schemaFor = (n: number) => ({ type: 'object', properties: { openings: { type: 'array', minItems: n, maxItems: n, items: { type: 'object',
@@ -61,25 +62,27 @@ export async function runOpenings(proposalId: number) {
   const letter = htmlToPlain(cur.html), first = openingOf(cur);
   const words = first.split(/\s+/).filter(Boolean).length;
   const banned = bannedPatterns(guide.banned).map((b) => b.phrase);
-  const styles = (await getSettings())['writer.opening_styles'].filter((x) => x.active);
+  // R88: one opening per active opening template other than the type's default (the proposal itself was written with that one)
+  const def = template?.opening ?? null;
+  const styles = (await activeOpenings()).filter((x) => !def || x.id !== def.id);
+  if (!styles.length) { await exec(`UPDATE proposals SET openings_status='done', openings_json=?, openings_error=NULL WHERE id=?`, [JSON.stringify({ version: cur.version_no, first, items: [], used: null, default: def?.name ?? null, default_id: def?.id ?? null }), p.id]); return { stale: false }; }
   const system = [
     'You write the opening of an Upwork proposal: its first paragraph, the part Upwork shows in the preview before the client opens it. Most clients decide there whether to read on.',
     GUARDRAILS,
     `SENDER: ${f.sender.name}${f.sender.voice ? `. Voice: ${f.sender.voice} (never "we")` : ''}${f.sender.rules ? `. Rules: ${f.sender.rules}` : ''}`,
-    openingSection(template, guide.opening),
-    template?.opening_starts ? `The opening must begin with: ${template.opening_starts.split('|').map((x) => `"${x.trim()}"`).join(' or ')} (unless the client asks for their own opening words, then theirs).` : '',
+    guide.opening ? `RULES FOR EVERY OPENING (strict; each opening template below may make its own exceptions, and where it does, the template wins)\n${guide.opening.trim()}` : '',
     banned.length ? `NEVER USE these phrases: ${banned.slice(0, 60).join('; ')}` : '',
   ].filter(Boolean).join('\n\n');
   const prompt = `<job_page>\n${f.questions.length ? f.jobOnly : f.jobText}\n</job_page>\n\nTHE PROPOSAL\n${letter}\n\nITS FIRST PARAGRAPH (what each opening replaces)\n${first}\n\n`
-    + `Write ${styles.length} different openings to replace that first paragraph, one per STYLE below, in this order. They must be real choices, not wordings of one idea: each its own direction (what it leads with), tone and line of thought (why this client would read on), as its style says.\n`
-    + styles.map((x, i) => `STYLE ${i + 1}: ${x.name}\n${x.instructions}`).join('\n\n') + '\n'
-    + `Where a style and the rules for the first two lines above differ, the rules win. Each one follows every rule for the first two lines above, uses only facts from the job post and the proposal, and reads straight on into the paragraph after it, so the rest of the proposal stays as it is. `
+    + `Write ${styles.length} different openings to replace that first paragraph, one per OPENING TEMPLATE below, in this order. Each follows its own template exactly (what it leads with, its tone, its first words and its exceptions), so they are real choices, not wordings of one idea.\n\n`
+    + styles.map((x, i) => `${i + 1}. ${templateBlock(x)}`).join('\n\n') + '\n\n'
+    + `Each one follows the rules for every opening above except where its own template says otherwise, uses only facts from the job post and the proposal, and reads straight on into the paragraph after it, so the rest of the proposal stays as it is. `
     + `Keep each about as long as the current first paragraph (${words} words; never more than ${Math.max(45, Math.round(words * 1.4))}). `
     + `"angle": what it leads with, in two to five words. "tone": one to three words. "why": one sentence on why it may land with this client. "text": the paragraph itself, ready to paste.`;
   const r = await run({ label: 'openings', system, prompt, schema: schemaFor(styles.length), timeoutMs: config.llm.timeoutMs });
   const o = outFor(styles.length).safeParse(r.data); if (!o.success) throw new Error('invalid_output');
   const now = await latestVersion(p.id); // a newer version while it was writing: the openings are still for the one they read
-  const data: Openings = { version: cur.version_no, first, items: o.data.openings.map((x, i) => ({ ...x, style: styles[i].name })), used: null };
+  const data: Openings = { version: cur.version_no, first, items: o.data.openings.map((x, i) => ({ ...x, style: styles[i].name, template_id: styles[i].id })), used: null, default: def?.name ?? null, default_id: def?.id ?? null };
   await exec(`UPDATE proposals SET openings_status='done', openings_json=?, openings_error=NULL WHERE id=?`, [JSON.stringify(data), p.id]);
   return { stale: !!now && now.version_no !== cur.version_no };
 }

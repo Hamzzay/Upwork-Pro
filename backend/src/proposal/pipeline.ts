@@ -13,6 +13,7 @@ import { reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerSections } fro
 import { activeReviewer } from './reviewer_store';
 import { pickLoom } from '../screening/matching';
 import { docsBlock, postOnly } from '../screening/attachments';
+import { checkFlags, openingInUse, openingTemplate } from './opening_templates';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
@@ -76,8 +77,8 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
 }
 
 export async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
-  const t = (await query<any>('SELECT id, name, body_html, prompt, opening_rules, opening_no_us, opening_starts FROM templates WHERE id=?', [id]))[0];
-  return t ? { id: t.id, name: t.name, body_html: t.body_html, prompt: t.prompt, opening_rules: t.opening_rules, opening_no_us: !!t.opening_no_us, opening_starts: t.opening_starts } : null;
+  const t = (await query<any>('SELECT id, name, body_html, prompt, opening_rules, opening_no_us, opening_starts, default_opening_id FROM templates WHERE id=?', [id]))[0];
+  return t ? { id: t.id, name: t.name, body_html: t.body_html, prompt: t.prompt, opening: await openingTemplate(t.default_opening_id), opening_rules: t.opening_rules, opening_no_us: !!t.opening_no_us, opening_starts: t.opening_starts } : null;
 }
 
 /** Names that come from samples and templates (their signatures): they must never appear in a new proposal. */
@@ -315,8 +316,10 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
   // is written again (a short call), never the whole proposal; anything still wrong is a warning
   const clientOpening = requirements.some((r) => /\b(open(ing)?|start|begin)\w*\b.*\b(with|word|phrase|line)\b/i.test(r));
   const allNames = (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
-  const invite = /invite/i.test(template.name);
-  const opening = (t: string) => template.opening_rules || guide.opening ? checkOpening(t, { noUs: !!template.opening_no_us, starts: template.opening_starts ?? null, projectNames: allNames, invite, clientOpening }) : [];
+  // the check follows the opening template's own exceptions (R88): first words, a greeting, talking about us
+  const flags = checkFlags(template.opening ?? null, template);
+  const invite = flags.invite;
+  const opening = (t: string) => template.opening || template.opening_rules || guide.opening ? checkOpening(t, { noUs: flags.noUs, starts: flags.starts, projectNames: allNames, invite, clientOpening }) : [];
   let openingIssues = opening(text);
   if (openingIssues.length && opts.stillWanted()) {
     await stage('writing');
@@ -663,6 +666,7 @@ export async function reviewInput(proposalId: number, sections: ReviewerSections
   if (!p || !cur) throw new Error('no_version');
   const f = await loadFacts(p.screening_id);
   const template = p.template_id ? await loadTemplate(p.template_id) : null;
+  if (template) template.opening = await openingInUse(p.id, template.opening); // the opening template in use now (R88)
   const detected = await storedSignals(p.screening_id);
   let warns: string[] = []; try { warns = (JSON.parse(p.warnings || '[]') as { source: string; text: string }[]).filter((w) => w.source === 'check').map((w) => w.text); } catch { /* none */ }
   const system = reviewerSystem({ template, signals: detected.filter((d) => !d.is_fallback).map((d) => `${d.signal_name}: ${d.value_name}`), sender: f.sender, projects: f.projects,
@@ -695,6 +699,7 @@ export async function runChat(messageId: number) {
   const f = await loadFacts(p.screening_id);
   const detected = await storedSignals(p.screening_id);
   const template = p.template_id ? await loadTemplate(p.template_id) : null;
+  if (template) template.opening = await openingInUse(p.id, template.opening); // the opening template in use now (R88)
   const guide = await loadGuide();
   const history = await query<any>(`SELECT role, content FROM proposal_messages WHERE proposal_id=? AND status='done' AND id<? ORDER BY id DESC LIMIT 12`, [p.id, m.id]);
   const transcript = history.reverse().map((h) => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n');

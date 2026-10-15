@@ -6,6 +6,7 @@ import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
 import { addVersion, applySendParts, latestVersion, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
+import { allOpenings, MAX_OPENINGS } from './proposal/opening_templates';
 import { queueOpenings, readOpenings, useOpening } from './proposal/openings';
 import { compareOf, queueCompare } from './proposal/compare';
 
@@ -152,7 +153,7 @@ proposals.get('/templates', editor, async (req, res) => {
   res.json({ templates: rows, total, page: pg, pages, page_size: PAGE_SIZE });
 });
 async function templateDetail(id: number) {
-  const t = (await query<any>('SELECT id, name, description, body_html, prompt, priority, active, is_default, opening_rules, opening_no_us, opening_starts, created_at, updated_at FROM templates WHERE id=?', [id]))[0];
+  const t = (await query<any>('SELECT id, name, description, body_html, prompt, priority, active, is_default, opening_rules, opening_no_us, opening_starts, default_opening_id, created_at, updated_at FROM templates WHERE id=?', [id]))[0];
   if (!t) return null;
   const mappings = await query(
     `SELECT ts.id, ts.signal_id, ts.value_id, ts.weight, ts.role, ts.req_group, ts.source, s.number AS signal_number, s.name AS signal_name, v.name AS value_name
@@ -168,6 +169,45 @@ export const templateBody = z.object({
   name: z.string().trim().min(1, 'Name is required').max(160), description: optText(1000), body_html: z.string().max(200_000), prompt: optText(20_000),
   priority: z.number().int().min(0).max(100000).optional(), active: z.boolean().optional(), is_default: z.boolean().optional(),
   opening_rules: optText(4000), opening_no_us: z.boolean().optional(), opening_starts: optText(200),
+  default_opening_id: z.number().int().positive().nullable().optional(), // R88: the opening template this type is written with
+});
+// ---------- opening templates (R88): every opening in one place; each proposal type picks one as its default ----------
+export const openingBody = z.object({
+  name: z.string().trim().min(2, 'Give it a name').max(80), instructions: z.string().trim().min(20, 'Say what this opening does').max(3000),
+  starts: z.string().trim().max(200).nullable().optional(), may_greet: z.boolean().optional(), may_talk_about_us: z.boolean().optional(),
+  active: z.boolean().optional(), sort_order: z.number().int().min(0).max(10000).optional(),
+});
+proposals.get('/opening-templates', anyone, async (_req, res) => {
+  const doc = (await query<any>("SELECT id FROM writing_docs WHERE kind='opening' ORDER BY sort_order LIMIT 1"))[0];
+  res.json({ items: await allOpenings(), max: MAX_OPENINGS, rules_doc_id: doc?.id ?? null });
+});
+proposals.post('/opening-templates', editor, async (req, res) => {
+  const b = openingBody.safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  if (Number((await query<any>('SELECT COUNT(*) n FROM opening_templates'))[0].n) >= MAX_OPENINGS) return void res.status(409).json({ error: `There can be at most ${MAX_OPENINGS} opening templates. Change or switch off one instead.` });
+  try {
+    const r = await exec('INSERT INTO opening_templates (name, instructions, starts, may_greet, may_talk_about_us, active, sort_order) VALUES (?,?,?,?,?,?,?)',
+      [b.data.name, b.data.instructions, b.data.starts || null, b.data.may_greet ? 1 : 0, b.data.may_talk_about_us ? 1 : 0, b.data.active === false ? 0 : 1, b.data.sort_order ?? 300]);
+    await audit(req.user!.id, 'opening_template_create', b.data.name);
+    res.status(201).json({ id: r.insertId });
+  } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'An opening template with that name already exists' }); throw e; }
+});
+proposals.patch('/opening-templates/:id', editor, async (req, res) => {
+  const b = openingBody.partial().safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  const id = num(req.params.id), d: any = b.data;
+  // a type's default cannot be switched off: the type would have no opening to be written with
+  if (d.active === false) {
+    const users = await query<any>('SELECT name FROM templates WHERE default_opening_id=? AND active=1', [id]);
+    if (users.length) return void res.status(409).json({ error: `It is the default opening of ${users.map((u) => u.name).join(', ')}. Give ${users.length === 1 ? 'that type' : 'those types'} another default first.` });
+  }
+  const sets: string[] = [], p: any[] = [];
+  for (const k of ['name', 'instructions', 'sort_order']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+  if ('starts' in d) { sets.push('starts=?'); p.push(d.starts || null); }
+  for (const k of ['may_greet', 'may_talk_about_us', 'active']) if (k in d) { sets.push(`${k}=?`); p.push(d[k] ? 1 : 0); }
+  if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
+  try { const r = await exec(`UPDATE opening_templates SET ${sets.join(',')} WHERE id=?`, [...p, id]); if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' }); }
+  catch (e) { if (dup(e)) return void res.status(409).json({ error: 'An opening template with that name already exists' }); throw e; }
+  await audit(req.user!.id, 'opening_template_update', `id ${id}`);
+  res.json({ ok: true });
 });
 proposals.post('/templates', editor, async (req, res) => {
   const b = templateBody.safeParse(req.body);
@@ -189,6 +229,10 @@ proposals.patch('/templates/:id', editor, async (req, res) => {
   const sets: string[] = []; const p: any[] = [];
   for (const k of ['name', 'description', 'body_html', 'prompt', 'priority', 'opening_rules', 'opening_starts']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
   if (d.opening_no_us !== undefined) { sets.push('opening_no_us=?'); p.push(d.opening_no_us ? 1 : 0); }
+  if (d.default_opening_id !== undefined) {
+    if (d.default_opening_id !== null && !(await query<any>('SELECT 1 FROM opening_templates WHERE id=? AND active=1', [d.default_opening_id])).length) return void res.status(400).json({ error: 'That opening template does not exist or is switched off' });
+    sets.push('default_opening_id=?'); p.push(d.default_opening_id);
+  }
   if (d.active !== undefined) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
   if (d.is_default !== undefined) { sets.push('is_default=?'); p.push(d.is_default ? 1 : 0); if (d.is_default) await exec('UPDATE templates SET is_default=0 WHERE id<>?', [num(req.params.id)]); } // one default type
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });

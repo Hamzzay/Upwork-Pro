@@ -21,6 +21,7 @@ import { applyJudgement } from '../src/screening/judge';
 import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from '../src/proposal/openings';
+import { checkFlags, openingRules, templateBlock } from '../src/proposal/opening_templates';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -666,6 +667,19 @@ const ctx = { rules, projects };
     assert.equal(next, letter.replace('Your clinics miss calls after hours.', 'Four clinics, one missed call each night.'));
     assert.equal(replaceFirstHtmlParagraph('<p>Old <b>one</b>.</p><p>Rest &amp; more.</p>', 'New one.'), '<p>New one.</p><p>Rest &amp; more.</p>');
     assert.equal(replaceFirstHtmlParagraph('', 'New.'), '<p>New.</p>');
+  }
+  // R88: the opening is the opening template's, with the rules for every opening; its exceptions are fields
+  {
+    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true };
+    const txt = openingRules('No greeting. No talk about us.', tpl);
+    assert.ok(txt.indexOf('RULES FOR EVERY OPENING') < txt.indexOf('THE OPENING TO WRITE'), 'the rules first, then the template');
+    assert.ok(txt.includes('must begin with "Understood."'), 'the first words are said');
+    assert.ok(/format describes its opening differently, follow this/.test(txt), 'it says it decides over the format');
+    const approach = { ...tpl, name: 'Approach first opening', starts: 'For your platform,|For you,', may_talk_about_us: true };
+    assert.ok(templateBlock(approach).includes('"For your platform," or "For you,"') && templateBlock(approach).includes('may say how we would start'));
+    assert.deepEqual(checkFlags(approach), { noUs: false, starts: 'For your platform,|For you,', invite: false });
+    assert.deepEqual(checkFlags({ ...tpl, may_greet: true }), { noUs: true, starts: 'Understood.', invite: true });
+    assert.equal(openingRules(null, null), '', 'nothing to say without rules or a template');
   }
   // R71: an experience done in several projects; each project once; the gap's word puts what waits first
   {

@@ -2878,32 +2878,88 @@ async function flagReviewView() {
 
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
 const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist', selection: 'Type selection', opening: 'Opening lines' };
+/** One opening template, to add or change (R88): what it does, its first words, and its two possible exceptions. */
+function openingEditor(o, after) {
+  const f = { name: h('input', { type: 'text', id: 'oname', maxlength: 80, value: o ? o.name : '' }),
+    ins: h('textarea', { id: 'oins', rows: 14, maxlength: 3000, style: 'min-height:300px', placeholder: 'Line one ... Line two ... Tone ... The line of thought: they read on because ...' }),
+    starts: h('input', { type: 'text', id: 'ostarts', maxlength: 200, value: o && o.starts ? o.starts : '', placeholder: 'For example: Understood.' }),
+    greet: h('input', { type: 'checkbox', id: 'ogreet', checked: !!(o && o.may_greet) }), us: h('input', { type: 'checkbox', id: 'ous', checked: !!(o && o.may_talk_about_us) }),
+    active: h('input', { type: 'checkbox', id: 'oact', checked: o ? !!o.active : true }) };
+  f.ins.value = o ? o.instructions : '';
+  modal({ title: o ? 'Change ' + o.name : 'Add an opening template', confirm: o ? 'Save' : 'Add opening template', wide: true,
+    body: h('div', { class: 'stack', style: 'gap:14px' },
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'oname' }, 'Name'), f.name),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'oins' }, 'What this opening does'), f.ins, h('div', { class: 'hint' }, 'What line one and line two do, the tone, and why the client reads on. The rules for every opening apply on top, except where the options below say otherwise.')),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ostarts' }, 'First words (optional)'), f.starts, h('div', { class: 'hint' }, 'The opening must begin with this. For a choice, put | between them: For your platform,|For you,. A client\'s own required words come first.')),
+      h('label', { class: 'row', for: 'ogreet', style: 'gap:8px' }, f.greet, 'May open with a greeting by the client\'s name'),
+      h('label', { class: 'row', for: 'ous', style: 'gap:8px' }, f.us, 'May say how we would start (talk about us)'),
+      h('label', { class: 'row', for: 'oact', style: 'gap:8px' }, f.active, 'On: written as an alternative for every proposal')),
+    onConfirm: async () => {
+      const body = { name: f.name.value.trim(), instructions: f.ins.value.trim(), starts: f.starts.value.trim() || null, may_greet: f.greet.checked, may_talk_about_us: f.us.checked, active: f.active.checked };
+      if (o) await api('PATCH', '/opening-templates/' + o.id, body); else await api('POST', '/opening-templates', body);
+      toast(o ? 'Opening template saved' : 'Opening template added'); after();
+    } });
+}
+/** The Openings section of the Writing guide (R88): the rules for every opening, and the templates, with which type uses each by default. */
+function openingsSection(data, staff) {
+  const card = (o) => h(staff ? 'button' : 'div', { type: staff ? 'button' : null, class: 'card card-pad cardlink openingcard', onclick: staff ? () => openingEditor(o, route) : null },
+    h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('strong', {}, o.name), o.active ? null : h('span', { class: 'pill wait' }, 'Off')),
+    h('div', { class: 'jp-label clamp2' }, o.instructions),
+    h('div', { class: 'chips' }, ...[o.used_by ? h('span', { class: 'chip brand' }, 'Default of ' + o.used_by.replace(/Type (\d+)\. /g, 'Type $1 ')) : h('span', { class: 'chip' }, 'Alternative only'),
+      o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null, o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null].filter(Boolean)));
+  return h('div', { class: 'stack', style: 'gap:12px' },
+    data.rules_doc_id ? h('a', { class: 'card card-pad cardlink rulesrow', href: '#/wg/' + data.rules_doc_id }, h('div', { class: 'row', style: 'gap:10px' }, icon('doc'), h('div', {}, h('strong', {}, 'Rules for every opening'), h('div', { class: 'jp-label' }, 'What every opening must and must not do. A template can make the exceptions its options allow.')))) : null,
+    data.items.length ? h('div', { class: 'grid3' }, data.items.map(card)) : emptyState('doc', 'No opening templates yet', 'Add the first one: what the opening does, and its first words if it has any.'));
+}
+/**
+ * The Writing guide (R89): four tabs, so each part has the page to itself. Openings (the templates and the rules for every opening),
+ * Proposal types, Rules for every proposal, and Retired types. The tab is kept in the address, so Back returns to it.
+ */
 async function writingView() {
-  const { types, docs } = await api('GET', '/writing-docs');
+  const [{ types, docs: allDocs }, openingData] = await Promise.all([api('GET', '/writing-docs'), api('GET', '/opening-templates')]);
+  const docs = allDocs.filter((d) => d.kind !== 'opening'); // the rules for every opening sit with the openings
   const staff = me.role === 'admin' || me.role === 'manager';
   const docCard = (d) => h('a', { class: 'card card-pad cardlink', href: '#/wg/' + d.id },
     h('div', { class: 'row spread' }, h('strong', {}, d.title), Number(d.active) ? null : h('span', { class: 'pill wait' }, 'Off')),
     h('div', { class: 'jp-label' }, `${WG_KIND[d.kind]} · ${d.versions} version${Number(d.versions) === 1 ? '' : 's'} · edited ${ago(d.updated_at)}${d.updated_by_name ? ' by ' + d.updated_by_name : ''}`));
+  const openingName = new Map(openingData.items.map((o) => [o.id, o.name]));
   const typeCard = (t) => h(staff ? 'a' : 'div', { class: 'card card-pad cardlink', href: staff ? '#/t/' + t.id : null },
     h('div', { class: 'row spread' }, h('strong', {}, t.name), Number(t.active) ? null : h('span', { class: 'pill wait' }, 'Retired')),
     t.chosen_when ? h('div', { class: 'jp-label clamp2', title: t.chosen_when }, 'Chosen when ' + t.chosen_when) : t.description ? h('div', { class: 'jp-label clamp2' }, t.description.slice(0, 140)) : null,
-    h('div', { class: 'small faint' }, [t.length, `${t.signal_count} signal${Number(t.signal_count) === 1 ? '' : 's'}`, `${t.sample_count} sample${Number(t.sample_count) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')));
+    h('div', { class: 'small faint' }, [t.length, `${t.signal_count} signal${Number(t.signal_count) === 1 ? '' : 's'}`, `${t.sample_count} sample${Number(t.sample_count) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')),
+    t.default_opening_id && openingName.get(t.default_opening_id) ? h('div', { class: 'small' }, h('span', { class: 'faint' }, 'Opening: '), openingName.get(t.default_opening_id)) : null);
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
-  // every card is one item, so the shared list can search and filter them
-  const items = [...types.filter((t) => Number(t.active)).sort(byName).map((t) => ({ group: 'types', t })), ...docs.map((d) => ({ group: 'rules', d })), ...types.filter((t) => !Number(t.active)).map((t) => ({ group: 'retired', t }))];
-  const text = (x) => (x.t ? [x.t.name, x.t.chosen_when, x.t.description, x.t.length].filter(Boolean).join(' ') : x.d.title + ' ' + WG_KIND[x.d.kind]);
-  const GROUPS = [['types', 'Proposal types', 'One is picked for each job from its signals. Each has its format, length, signals and sample proposals.'],
-    ['rules', 'Rules for every proposal', 'Applied with every type: by the app\'s writer, its checks and the plugin.'],
-    ['retired', 'Retired', 'No longer chosen. Kept for reference and for the proposals already written with them.']];
-  shell('writing', [pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.',
-      staff ? h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add proposal type') : null),
-    listCard({ items, bare: true, paged: false, icon: 'doc', emptyTitle: 'Nothing in the writing guide yet', emptyText: 'Run the writing guide seed, or add a proposal type.',
-      search: { placeholder: 'Search the writing guide', text },
-      filters: [{ key: 'kind', label: 'Everything', options: GROUPS.map(([k, l]) => [k, l]), test: (x, v) => x.group === v },
-        { key: 'ready', label: 'Any setup', options: [['nosamples', 'Types without samples'], ['nosignals', 'Types without signals'], ['off', 'Turned off or retired']],
-          test: (x, v) => (v === 'nosamples' ? !!x.t && !Number(x.t.sample_count) : v === 'nosignals' ? !!x.t && !Number(x.t.signal_count) : x.t ? !Number(x.t.active) : !Number(x.d.active)) }],
-      render: (slice) => h('div', { class: 'stack' }, GROUPS.map(([k, title, sub]) => { const list = slice.filter((x) => x.group === k);
-        return list.length ? h('section', { class: 'stack', style: 'gap:12px' }, h('div', {}, h('h2', {}, title), h('p', { class: 'jp-label' }, sub)), h('div', { class: 'grid3' }, list.map((x) => (x.t ? typeCard(x.t) : docCard(x.d))))) : null; })) })], true);
+  const active = types.filter((t) => Number(t.active)).sort(byName), retired = types.filter((t) => !Number(t.active)).sort(byName);
+  const TABS = [
+    { key: 'openings', label: 'Openings', n: openingData.items.length, sub: 'The first two lines Upwork shows in the preview. Each proposal type is written with its default opening; every other opening that is on is written beside it, to swipe through and pick.' },
+    { key: 'types', label: 'Proposal types', n: active.length, sub: 'One is picked for each job from its signals. Each has its format, length, signals, samples and default opening.' },
+    { key: 'rules', label: 'Rules for every proposal', n: docs.length, sub: 'Applied with every type: by the app\'s writer, its checks, the review and the plugin.' },
+    { key: 'retired', label: 'Retired', n: retired.length, sub: 'No longer chosen. Kept for reference and for the proposals already written with them.' },
+  ];
+  let tab = TABS.some((t) => t.key === hashParams().tab) ? hashParams().tab : 'openings';
+  const tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Writing guide' });
+  const head = h('div', {}), body = h('div', { class: 'stack', style: 'gap:14px' });
+  const typeList = (list, empty) => listCard({ items: list, paged: false, icon: 'doc', emptyTitle: empty, emptyText: '',
+    search: { placeholder: 'Search proposal types', text: (t) => [t.name, t.chosen_when, t.description, t.length].filter(Boolean).join(' ') },
+    filters: [{ key: 'ready', label: 'Any setup', options: [['nosamples', 'Without samples'], ['nosignals', 'Without signals'], ['noopening', 'Without a default opening']],
+      test: (t, v) => (v === 'nosamples' ? !Number(t.sample_count) : v === 'nosignals' ? !Number(t.signal_count) : !t.default_opening_id) }],
+    render: (slice) => h('div', { class: 'grid3 card-pad' }, slice.map(typeCard)) });
+  const draw = () => {
+    const t = TABS.find((x) => x.key === tab);
+    tabsEl.replaceChildren(...TABS.map((x) => h('button', { type: 'button', role: 'tab', class: 'tab' + (x.key === tab ? ' on' : ''), 'aria-selected': x.key === tab,
+      onclick: () => { if (x.key === tab) return; tab = x.key; setHashParams({ tab, q: '', page: '', ready: '' }); draw(); } }, x.label, h('span', { class: 'n' }, String(x.n)))));
+    const action = !staff ? null : tab === 'openings'
+      ? h('button', { class: 'btn primary', type: 'button', disabled: openingData.items.length >= openingData.max || null, onclick: () => openingEditor(null, route) }, icon('screen'), `Add opening (${openingData.items.length} of ${openingData.max})`)
+      : tab === 'types' ? h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add proposal type') : null;
+    head.replaceChildren(pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.', action));
+    body.replaceChildren(h('p', { class: 'jp-label', style: 'margin:0' }, t.sub),
+      tab === 'openings' ? openingsSection(openingData, staff)
+        : tab === 'types' ? typeList(active, 'No proposal types yet')
+          : tab === 'retired' ? (retired.length ? h('div', { class: 'grid3' }, retired.map(typeCard)) : emptyState('doc', 'Nothing retired', 'A proposal type switched off shows here.'))
+            : h('div', { class: 'grid3' }, docs.map(docCard)));
+  };
+  shell('writing', [head, tabsEl, body], true);
+  draw();
 }
 async function writingDocView(id) {
   const { doc, versions } = await api('GET', '/writing-docs/' + id);
@@ -2919,7 +2975,7 @@ async function writingDocView(id) {
   const vrow = (v) => h('div', { class: 'vitem' }, h('div', { class: 'top' }, h('strong', {}, full(v.created_at))), h('div', { class: 'small muted' }, (v.note || 'No note') + (v.created_by_name ? ' · ' + v.created_by_name : '')),
     canEdit ? h('div', {}, h('button', { class: 'btn sm', onclick: async () => { const r = await api('GET', `/writing-docs/${id}/versions/${v.id}`); ta.value = r.version.content; dirty.hidden = ta.value === doc.content; toast('Loaded into the editor. Save to restore it.'); window.scrollTo(0, 0); } }, 'Load')) : null);
   shell('writing', [
-    pageHead(doc.title, `${WG_KIND[doc.kind]}. Written in Markdown.`, canEdit ? toggle : null, { back: ['#/writing', 'Writing guide'], badges: onOff(doc.active, 'On', 'Off') }),
+    pageHead(doc.title, `${WG_KIND[doc.kind]}. Written in Markdown.`, canEdit ? toggle : null, { back: [doc.kind === 'opening' ? '#/writing?tab=openings' : '#/writing?tab=rules', 'Writing guide'], badges: onOff(doc.active, 'On', 'Off') }),
     h('div', { class: 'two' }, h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Text'), h('span', { class: 'sub' }, dirty)), ta,
       canEdit ? h('div', { class: 'card-pad', style: 'border-top:1px solid var(--line);display:grid;gap:12px' }, note, h('div', {}, save)) : null),
       versionsCard(versions, vrow, (v) => `${full(v.created_at)} ${v.note || ''} ${v.created_by_name || ''}`))], true);
@@ -3000,31 +3056,6 @@ async function settingsView() {
   const sig = settings['writer.structured_signal'];
   const sigNum = h('input', { type: 'number', min: 1, value: sig.signal, style: 'width:90px', 'aria-label': 'Signal number' });
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
-  // the opening styles (R73): one opening per style that is on, for every proposal; two to four
-  const stylesCard = (() => {
-    let styles = settings['writer.opening_styles'].map((x) => ({ ...x }));
-    const list = h('div', { class: 'stack', style: 'gap:12px' });
-    const saveBtn = h('button', { class: 'btn sm primary', type: 'button' }, 'Save styles');
-    const addBtn = h('button', { class: 'btn sm', type: 'button' }, 'Add a style');
-    const draw = () => {
-      list.replaceChildren(...styles.map((st, i) => {
-        const name = h('input', { type: 'text', value: st.name, maxlength: 60, 'aria-label': 'Style name', style: 'max-width:280px' });
-        const ins = h('textarea', { rows: 3, maxlength: 1500, 'aria-label': 'Instructions for ' + st.name }); ins.value = st.instructions;
-        const on = h('input', { type: 'checkbox', checked: st.active, id: 'sty' + i });
-        name.oninput = () => { st.name = name.value; }; ins.oninput = () => { st.instructions = ins.value; }; on.onchange = () => { st.active = on.checked; };
-        const rm = styles.length > 2 ? h('button', { class: 'btn sm', type: 'button', onclick: () => { styles.splice(i, 1); draw(); } }, 'Remove') : null;
-        return h('div', { class: 'stylebox' }, h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'jp-sec' }, `Opening ${i + 1}`), name),
-          h('div', { class: 'row', style: 'gap:10px' }, h('label', { class: 'row small', for: 'sty' + i, style: 'gap:6px' }, on, 'On'), rm)), ins);
-      }));
-      addBtn.hidden = styles.length >= 4;
-    };
-    addBtn.onclick = () => { styles.push({ name: 'New style', active: true, instructions: 'Lead with ... Tone: ... The line of thought: they read on because ...' }); draw(); };
-    saveBtn.onclick = () => save('writer.opening_styles', styles.map((x) => ({ name: x.name.trim(), instructions: x.instructions.trim(), active: !!x.active })), saveBtn);
-    draw();
-    return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, meta['writer.opening_styles'].label), h('span', { class: 'sub' }, 'The openings to pick from on every proposal')),
-      h('div', { class: 'card-pad', style: 'display:grid;gap:12px' }, h('p', { class: 'jp-label', style: 'margin:0' }, meta['writer.opening_styles'].help), list,
-        h('div', { class: 'row', style: 'gap:8px;justify-content:flex-end' }, addBtn, saveBtn)));
-  })();
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     (() => { const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' }); return group('Company', [row('company.name', el, () => el.value.trim())]); })(),
@@ -3033,7 +3064,7 @@ async function settingsView() {
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       (() => { const el = h('textarea', { rows: 2, style: 'min-width:380px;min-height:56px', 'aria-label': 'The Loom video line' }); el.value = settings['writer.loom_line']; return row('writer.loom_line', el, () => el.value.trim()); })(),
-      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))]), stylesCard], true);
+      row('writer.structured_signal', h('span', { class: 'row', style: 'gap:6px' }, 'Signal', sigNum, 'is', sigVal), () => ({ signal: Number(sigNum.value), value: sigVal.value.trim() }))])], true);
 }
 
 // ---------- connect Claude: personal tokens for the import MCP ----------
@@ -3120,7 +3151,7 @@ async function route() {
     if (a === 'history') return await historyView();
     if (a === 'dashboard' || !a) return await dashboardView();
     if (a === 'reports') return await reportsView();
-    if (a === 'templates') { location.hash = '#/writing'; return; } // the proposal types live on the Writing guide now
+    if (a === 'templates') { location.hash = '#/writing?tab=types'; return; } // the proposal types live on the Writing guide now
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'signals' && me.role !== 'employee') return await signalsView();
     if (a === 'writing') return await writingView();

@@ -45,7 +45,13 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.15.0)
+## Status (v0.16.0)
+
+v0.16.0: openings in one place. A proposal's opening follows the type's default opening template (`default_opening`,
+`opening_templates` in `get_writing_guide`) and the rules for every opening; the other active templates are the alternatives.
+Opening templates can be changed from Claude with the setup-admin skill (kind `opening_template`).
+
+## Earlier (v0.15.0)
 
 v0.15.0: everything can be read from Claude to find trends and fix the setup: `get_dashboard` (the Dashboard with its proposal
 quality numbers), `get_proposal_record` (one job's versions, review, openings, experience, feedback, comparisons and documents),

@@ -1,3 +1,4 @@
+import { activeOpenings, templateBlock } from './proposal/opening_templates';
 import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
@@ -570,19 +571,24 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
 plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
   if (await setupVersionOr(req, res, !req.query.type && !req.query.all)) return;
   const docs = await query<any>("SELECT kind, content, updated_at FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
-  const types = await query<any>('SELECT id, name, body_html, prompt, priority, updated_at, opening_rules, opening_no_us, opening_starts FROM templates WHERE active=1 ORDER BY priority, name');
+  const types = await query<any>('SELECT id, name, body_html, prompt, priority, updated_at, opening_rules, opening_no_us, opening_starts, default_opening_id FROM templates WHERE active=1 ORDER BY priority, name');
+  const openings = await activeOpenings(); // R88: the opening templates, each type's default among them
+  const openingById = new Map(openings.map((o) => [o.id, o]));
   const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content).join('\n\n') || null;
   const want = String(req.query.type ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const all = req.query.all === '1';
   const key = (name: string) => name.toLowerCase().replace(/^type\s+/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   res.json({
     types: types.map((t) => {
+      const def = openingById.get(t.default_opening_id) ?? null;
+      // the opening is not the type's: it is the type's default opening template (R88), with the rules for every opening
       const text = htmlToPlain(t.body_html) + (t.prompt ? '\n\nInstructions: ' + t.prompt : '')
-        + (t.opening_rules ? `\n\nFIRST TWO LINES (strict; Upwork shows them in the preview)\n${t.opening_rules}${t.opening_starts ? '\nMust start with: ' + t.opening_starts.split('|').join(' or ') : ''}${t.opening_no_us ? '\nNo talk about us, no project names, no stats in the first two lines.' : ''}` : '');
+        + (def ? `\n\nOPENING (the first paragraph; this decides it, wherever the format above describes the opening differently)\nDefault opening template: ${templateBlock(def)}` : '');
       const match = all || (want && (t.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').includes(want) || key(t.name).replace(/-/g, ' ').includes(want)));
-      return { key: key(t.name), title: t.name, ...typeFacts(text), first_two_lines: t.opening_rules || undefined, content: match ? text : undefined };
+      return { key: key(t.name), title: t.name, ...typeFacts(text), default_opening: def?.name, content: match ? text : undefined };
     }),
-    type_selection: one('selection'), opening_lines: one('opening'), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
+    type_selection: one('selection'), opening_lines: one('opening'),
+    opening_templates: openings.map((o) => ({ name: o.name, instructions: o.instructions, must_start_with: o.starts ? o.starts.split('|').map((x) => x.trim()) : undefined, may_greet: o.may_greet || undefined, may_talk_about_us: o.may_talk_about_us || undefined })), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
     updated_at: [...docs, ...types].reduce((m: any, d: any) => (m && m > d.updated_at ? m : d.updated_at), null),
   });
 });

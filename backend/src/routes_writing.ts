@@ -13,7 +13,7 @@ const editor = requireRole('admin', 'manager');
 
 writing.get('/writing-docs', anyone, async (_req, res) => {
   // the proposal types are the templates (used by the app's writer and the plugin); the docs are the rules shared by every type
-  const types = (await query<any>(`SELECT t.id, t.name, t.description, t.body_html, t.priority, t.active, t.updated_at,
+  const types = (await query<any>(`SELECT t.id, t.name, t.description, t.body_html, t.priority, t.active, t.updated_at, t.default_opening_id,
       (SELECT COUNT(*) FROM template_signals ts WHERE ts.template_id=t.id) AS signal_count, (SELECT COUNT(*) FROM template_samples sm WHERE sm.template_id=t.id) AS sample_count
     FROM templates t ORDER BY t.active DESC, t.priority, t.name`)).map(({ body_html, ...t }) => ({ ...t, ...typeFacts(htmlToPlain(body_html)) }));
   res.json({ types, docs: await query(`SELECT d.id, d.doc_key, d.kind, d.title, d.sort_order, d.active, d.updated_at, u.name AS updated_by_name, CHAR_LENGTH(d.content) AS chars,

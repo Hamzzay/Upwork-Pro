@@ -117,6 +117,10 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 68 | Jobs list columns: order them (drag or arrows), hide and show, kept per person (R85, migration 049) | done |
 | 69 | A slim sidebar (icons only) for small screens, and a distinct icon for every page and section (R86) | done |
 | 70 | Your account: picture (initials until then), name and password, for everyone (R87, migration 050) | done |
+| 71 | Openings in one place: up to 10 opening templates, a default per proposal type, the rest as alternatives (R88, migration 051, plugin v0.16.0) | done |
+| 73 | The Writing guide in four tabs (Openings, Proposal types, Rules, Retired); a taller box for an opening template (R89) | done |
+| 74 | The proposal type page in tabs (Details and format, Opening, Signals, Samples); the default opening picked from cards with a preview (R90) | done |
+| 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

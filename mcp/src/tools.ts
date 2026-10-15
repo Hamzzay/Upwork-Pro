@@ -191,10 +191,10 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/profiles', a));
 
   // ---------- the setup, for admins and managers (the setup-admin skill) ----------
-  const KIND = z.enum(['project', 'industry', 'tag', 'tag_category', 'profile', 'loom_video', 'rule', 'signal', 'signal_value', 'template', 'template_sample', 'writing_doc', 'setting', 'gate_instructions', 'reviewer_instructions']);
+  const KIND = z.enum(['project', 'industry', 'tag', 'tag_category', 'profile', 'loom_video', 'rule', 'signal', 'signal_value', 'template', 'template_sample', 'opening_template', 'writing_doc', 'setting', 'gate_instructions', 'reviewer_instructions']);
   const sq = (o: Record<string, unknown>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== '') p.set(k, String(v)); const t = p.toString(); return t ? '?' + t : ''; };
 
-  T('setup_start', 'Call this first for any change to the setup of Upwork Pro. It says who is signed in, which kinds of things they may change (projects, industries, tags, profiles, Loom videos, rules, signals, proposal types, the writing guide, the instructions of the independent reviewer, gate instructions, settings), what happens after a change is applied, and what can never be changed from Claude.',
+  T('setup_start', 'Call this first for any change to the setup of Upwork Pro. It says who is signed in, which kinds of things they may change (projects, industries, tags, profiles, Loom videos, rules, signals, proposal types, opening templates (each proposal type picks one as its default opening), the writing guide, the instructions of the independent reviewer, gate instructions, settings), what happens after a change is applied, and what can never be changed from Claude.',
     {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/plugin/setup'));
 
   T('setup_list', 'List the items of one kind in the setup, with a search. Always look here before adding something, so nothing is added twice. For gate_instructions and reviewer_instructions it lists the versions; for setting, every setting with its value and what it does.',

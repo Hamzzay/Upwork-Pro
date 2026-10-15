@@ -54,7 +54,11 @@ Signals decide which proposal type is suggested, so show the proposal types that
 
 ## Proposal type (`template`) and sample proposal (`template_sample`)
 
-Type: `name`, when it is chosen (`description`), the structure (`body_html`), instructions for the writer (`prompt`), the rules for the first two lines (`opening_rules`), `priority`.
+Type: `name`, when it is chosen (`description`), the structure (`body_html`), instructions for the writer (`prompt`), its default opening (`default_opening`, the name of an active opening template), `priority`. The type does not hold opening rules any more (`opening_rules` is no longer used).
+
+## Opening template (`opening_template`)
+
+Every opening lives here (at most 10). `name`, what the opening does: what it leads with, its tone and its line of thought (`instructions`), required first words (`starts`, with `|` between choices), whether it may greet by name (`may_greet`) or say how we would start (`may_talk_about_us`), `active`. The rules for every opening are the writing guide document "Opening lines (all types)". A template that is a type's default cannot be switched off: give the type another default first. Every proposal type is written with its default; every other active template gives one more opening to pick from.
 Sample (needs `parent`, the type): `title`, `author`, the job link (`job_url`), job keywords (`job_keywords`), the proposal text (`content`). A sample must be a real proposal that was sent; remove the client's name and anything private before showing it.
 
 ## Writing guide document (`writing_doc`)

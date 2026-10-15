@@ -1,3 +1,4 @@
+import { openingRules, type OpeningTemplate } from './opening_templates';
 import { z } from 'zod';
 import { htmlToPlain } from '../html';
 import type { DetectedValue } from './signals';
@@ -9,13 +10,14 @@ export interface ProjectFact { id?: number | null; name: string; live_link: stri
 /** The profile the proposal is sent from. `gitlab_link` is its code link: the GitLab account, or else the GitHub link. */
 export interface SenderFact { name: string; gitlab_link: string | null; tagline: string | null; voice?: string | null; signature?: string | null; stats?: string | null; rules?: string | null; certifications?: string | null; /** The Loom video the person chose to send with this proposal, if any. */ loom?: { title: string; url: string; topic: string | null } | null }
 export interface SampleFact { title: string; content: string }
-export interface TemplateFact { name: string; body_html: string; prompt: string | null; opening_rules?: string | null; opening_no_us?: boolean; opening_starts?: string | null }
+export interface TemplateFact { name: string; body_html: string; prompt: string | null; /** the type's default opening template (R88) */ opening?: OpeningTemplate | null; opening_rules?: string | null; opening_no_us?: boolean; opening_starts?: string | null }
 /** The strict rules for the first two lines, the part Upwork shows in the preview. */
 /**
  * The first two lines (R68): the Writing guide's "Opening lines" document, the defaults for every type, then the proposal type's
  * own rules, which win where the two differ.
  */
 export function openingSection(t: TemplateFact | null, shared?: string | null): string {
+  if (t?.opening) return openingRules(shared, t.opening); // R88: the opening template decides; the type's old fields are not read
   const own = t?.opening_rules?.trim(), all = shared?.trim();
   if (!own && !all) return '';
   return `FIRST TWO LINES (strict: Upwork shows them in the preview before the client opens the proposal. Follow every rule below exactly; they win over anything else in the type about the opening, except a client\'s required opening words)\n`

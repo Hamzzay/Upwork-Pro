@@ -13,7 +13,7 @@ import { config } from './config';
 import { ChangedSince, KINDS, mainAdminId, raw, revert, same, type Raw } from './changesets';
 import { lineDiff } from './changes';
 import { categoryBody, industryBody, loomBody, profileBody, projectBody, tagBody } from './routes_library';
-import { sampleBody, signalBody, templateBody, valueBody } from './routes_proposals';
+import { openingBody, sampleBody, signalBody, templateBody, valueBody } from './routes_proposals';
 import { getSettings, SETTINGS } from './settings';
 import { reviewerSections } from './proposal/reviewer';
 import { activeReviewer, ensureReviewer, reviewerVersion } from './proposal/reviewer_store';
@@ -53,7 +53,8 @@ const SPEC: Record<string, Spec> = {
   rule: { name: 'code', create: () => '/admin/rules', item: (code) => `/admin/rules/${code}`, hint: ['type', 'rule'] },
   signal: { name: 'name', body: signalBody, create: () => '/signals', item: (id) => `/signals/${id}`, hint: ['number', 'decides'], refs: [{ field: 'layer', to: 'layer_id', table: 'signal_layers', col: 'code', many: false }] },
   signal_value: { name: 'name', body: valueBody, create: (p) => `/signals/${p}/values`, item: (id) => `/signal-values/${id}`, hint: ['detect'], parent: { table: 'signals', col: 'signal_id', label: 'signal' } },
-  template: { name: 'name', body: templateBody, create: () => '/templates', item: (id) => `/templates/${id}`, hint: ['description', 'priority'] },
+  template: { name: 'name', body: templateBody, create: () => '/templates', item: (id) => `/templates/${id}`, hint: ['description', 'priority'], refs: [{ field: 'default_opening', to: 'default_opening_id', table: 'opening_templates', many: false }] },
+  opening_template: { name: 'name', body: openingBody, create: () => '/opening-templates', item: (id) => `/opening-templates/${id}`, hint: ['starts', 'instructions'] },
   template_sample: { name: 'title', body: sampleBody, create: (p) => `/templates/${p}/samples`, item: (id) => `/template-samples/${id}`, hint: ['author'], parent: { table: 'templates', col: 'template_id', label: 'proposal type' } },
   writing_doc: { name: 'title', body: docBody, item: (id) => `/writing-docs/${id}`, put: true, hint: ['doc_key', 'kind'] },
   setting: { name: 'k', item: (k) => `/admin/settings/${k}`, put: true },

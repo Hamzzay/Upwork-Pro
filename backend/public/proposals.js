@@ -391,14 +391,16 @@ function proposalSection(s, initial, matching) {
     const writeBtn = (label) => (owner ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Starting');
       try { await api('POST', `/proposals/${data.id}/openings`, {}); data.openings = { ...o, status: 'queued' }; previewTo(0); drawOpenings(); startPolling(); } catch (x) { toast(x.message, true); drawOpenings(); } } }, label) : null);
     const shell = (...kids) => openEl.replaceChildren(h('div', { class: 'opencard' }, ...kids));
-    if (openingsBusy()) return shell(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing the openings, one per style, each a different direction and tone...'));
+    if (openingsBusy()) return shell(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing the other openings, one per opening template...'));
     if (!o.items || !o.items.length) return o.status === 'error'
       ? shell(h('div', { class: 'row spread' }, h('span', { class: 'err' }, icon('x'), 'The openings could not be written' + (o.error ? ': ' + o.error : '.')), writeBtn('Try again')))
-      : owner ? shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Openings to choose from, one per style, each a different direction and tone.'), writeBtn('Write the openings'))) : openEl.replaceChildren();
+      : owner ? shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Openings to choose from: one per opening template that is on, each its own direction and tone.'), writeBtn('Write the openings'))) : openEl.replaceChildren();
     const curFirst = firstPara(data.current.html);
     if (norm(curFirst) !== norm(o.first)) return shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'The openings were written for an earlier first paragraph.'), writeBtn('Write new ones')));
     // As written first (the one in use, when one was used), then the others
-    slides = [{ label: o.used != null && o.items[o.used] ? 'Opening in use' : 'Opening as written', angle: o.used != null && o.items[o.used] ? o.items[o.used].angle : null, tone: o.used != null && o.items[o.used] ? o.items[o.used].tone : null, text: curFirst, why: null, index: null },
+    // the first slide is the opening in the proposal now: the type's default template (R88), or the one picked
+    const usedIt = o.used != null && o.items[o.used] ? o.items[o.used] : null;
+    slides = [{ label: usedIt ? `${usedIt.style || 'Opening'} (in use)` : o.default ? `${o.default} (default)` : 'Opening as written', angle: usedIt ? usedIt.angle : null, tone: usedIt ? usedIt.tone : null, text: curFirst, why: null, index: null },
       ...o.items.map((x, i) => ({ ...x, label: x.style || `Opening ${i + 1}`, index: i })).filter((x) => x.index !== o.used)]; // labelled by its style (Settings)
     if (previewIdx >= slides.length) previewIdx = 0;
     const track = h('div', { class: 'opentrack' }, slides.map((sl) => h('div', { class: 'openslide' }, h('p', { class: 'opentext' }, sl.text), sl.why ? h('div', { class: 'faint small' }, sl.why) : null)));
@@ -807,52 +809,86 @@ const canEditTemplates = () => me.role === 'admin' || me.role === 'manager';
 
 async function templateView(idStr) {
   const isNew = idStr === 'new';
-  const [{ template: t }, sigData] = await Promise.all([isNew ? Promise.resolve({ template: null }) : api('GET', '/templates/' + idStr), api('GET', '/signals')]);
+  const [{ template: t }, sigData, opData] = await Promise.all([isNew ? Promise.resolve({ template: null }) : api('GET', '/templates/' + idStr), api('GET', '/signals'), api('GET', '/opening-templates')]);
   const signals = sigData.signals;
   const f = { name: h('input', { type: 'text', id: 'tn', maxlength: 160, value: t ? t.name : '' }), desc: h('textarea', { id: 'td', maxlength: 1000, style: 'min-height:70px' }),
     priority: h('input', { type: 'number', id: 'tp', min: 0, step: 1, value: t ? t.priority : 100 }), active: h('input', { type: 'checkbox', id: 'ta', checked: t ? !!Number(t.active) : true }),
     isDefault: h('input', { type: 'checkbox', id: 'tdf', checked: t ? !!Number(t.is_default) : false }),
     prompt: h('textarea', { id: 'tpr', style: 'min-height:140px', maxlength: 20000, placeholder: 'Extra instructions for the AI when it writes with this type. Optional.' }),
-    opening: h('textarea', { id: 'top', style: 'min-height:140px', maxlength: 4000, placeholder: '1. Line one names the pain...\n2. Line two shows what causes it...' }),
-    starts: h('input', { type: 'text', id: 'tos', maxlength: 200, value: t && t.opening_starts ? t.opening_starts : '', placeholder: 'For example: Understood.' }),
-    noUs: h('input', { type: 'checkbox', id: 'tnu', checked: t ? !!Number(t.opening_no_us ?? 1) : true }) };
-  f.desc.value = t && t.description ? t.description : ''; f.prompt.value = t && t.prompt ? t.prompt : ''; f.opening.value = t && t.opening_rules ? t.opening_rules : '';
+  };
+  f.desc.value = t && t.description ? t.description : ''; f.prompt.value = t && t.prompt ? t.prompt : '';
   const fmt = richEditor(t ? t.body_html : '<p></p>', { label: 'Proposal type format' });
   const err = h('div', { class: 'err', hidden: true });
   const saveBtn = h('button', { class: 'btn primary', type: 'button' }, isNew ? 'Create type' : 'Save type');
   saveBtn.onclick = async () => {
     err.hidden = true; btnBusy(saveBtn, 'Saving');
     const body = { name: f.name.value, description: f.desc.value.trim() || null, body_html: fmt.getHtml(), prompt: f.prompt.value.trim() || null, priority: Number(f.priority.value), active: f.active.checked, is_default: f.isDefault.checked,
-      opening_rules: f.opening.value.trim() || null, opening_starts: f.starts.value.trim() || null, opening_no_us: f.noUs.checked };
+      default_opening_id: openingId };
     try { const r = await api(isNew ? 'POST' : 'PATCH', isNew ? '/templates' : '/templates/' + t.id, body); toast(isNew ? 'Proposal type created' : 'Proposal type saved'); if (isNew) location.hash = '#/t/' + r.id; else route(); }
     catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; saveBtn.disabled = false; saveBtn.replaceChildren(isNew ? 'Create type' : 'Save type'); }
   };
   const del = !isNew ? h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + t.name + '?', confirm: 'Delete proposal type', danger: true,
     body: h('p', { class: 'muted' }, 'This removes the proposal type, its signal mapping and its samples. Proposals already written keep its name. To stop using it but keep it, untick Active instead. It cannot be undone.'),
-    onConfirm: async () => { await api('DELETE', '/templates/' + t.id); toast('Proposal type deleted'); location.hash = '#/writing'; } }) }, 'Delete') : null;
+    onConfirm: async () => { await api('DELETE', '/templates/' + t.id); toast('Proposal type deleted'); location.hash = '#/writing?tab=types'; } }) }, 'Delete') : null;
 
-  const parts = [
-    pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', [del, saveBtn],
-      { back: ['#/writing', 'Writing guide'], badges: isNew ? null : activeSwitch(t.active, { name: t.name, url: '/templates/' + t.id, no: 'Retired', offText: 'It is no longer suggested or offered. Proposals already written with it keep it.' }) }),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'),
-      h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Name'), f.name),
-        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Tens set the priority group (10 first, then 20, 30, 40); within a group, more supporting signals win, then the lower number.'))),
-      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td' }, 'Description'), f.desc),
-      h('div', { class: 'field row', style: 'margin-top:12px' }, f.active, h('label', { for: 'ta', style: 'font-weight:600' }, 'Active (can be chosen for proposals)')),
-      h('div', { class: 'field row', style: 'margin-top:8px' }, f.isDefault, h('label', { for: 'tdf', style: 'font-weight:600' }, 'Default type (used when no type qualifies)'))),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Format'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'The structure and rules the proposal must follow. The AI reads this as written.'), fmt.el),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'First two lines'),
-      h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Upwork shows these two lines before the client opens the proposal, so the AI follows these rules strictly.'),
-      f.opening,
-      h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'tos' }, 'First word or words (optional)'), f.starts,
-        h('div', { class: 'hint' }, 'The proposal must begin with this, for example Understood. For a choice, put | between them: For your platform,|For you,. If the client asks for their own opening, theirs is used.')),
-      h('div', { class: 'field', style: 'margin-top:16px' }, h('div', { class: 'row', style: 'gap:8px' }, f.noUs, h('label', { for: 'tnu', style: 'font-weight:600' }, 'Check that the first two lines do not talk about us')),
-        h('div', { class: 'hint' }, 'After writing, the app looks for I, we, our and my in the first two lines. If it finds them, the AI rewrites those lines once; if they still talk about us, you see a warning. Untick it for types that open with our approach, such as Invite and Approach first.'))),
-    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Prompt'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Extra instructions used with this type. Safety rules (no invented facts, links or numbers) always apply on top.'), f.prompt),
-    err,
-  ];
-  if (!isNew) { parts.push(mappingCard(t, signals), samplesCard(t)); }
-  shell('writing', parts, true);
+  // R88/R90: the type does not hold its opening; it picks one of the opening templates as its default, from cards that show what each does
+  let openingId = t && t.default_opening_id ? t.default_opening_id : null;
+  const choices = opData.items.filter((o) => o.active || (t && o.id === t.default_opening_id));
+  const pickGrid = h('div', { class: 'opick', role: 'radiogroup', 'aria-label': 'Default opening' });
+  const preview = h('div', {});
+  const others = (o) => (o.used_by || '').split(', ').filter((n) => n && (!t || n !== t.name)).map((n) => n.replace(/^(Type \d+)\..*$/, '$1'));
+  const flagChips = (o) => [o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null,
+    o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null, o.active ? null : h('span', { class: 'chip' }, 'Switched off')].filter(Boolean);
+  const drawPick = () => {
+    const pick = (id) => () => { openingId = id; drawPick(); };
+    const card = (o, id, name, text, chips) => h('button', { type: 'button', role: 'radio', 'aria-checked': openingId === id ? 'true' : 'false', class: openingId === id ? 'on' : '', onclick: pick(id) },
+      h('span', { class: 'nm' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), name), h('span', { class: 'ex' }, text), chips.length ? h('span', { class: 'chips' }, ...chips) : null);
+    pickGrid.replaceChildren(...choices.map((o) => card(o, o.id, o.name, o.instructions, [...flagChips(o), ...(others(o).length ? [h('span', { class: 'chip brand' }, 'Also used by ' + others(o).join(', '))] : [])])),
+      card(null, null, 'No default', 'Written with the rules for every opening only, and no template of its own.', []));
+    const o = choices.find((x) => x.id === openingId);
+    const alt = opData.items.filter((x) => x.active && x.id !== openingId).length;
+    preview.replaceChildren(h('div', { class: 'opreview' },
+      h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('div', {}, h('div', { class: 'jp-label' }, o ? 'What this opening tells the AI' : 'No opening template'), h('strong', {}, o ? o.name : 'The rules for every opening only')),
+        o && canEditTemplates() ? h('button', { class: 'btn sm', type: 'button', onclick: () => openingEditor(o, route) }, 'Edit opening') : null),
+      o ? h('div', { class: 'txt' }, o.instructions) : null, o && flagChips(o).length ? h('div', { class: 'chips' }, ...flagChips(o)) : null,
+      h('p', { class: 'hint', style: 'margin:0' }, alt ? `The other ${alt} active opening${alt === 1 ? ' is' : 's are'} written beside it, to pick from on the proposal page.` : 'No other opening is active, so there is nothing to pick from beside it.')));
+  };
+  drawPick();
+
+  const TABS = [{ key: 'format', label: 'Details and format' }, { key: 'opening', label: 'Opening' }, ...(isNew ? [] : [{ key: 'signals', label: 'Signals', n: t.mappings.length }, { key: 'samples', label: 'Samples' }])];
+  let tab = TABS.some((x) => x.key === hashParams().tab) ? hashParams().tab : 'format';
+  const panes = {
+    format: h('div', { class: 'stack', style: 'gap:16px' },
+      h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Details'),
+        h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Name'), f.name),
+          h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tp' }, 'Priority'), f.priority, h('div', { class: 'hint' }, 'Tens set the priority group (10 first, then 20, 30, 40); within a group, more supporting signals win, then the lower number.'))),
+        h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td' }, 'Description'), f.desc),
+        h('div', { class: 'field row', style: 'margin-top:12px' }, f.active, h('label', { for: 'ta', style: 'font-weight:600' }, 'Active (can be chosen for proposals)')),
+        h('div', { class: 'field row', style: 'margin-top:8px' }, f.isDefault, h('label', { for: 'tdf', style: 'font-weight:600' }, 'Default type (used when no type qualifies)'))),
+      h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Format'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'The structure and rules the proposal must follow. The AI reads this as written. Its opening comes from the Opening tab.'), fmt.el),
+      h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'Prompt'), h('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Extra instructions used with this type. Safety rules (no invented facts, links or numbers) always apply on top.'), f.prompt)),
+    opening: h('div', { class: 'card card-pad' },
+      h('div', { class: 'row spread', style: 'align-items:flex-start' }, h('div', {}, h('h3', { class: 'section-title', style: 'margin:0' }, 'Default opening'),
+        h('p', { class: 'hint', style: 'margin:6px 0 0' }, 'The first two lines Upwork shows in the preview. Proposals of this type are written with the opening picked here.')),
+        h('a', { href: '#/writing?tab=openings', class: 'btn sm' }, 'All opening templates')),
+      h('div', { style: 'height:14px' }), pickGrid, preview),
+    signals: isNew ? null : mappingCard(t, signals),
+    samples: isNew ? null : samplesCard(t),
+  };
+  const tabsEl = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Proposal type' });
+  const body = h('div', { class: 'stack', style: 'gap:16px' }, ...Object.values(panes).filter(Boolean), err);
+  const head = h('div', {});
+  const draw = () => {
+    tabsEl.replaceChildren(...TABS.map((x) => h('button', { type: 'button', role: 'tab', class: 'tab' + (x.key === tab ? ' on' : ''), 'aria-selected': x.key === tab ? 'true' : 'false',
+      onclick: () => { if (x.key === tab) return; tab = x.key; setHashParams({ tab: tab === 'format' ? '' : tab }); draw(); } }, x.label, x.n != null ? h('span', { class: 'n' }, String(x.n)) : null)));
+    for (const [k, el] of Object.entries(panes)) if (el) el.hidden = k !== tab;
+    // the type's own fields are saved with Save type; the signals and the samples have their own buttons
+    const own = tab === 'format' || tab === 'opening';
+    head.replaceChildren(pageHead(isNew ? 'New proposal type' : t.name, isNew ? 'Describe the format (with Chosen when and Length lines), pick its opening, then add its signals and samples.' : 'A proposal type: used by the app\'s writer and the Claude plugin.', own ? [del, saveBtn] : [del],
+      { back: [t && !Number(t.active) ? '#/writing?tab=retired' : '#/writing?tab=types', 'Writing guide'], badges: isNew ? null : activeSwitch(t.active, { name: t.name, url: '/templates/' + t.id, no: 'Retired', offText: 'It is no longer suggested or offered. Proposals already written with it keep it.' }) }));
+  };
+  draw();
+  shell('writing', [head, tabsEl, body], true);
 }
 
 function mappingCard(t, signals) {

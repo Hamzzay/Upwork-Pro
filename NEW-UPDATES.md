@@ -1003,6 +1003,52 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R90. The proposal type page in tabs, and its opening picked from cards (done, 15 October)
+
+- **Why** (Ahmad): the default opening was a small dropdown with a clear button and a search box, and the page was one long scroll.
+- **Now four tabs**: **Details and format** (details, format, prompt), **Opening**, **Signals** (with its count) and **Samples**.
+  The tab is kept in the address. Save type shows on the first two tabs; Signals and Samples keep their own buttons.
+- **The Opening tab** shows every active opening template as a card (what it does, its first words, May greet, May say how we
+  start, and which other types also use it), plus **No default**. Click one to pick it. The box below shows the picked template's
+  full instructions, an Edit opening button, and how many other openings are written beside it.
+
+### R89. The Writing guide in four tabs (done, 15 October)
+
+- **Why** (Ahmad): with Openings added on top, the page had grown long and its search box sat halfway down.
+- **Now four tabs**, each with the page to itself and its count: **Openings** (the rules for every opening and the templates),
+  **Proposal types** (with their search and a filter, now also "Without a default opening"; each card shows its default opening),
+  **Rules for every proposal** and **Retired**. The page's button follows the tab: Add opening, or Add proposal type. The tab is kept in
+  the address, so Back from a type, a document or an opening returns to it.
+- The box for what an opening template does is now much taller.
+
+### R88. Openings in one place: opening templates, and a default per proposal type (done, 15 October)
+
+- **Why** (Ahmad): opening instructions had grown in four places (the Writing guide's Opening lines, each type's First two lines,
+  the types' formats, and the Opening styles in Settings), so it was never clear which one decided.
+- **Now the opening is not the proposal type's.** There are up to 10 **opening templates**, each on or off, on the **Writing guide**
+  page under **Openings**, next to the **Rules for every opening** (the Opening lines document). A template says what its opening
+  does; its exceptions to the rules are options, not prose: **first words** (with | between choices), **may greet by name**, **may say
+  how we would start**. Every **proposal type picks one default opening** (the type's page, Opening card; the First two lines box is
+  gone). A proposal is written with its type's default; **one opening per other template that is on** is written beside it, to swipe
+  through and pick (the carousel names each one by its template, and the first as the default).
+- **One order of precedence everywhere:** a client's own required opening words, then the opening template, then the rules for every
+  opening. Where a type's format still describes its opening differently, the opening section says it decides. The writer, the
+  automatic check of the first two lines, the alternatives, the chat, the independent review (now judged by the template in use) and
+  the Claude plugin all read the same thing.
+- **Moved across by migration `051_opening_templates.sql`:** each active type's First two lines rules became an opening template and
+  its default (8), with its first words and its "about us" check turned into the options; the Opening styles from Settings became
+  templates too (only "The outcome" here, since "The pain" and "The risk" were never changed and repeat the Standard build and
+  Rescue openings). The Opening styles card left Settings.
+- **Claude:** `opening_template` is a new kind in the setup tools; `get_writing_guide` gives the templates and each type's default;
+  the writing skill follows them (plugin v0.16.0).
+- Checked: tests (the rules, then the template, its first words and exceptions; the check's options); the writer's opening section
+  for Type 1 and Type 7; a real run of the alternatives on a temporary copy of job #51 as Type 1 (8 openings, one per template; the
+  client's own "Voice AI live." opening was kept, as it should be); the Openings section, the editor, the type's Opening card, the
+  carousel. The copy was removed afterwards.
+- **Still to tidy (content, through Changes):** the types' formats still describe their openings, the templates moved from the types
+  still repeat a few of the rules for every opening (no talk about us, no project names), and Writing rules 1 and the checklist repeat
+  them too. Nothing contradicts now, but each could be cut to one line.
+
 ### R87. Your account: your picture, your name and your password (done, 15 October)
 
 - **What it is** (asked for by Ahmad): clicking your name or picture at the bottom of the sidebar opens **Your account**:
