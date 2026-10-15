@@ -7,7 +7,7 @@
 import { query } from '../db';
 
 export interface OpeningTemplate { id: number; name: string; instructions: string; starts: string | null; may_greet: boolean; may_talk_about_us: boolean; active: boolean;
-  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** proposals finalized with it */ rank: number }
+  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number }
 export const MAX_OPENINGS = 20; // R91 (was 10): they are written three at a time now, so more can be kept
 export const MAX_EXAMPLES = 5;
 export const OPENINGS_BATCH = 3;
@@ -15,9 +15,11 @@ export const OPENINGS_BATCH = 3;
 const readExamples = (json: unknown): string[] => { try { const a = JSON.parse(String(json ?? '[]')); return Array.isArray(a) ? a.map((x) => String(x).trim()).filter(Boolean).slice(0, MAX_EXAMPLES) : []; } catch { return []; } };
 const shape = (r: any): OpeningTemplate => ({ id: Number(r.id), name: r.name, instructions: String(r.instructions ?? ''), starts: r.starts || null,
   may_greet: !!Number(r.may_greet), may_talk_about_us: !!Number(r.may_talk_about_us), active: !!Number(r.active),
-  examples: readExamples(r.examples_json), match_examples: !!Number(r.match_examples), rank: Number(r.rank_n ?? 0) });
-/** How many finalized proposals went out with each template: its ranking (R91). */
-const RANK = '(SELECT COUNT(*) FROM proposals p WHERE p.final_opening_id=o.id AND p.finalized_at IS NOT NULL) AS rank_n';
+  examples: readExamples(r.examples_json), match_examples: !!Number(r.match_examples), rank: Number(r.sent_n ?? 0) + Number(r.rank_boost ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0) });
+/** How many finalized proposals went out with each template, plus the points added by hand: its ranking (R91, R92). */
+const SENT = '(SELECT COUNT(*) FROM proposals p WHERE p.final_opening_id=o.id AND p.finalized_at IS NOT NULL)';
+/** R92: the ranking is the proposals sent with it plus its manual points. */
+const RANK = `${SENT} AS sent_n, ${SENT} + o.rank_boost AS rank_n`;
 
 export async function openingTemplate(id: number | null | undefined): Promise<OpeningTemplate | null> {
   if (!id) return null;

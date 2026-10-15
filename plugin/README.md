@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.17.0)
+## Status (v0.18.0)
+
+v0.18.0: word shortcuts (`word_shortcuts` in `get_writing_guide`): always the short word, WhatsApp becomes WA. Opening
+templates can be ranked by hand (`rank_boost`, kind `opening_template`); shortcuts are kind `word_shortcut`.
+
+## Earlier (v0.17.0)
 
 v0.17.0: opening templates have examples (up to five) and a "match the examples" switch, and a ranking (`times_sent`): other
 openings are offered three at a time, the most sent first. Up to 20 templates.

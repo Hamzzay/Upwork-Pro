@@ -15,6 +15,7 @@ import { GUARDRAILS } from './writer';
 import { activeOpenings, OPENINGS_BATCH, templateBlock, type OpeningTemplate } from './opening_templates';
 import { addVersion, assembleParts, latestVersion, loadFacts, loadTemplate } from './pipeline';
 import { PROOF, VIDEO, type Parts } from './parts';
+import { activeShortcuts, shortenText } from './shortcuts';
 
 export interface Opening { angle: string; tone: string; why: string; text: string; style?: string; /** the opening template it was written from (R88) */ template_id?: number;
   /** R91: how closely it follows its template's examples, out of 10 (only when the template has examples), and why */ match?: number | null; match_note?: string | null }
@@ -110,6 +111,7 @@ export async function runOpenings(proposalId: number) {
     `SENDER: ${f.sender.name}${f.sender.voice ? `. Voice: ${f.sender.voice} (never "we")` : ''}${f.sender.rules ? `. Rules: ${f.sender.rules}` : ''}`,
     guide.opening ? `RULES FOR EVERY OPENING (strict; each opening template below may make its own exceptions, and where it does, the template wins)\n${guide.opening.trim()}` : '',
     banned.length ? `NEVER USE these phrases: ${banned.slice(0, 60).join('; ')}` : '',
+    guide.shortcuts ?? '',
   ].filter(Boolean).join('\n\n');
   const taken = adding && prev!.items.length ? `\n\nOPENINGS ALREADY WRITTEN (do not repeat their ideas or wording)\n${prev!.items.map((x) => `- ${x.text}`).join('\n')}` : '';
   const prompt = `<job_page>\n${f.questions.length ? f.jobOnly : f.jobText}\n</job_page>\n\nTHE PROPOSAL\n${letter}\n\nITS FIRST PARAGRAPH (what each opening replaces)\n${first}${taken}\n\n`
@@ -120,6 +122,8 @@ export async function runOpenings(proposalId: number) {
     + `"angle": what it leads with, in two to five words. "tone": one to three words. "why": one sentence on why it may land with this client. "text": the paragraph itself, ready to paste.`;
   const r = await run({ label: 'openings', system, prompt, schema: schemaFor(styles.length), timeoutMs: config.llm.timeoutMs });
   const o = outFor(styles.length).safeParse(r.data); if (!o.success) throw new Error('invalid_output');
+  const sc = await activeShortcuts(); // R92: the short words, as in the proposal itself
+  for (const x of o.data.openings) x.text = shortenText(x.text, sc);
   const scores = await scoreAgainstExamples(o.data.openings.map((x, i) => ({ text: x.text, template: styles[i] })));
   const now = await latestVersion(p.id); // a newer version while it was writing: the openings are still for the one they read
   const fresh: Opening[] = o.data.openings.map((x, i) => ({ ...x, style: styles[i].name, template_id: styles[i].id, ...(scores[i] ? { match: scores[i]!.score, match_note: scores[i]!.note } : {}) }));

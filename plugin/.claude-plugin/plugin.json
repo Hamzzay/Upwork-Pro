@@ -1,6 +1,6 @@
 {
   "name": "stackup-proposals",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Stackup Solutions Upwork proposal system: screen a job, match projects, write a fitted proposal, save the job, proposal and status in Upwork Pro, analyse what works, and (admins) change the setup.",
   "author": {
     "name": "Stackup Solutions"

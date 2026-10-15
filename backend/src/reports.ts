@@ -119,7 +119,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
     }
     if (j.words) d.length.add(bucket(j.words, [[120, '1'], [180, '2'], [240, '3'], [320, '4']], '5'), bucket(j.words, [[120, 'Up to 120 words'], [180, '121 to 180 words'], [240, '181 to 240 words'], [320, '241 to 320 words']], 'Over 320 words'), j);
     const created = day(j.created_at);
-    if (created) { const ws = weekStart(created); const end = new Date(ws + 'T00:00:00'); end.setDate(end.getDate() + 6); d.week.add(ws, 'Week of ' + ws, j, { from: ws, to: ymd(end) }); }
+    if (created) { const ws = weekStart(created); const end = new Date(ws + 'T00:00:00'); end.setDate(end.getDate() + 6); d.week.add(ws, 'Week of ' + new Date(ws + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: ws.slice(0, 4) === String(new Date().getFullYear()) ? undefined : 'numeric' }), j, { from: ws, to: ymd(end) }); } // R93: "Week of 5 Oct", short enough to read on a card
     if (on(j.sent)) {
       d.loom.add(j.loom_video_id || j.loom_video_title ? 'yes' : 'no', j.loom_video_id || j.loom_video_title ? 'With a Loom video' : 'No Loom video', j, { loom: j.loom_video_id || j.loom_video_title ? 'yes' : 'no' });
       if (j.loom_video_title) d.loom_video.add(j.loom_video_title, j.loom_video_title, j);

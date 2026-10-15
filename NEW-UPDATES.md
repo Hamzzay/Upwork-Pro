@@ -1003,6 +1003,42 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R93. Platform review: every screen and pop-up checked (done, 16 October)
+
+- **Why** (Ahmad): after many updates, screens deeper in the app and some pop-ups had come apart.
+- **How**: every page (37) and the main pop-ups (23) were captured at full length on a wide screen, the main ones again at phone
+  width, and each was checked for anything cut off, squeezed, misaligned or overflowing. Fixed:
+- **Jobs list**: the columns fit a normal screen again (Client, Profile and By were hidden under the pinned buttons); a job title
+  can take two lines; two rule codes then +N (all are in the popover); the table's scrollbar shows when it does scroll.
+- **Text boxes grow to fit** what is in them (up to most of the screen), so long instructions are never cut mid-line: the writing
+  guide documents, the gate instructions, the reviewer's parts and every form.
+- **Dropdowns** fill their form field (the Loom video Profile was squeezed) and never grow past their box (the reviewer's Try the
+  draft picker poked out of its card).
+- **Durations** read one way everywhere ("18 min", "4 h 11 min", "1 min 15 s"; it mixed "18:38" in), and the Speed bars no longer
+  wrap; a missing average shows a dash.
+- **Settings** lists (outcomes, reasons, rules) show every item instead of a cut-off line.
+- **Loom videos**: every profile's table has the same columns; a long tag list shows ten and +N.
+- **Profiles**: a long services line ends with an ellipsis instead of mid-word.
+- **Flag review** columns no longer crush to a word per line; the change log keeps its Put back button beside the first line.
+- **Pop-ups**: a list that scrolls inside one (tags, projects, industries) is a framed box with a visible scrollbar; Export's buttons
+  have room; the account labels match.
+- **Reports**: weeks read "Week of 5 Oct", which fits on a card (four read "Week of 2026..." alike).
+- **Phone**: wide tables scroll inside their card; none is crushed or overlapping.
+
+### R92. Rank the openings by hand; word shortcuts (done, 16 October)
+
+- **Why** (Ahmad): the ranking should be adjustable by a person, not only by what was sent; and some words should always be short in
+  a proposal (WhatsApp is WA).
+- **Change ranking** on the Writing guide's Openings tab: drag the openings, or use the arrows, into any order and save. Each score is
+  the finished proposals sent with it plus points added by hand, worked out so the scores follow that order. Proposals sent later
+  keep adding points, so a template that keeps working can still move up. **Order by sent only** clears the hand points.
+- **Shortcuts**, a new tab on the Writing guide (admins and managers): a main word and its short word. The writer, the chat and the
+  openings are told to always use the short word, and every version the AI writes has any main word it missed swapped, in the letter
+  and the screening answers. Any case matches; links and email addresses are never changed; a person's own edits are left as typed.
+  The plugin (0.18.0) reads them from `get_writing_guide`, and its saves are swapped too. Claude's setup tools can change them
+  (kind `word_shortcut`).
+- Migration 053.
+
 ### R91. Openings three at a time, ranked, with examples; a calmer proposal page (done, 16 October)
 
 - **Why** (Ahmad): writing every opening at once was slow and costly, the ones that work should come first, openings should be able

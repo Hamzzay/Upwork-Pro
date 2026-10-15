@@ -22,6 +22,7 @@ import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from '../src/proposal/openings';
 import { checkFlags, examplesBlock, openingRules, templateBlock } from '../src/proposal/opening_templates';
+import { shortcutsBlock, shortenHtml, shortenText } from '../src/proposal/shortcuts';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -670,7 +671,7 @@ const ctx = { rules, projects };
   }
   // R88: the opening is the opening template's, with the rules for every opening; its exceptions are fields
   {
-    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true, examples: [] as string[], match_examples: false, rank: 0 };
+    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true, examples: [] as string[], match_examples: false, rank: 0, sent: 0, boost: 0 };
     const txt = openingRules('No greeting. No talk about us.', tpl);
     assert.ok(txt.indexOf('RULES FOR EVERY OPENING') < txt.indexOf('THE OPENING TO WRITE'), 'the rules first, then the template');
     assert.ok(txt.includes('must begin with "Understood."'), 'the first words are said');
@@ -687,6 +688,17 @@ const ctx = { rules, projects };
     const strict = examplesBlock({ ...ex, match_examples: true });
     assert.ok(strict.startsWith('MATCH THE EXAMPLES') && strict.includes('80 to 90 percent') && strict.includes('Example 2:'), 'matched closely, every example listed');
     assert.ok(templateBlock({ ...ex, match_examples: true }).includes('MATCH THE EXAMPLES'), 'the template carries its examples to the writer');
+  }
+  // R92: word shortcuts swap the main word in text, never in a link, an address or a longer word
+  {
+    const sc = [{ id: 1, main_word: 'WhatsApp', short_word: 'WA', active: true }, { id: 2, main_word: 'WhatsApp Business', short_word: 'WAB', active: true }, { id: 3, main_word: 'Google Sheets', short_word: 'GSheets', active: true }];
+    const longFirst = [...sc].sort((a, b) => b.main_word.length - a.main_word.length);
+    assert.equal(shortenText('Your whatsapp bot and WhatsApp\'s API.', sc), 'Your WA bot and WA\'s API.', 'any case, and a possessive');
+    assert.equal(shortenText('On WhatsApp Business and Google  Sheets.', longFirst), 'On WAB and GSheets.', 'the longer phrase first, any spacing');
+    assert.equal(shortenText('See https://whatsapp.com/x, www.whatsapp.com, me@whatsapp.com and WhatsAppify.', sc), 'See https://whatsapp.com/x, www.whatsapp.com, me@whatsapp.com and WhatsAppify.', 'links, addresses and longer words stay');
+    assert.equal(shortenHtml('<p>Use <a href="https://whatsapp.com">WhatsApp</a> today.</p>', sc), '<p>Use <a href="https://whatsapp.com">WA</a> today.</p>', 'the text changes, the link does not');
+    assert.equal(shortenText('WhatsApp.', sc), 'WA.', 'a full stop after it is not a link');
+    assert.ok(shortcutsBlock(sc).includes('- WhatsApp: WA') && shortcutsBlock([]) === '', 'the writer is told, or nothing when there are none');
   }
   // R71: an experience done in several projects; each project once; the gap's word puts what waits first
   {

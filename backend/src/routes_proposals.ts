@@ -178,6 +178,7 @@ export const openingBody = z.object({
   active: z.boolean().optional(), sort_order: z.number().int().min(0).max(10000).optional(),
   // R91: up to five example openings, and whether to write the opening very close to them
   examples: z.array(z.string().trim().max(1500)).max(MAX_EXAMPLES, `At most ${MAX_EXAMPLES} examples`).optional(), match_examples: z.boolean().optional(),
+  rank_boost: z.number().int().min(0).max(100000).optional(), // R92: points added by hand to its ranking
 });
 const examplesJson = (a: string[] | undefined) => { const l = (a ?? []).filter(Boolean); return l.length ? JSON.stringify(l) : null; };
 proposals.get('/opening-templates', anyone, async (_req, res) => {
@@ -204,7 +205,7 @@ proposals.patch('/opening-templates/:id', editor, async (req, res) => {
     if (users.length) return void res.status(409).json({ error: `It is the default opening of ${users.map((u) => u.name).join(', ')}. Give ${users.length === 1 ? 'that type' : 'those types'} another default first.` });
   }
   const sets: string[] = [], p: any[] = [];
-  for (const k of ['name', 'instructions', 'sort_order']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+  for (const k of ['name', 'instructions', 'sort_order', 'rank_boost']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
   if ('starts' in d) { sets.push('starts=?'); p.push(d.starts || null); }
   for (const k of ['may_greet', 'may_talk_about_us', 'active', 'match_examples']) if (k in d) { sets.push(`${k}=?`); p.push(d[k] ? 1 : 0); }
   if ('examples' in d) { sets.push('examples_json=?'); p.push(examplesJson(d.examples)); }
@@ -213,6 +214,35 @@ proposals.patch('/opening-templates/:id', editor, async (req, res) => {
   catch (e) { if (dup(e)) return void res.status(409).json({ error: 'An opening template with that name already exists' }); throw e; }
   await audit(req.user!.id, 'opening_template_update', `id ${id}`);
   res.json({ ok: true });
+});
+// ---------- word shortcuts (R92): a main word and the short word every proposal uses instead ----------
+export const shortcutBody = z.object({ main_word: z.string().trim().min(2, 'Give the main word').max(80), short_word: z.string().trim().min(1, 'Give the short word').max(40), active: z.boolean().optional() })
+  .refine((b) => b.main_word.toLowerCase() !== b.short_word.toLowerCase(), { message: 'The short word must differ from the main word', path: ['short_word'] });
+const shortcutPatch = z.object({ main_word: z.string().trim().min(2).max(80).optional(), short_word: z.string().trim().min(1).max(40).optional(), active: z.boolean().optional() });
+proposals.get('/shortcuts', anyone, async (_req, res) => {
+  res.json({ items: await query<any>('SELECT id, main_word, short_word, active, updated_at FROM word_shortcuts ORDER BY main_word') });
+});
+proposals.post('/shortcuts', editor, async (req, res) => {
+  const b = shortcutBody.safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  try { const r = await exec('INSERT INTO word_shortcuts (main_word, short_word, active) VALUES (?,?,?)', [b.data.main_word, b.data.short_word, b.data.active === false ? 0 : 1]);
+    await audit(req.user!.id, 'shortcut_create', `${b.data.main_word} -> ${b.data.short_word}`); res.status(201).json({ id: r.insertId }); }
+  catch (e) { if (dup(e)) return void res.status(409).json({ error: `There is already a shortcut for "${b.data.main_word}"` }); throw e; }
+});
+proposals.patch('/shortcuts/:id', editor, async (req, res) => {
+  const b = shortcutPatch.safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  const id = num(req.params.id), d: any = b.data, sets: string[] = [], p: any[] = [];
+  for (const k of ['main_word', 'short_word']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
+  if ('active' in d) { sets.push('active=?'); p.push(d.active ? 1 : 0); }
+  if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
+  const cur = (await query<any>('SELECT main_word, short_word FROM word_shortcuts WHERE id=?', [id]))[0]; if (!cur) return void res.status(404).json({ error: 'Not found' });
+  if (String(d.main_word ?? cur.main_word).toLowerCase() === String(d.short_word ?? cur.short_word).toLowerCase()) return void res.status(400).json({ error: 'The short word must differ from the main word' });
+  try { await exec(`UPDATE word_shortcuts SET ${sets.join(',')} WHERE id=?`, [...p, id]); }
+  catch (e) { if (dup(e)) return void res.status(409).json({ error: 'There is already a shortcut for that main word' }); throw e; }
+  await audit(req.user!.id, 'shortcut_update', `id ${id}`); res.json({ ok: true });
+});
+proposals.delete('/shortcuts/:id', editor, async (req, res) => {
+  const r = await exec('DELETE FROM word_shortcuts WHERE id=?', [num(req.params.id)]); if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' });
+  await audit(req.user!.id, 'shortcut_delete', `id ${req.params.id}`); res.json({ ok: true });
 });
 proposals.post('/templates', editor, async (req, res) => {
   const b = templateBody.safeParse(req.body);

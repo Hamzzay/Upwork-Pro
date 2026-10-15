@@ -114,7 +114,7 @@ a.card.cardlink:hover { border-color: var(--line-strong); text-decoration: none;
 .sechead .jp-label { max-width: 86ch; }
 
 /* ---------- form controls ---------- */
-label.lbl { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+label.lbl, .field > span.lbl { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
 .field + .field { margin-top: 16px; }
 .field input, .field select { max-width: 100%; }
 .field.row label { font-weight: 400 !important; }
@@ -537,7 +537,7 @@ a.hbar:hover .lbl { color: var(--brand); }
 .hbar .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbar .track { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--line); }
 .hbar .track i { display: block; height: 100%; background: var(--brand); border-radius: 99px; }
-.hbar .num { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hbar .num { white-space: nowrap; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .hbar .ext { font-size: 12px; min-width: 44px; text-align: right; }
 .bigtime { font-size: 28px; font-weight: 600; letter-spacing: -.02em; line-height: 1.25; }
 .waitlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -983,3 +983,54 @@ table.jobs th.dropr { box-shadow: inset -3px 0 0 var(--brand); }
 .opencard { padding: 12px 16px; }
 .opentrack { align-items: flex-start; }
 @media (min-width: 1100px) { .propside { position: sticky; top: 72px; } }
+/* change the ranking of the openings by hand (R92) */
+.ranklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ranklist li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); cursor: grab; }
+.ranklist li.off { opacity: .65; }
+.ranklist li.dragging { opacity: .45; border-style: dashed; }
+.ranklist .grip { color: var(--faint); letter-spacing: -2px; font-size: 13px; }
+.ranklist .pos { min-width: 26px; height: 26px; border-radius: 99px; background: var(--brand-soft); color: var(--brand); font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+.ranklist .nm { flex: 1; min-width: 0; display: grid; }
+.ranklist .nm strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the platform review (R93): the Jobs table fits more before it scrolls, and when it does scroll the bar is visible, so no column
+   hides behind the pinned buttons unseen */
+table.jobs th, table.jobs td { padding-left: 12px; padding-right: 12px; }
+table.jobs td.jobcell { max-width: 300px; }
+table.jobs td.jobcell .title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; max-width: none; }
+.tablewrap { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.tablewrap::-webkit-scrollbar { height: 10px; }
+.tablewrap::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; border: 2px solid var(--surface); }
+.tablewrap::-webkit-scrollbar-track { background: transparent; }
+/* R93: the bars of one card share their columns, so a long value ("4 h 11 min") widens its column for every row and never wraps */
+@supports (grid-template-columns: subgrid) {
+  .hbars { grid-template-columns: minmax(90px, 34%) minmax(0, 1fr) minmax(40px, max-content) max-content; column-gap: 10px; }
+  .hbars > .hbar { grid-column: 1 / -1; grid-template-columns: subgrid; }
+}
+/* R93: a dropdown never grows past its box: a long choice is cut with an ellipsis (the full text is in the list) */
+.ss { max-width: 100%; }
+.ss-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 900px) {
+  table.fixedcols { table-layout: fixed; }
+  table.fixedcols th:first-child { width: 38%; }
+  table.fixedcols th:nth-last-child(2) { width: 130px; }
+  table.fixedcols th:last-child { width: 90px; }
+  table.fixedcols td { overflow-wrap: anywhere; }
+}
+@media (max-width: 899px) { table.fixedcols { min-width: 640px; } } /* a phone scrolls the table inside its card instead of crushing it */
+.clamp1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+textarea.listin { min-height: 0; width: 440px; max-width: 100%; resize: vertical; }
+/* R93: tall rows (the change log) keep their buttons beside the first line, not floating mid-row */
+tr.toprow > td { vertical-align: top; }
+/* the proposal: a little room between the openings card and the editor's toolbar */
+.docbody .opencard { margin-bottom: 12px; }
+/* R93: a list that scrolls inside a dialog is a framed box with a visible scrollbar, so it never looks cut off by mistake */
+.tagpick { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); }
+.tagpick, dialog .db { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.tagpick::-webkit-scrollbar, dialog .db::-webkit-scrollbar { width: 10px; }
+.tagpick::-webkit-scrollbar-thumb, dialog .db::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; border: 2px solid var(--surface); }
+/* R93: an enhanced dropdown in a form field fills the field, as a plain one does (it shrank to its text: the narrow Profile in Add a
+   Loom video, and the default opening before R90) */
+.field > .ss { display: block; width: 100%; }
+table.jobs .stand { min-width: 165px; }
+table.jobs td.jobcell { min-width: 190px; }
+table.jobs th, table.jobs td { padding-left: 10px; padding-right: 10px; }

@@ -14,6 +14,7 @@ import { activeReviewer } from './reviewer_store';
 import { pickLoom } from '../screening/matching';
 import { docsBlock, postOnly } from '../screening/attachments';
 import { checkFlags, openingInUse, openingTemplate } from './opening_templates';
+import { activeShortcuts, shortenHtml, shortenText } from './shortcuts';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
@@ -113,6 +114,11 @@ export function readParts(json: string | null | undefined): Parts | null {
  */
 export async function addVersion(proposalId: number, html: string, source: 'ai' | 'manual' | 'chat' | 'restore', userId: number | null, note: string | null, basedOn: number | null, answers?: QA[] | null, parts?: Parts | null) {
   if (answers === undefined) answers = (await latestVersion(proposalId))?.answers ?? null;
+  // R92: what the AI writes uses the short words; a person's own edits and a restored version stay as they were
+  if (source === 'ai' || source === 'chat') {
+    const sc = await activeShortcuts();
+    if (sc.length) { html = shortenHtml(html, sc); if (answers) answers = answers.map((a) => ({ ...a, answer: shortenText(a.answer, sc) })); if (parts) parts = { ...parts, letter: shortenText(parts.letter, sc) }; }
+  }
   return withRetry(async () => {
     const conn = await pool.getConnection();
     try {

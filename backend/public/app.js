@@ -315,6 +315,19 @@ document.addEventListener('click', (e) => {
 new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) (n.tagName === 'SELECT' ? [n] : n.querySelectorAll('select')).forEach(searchableSelect); })
   .observe(document.documentElement, { childList: true, subtree: true });
 
+// R93: a text box grows to show what is in it (up to most of the screen), so long instructions are never cut off mid-line. It only
+// grows: its own minimum height stays, and the chat box keeps its size.
+function fitTextarea(t) {
+  if (!t.isConnected || t.closest('.composer') || t.dataset.fixed != null || !t.offsetParent) return;
+  const max = Math.round(innerHeight * 0.7);
+  if (t.scrollHeight > t.clientHeight + 2 && t.clientHeight < max) t.style.height = Math.min(max, t.scrollHeight + 4) + 'px';
+}
+new MutationObserver((muts) => { const found = []; for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) found.push(...(n.tagName === 'TEXTAREA' ? [n] : n.querySelectorAll('textarea')));
+  if (found.length) requestAnimationFrame(() => found.forEach(fitTextarea)); }).observe(document.documentElement, { childList: true, subtree: true });
+document.addEventListener('input', (e) => { if (e.target.tagName === 'TEXTAREA') fitTextarea(e.target); });
+document.addEventListener('focusin', (e) => { if (e.target.tagName === 'TEXTAREA') fitTextarea(e.target); }); // one shown after it was added (a tab)
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[role=tab], summary')) requestAnimationFrame(() => document.querySelectorAll('textarea').forEach(fitTextarea)); });
+
 // ---------- pagination ----------
 // Rows per page (R82): each person picks 20, 50, 100 or 200 at the bottom of any list; it is kept with their account.
 const PAGE_SIZES = [20, 50, 100, 200];
@@ -414,7 +427,9 @@ function listCard(o) {
   return o.bare ? [h('div', { class: 'card' }, bar), body] : h('div', { class: 'card' }, bar, body);
 }
 /** A plain table: `heads` are the column names ('' for the actions column), `rows` the <tr> elements. */
+/** R93: dataTable.fixed keeps the same column widths in every copy of a table (one per profile, say). */
 const dataTable = (heads, rows, cls) => h('div', { class: 'tablewrap' }, h('table', { class: cls || null }, h('thead', {}, h('tr', {}, heads.filter((x) => x !== null).map((t) => h('th', { class: t ? null : 'acts' }, t)))), h('tbody', {}, rows)));
+dataTable.fixed = (heads, rows) => dataTable(heads, rows, 'fixedcols');
 
 // ---------- layout ----------
 const APP_NAME = 'Upwork Pro';
@@ -764,7 +779,7 @@ async function dashboardView() {
     const maxDay = Math.max(1, ...d.daily.map((x) => x.screened));
     const people = (rows, key) => rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['', 'Screened', 'Continued', 'Proposals', 'Sent', 'Hired', 'Avg to proposal'].map((x) => h('th', {}, x)))),
       h('tbody', {}, rows.map((r) => h('tr', { class: r.id ? 'click' : '', onclick: r.id ? () => (location.hash = jobsLink({ [key]: r.id })) : null },
-        h('td', {}, r.name || h('span', { class: 'faint' }, 'No profile yet')), h('td', {}, r.screened), h('td', {}, r.continued), h('td', {}, r.proposals), h('td', {}, r.sent), h('td', {}, r.hired), h('td', {}, mins(r.avg_to_proposal))))))) : h('p', { class: 'muted' }, 'Nothing in this period.');
+        h('td', {}, r.name || h('span', { class: 'faint' }, 'No profile yet')), h('td', {}, r.screened), h('td', {}, r.continued), h('td', {}, r.proposals), h('td', {}, r.sent), h('td', {}, r.hired), h('td', {}, mins(r.avg_to_proposal) || h('span', { class: 'faint' }, '-'))))))) : h('p', { class: 'muted' }, 'Nothing in this period.');
     body.replaceChildren(
       h('div', { class: 'stats six' },
         kpi('Screened', c.screened, `${c.PASS} pass · ${c.FLAG} flag · ${c.FAIL} fail`, jobsLink()),
@@ -1058,7 +1073,9 @@ function progressStep(stage) {
     h('div', { class: 'stepbar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round((n / IN_PROGRESS_STEPS) * 100)}%` })));
 }
 const progressDots = progressStep; // older callers
-const mins = (sec) => (sec == null ? '' : sec < 60 ? sec + ' s' : sec < 3600 ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min');
+// R93: one way to write a duration everywhere (it mixed "18:38" with "4 h 11 min")
+const mins = (sec) => { if (sec == null) return ''; sec = Math.round(Number(sec)); const m = Math.floor(sec / 60), s = sec % 60;
+  return sec < 60 ? sec + ' s' : sec < 600 ? m + ' min' + (s ? ' ' + s + ' s' : '') : sec < 3600 ? m + ' min' : Math.floor(sec / 3600) + ' h ' + Math.floor((sec % 3600) / 60) + ' min'; };
 const yn = (v) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : '');
 /** Long model-written values (budget, client) stay on one line; the full text is on hover. */
 const clip = (v, w) => (v ? h('span', { class: 'clip', title: cap(v), style: `max-width:${w}px` }, cap(v)) : '');
@@ -1114,7 +1131,7 @@ function resultCell(r) {
   if (!r.verdict) return verdictPill(r.verdict, r.status);
   const codes = (r.rule_codes || '').split(/\s*,\s*/).filter(Boolean);
   const content = h('div', { class: 'result' }, verdictBadge(r.verdict),
-    codes.length ? h('span', { class: 'codes' }, codes.slice(0, 3).map((c) => h('span', { class: 'code ' + (c[0] === 'F' ? 'F' : 'G') }, c)), codes.length > 3 ? h('span', { class: 'code more' }, '+' + (codes.length - 3)) : null) : null);
+    codes.length ? h('span', { class: 'codes' }, codes.slice(0, 2).map((c) => h('span', { class: 'code ' + (c[0] === 'F' ? 'F' : 'G') }, c)), codes.length > 2 ? h('span', { class: 'code more' }, '+' + (codes.length - 2)) : null) : null); // R93: two, then +N (every one is in the popover)
   return codes.length ? cellBtn(content, 'See each rule and the value behind it', (a) => popover(a, () => flagsPanel(r))) : content;
 }
 async function flagsPanel(r) {
@@ -1149,10 +1166,10 @@ const JOB_COLS = [
   { key: 'status', label: 'Status', sort: 'quiet', cell: (r) => [r.current_status ? h('span', { class: 'chip brand' }, r.current_status) : h('span', { class: 'faint small' }, 'Not sent'), r.status_at ? h('div', { class: 'meta', title: full(r.status_at) }, ago(r.status_at)) : null] },
   { key: 'since', label: 'Last update', sort: 'quiet', cell: (r) => (r.days_since_update == null ? '' : h('span', { class: r.stage === 'submitted' && r.days_since_update >= cfg('tracking.quiet_days', 5) ? 'quiet' : 'muted' }, r.days_since_update === 0 ? 'Today' : `${r.days_since_update} d ago`)) },
   { key: 'verdict', label: 'Result', sort: 'verdict', cell: (r) => resultCell(r) },
-  { key: 'country', label: 'Client', sort: 'country', cell: (r) => clip(r.client_country, 170) },
+  { key: 'country', label: 'Client', sort: 'country', cell: (r) => clip(r.client_country, 110) },
   { key: 'budget', label: 'Budget', cell: (r) => [clip(r.budget, 190), r.job_type ? h('div', { class: 'meta' }, r.job_type) : null] },
   { key: 'hire_rate', label: 'Hire rate', sort: 'hire_rate', cell: (r) => clip(r.hire_rate, 120) },
-  { key: 'profile', label: 'Profile', sort: 'profile', cell: (r) => clip(r.profile_name, 140) },
+  { key: 'profile', label: 'Profile', sort: 'profile', cell: (r) => clip(r.profile_name, 110) },
   { key: 'user', label: 'By', sort: 'user', cell: (r) => r.user_name },
   { key: 'template', label: 'Template', cell: (r) => clip(r.template_name, 180) },
   { key: 'sent', label: 'Sent', cell: (r) => (r.proposal_sent_at || r.proposal_sent_date ? h('span', { title: full(r.proposal_sent_at || r.proposal_sent_date) }, dayText(r.proposal_sent_at || r.proposal_sent_date)) : '') },
@@ -1288,7 +1305,7 @@ async function historyView() {
     const link = (fmt, text) => h('a', { class: 'btn' + (fmt === 'xlsx' ? ' primary' : ''), href: `/api/screenings/export?format=${fmt}&${qs}`, download: '' }, text);
     modal({ title: 'Export jobs', noConfirm: true, body: h('div', {},
       h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} on screen (${tab().label}${st.v ? ', ' + st.v + ' only' : ''}, with the filters): the job post, the gate result, the decision, projects, profile, the final proposal, every status with its date and reason, and the full change history.`),
-      h('div', { class: 'row' }, link('xlsx', 'Excel (.xlsx)'), link('csv', 'CSV'))) });
+      h('div', { class: 'row', style: 'margin-top:16px;gap:8px' }, link('xlsx', 'Excel (.xlsx)'), link('csv', 'CSV'))) });
   };
   function drawFilters() {
     const t = tab();
@@ -2236,7 +2253,7 @@ async function profilesView() {
     onConfirm: async () => { await api('DELETE', '/profiles/' + p.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Profile deleted'); route(); } });
   const row = (p) => h('tr', {},
     h('td', {}, h('strong', {}, p.name), p.added_via === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Added by the Claude plugin') : null,
-      p.services ? h('div', { class: 'meta' }, p.services.slice(0, 90)) : p.notes ? h('div', { class: 'meta' }, p.notes.slice(0, 80)) : null,
+      p.services || p.notes ? h('div', { class: 'meta clamp1', title: p.services || p.notes, style: 'max-width:420px' }, p.services || p.notes) : null,
       p.profile_url ? h('div', { class: 'meta' }, h('a', { href: p.profile_url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on Upwork')) : null),
     h('td', {}, p.tagline ? h('span', {}, p.tagline) : h('span', { class: 'faint' }, 'Not set')),
     h('td', { class: 'nowrap' }, p.price !== null && p.price !== undefined ? money(p.price) + ' / hr' : h('span', { class: 'faint' }, 'Not set')),
@@ -2287,9 +2304,9 @@ async function loomsView() {
   const card = (p, mine) => h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', {}, p.name), h('span', { class: 'sub' }, `${mine.length} video${mine.length === 1 ? '' : 's'}${Number(p.active) ? '' : ' · profile disabled'}`),
       h('button', { class: 'btn sm', onclick: () => editor(null, p.id) }, 'Add video')),
-    mine.length ? dataTable(['Video', 'Tags', 'Status', ''], mine.map((v) => h('tr', {},
+    mine.length ? dataTable.fixed(['Video', 'Tags', 'Status', ''], mine.map((v) => h('tr', {}, // R93: the same column widths in every profile's card
       h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null),
-      h('td', {}, v.tags.length ? h('div', { class: 'chips' }, v.tags.map((t) => h('span', { class: 'chip' }, t.name))) : h('span', { class: 'faint' }, 'No tags: never suggested')),
+      h('td', {}, v.tags.length ? h('div', { class: 'chips', title: v.tags.map((t) => t.name).join(', ') }, ...v.tags.slice(0, 10).map((t) => h('span', { class: 'chip' }, t.name)), v.tags.length > 10 ? h('span', { class: 'chip' }, `+${v.tags.length - 10}`) : null) : h('span', { class: 'faint' }, 'No tags: never suggested')),
       h('td', {}, activeSwitch(v.active, { name: v.title, url: '/looms/' + v.id, no: 'Disabled', offText: 'It stays saved, but it is no longer suggested or offered for proposals.' })),
       acts(h('button', { class: 'btn sm', onclick: () => editor(v) }, 'Edit')))))
       : h('p', { class: 'card-pad jp-label', style: 'margin:0' }, 'No videos yet. Add the first one for this profile.'));
@@ -2688,7 +2705,7 @@ async function changesView() {
     const badge = (c) => (c.status === 'reverted' ? h('span', { class: 'pill wait', title: c.reverted_at ? `Put back ${full(c.reverted_at)}${c.reverted_by_name ? ' by ' + c.reverted_by_name : ''}` : '' }, 'Put back')
       : c.needs_review ? h('span', { class: 'pill FLAG' }, 'To review') : h('span', { class: 'pill PASS', title: c.reviewed_at ? `Seen ${full(c.reviewed_at)}${c.reviewed_by_name ? ' by ' + c.reviewed_by_name : ''}` : '' }, c.reviewed_at ? 'Seen' : 'Applied'));
     const link = (c) => { const f = CHANGE_LINK[c.entity]; return f && c.action !== 'delete' ? h('a', { href: f(c.entity_id) }, c.entity_name || c.kind_label) : h('span', {}, c.entity_name || c.kind_label); };
-    holder.replaceChildren(...[d.changes.length ? dataTable(['When', 'Who', 'What', 'Change', 'Status', ''], d.changes.map((c) => h('tr', {},
+    holder.replaceChildren(...[d.changes.length ? dataTable(['When', 'Who', 'What', 'Change', 'Status', ''], d.changes.map((c) => h('tr', { class: 'toprow' },
       h('td', { class: 'muted nowrap', title: full(c.created_at) }, ago(c.created_at), h('div', { class: 'meta' }, '#' + c.id)),
       h('td', { class: 'nowrap' }, c.user_name || 'System', h('div', { class: 'meta' }, c.source === 'claude_plugin' ? 'From Claude' : 'In the app')),
       h('td', { style: 'min-width:180px' }, h('strong', {}, link(c)), h('div', { class: 'meta' }, `${c.kind_label} · ${CHANGE_ACTION[c.action] || c.action}${c.reverts_set ? ' (change #' + c.reverts_set + ')' : ''}`)),
@@ -2860,9 +2877,9 @@ async function flagReviewView() {
             h('div', {}, h('div', { class: 'jp-label' }, 'When it was the only rule that fired'),
               h('div', { class: 'small' }, `${x.alone.fired} jobs: ${x.alone.continued} continued, ${x.alone.skipped} skipped; of the continued, ${x.alone.funnel.sent} sent, ${pct(x.alone.funnel.chat, x.alone.funnel.sent)} got a chat, ${x.alone.funnel.hired} hired.`))))),
       h('td', { class: 'nowrap' }, x.fired ? h('a', { href: `#/history?rule=${x.code}` }, `${x.fired} job${x.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-      h('td', { style: 'white-space:normal;max-width:140px' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, `${x.continued} on, ${x.skipped} skipped${x.undecided ? ', ' + x.undecided + ' open' : ''}`) : null),
-      h('td', { style: 'white-space:normal;max-width:170px' }, x.continue_reasons.length ? x.continue_reasons.slice(0, 2).map((c) => h('div', { class: 'small' }, `${c.reason} (${c.jobs})`)) : h('span', { class: 'faint small' }, 'None yet')),
-      h('td', { style: 'white-space:normal;max-width:150px' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, `${f.sent} sent, ${f.hired} hired · passes ${pct(b.chat, b.sent)}`) : null),
+      h('td', { style: 'white-space:normal;min-width:140px;max-width:170px' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, `${x.continued} on, ${x.skipped} skipped${x.undecided ? ', ' + x.undecided + ' open' : ''}`) : null),
+      h('td', { style: 'white-space:normal;min-width:160px;max-width:220px' }, x.continue_reasons.length ? x.continue_reasons.slice(0, 2).map((c) => h('div', { class: 'small' }, `${c.reason} (${c.jobs})`)) : h('span', { class: 'faint small' }, 'None yet')),
+      h('td', { style: 'white-space:normal;min-width:150px;max-width:190px' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, `${f.sent} sent, ${f.hired} hired · passes ${pct(b.chat, b.sent)}`) : null),
       h('td', { style: 'white-space:normal;min-width:200px;max-width:280px' }, h('span', { class: 'pill ' + ht }, hl), h('div', { class: 'small muted', style: 'margin-top:4px' }, x.hint.text)));
   };
   shell('flagreview', [pageHead('Flag review', 'For every gate rule: what people did when it fired and how those jobs went. Use it to relax a rule with evidence, without losing the ones that protect you.',
@@ -2919,11 +2936,82 @@ function openingEditor(o, after) {
       toast(o ? 'Opening template saved' : 'Opening template added'); after();
     } });
 }
+/**
+ * Change the ranking by hand (R92): drag or move the openings into the order wanted. Each one's score is the proposals sent with
+ * it plus points added by hand; the points are worked out so the scores follow this order, from the bottom up, never below what
+ * was sent. Real use still adds points, so a template that keeps being sent can overtake the order set here.
+ */
+function rankingEditor(items, after) {
+  const order = items.slice().sort((a, b) => b.rank - a.rank || a.sort_order - b.sort_order || a.id - b.id);
+  const list = h('ol', { class: 'ranklist' });
+  let dragging = null;
+  const points = () => { // the points each needs for the scores to follow the order: bottom up, one more than the one below
+    const out = new Map(); let below = null;
+    for (let i = order.length - 1; i >= 0; i--) { const o = order[i]; const score = below == null ? o.sent : Math.max(o.sent, below + 1); out.set(o.id, score - o.sent); below = score; }
+    return out;
+  };
+  const draw = () => {
+    const pts = points();
+    list.replaceChildren(...order.map((o, i) => {
+      const move = (d) => { const j = i + d; if (j < 0 || j >= order.length) return; [order[i], order[j]] = [order[j], order[i]]; draw(); list.children[j]?.querySelector(d < 0 ? '.up' : '.down')?.focus(); };
+      const li = h('li', { draggable: 'true', class: o.active ? '' : 'off' },
+        h('span', { class: 'grip', 'aria-hidden': 'true' }, '⋮⋮'), h('span', { class: 'pos' }, String(i + 1)),
+        h('span', { class: 'nm' }, h('strong', {}, o.name), h('span', { class: 'small muted' }, `${o.sent} sent${pts.get(o.id) ? ` + ${pts.get(o.id)} by hand` : ''} = ${o.sent + pts.get(o.id)}${o.active ? '' : ' · off'}`)),
+        h('span', { class: 'row', style: 'gap:4px;flex-wrap:nowrap' },
+          h('button', { type: 'button', class: 'btn sm up', 'aria-label': `Move ${o.name} up`, disabled: i === 0 || null, onclick: () => move(-1) }, '↑'),
+          h('button', { type: 'button', class: 'btn sm down', 'aria-label': `Move ${o.name} down`, disabled: i === order.length - 1 || null, onclick: () => move(1) }, '↓')));
+      li.addEventListener('dragstart', (e) => { dragging = i; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+      li.addEventListener('dragend', () => { dragging = null; li.classList.remove('dragging'); });
+      li.addEventListener('dragover', (e) => { e.preventDefault(); });
+      li.addEventListener('drop', (e) => { e.preventDefault(); if (dragging == null || dragging === i) return; const [m] = order.splice(dragging, 1); order.splice(i, 0, m); dragging = null; draw(); });
+      return li;
+    }));
+  };
+  draw();
+  const reset = () => h('button', { class: 'btn', type: 'button', onclick: () => { order.sort((a, b) => b.sent - a.sent || a.sort_order - b.sort_order || a.id - b.id); draw(); } }, 'Order by sent only');
+  modal({ title: 'Change the ranking', confirm: 'Save ranking', wide: true, extra: reset,
+    body: h('div', { class: 'stack', style: 'gap:12px' },
+      h('p', { class: 'hint', style: 'margin:0' }, 'Drag the openings, or use the arrows, into the order you want. The ones at the top are written first on every proposal. Each score is the proposals sent with it plus points added here; proposals sent later keep adding points, so a template that keeps working can still move up.'),
+      list),
+    onConfirm: async () => {
+      const pts = points(); const changed = order.filter((o) => pts.get(o.id) !== o.boost);
+      for (const o of changed) await api('PATCH', '/opening-templates/' + o.id, { rank_boost: pts.get(o.id) });
+      toast(changed.length ? 'Ranking saved' : 'The ranking was already in this order'); after();
+    } });
+}
+/** Word shortcuts (R92): a main word and the short word every proposal uses instead. */
+function shortcutEditor(x, after) {
+  const f = { main: h('input', { type: 'text', id: 'scm', maxlength: 80, value: x ? x.main_word : '', placeholder: 'WhatsApp' }), short: h('input', { type: 'text', id: 'scs', maxlength: 40, value: x ? x.short_word : '', placeholder: 'WA' }),
+    active: h('input', { type: 'checkbox', id: 'sca', checked: x ? !!Number(x.active) : true }) };
+  modal({ title: x ? 'Change the shortcut for ' + x.main_word : 'Add a word shortcut', confirm: x ? 'Save' : 'Add shortcut',
+    body: h('div', { class: 'stack', style: 'gap:14px' },
+      h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'scm' }, 'Main word'), f.main), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'scs' }, 'Short word'), f.short)),
+      h('p', { class: 'hint', style: 'margin:0' }, 'Every proposal uses the short word instead: the writer is told to, and any main word the AI still writes is swapped. Any case matches; links and email addresses are never changed; your own edits stay as you type them.'),
+      h('label', { class: 'row', for: 'sca', style: 'gap:8px' }, f.active, 'On: used in every proposal')),
+    extra: x ? (dlg) => h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: `Delete the shortcut for ${x.main_word}?`, confirm: 'Delete shortcut', danger: true,
+      body: h('p', { class: 'muted' }, 'Proposals already written keep their words. To stop using it but keep it, switch it off instead.'),
+      onConfirm: async () => { await api('DELETE', '/shortcuts/' + x.id); dlg.close(); toast('Shortcut deleted'); after(); } }) }, 'Delete') : null,
+    onConfirm: async () => {
+      const body = { main_word: f.main.value.trim(), short_word: f.short.value.trim(), active: f.active.checked };
+      if (x) await api('PATCH', '/shortcuts/' + x.id, body); else await api('POST', '/shortcuts', body);
+      toast(x ? 'Shortcut saved' : 'Shortcut added'); after();
+    } });
+}
+function shortcutsSection(items, staff) {
+  return listCard({ items, paged: false, icon: 'doc', emptyTitle: 'No word shortcuts yet', emptyText: staff ? 'Add the first one: a main word, like WhatsApp, and the short word every proposal uses instead, like WA.' : '',
+    search: { placeholder: 'Search shortcuts', text: (x) => x.main_word + ' ' + x.short_word },
+    filters: [statusFilter((x) => x.active, 'Off')],
+    render: (slice) => dataTable(['Main word', '', 'Short word', 'Status', staff ? '' : null], slice.map((x) => h('tr', { class: staff ? 'click' : null, tabindex: staff ? 0 : null, onclick: staff ? () => shortcutEditor(x, route) : null, onkeydown: staff ? (e) => { if (e.key === 'Enter') shortcutEditor(x, route); } : null },
+      h('td', {}, h('strong', {}, x.main_word)), h('td', { class: 'faint', 'aria-hidden': 'true' }, '→'), h('td', {}, h('span', { class: 'chip brand' }, x.short_word)),
+      h('td', {}, activeSwitch(x.active, { name: x.main_word, url: '/shortcuts/' + x.id, no: 'Off', yes: 'On', can: staff, offText: 'Proposals stop using its short word.' })),
+      staff ? acts(h('button', { class: 'btn sm', type: 'button', onclick: (e) => { e.stopPropagation(); shortcutEditor(x, route); } }, 'Edit')) : null))) });
+}
 /** The Openings section of the Writing guide (R88): the rules for every opening, and the templates, with which type uses each by default. */
 function openingsSection(data, staff) {
   const card = (o, i) => h(staff ? 'button' : 'div', { type: staff ? 'button' : null, class: 'card card-pad cardlink openingcard', onclick: staff ? () => openingEditor(o, route) : null },
     h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('strong', {}, o.name), o.active ? null : h('span', { class: 'pill wait' }, 'Off')),
-    h('div', { class: 'small', title: 'Proposals finalized with this opening. The alternatives on a proposal are written and shown in this order.' }, h('span', { class: 'rankn' }, String(o.rank || 0)), ` proposal${Number(o.rank) === 1 ? '' : 's'} sent with it${i === 0 && o.rank ? ': ranked first' : ''}`),
+    h('div', { class: 'small', title: 'Its score: the finished proposals sent with it, plus points added by hand. The alternatives on a proposal are written and shown in this order.' }, h('span', { class: 'rankn' }, '#' + (i + 1)),
+      ` ${o.sent} sent${o.boost ? ` + ${o.boost} by hand` : ''}`),
     h('div', { class: 'jp-label clamp2' }, o.instructions),
     h('div', { class: 'chips' }, ...[o.used_by ? h('span', { class: 'chip brand' }, 'Default of ' + o.used_by.replace(/Type (\d+)\. /g, 'Type $1 ')) : h('span', { class: 'chip' }, 'Alternative only'),
       o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null, o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null,
@@ -2937,7 +3025,7 @@ function openingsSection(data, staff) {
  * Proposal types, Rules for every proposal, and Retired types. The tab is kept in the address, so Back returns to it.
  */
 async function writingView() {
-  const [{ types, docs: allDocs }, openingData] = await Promise.all([api('GET', '/writing-docs'), api('GET', '/opening-templates')]);
+  const [{ types, docs: allDocs }, openingData, { items: shortcuts }] = await Promise.all([api('GET', '/writing-docs'), api('GET', '/opening-templates'), api('GET', '/shortcuts')]);
   const docs = allDocs.filter((d) => d.kind !== 'opening'); // the rules for every opening sit with the openings
   const staff = me.role === 'admin' || me.role === 'manager';
   const docCard = (d) => h('a', { class: 'card card-pad cardlink', href: '#/wg/' + d.id },
@@ -2954,6 +3042,7 @@ async function writingView() {
   const TABS = [
     { key: 'openings', label: 'Openings', n: openingData.items.length, sub: 'The first two lines Upwork shows in the preview. Each proposal type is written with its default opening; the other openings that are on are written beside it three at a time, the most sent first. Ranked by how many finalized proposals went out with each.' },
     { key: 'types', label: 'Proposal types', n: active.length, sub: 'One is picked for each job from its signals. Each has its format, length, signals, samples and default opening.' },
+    { key: 'shortcuts', label: 'Shortcuts', n: shortcuts.length, sub: 'A main word and the short word every proposal uses instead (WhatsApp becomes WA). The app\'s writer and the Claude plugin both use them; links are never changed.' },
     { key: 'rules', label: 'Rules for every proposal', n: docs.length, sub: 'Applied with every type: by the app\'s writer, its checks, the review and the plugin.' },
     { key: 'retired', label: 'Retired', n: retired.length, sub: 'No longer chosen. Kept for reference and for the proposals already written with them.' },
   ];
@@ -2968,13 +3057,16 @@ async function writingView() {
   const draw = () => {
     const t = TABS.find((x) => x.key === tab);
     tabsEl.replaceChildren(...TABS.map((x) => h('button', { type: 'button', role: 'tab', class: 'tab' + (x.key === tab ? ' on' : ''), 'aria-selected': x.key === tab,
-      onclick: () => { if (x.key === tab) return; tab = x.key; setHashParams({ tab, q: '', page: '', ready: '' }); draw(); } }, x.label, h('span', { class: 'n' }, String(x.n)))));
+      onclick: () => { if (x.key === tab) return; tab = x.key; setHashParams({ tab, q: '', page: '', ready: '', status: '' }); draw(); } }, x.label, h('span', { class: 'n' }, String(x.n)))));
     const action = !staff ? null : tab === 'openings'
-      ? h('button', { class: 'btn primary', type: 'button', disabled: openingData.items.length >= openingData.max || null, onclick: () => openingEditor(null, route) }, icon('screen'), `Add opening (${openingData.items.length} of ${openingData.max})`)
-      : tab === 'types' ? h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add proposal type') : null;
+      ? [openingData.items.length > 1 ? h('button', { class: 'btn', type: 'button', onclick: () => rankingEditor(openingData.items, route) }, 'Change ranking') : null,
+        h('button', { class: 'btn primary', type: 'button', disabled: openingData.items.length >= openingData.max || null, onclick: () => openingEditor(null, route) }, icon('screen'), `Add opening (${openingData.items.length} of ${openingData.max})`)].filter(Boolean)
+      : tab === 'types' ? h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add proposal type')
+        : tab === 'shortcuts' ? h('button', { class: 'btn primary', type: 'button', onclick: () => shortcutEditor(null, route) }, icon('screen'), 'Add shortcut') : null;
     head.replaceChildren(pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.', action));
     body.replaceChildren(h('p', { class: 'jp-label', style: 'margin:0' }, t.sub),
       tab === 'openings' ? openingsSection(openingData, staff)
+        : tab === 'shortcuts' ? shortcutsSection(shortcuts, staff)
         : tab === 'types' ? typeList(active, 'No proposal types yet')
           : tab === 'retired' ? (retired.length ? h('div', { class: 'grid3' }, retired.map(typeCard)) : emptyState('doc', 'Nothing retired', 'A proposal type switched off shows here.'))
             : h('div', { class: 'grid3' }, docs.map(docCard)));
@@ -3029,7 +3121,8 @@ async function settingsView() {
     return h('div', { class: 'setrow' }, h('div', {}, h('strong', {}, meta[key].label), meta[key].help ? h('div', { class: 'jp-label' }, meta[key].help) : null),
       h('div', { class: 'setin switchin' }, state, sw));
   };
-  const list = (key, ph) => { const el = h('input', { type: 'text', value: settings[key].join(', '), placeholder: ph, style: 'min-width:320px' }); return row(key, el, () => el.value.split(',').map((x) => x.trim()).filter(Boolean)); };
+  // R93: a list shows every item (a one-line box cut them off): a box that grows, one comma between items
+  const list = (key, ph) => { const el = h('textarea', { rows: 2, class: 'listin', placeholder: ph, 'aria-label': key }); el.value = settings[key].join(', '); return row(key, el, () => el.value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean)); };
   // which AI does the work: checked on the server (key present) before it is saved
   const ai = await api('GET', '/admin/ai');
   const aiCard = (() => {

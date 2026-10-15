@@ -1,4 +1,5 @@
 import { activeOpenings, templateBlock } from './proposal/opening_templates';
+import { activeShortcuts, shortenText } from './proposal/shortcuts';
 import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
@@ -168,7 +169,9 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
   // the cover letter alone; answers sent inside the text (plugin before v0.9.0) are taken out and kept apart
   const sep = splitText(d.text);
   const prior = (await query<any>('SELECT id FROM proposals WHERE screening_id=?', [s.id]))[0];
-  const answers = d.screening_answers ?? (sep.answers.length ? sep.answers : prior ? (await latestVersion(prior.id))?.answers ?? null : null);
+  const sc = await activeShortcuts(); // R92: the plugin's proposal uses the short words too
+  sep.letter = shortenText(sep.letter, sc);
+  const answers = (d.screening_answers ?? (sep.answers.length ? sep.answers : prior ? (await latestVersion(prior.id))?.answers ?? null : null))?.map((a: any) => ({ ...a, answer: shortenText(a.answer, sc) })) ?? null;
   const lib = await query<any>('SELECT id, name FROM projects');
   const picked = (d.projects ?? []).map((n) => ({ name: n, p: lib.find((x) => x.name.toLowerCase() === n.toLowerCase()) ?? null }));
   const unknown = picked.filter((x) => !x.p).map((x) => x.name);
@@ -589,6 +592,7 @@ plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
       return { key: key(t.name), title: t.name, ...typeFacts(text), default_opening: def?.name, content: match ? text : undefined };
     }),
     type_selection: one('selection'), opening_lines: one('opening'),
+    word_shortcuts: (await activeShortcuts()).map((x) => ({ main_word: x.main_word, short_word: x.short_word })), // R92: always write the short word
     opening_templates: openings.map((o) => ({ name: o.name, instructions: o.instructions, must_start_with: o.starts ? o.starts.split('|').map((x) => x.trim()) : undefined, may_greet: o.may_greet || undefined, may_talk_about_us: o.may_talk_about_us || undefined,
       examples: o.examples.length ? o.examples : undefined, match_examples: o.examples.length && o.match_examples ? 'Write this opening 80 to 90 percent like the closest example: its structure, sentence order, length, rhythm and wording; change only the facts this job needs, never carrying a fact over from an example.' : undefined,
       times_sent: o.rank })), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),

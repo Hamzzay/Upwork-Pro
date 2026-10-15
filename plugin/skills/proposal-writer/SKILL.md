@@ -53,6 +53,8 @@ Score every type with the type selection rules (`references/type-selection.md`) 
    example (its structure, sentence order, length and wording), changing only the facts this job needs and never carrying over an
    example's facts. When the person wants other openings, write three at a time, one per other opening template, the ones with the
    highest `times_sent` first, each by its own instructions; offer three more while any are left.
+   **Word shortcuts:** `get_writing_guide` lists `word_shortcuts` (main word, short word). Always write the short word, in the letter
+   and the answers (WhatsApp becomes WA), never inside a link.
 3. Add every module the signals call for, from `references/modules.md`.
 4. Apply the profile record: voice, signature, allowed stats, and profile rules. Profile rules override general rules.
 5. Use the client's required words or format exactly, if any.
