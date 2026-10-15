@@ -21,7 +21,7 @@ import { applyJudgement } from '../src/screening/judge';
 import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from '../src/proposal/openings';
-import { checkFlags, openingRules, templateBlock } from '../src/proposal/opening_templates';
+import { checkFlags, examplesBlock, openingRules, templateBlock } from '../src/proposal/opening_templates';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -670,7 +670,7 @@ const ctx = { rules, projects };
   }
   // R88: the opening is the opening template's, with the rules for every opening; its exceptions are fields
   {
-    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true };
+    const tpl = { id: 7, name: 'Problem first opening', instructions: 'Line one is exactly "Understood." Line two states the problem.', starts: 'Understood.', may_greet: false, may_talk_about_us: false, active: true, examples: [] as string[], match_examples: false, rank: 0 };
     const txt = openingRules('No greeting. No talk about us.', tpl);
     assert.ok(txt.indexOf('RULES FOR EVERY OPENING') < txt.indexOf('THE OPENING TO WRITE'), 'the rules first, then the template');
     assert.ok(txt.includes('must begin with "Understood."'), 'the first words are said');
@@ -680,6 +680,13 @@ const ctx = { rules, projects };
     assert.deepEqual(checkFlags(approach), { noUs: false, starts: 'For your platform,|For you,', invite: false });
     assert.deepEqual(checkFlags({ ...tpl, may_greet: true }), { noUs: true, starts: 'Understood.', invite: true });
     assert.equal(openingRules(null, null), '', 'nothing to say without rules or a template');
+    // R91: examples, followed closely only when "match the examples" is on; none, no block
+    assert.equal(examplesBlock(tpl), '', 'no examples, nothing added');
+    const ex = { ...tpl, examples: ['Understood. Your four clinics lose calls after six.', 'Understood. Orders stall between the shop and the warehouse.'] };
+    assert.ok(examplesBlock(ex).startsWith('EXAMPLES of this opening') && !examplesBlock(ex).includes('80 to 90 percent'), 'examples for the feel only');
+    const strict = examplesBlock({ ...ex, match_examples: true });
+    assert.ok(strict.startsWith('MATCH THE EXAMPLES') && strict.includes('80 to 90 percent') && strict.includes('Example 2:'), 'matched closely, every example listed');
+    assert.ok(templateBlock({ ...ex, match_examples: true }).includes('MATCH THE EXAMPLES'), 'the template carries its examples to the writer');
   }
   // R71: an experience done in several projects; each project once; the gap's word puts what waits first
   {

@@ -49,7 +49,10 @@ Score every type with the type selection rules (`references/type-selection.md`) 
    and the full list in `opening_templates`) and the rules for every opening (`opening_lines`). The template wins where the two differ:
    its required first words (`must_start_with`, unless the client asked for their own), `may_greet`, `may_talk_about_us`. Where the
    type's format describes its opening differently, the template decides. Check the opening before showing the draft and rewrite it if
-   any rule fails. When the person wants other openings, write one per other opening template, each by its own instructions.
+   any rule fails. A template with `examples` is written in their spirit; with `match_examples`, 80 to 90 percent like the closest
+   example (its structure, sentence order, length and wording), changing only the facts this job needs and never carrying over an
+   example's facts. When the person wants other openings, write three at a time, one per other opening template, the ones with the
+   highest `times_sent` first, each by its own instructions; offer three more while any are left.
 3. Add every module the signals call for, from `references/modules.md`.
 4. Apply the profile record: voice, signature, allowed stats, and profile rules. Profile rules override general rules.
 5. Use the client's required words or format exactly, if any.

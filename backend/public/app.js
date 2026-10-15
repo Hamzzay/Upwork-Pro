@@ -1633,7 +1633,7 @@ function profileSection(s, initial) {
       try {
         const r = await api('PUT', `/screenings/${s.id}/proposal-profile`, { profile_id: current });
         toast('Profile saved'); chosen = undefined;
-        if (stepCtx) await stepCtx.advanceTo(3); else route();
+        if (stepCtx) await stepCtx.advanceTo(3); else { await reload(); if (matching) Object.assign(matching, m); draw(); } // R91: no whole page load
       } catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; b.disabled = false; b.replaceChildren(saved ? 'Use this profile instead' : 'Confirm and continue'); }
     };
     if (owner) setActions(!saved ? actBtn('Confirm and continue', confirmIt, true) : current && current !== saved.id ? actBtn('Use this profile instead', confirmIt, true) : null);
@@ -2884,8 +2884,21 @@ function openingEditor(o, after) {
     ins: h('textarea', { id: 'oins', rows: 14, maxlength: 3000, style: 'min-height:300px', placeholder: 'Line one ... Line two ... Tone ... The line of thought: they read on because ...' }),
     starts: h('input', { type: 'text', id: 'ostarts', maxlength: 200, value: o && o.starts ? o.starts : '', placeholder: 'For example: Understood.' }),
     greet: h('input', { type: 'checkbox', id: 'ogreet', checked: !!(o && o.may_greet) }), us: h('input', { type: 'checkbox', id: 'ous', checked: !!(o && o.may_talk_about_us) }),
-    active: h('input', { type: 'checkbox', id: 'oact', checked: o ? !!o.active : true }) };
+    active: h('input', { type: 'checkbox', id: 'oact', checked: o ? !!o.active : true }),
+    match: h('input', { type: 'checkbox', id: 'omatch', checked: !!(o && o.match_examples) }) };
   f.ins.value = o ? o.instructions : '';
+  // R91: up to five example openings; "match the examples" has the opening written 80 to 90 percent like them
+  const MAXEX = 5, exList = h('div', { class: 'stack', style: 'gap:10px' }), exAdd = h('button', { class: 'btn sm', type: 'button' }, icon('screen'), 'Add example');
+  const exBoxes = [];
+  const exDraw = () => {
+    exList.replaceChildren(...exBoxes.map((ta, i) => h('div', { class: 'exrow' }, h('div', { class: 'row spread' }, h('label', { class: 'lbl', for: 'oex' + i, style: 'margin:0' }, 'Example ' + (i + 1)),
+      h('button', { class: 'linkbtn small', type: 'button', onclick: () => { exBoxes.splice(i, 1); exDraw(); } }, 'Remove')), ta)));
+    exAdd.hidden = exBoxes.length >= MAXEX; f.match.disabled = !exBoxes.length; if (!exBoxes.length) f.match.checked = false;
+  };
+  const exBox = (v) => { const ta = h('textarea', { rows: 3, maxlength: 1500, placeholder: 'An opening that worked, as it was sent (no client names).' }); ta.value = v || ''; ta.oninput = () => { f.match.disabled = false; }; return ta; };
+  for (const x of (o && o.examples) || []) exBoxes.push(exBox(x));
+  exAdd.onclick = () => { if (exBoxes.length < MAXEX) { exBoxes.push(exBox('')); exDraw(); exBoxes[exBoxes.length - 1].focus(); } };
+  exDraw();
   modal({ title: o ? 'Change ' + o.name : 'Add an opening template', confirm: o ? 'Save' : 'Add opening template', wide: true,
     body: h('div', { class: 'stack', style: 'gap:14px' },
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'oname' }, 'Name'), f.name),
@@ -2893,20 +2906,28 @@ function openingEditor(o, after) {
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ostarts' }, 'First words (optional)'), f.starts, h('div', { class: 'hint' }, 'The opening must begin with this. For a choice, put | between them: For your platform,|For you,. A client\'s own required words come first.')),
       h('label', { class: 'row', for: 'ogreet', style: 'gap:8px' }, f.greet, 'May open with a greeting by the client\'s name'),
       h('label', { class: 'row', for: 'ous', style: 'gap:8px' }, f.us, 'May say how we would start (talk about us)'),
-      h('label', { class: 'row', for: 'oact', style: 'gap:8px' }, f.active, 'On: written as an alternative for every proposal')),
+      h('label', { class: 'row', for: 'oact', style: 'gap:8px' }, f.active, 'On: written as an alternative for every proposal'),
+      h('div', { class: 'exbox' },
+        h('div', { class: 'row spread' }, h('div', {}, h('strong', {}, `Examples (up to ${MAXEX})`), h('div', { class: 'hint', style: 'margin:2px 0 0' }, 'Openings that worked, to show the AI what this one sounds like. Each new opening gets a score out of 10 for how close it is to them.')), exAdd),
+        exList,
+        h('label', { class: 'row', for: 'omatch', style: 'gap:10px;align-items:flex-start;flex-wrap:nowrap' }, f.match, h('span', {}, h('strong', {}, 'Match the examples'), h('span', { class: 'hint', style: 'display:block;margin:2px 0 0' }, 'The opening is written 80 to 90 percent like the closest example: its structure, sentence order, length and wording, with only this job\'s facts changed.'))))),
     onConfirm: async () => {
-      const body = { name: f.name.value.trim(), instructions: f.ins.value.trim(), starts: f.starts.value.trim() || null, may_greet: f.greet.checked, may_talk_about_us: f.us.checked, active: f.active.checked };
+      const examples = exBoxes.map((ta) => ta.value.trim()).filter(Boolean);
+      const body = { name: f.name.value.trim(), instructions: f.ins.value.trim(), starts: f.starts.value.trim() || null, may_greet: f.greet.checked, may_talk_about_us: f.us.checked, active: f.active.checked,
+        examples, match_examples: !!examples.length && f.match.checked };
       if (o) await api('PATCH', '/opening-templates/' + o.id, body); else await api('POST', '/opening-templates', body);
       toast(o ? 'Opening template saved' : 'Opening template added'); after();
     } });
 }
 /** The Openings section of the Writing guide (R88): the rules for every opening, and the templates, with which type uses each by default. */
 function openingsSection(data, staff) {
-  const card = (o) => h(staff ? 'button' : 'div', { type: staff ? 'button' : null, class: 'card card-pad cardlink openingcard', onclick: staff ? () => openingEditor(o, route) : null },
+  const card = (o, i) => h(staff ? 'button' : 'div', { type: staff ? 'button' : null, class: 'card card-pad cardlink openingcard', onclick: staff ? () => openingEditor(o, route) : null },
     h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('strong', {}, o.name), o.active ? null : h('span', { class: 'pill wait' }, 'Off')),
+    h('div', { class: 'small', title: 'Proposals finalized with this opening. The alternatives on a proposal are written and shown in this order.' }, h('span', { class: 'rankn' }, String(o.rank || 0)), ` proposal${Number(o.rank) === 1 ? '' : 's'} sent with it${i === 0 && o.rank ? ': ranked first' : ''}`),
     h('div', { class: 'jp-label clamp2' }, o.instructions),
     h('div', { class: 'chips' }, ...[o.used_by ? h('span', { class: 'chip brand' }, 'Default of ' + o.used_by.replace(/Type (\d+)\. /g, 'Type $1 ')) : h('span', { class: 'chip' }, 'Alternative only'),
-      o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null, o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null].filter(Boolean)));
+      o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null, o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null,
+      o.examples && o.examples.length ? h('span', { class: 'chip' }, `${o.examples.length} example${o.examples.length === 1 ? '' : 's'}${o.match_examples ? ', matched' : ''}`) : null].filter(Boolean)));
   return h('div', { class: 'stack', style: 'gap:12px' },
     data.rules_doc_id ? h('a', { class: 'card card-pad cardlink rulesrow', href: '#/wg/' + data.rules_doc_id }, h('div', { class: 'row', style: 'gap:10px' }, icon('doc'), h('div', {}, h('strong', {}, 'Rules for every opening'), h('div', { class: 'jp-label' }, 'What every opening must and must not do. A template can make the exceptions its options allow.')))) : null,
     data.items.length ? h('div', { class: 'grid3' }, data.items.map(card)) : emptyState('doc', 'No opening templates yet', 'Add the first one: what the opening does, and its first words if it has any.'));
@@ -2931,7 +2952,7 @@ async function writingView() {
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
   const active = types.filter((t) => Number(t.active)).sort(byName), retired = types.filter((t) => !Number(t.active)).sort(byName);
   const TABS = [
-    { key: 'openings', label: 'Openings', n: openingData.items.length, sub: 'The first two lines Upwork shows in the preview. Each proposal type is written with its default opening; every other opening that is on is written beside it, to swipe through and pick.' },
+    { key: 'openings', label: 'Openings', n: openingData.items.length, sub: 'The first two lines Upwork shows in the preview. Each proposal type is written with its default opening; the other openings that are on are written beside it three at a time, the most sent first. Ranked by how many finalized proposals went out with each.' },
     { key: 'types', label: 'Proposal types', n: active.length, sub: 'One is picked for each job from its signals. Each has its format, length, signals, samples and default opening.' },
     { key: 'rules', label: 'Rules for every proposal', n: docs.length, sub: 'Applied with every type: by the app\'s writer, its checks, the review and the plugin.' },
     { key: 'retired', label: 'Retired', n: retired.length, sub: 'No longer chosen. Kept for reference and for the proposals already written with them.' },

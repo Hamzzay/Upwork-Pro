@@ -388,10 +388,12 @@ function proposalSection(s, initial, matching) {
   function drawOpenings() {
     const o = data && data.openings;
     if (!o || !data.current || !editor || viewingOther) { openEl.replaceChildren(); return; }
-    const writeBtn = (label) => (owner ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Starting');
-      try { await api('POST', `/proposals/${data.id}/openings`, {}); data.openings = { ...o, status: 'queued' }; previewTo(0); drawOpenings(); startPolling(); } catch (x) { toast(x.message, true); drawOpenings(); } } }, label) : null);
+    // R91: written three at a time, the most sent first; "more" adds the next three beside the ones there
+    const writeBtn = (label, more = false, cls = 'btn sm') => (owner ? h('button', { class: cls, type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Starting');
+      try { await api('POST', `/proposals/${data.id}/openings`, { more }); data.openings = { ...o, status: 'queued', more }; if (!more) previewTo(0); drawOpenings(); startPolling(); } catch (x) { toast(x.message, true); drawOpenings(); } } }, label) : null);
     const shell = (...kids) => openEl.replaceChildren(h('div', { class: 'opencard' }, ...kids));
-    if (openingsBusy()) return shell(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing the other openings, one per opening template...'));
+    const addingMore = openingsBusy() && o.more && o.items && o.items.length;
+    if (openingsBusy() && !addingMore) return shell(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing three other openings, the most sent first...'));
     if (!o.items || !o.items.length) return o.status === 'error'
       ? shell(h('div', { class: 'row spread' }, h('span', { class: 'err' }, icon('x'), 'The openings could not be written' + (o.error ? ': ' + o.error : '.')), writeBtn('Try again')))
       : owner ? shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Openings to choose from: one per opening template that is on, each its own direction and tone.'), writeBtn('Write the openings'))) : openEl.replaceChildren();
@@ -400,7 +402,8 @@ function proposalSection(s, initial, matching) {
     // As written first (the one in use, when one was used), then the others
     // the first slide is the opening in the proposal now: the type's default template (R88), or the one picked
     const usedIt = o.used != null && o.items[o.used] ? o.items[o.used] : null;
-    slides = [{ label: usedIt ? `${usedIt.style || 'Opening'} (in use)` : o.default ? `${o.default} (default)` : 'Opening as written', angle: usedIt ? usedIt.angle : null, tone: usedIt ? usedIt.tone : null, text: curFirst, why: null, index: null },
+    slides = [{ label: usedIt ? `${usedIt.style || 'Opening'} (in use)` : o.default ? `${o.default} (default)` : 'Opening as written', angle: usedIt ? usedIt.angle : null, tone: usedIt ? usedIt.tone : null, text: curFirst, why: null, index: null,
+      match: usedIt ? usedIt.match : o.first_match, match_note: usedIt ? usedIt.match_note : o.first_match_note },
       ...o.items.map((x, i) => ({ ...x, label: x.style || `Opening ${i + 1}`, index: i })).filter((x) => x.index !== o.used)]; // labelled by its style (Settings)
     if (previewIdx >= slides.length) previewIdx = 0;
     const track = h('div', { class: 'opentrack' }, slides.map((sl) => h('div', { class: 'openslide' }, h('p', { class: 'opentext' }, sl.text), sl.why ? h('div', { class: 'faint small' }, sl.why) : null)));
@@ -410,7 +413,8 @@ function proposalSection(s, initial, matching) {
     const head = () => {
       const sl = slides[previewIdx];
       counter.textContent = `${previewIdx + 1} of ${slides.length}`;
-      chips.replaceChildren(...[h('strong', {}, sl.label), sl.angle ? h('span', { class: 'chip brand' }, sl.angle) : null, sl.tone ? h('span', { class: 'chip' }, sl.tone) : null].filter(Boolean));
+      chips.replaceChildren(...[h('strong', {}, sl.label), sl.angle ? h('span', { class: 'chip brand' }, sl.angle) : null, sl.tone ? h('span', { class: 'chip' }, sl.tone) : null,
+        sl.match != null ? h('span', { class: 'chip matchsc ' + (sl.match >= 8 ? 'hi' : sl.match >= 5 ? 'mid' : 'lo'), title: 'How close it is to the opening template\'s examples' + (sl.match_note ? ': ' + sl.match_note : '') }, `Like the examples ${sl.match}/10`) : null].filter(Boolean));
       dots.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === previewIdx));
       prev.disabled = previewIdx === 0; next.disabled = previewIdx === slides.length - 1;
       act.replaceChildren(...(sl.index != null && owner ? [h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
@@ -421,7 +425,11 @@ function proposalSection(s, initial, matching) {
     let t = null; track.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); if (i !== previewIdx) { if (!previewTo(i)) track.scrollTo({ left: previewIdx * track.clientWidth, behavior: 'smooth' }); head(); } }, 90); }, { passive: true });
     shell(h('div', { class: 'row spread', style: 'flex-wrap:wrap;gap:8px' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, chips),
       h('div', { class: 'row', style: 'gap:6px' }, counter, prev, next, act)), track,
-      h('div', { class: 'row spread', style: 'margin-top:6px' }, dots, h('span', { class: 'faint small' }, 'Swipe to try each one in the proposal below.'), owner ? h('button', { type: 'button', class: 'linkbtn small', onclick: () => writeBtn('').click() }, 'Write new ones') : null));
+      h('div', { class: 'row spread', style: 'margin-top:6px;gap:8px;flex-wrap:wrap' }, dots, h('span', { class: 'faint small' }, 'Swipe to try each one in the proposal below.'),
+        h('span', { class: 'row', style: 'gap:10px' },
+          addingMore ? h('span', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing three more...')
+            : o.left > 0 ? writeBtn(`Load ${Math.min(3, o.left)} more (${o.left} left)`, true) : null,
+          owner && !addingMore ? h('button', { type: 'button', class: 'linkbtn small', onclick: () => writeBtn('').click() }, 'Write new ones') : null)));
     head();
     requestAnimationFrame(() => { track.scrollLeft = previewIdx * track.clientWidth; });
   }
@@ -739,7 +747,9 @@ function proposalSection(s, initial, matching) {
       profSel.disabled = true;
       try { const r = await api('PUT', `/screenings/${s.id}/proposal-profile`, { profile_id: Number(profSel.value) });
         toast(r.updated === 'in_place' ? 'Sent from ' + profSel.options[profSel.selectedIndex].textContent + ' now. The sign off changed.' : 'Profile changed. The new sign off is offered beside your edited text.');
-        route(); }
+        // R91 (Ahmad): only the proposal is drawn again, never the whole page; the other tabs read the same profile
+        const np = profs.find((p) => p.id === Number(profSel.value)); if (np) matching.proposal_profile = { ...(matching.proposal_profile || {}), ...np };
+        await reload(); newer = null; drawAll(); if (busy() || partsBusy()) startPolling(); }
       catch (x) { toast(x.message, true); profSel.disabled = false; profSel.value = matching.proposal_profile.id; }
     };
     // the Loom video can be changed after writing: only its line changes, no new write

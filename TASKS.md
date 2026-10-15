@@ -120,6 +120,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 71 | Openings in one place: up to 10 opening templates, a default per proposal type, the rest as alternatives (R88, migration 051, plugin v0.16.0) | done |
 | 73 | The Writing guide in four tabs (Openings, Proposal types, Rules, Retired); a taller box for an opening template (R89) | done |
 | 74 | The proposal type page in tabs (Details and format, Opening, Signals, Samples); the default opening picked from cards with a preview (R90) | done |
+| 75 | Openings three at a time with Load 3 more, up to 20; ranking by finished proposals; up to five examples and Match the examples, with a score out of 10; no whole page load on a profile change; proposal page cleanup (R91) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

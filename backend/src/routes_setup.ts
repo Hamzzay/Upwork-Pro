@@ -113,6 +113,8 @@ async function detail(kind: string, id: string | number): Promise<Record<string,
     .reduce((m: Record<string, string[]>, x) => { (m[x.c] ??= []).push(x.t); return m; }, {})));
   const p = SPEC[kind].parent; if (p && out[p.col] != null) out[p.label] = (await query<any>(`SELECT name FROM ${p.table} WHERE id=?`, [out[p.col]]))[0]?.name ?? null;
   for (const [field, rows] of Object.entries(r.rows)) out[field] = rows;
+  // R91: an opening template's examples read as the list the body takes
+  if (kind === 'opening_template' && 'examples_json' in out) { try { out.examples = JSON.parse(String(out.examples_json ?? '[]')) ?? []; } catch { out.examples = []; } delete out.examples_json; out.match_examples = !!Number(out.match_examples); }
   return out;
 }
 

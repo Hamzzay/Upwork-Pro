@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.16.0)
+## Status (v0.17.0)
+
+v0.17.0: opening templates have examples (up to five) and a "match the examples" switch, and a ranking (`times_sent`): other
+openings are offered three at a time, the most sent first. Up to 20 templates.
+
+## Earlier (v0.16.0)
 
 v0.16.0: openings in one place. A proposal's opening follows the type's default opening template (`default_opening`,
 `opening_templates` in `get_writing_guide`) and the rules for every opening; the other active templates are the alternatives.

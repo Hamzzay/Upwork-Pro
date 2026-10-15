@@ -207,6 +207,7 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     if (loom !== undefined) await conn.query('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [loom ? loom.id : null, loom ? loom.title : null, s.id]);
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+  if (d.finished) { const { setFinalOpening } = await import('./routes_proposals'); await setFinalOpening(proposalId); } // R91: its opening scores a point
   await audit(userId, 'plugin_proposal_save', `screening=${s.id} version=${version} profile=${prof.id}${d.finished ? ' finished' : ''}`);
   let review: string | undefined;
   if (d.review) { const { queueReview } = await import('./routes_proposals'); const q = await queueReview(s.id); review = q.error ? `not started: ${q.error}` : 'started: collect it with review_proposal'; }
@@ -588,7 +589,9 @@ plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
       return { key: key(t.name), title: t.name, ...typeFacts(text), default_opening: def?.name, content: match ? text : undefined };
     }),
     type_selection: one('selection'), opening_lines: one('opening'),
-    opening_templates: openings.map((o) => ({ name: o.name, instructions: o.instructions, must_start_with: o.starts ? o.starts.split('|').map((x) => x.trim()) : undefined, may_greet: o.may_greet || undefined, may_talk_about_us: o.may_talk_about_us || undefined })), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
+    opening_templates: openings.map((o) => ({ name: o.name, instructions: o.instructions, must_start_with: o.starts ? o.starts.split('|').map((x) => x.trim()) : undefined, may_greet: o.may_greet || undefined, may_talk_about_us: o.may_talk_about_us || undefined,
+      examples: o.examples.length ? o.examples : undefined, match_examples: o.examples.length && o.match_examples ? 'Write this opening 80 to 90 percent like the closest example: its structure, sentence order, length, rhythm and wording; change only the facts this job needs, never carrying a fact over from an example.' : undefined,
+      times_sent: o.rank })), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),
     updated_at: [...docs, ...types].reduce((m: any, d: any) => (m && m > d.updated_at ? m : d.updated_at), null),
   });
 });

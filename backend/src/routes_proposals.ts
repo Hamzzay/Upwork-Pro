@@ -4,10 +4,10 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion, applySendParts, latestVersion, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { addVersion, applySendParts, latestVersion, loadTemplate, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
-import { allOpenings, MAX_OPENINGS } from './proposal/opening_templates';
-import { queueOpenings, readOpenings, useOpening } from './proposal/openings';
+import { allOpenings, MAX_EXAMPLES, MAX_OPENINGS, openingInUse } from './proposal/opening_templates';
+import { openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
 import { compareOf, queueCompare } from './proposal/compare';
 
 export const proposals = Router();
@@ -176,7 +176,10 @@ export const openingBody = z.object({
   name: z.string().trim().min(2, 'Give it a name').max(80), instructions: z.string().trim().min(20, 'Say what this opening does').max(3000),
   starts: z.string().trim().max(200).nullable().optional(), may_greet: z.boolean().optional(), may_talk_about_us: z.boolean().optional(),
   active: z.boolean().optional(), sort_order: z.number().int().min(0).max(10000).optional(),
+  // R91: up to five example openings, and whether to write the opening very close to them
+  examples: z.array(z.string().trim().max(1500)).max(MAX_EXAMPLES, `At most ${MAX_EXAMPLES} examples`).optional(), match_examples: z.boolean().optional(),
 });
+const examplesJson = (a: string[] | undefined) => { const l = (a ?? []).filter(Boolean); return l.length ? JSON.stringify(l) : null; };
 proposals.get('/opening-templates', anyone, async (_req, res) => {
   const doc = (await query<any>("SELECT id FROM writing_docs WHERE kind='opening' ORDER BY sort_order LIMIT 1"))[0];
   res.json({ items: await allOpenings(), max: MAX_OPENINGS, rules_doc_id: doc?.id ?? null });
@@ -185,8 +188,9 @@ proposals.post('/opening-templates', editor, async (req, res) => {
   const b = openingBody.safeParse(req.body); if (!b.success) return void bad(res, b.error);
   if (Number((await query<any>('SELECT COUNT(*) n FROM opening_templates'))[0].n) >= MAX_OPENINGS) return void res.status(409).json({ error: `There can be at most ${MAX_OPENINGS} opening templates. Change or switch off one instead.` });
   try {
-    const r = await exec('INSERT INTO opening_templates (name, instructions, starts, may_greet, may_talk_about_us, active, sort_order) VALUES (?,?,?,?,?,?,?)',
-      [b.data.name, b.data.instructions, b.data.starts || null, b.data.may_greet ? 1 : 0, b.data.may_talk_about_us ? 1 : 0, b.data.active === false ? 0 : 1, b.data.sort_order ?? 300]);
+    const r = await exec('INSERT INTO opening_templates (name, instructions, starts, may_greet, may_talk_about_us, active, sort_order, examples_json, match_examples) VALUES (?,?,?,?,?,?,?,?,?)',
+      [b.data.name, b.data.instructions, b.data.starts || null, b.data.may_greet ? 1 : 0, b.data.may_talk_about_us ? 1 : 0, b.data.active === false ? 0 : 1, b.data.sort_order ?? 300,
+        examplesJson(b.data.examples), b.data.match_examples && examplesJson(b.data.examples) ? 1 : 0]);
     await audit(req.user!.id, 'opening_template_create', b.data.name);
     res.status(201).json({ id: r.insertId });
   } catch (e) { if (dup(e)) return void res.status(409).json({ error: 'An opening template with that name already exists' }); throw e; }
@@ -202,7 +206,8 @@ proposals.patch('/opening-templates/:id', editor, async (req, res) => {
   const sets: string[] = [], p: any[] = [];
   for (const k of ['name', 'instructions', 'sort_order']) if (k in d) { sets.push(`${k}=?`); p.push(d[k]); }
   if ('starts' in d) { sets.push('starts=?'); p.push(d.starts || null); }
-  for (const k of ['may_greet', 'may_talk_about_us', 'active']) if (k in d) { sets.push(`${k}=?`); p.push(d[k] ? 1 : 0); }
+  for (const k of ['may_greet', 'may_talk_about_us', 'active', 'match_examples']) if (k in d) { sets.push(`${k}=?`); p.push(d[k] ? 1 : 0); }
+  if ('examples' in d) { sets.push('examples_json=?'); p.push(examplesJson(d.examples)); }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   try { const r = await exec(`UPDATE opening_templates SET ${sets.join(',')} WHERE id=?`, [...p, id]); if (!r.affectedRows) return void res.status(404).json({ error: 'Not found' }); }
   catch (e) { if (dup(e)) return void res.status(409).json({ error: 'An opening template with that name already exists' }); throw e; }
@@ -339,7 +344,7 @@ export function reviewOf(p: any) {
 }
 export async function proposalFor(screeningId: number) {
   const p = (await query<any>(
-    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, p.gaps_status, p.gaps_error, p.openings_status, p.openings_json, p.openings_error, u.name AS created_by_name
+    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, p.gaps_status, p.gaps_error, p.openings_status, p.openings_json, p.openings_error, p.openings_more, u.name AS created_by_name
      FROM proposals p JOIN users u ON u.id=p.created_by WHERE p.screening_id=?`, [screeningId]))[0];
   if (!p) return null;
   const versions = await query('SELECT v.version_no, v.source, v.note, v.based_on_version, v.created_at, u.name AS user_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no DESC', [p.id]);
@@ -350,7 +355,7 @@ export async function proposalFor(screeningId: number) {
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
     ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
     current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers, in_parts: !!cur.parts } : null, versions, signals, messages,
-    openings: { status: p.openings_status, error: p.openings_error, ...(readOpenings(p.openings_json) ?? {}) }, // three to pick from (R73)
+    openings: { status: p.openings_status, error: p.openings_error, more: !!Number(p.openings_more), ...(readOpenings(p.openings_json) ?? {}), left: await openingsLeft(readOpenings(p.openings_json), p.template_id ? (await query<any>('SELECT default_opening_id FROM templates WHERE id=?', [p.template_id]))[0]?.default_opening_id : null) }, // to pick from (R73), three at a time (R91)
     review: reviewOf(p), parts: { status: p.parts_status, error: p.parts_error, offer: p.parts_offer_json ? JSON.parse(p.parts_offer_json) : [] },
     // experience the client asks for that our facts do not show (R67), with what is needed to answer it
     gaps: { status: p.gaps_status, error: p.gaps_error, items: await query<any>(`SELECT g.id, g.skill, g.ask, g.quote, g.category, g.status, g.project_id, g.note, g.tag_name, g.library, g.applied_version,
@@ -452,6 +457,14 @@ proposals.post('/proposals/:id/parts-offer/dismiss', anyone, async (req, res) =>
   res.json({ ok: true });
 });
 
+/** R91: the opening template a finalized proposal went out with (the one picked, else its type's default), counted by the ranking. */
+export async function setFinalOpening(proposalId: number) {
+  const p = (await query<any>('SELECT template_id FROM proposals WHERE id=? AND finalized_at IS NOT NULL', [proposalId]))[0]; if (!p) return;
+  const def = p.template_id ? (await loadTemplate(p.template_id))?.opening ?? null : null;
+  const o = await openingInUse(proposalId, def);
+  await exec('UPDATE proposals SET final_opening_id=? WHERE id=?', [o?.id ?? null, proposalId]);
+}
+
 // The person is happy with the proposal: this opens the tracking step.
 proposals.post('/screenings/:id/proposal/done', anyone, async (req, res) => {
   const s = await ownedScreening(req, res); if (!s) return;
@@ -459,6 +472,7 @@ proposals.post('/screenings/:id/proposal/done', anyone, async (req, res) => {
   if (!p || p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
   if (!(await query('SELECT id FROM proposal_versions WHERE proposal_id=? LIMIT 1', [p.id])).length) return void res.status(409).json({ error: 'The proposal has no text yet' });
   const r = await exec('UPDATE proposals SET finalized_at=COALESCE(finalized_at, NOW()), finalized_by=COALESCE(finalized_by, ?) WHERE id=?', [req.user!.id, p.id]);
+  await setFinalOpening(p.id); // R91: the opening it goes out with scores a point
   if (r.affectedRows) await audit(req.user!.id, 'proposal_done', `screening=${s.id}`);
   res.json({ ok: true });
 });
@@ -523,9 +537,10 @@ proposals.get('/proposals/:id/compare', anyone, async (req, res) => {
 // Three openings (R73): write them again, or use one (a new version with only the first paragraph changed).
 proposals.post('/proposals/:id/openings', anyone, async (req, res) => {
   const p = await ownedProposal(req, res); if (!p) return;
-  const err = await queueOpenings(p.id);
+  const more = req.body?.more === true; // R91: the next three beside the ones there, or the first three again
+  const err = await queueOpenings(p.id, more);
   if (err) return void res.status(409).json({ error: err });
-  await audit(req.user!.id, 'proposal_openings', `proposal=${p.id}`);
+  await audit(req.user!.id, 'proposal_openings', `proposal=${p.id}${more ? ' more' : ''}`);
   res.status(202).json({ ok: true });
 });
 proposals.post('/proposals/:id/openings/:i/use', anyone, async (req, res) => {

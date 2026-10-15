@@ -1003,6 +1003,25 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R91. Openings three at a time, ranked, with examples; a calmer proposal page (done, 16 October)
+
+- **Why** (Ahmad): writing every opening at once was slow and costly, the ones that work should come first, openings should be able
+  to follow real examples closely, and changing the profile reloaded the whole job page.
+- **Three at a time.** After a proposal is written, three other openings are written, from the best ranked templates. **Load 3
+  more** on the openings card writes the next three beside them, until every active template has one. Up to 20 templates now.
+- **Ranking.** When a proposal is finished (Save and mark sent, or the plugin's finished save), the opening it goes out with (the
+  one picked, else its type's default) scores a point for its template. The alternatives are written and shown best ranked first;
+  the Writing guide's Openings tab shows each count and sorts by it. Proposals finished before this were counted from their data.
+- **Examples.** Each opening template takes up to five example openings and a **Match the examples** box. Without it, the examples
+  give the feel; with it, the opening is written 80 to 90 percent like the closest example (structure, order, length, wording), with
+  only this job's facts changed. The proposal writer, the openings and the plugin (0.17.0) all read them.
+- **Score out of 10.** A separate AI check scores each opening against its template's examples (not the writer grading itself),
+  shown on the openings card as "Like the examples 8/10" with a note on hover. Templates without examples get no score.
+- **No whole page load** when the profile is changed on the proposal or on the Profile tab: only that part is drawn again.
+- **Cleaner proposal page**: no frame around the frame, the editor flat inside the letter card, and the tools beside it stay in view
+  while scrolling on a wide screen.
+- Migration 052.
+
 ### R90. The proposal type page in tabs, and its opening picked from cards (done, 15 October)
 
 - **Why** (Ahmad): the default opening was a small dropdown with a clear button and a search box, and the page was one long scroll.
