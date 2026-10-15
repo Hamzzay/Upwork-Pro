@@ -95,7 +95,9 @@ Apply the `job-gate` skill to the job data. Then show the person, as one visible
 **Save the job now, in the same message as Decision 1** (step 4 below, without `decision`), so it is in Upwork Pro as "Decision pending" even if the person stops here.
 
 **Decision 1.** Only after that message is visible, ask: **Continue** or **Stop**. Put the verdict and the main flags in the question text, for example "FLAG (G3 avg hourly $8, G14 20 Connects). Continue?" On a **PASS**, ask it in the same message as the gate result (the AskUserQuestion right after the visible gate message, with the save), not as a turn of its own.
-* On Continue after a Flag or Fail, ask for the reason with the quick picks from `plugin_options` (`continue_reasons`, the same ones the app offers), multi select, plus Other for their own words. Several picks and a note can go together.
+* On Continue after a Flag or Fail, first offer four or five reasons written for this job from your own Fit with Stackup Solutions
+  summary (each one short sentence naming the work, stack, client signal or past project that makes it worth it, answering the
+  flags, never invented), then the stock quick picks from `plugin_options` (`continue_reasons`), multi select, plus Other for their own words. Several picks and a note can go together.
 * On Stop, ask why in one line (the quick picks from `plugin_options` `skip_reasons`, or their own words), then call `record_decision` with `continue: false`, that reason, and `picks` with the quick reason they picked, and end.
 * On Continue, call `record_decision` with `continue: true` (and for a FLAG or FAIL the reason: the picks as sentences, then their note, for example "Invited by the client. Strong client history. They asked for us by name."; never invent a note; and `picks`, the quick reasons they picked exactly as listed), in the same message as the step 5 save (`save_step` read) and Decision 2, so it costs no turn of its own (the library was already read at the start).
 

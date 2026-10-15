@@ -1003,6 +1003,19 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R96. Reasons to continue written from the job's fit; adding tags no longer reloads the Projects step (done, 16 October)
+
+- **Why** (Ahmad): the quick reasons to continue past a FLAG or FAIL were stock phrases, so the reason on record said little; and
+  adding tags on the Projects step replaced the whole step with a loading screen.
+- **Reasons from the fit.** As soon as a screening comes back FLAG or FAIL, four or five reasons to continue are written from its
+  "Fit with Stackup Solutions" summary, set against its flags: the work, the stack, the past project or the client signal that makes
+  the job worth it. They come first on the decision, under "From the fit with Stackup Solutions"; the stock ones from Settings stay
+  below as "Other reasons". A job screened before this gets its own the first time its decision is opened (a few seconds; the panel
+  fills them in by itself). The plugin (0.19.0) offers the same from its own fit summary.
+- **Adding tags runs in the background.** The cards stay as they are, with the new tags shown as shared at once and a small line
+  saying the order is updating; the cards change only when the new order is in. Nothing else on the page reloads.
+- Migration 055.
+
 ### R95. Missing tags on the Projects step, added right there (done, 16 October)
 
 - **Why** (Ahmad): a card said "Missing 1 compliance tag this job needs" without saying which, and there was no way to fix the

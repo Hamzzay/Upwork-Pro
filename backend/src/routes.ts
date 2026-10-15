@@ -10,6 +10,7 @@ import { library, loomVideos } from './routes_library';
 import { proposals, proposalFor, reviewOf } from './routes_proposals';
 import { imports } from './routes_import';
 import { pickLoom, validSelection } from './screening/matching';
+import { queueFitReasons, readFitReasons } from './screening/fit_reasons';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { plugin } from './routes_plugin';
@@ -566,12 +567,27 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
   const ov = await query<any>(`SELECT o.id, o.reason, o.verdict_at_time, o.created_at, u.name AS user_name FROM overrides o JOIN users u ON u.id=o.user_id WHERE o.screening_id=?`, [id]);
   res.json({
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
-      posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null, gate_rules: s.gate_rules ? JSON.parse(s.gate_rules) : null },
+      posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null, gate_rules: s.gate_rules ? JSON.parse(s.gate_rules) : null,
+      fit_reasons_json: undefined, fit_reasons: readFitReasons(s.fit_reasons_json) },
     override: ov[0] ?? null,
     matching: await matchingFor(id),
     proposal: await proposalFor(id),
     attachments: await attachmentList(id),
   });
+});
+
+// R96: the reasons to continue written from this job's fit summary. A cheap read the decision polls; asking for them queues the
+// job for one that has none yet (screened before R96, or its first try failed).
+api.get('/screenings/:id/fit-reasons', requireRole(), async (req, res) => {
+  const s = (await query<any>('SELECT user_id, fit_reasons_status, fit_reasons_json FROM screenings WHERE id=?', [Number(req.params.id)]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  res.json({ status: s.fit_reasons_status, reasons: readFitReasons(s.fit_reasons_json) });
+});
+api.post('/screenings/:id/fit-reasons', requireRole(), async (req, res) => {
+  const id = Number(req.params.id);
+  const s = (await query<any>('SELECT user_id FROM screenings WHERE id=?', [id]))[0];
+  if (!s || s.user_id !== req.user!.id) return void res.status(404).json({ error: 'Not found' });
+  res.json({ queued: await queueFitReasons(id) });
 });
 
 api.post('/screenings/:id/retry', requireRole(), async (req, res) => {

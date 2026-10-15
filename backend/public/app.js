@@ -1501,7 +1501,11 @@ function matchingSection(s, initial) {
       try {
         const res = await api('POST', `/screenings/${s.id}/projects/${r.project_id}/tags`, { tag_ids: [...ticks] });
         gapTicks.delete(r.project_id); gapOpen.delete(r.project_id);
-        if (res.rematch) { toast(`Added to ${r.project_name}. Matching the projects again.`); picked = null; m = { ...m, status: 'queued', error: null }; draw(); timer = setTimeout(poll, 1000); }
+        if (res.rematch) { // the card shows the tags at once; the order is worked out in the background
+          const added = (m.tags || []).filter((t) => ticks.has(t.id) || res.added?.includes(t.id));
+          r.shared = [...(r.shared || []), ...added.filter((t) => !(r.shared || []).some((x) => x.id === t.id)).map((t) => ({ id: t.id, name: t.name, category: t.category, weight: Number(t.weight), compliance: !!Number(t.compliance) }))];
+          quiet = true; m = { ...m, status: 'queued' }; draw(); timer = setTimeout(poll, 2500);
+          toast(`Added to ${r.project_name}. The order updates in the background.`); }
         else { toast(`Added to ${r.project_name}. The proposal keeps its projects.`); m = (await api('GET', `/screenings/${s.id}/matching`)).matching; draw(); }
       } catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren(`Add ${ticks.size} tags to ${r.project_name}`); }
     };
@@ -1514,11 +1518,18 @@ function matchingSection(s, initial) {
   const busy = () => m.status === 'queued' || m.status === 'running';
   const dateTxt = (d) => full(d);
 
+  // R95: after tags are added on a card the projects are matched again quietly: the cards stay as they are (with the new tags) and
+  // only change once the new order is in; nothing else on the page is redrawn
+  let quiet = false;
   async function poll() {
     clearTimeout(timer);
     if (!box.isConnected) return; // the page was left: stop polling
-    try { m = (await api('GET', `/screenings/${s.id}/matching`)).matching; draw(); } catch (e) { /* try again next time */ }
-    if (m && busy()) timer = setTimeout(poll, 1000);
+    try {
+      const next = (await api('GET', `/screenings/${s.id}/matching`)).matching;
+      if (quiet && (next.status === 'queued' || next.status === 'running')) m = { ...m, status: next.status };
+      else { if (quiet) { quiet = false; picked = null; if (next.status === 'done') toast('Projects matched again with the new tags'); } m = next; draw(); }
+    } catch (e) { /* try again next time */ }
+    if (m && busy()) timer = setTimeout(poll, quiet ? 2500 : 1000);
   }
   const start = async (btn) => {
     btnBusy(btn, 'Starting');
@@ -1611,6 +1622,7 @@ function matchingSection(s, initial) {
       h('div', { class: 'card card-pad' },
         h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, owner && !m.confirmed_at ? `Choose ${range} project${pmax === 1 ? '' : 's'} for the proposal` : 'Projects for the proposal'), owner ? count : null),
         m.job_needs ? h('p', { class: 'jp-body', style: 'margin:2px 0 4px' }, h('strong', {}, 'Job needs: '), m.job_needs) : null,
+        quiet && busy() ? h('div', { class: 'quietnote', role: 'status' }, h('span', { class: 'spin' }), 'Updating the order with the new tags. You can keep working; the cards change when it is done.') : null,
         noneHas(),
         h('div', { class: 'jp-label', style: 'margin:2px 0 12px' }, m.confirmed_at ? `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} ${dateTxt(m.confirmed_at)}.${owner ? ' Pick others to change it.' : ''}`
           : owner ? 'The recommended ones are ticked. Swap them if you like, then confirm at the top right.' : 'Only the person who submitted this job can choose the projects.'),
@@ -1631,7 +1643,7 @@ function matchingSection(s, initial) {
 
   function draw() {
     let body;
-    if (busy()) {
+    if (busy() && !(quiet && (m.matches || []).length)) {
       body = h('div', { class: 'progress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }),
         h('strong', { style: 'font-size:17px' }, m.status !== 'running' ? 'Waiting for a free slot' : m.tags && m.tags.length ? 'Matching the projects again' : 'Reading the job and choosing tags'),
         h('p', { class: 'muted', style: 'margin-top:4px' }, 'Then the tags are matched with the project library. This usually takes a minute or two. You can leave this page.'));
@@ -1639,7 +1651,7 @@ function matchingSection(s, initial) {
       if (owner) setActions(actBtn('Try again', (e) => start(e.currentTarget), true));
       body = h('div', { class: 'stack' }, h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Project matching did not finish'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, m.error || 'Something went wrong.')),
         m.tags && m.tags.length ? stackSwitch() : null);
-    } else if (m.status === 'done') {
+    } else if (m.status === 'done' || (quiet && busy())) { // R95: a quiet re-match keeps showing the cards
       body = h('div', { class: 'stack' }, stackSwitch(), matchesBlock(), m.tags && m.tags.length ? tagsBlock() : null);
     } else { // continued before this step existed
       if (owner) setActions(actBtn('Find matching projects', (e) => start(e.currentTarget), true));
@@ -2035,24 +2047,46 @@ async function jobPage(id, want) {
       const ta = needReason ? h('textarea', { id: 'why', style: 'min-height:84px', placeholder: 'For example: the client has a strong history with us, and the scope was clarified on a call.' }) : null;
       const err = h('div', { class: 'err', hidden: true });
       const fail = (msg) => { err.replaceChildren(icon('x'), msg); err.hidden = false; if (ta) ta.focus(); };
-      // quick reasons (admin setting): a click writes one into the box, a second click takes it out; words can be added around them
-      const picks = needReason ? h('div', { class: 'chips', style: 'margin-bottom:8px' }, cfg('override.reasons', []).map((r) => {
-        const b = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, r);
+      // quick reasons: a click writes one into the box, a second click takes it out; words can be added around them. R96: first the
+      // ones written for this job from its fit summary, then the stock ones from Settings
+      const reasonChip = (r) => { const b = h('button', { type: 'button', class: 'tagbtn', 'aria-pressed': 'false' }, r);
         b.onclick = () => {
           const parts = ta.value.split(/(?<=\.)\s+/).map((x) => x.trim()).filter(Boolean), at = parts.findIndex((x) => x.replace(/\.$/, '') === r);
           if (at >= 0) parts.splice(at, 1); else { if (parts.length && !/[.!?]$/.test(parts[parts.length - 1])) parts[parts.length - 1] += '.'; parts.push(r + '.'); }
           ta.value = parts.join(' ') + (parts.length ? ' ' : ''); ta.dispatchEvent(new Event('input')); ta.focus();
         };
-        return b;
-      })) : null;
+        return b; };
+      let fitReasons = s.fit_reasons || [], fitStatus = s.fit_reasons_status;
+      const fitBox = h('div', { class: 'fitreasons' });
+      const drawFit = () => {
+        const writing = fitStatus === 'queued' || fitStatus === 'running';
+        fitBox.replaceChildren(h('div', { class: 'jp-label' }, 'From the fit with ' + cfg('company.name', 'us')),
+          fitReasons.length ? h('div', { class: 'chips' }, fitReasons.map(reasonChip))
+            : writing ? h('div', { class: 'row muted small', style: 'gap:8px' }, h('span', { class: 'spin' }), 'Writing reasons from the fit summary...')
+              : h('div', { class: 'faint small' }, fitStatus === 'error' ? 'They could not be written this time; the reasons below still work.' : 'None for this job.'));
+        markPicks();
+      };
+      // a job screened before R96 asks for its reasons now; then the panel checks back quietly, nothing else is redrawn
+      const watchFit = async (tries = 0) => {
+        if (!fitBox.isConnected && tries > 0) return;
+        try { const r = await api('GET', `/screenings/${s.id}/fit-reasons`); fitStatus = r.status; fitReasons = r.reasons || []; drawFit(); } catch { /* next time */ }
+        if ((fitStatus === 'queued' || fitStatus === 'running') && tries < 60) setTimeout(() => watchFit(tries + 1), 2000);
+      };
+      const stock = h('div', {}, h('div', { class: 'jp-label' }, 'Other reasons'), h('div', { class: 'chips' }, cfg('override.reasons', []).map(reasonChip)));
+      const picks = needReason ? h('div', { class: 'reasonpicks' }, fitBox, stock) : null;
+      const allReasons = () => [...fitReasons, ...cfg('override.reasons', [])];
       const markPicks = () => picks && picks.querySelectorAll('.tagbtn').forEach((x) => { const on = ta.value.split(/(?<=\.)\s+/).some((p) => p.trim().replace(/\.$/, '') === x.textContent); x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+      if (needReason) {
+        drawFit();
+        if (!fitReasons.length && fitStatus !== 'error' && fitStatus !== 'done') (fitStatus ? Promise.resolve() : api('POST', `/screenings/${s.id}/fit-reasons`, {}).then((r) => { if (r.queued) fitStatus = 'queued'; drawFit(); })).then(() => setTimeout(() => watchFit(1), 1500)).catch(() => undefined);
+      }
       if (ta) ta.oninput = () => { err.hidden = true; markPicks(); };
       const cont = actBtn('Continue', async (e) => {
         const reason = ta ? ta.value.trim() : '';
         if (needReason && reason.length < minLen) return fail(`Write why you continue (at least ${minLen} characters). It stays on record.`);
         const b = e.currentTarget; btnBusy(b, 'Continuing');
         // the quick reasons in the box are sent as a list too, so the Flag review can count them per rule
-        const picked = needReason ? cfg('override.reasons', []).filter((r) => reason.split(/(?<=\.)\s+/).some((p) => p.trim().replace(/\.$/, '') === r)) : [];
+        const picked = needReason ? allReasons().filter((r) => reason.split(/(?<=\.)\s+/).some((p) => p.trim().replace(/\.$/, '') === r)) : [];
         try { await api('POST', `/screenings/${s.id}/${needReason ? 'override' : 'continue'}`, needReason ? { reason, picks: picked } : {}); await stepCtx.advanceTo(1); }
         catch (x) { fail(x.message); b.disabled = false; b.replaceChildren('Continue'); }
       }, true);

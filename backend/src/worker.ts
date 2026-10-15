@@ -15,6 +15,7 @@ import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { runOpenings } from './proposal/openings';
+import { queueFitReasons, runFitReasons } from './screening/fit_reasons';
 import { autoAfterMatching, autoAfterProposal, autoAfterScreening } from './autopilot';
 import { runCompare } from './proposal/compare';
 import { docsBlock, runAttachmentRead } from './screening/attachments';
@@ -78,6 +79,7 @@ async function process_(row: { id: number; input_type: 'link' | 'text'; raw_inpu
       [jobText, v.title, v.verdict, JSON.stringify(rep), skill.id, JSON.stringify(ctx.rules), lastUsed()?.model ?? config.llm.model, lastUsed()?.provider ?? 'mock',
        v.fail_reasons || null, v.flag_reasons || null, v.rule_codes || null, ...COLUMN_KEYS.map((k) => v.columns[k]), autoMatch ? 1 : 0, row.id],
     );
+    if (v.verdict !== 'PASS') await queueFitReasons(row.id); // R96: reasons to continue, from the fit summary, ready for the decision
     await autoAfterScreening(row.id); // auto mode (R75): goes on by itself, or stops on a FAIL
   } catch (e) {
     if (stopping) { await exec(`UPDATE screenings SET status='queued' WHERE id=?`, [row.id]); return; } // killed by a deploy: run again
@@ -256,6 +258,10 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const sc = await query<any>(`SELECT id, input_type, raw_input, upwork_job_id, job_text FROM screenings WHERE status='queued' AND discarded_at IS NULL AND ${NOT_READING('screenings.id')} ORDER BY id LIMIT 1`);
   if (sc.length) return { kind: 'screening', claim: async () => !!(await exec(`UPDATE screenings SET status='running', started_at=NOW() WHERE id=? AND status='queued'`, [sc[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'screening', screeningId: sc[0].id }, () => process_(sc[0])) };
+  // R96: the reasons to continue, written right after a FLAG or FAIL (someone is usually looking at the decision)
+  const fr = await query<{ id: number }>(`SELECT id FROM screenings WHERE fit_reasons_status='queued' AND discarded_at IS NULL ORDER BY id DESC LIMIT 1`);
+  if (fr.length) return { kind: 'fit_reasons', claim: async () => !!(await exec(`UPDATE screenings SET fit_reasons_status='running' WHERE id=? AND fit_reasons_status='queued'`, [fr[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'screening', screeningId: fr[0].id }, () => processFitReasons(fr[0].id)) };
   const tagging = (id: number, background: boolean): Job => ({ kind: 'tagging', background, claim: async () => !!(await exec(`UPDATE screenings SET tagging_status='running' WHERE id=? AND tagging_status='queued'`, [id])).affectedRows,
     run: () => withCallContext({ kind: 'tagging', screeningId: id }, () => processTagging(id)) });
   const tc = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NOT NULL AND ${NOT_READING('screenings.id')} ORDER BY continued_at, id LIMIT 1`);
@@ -344,6 +350,15 @@ async function processCompare(id: number) {
   }
 }
 
+/** The reasons to continue past a FLAG or FAIL (R96). A failure only costs the job-specific picks: the stock ones stay. */
+async function processFitReasons(id: number) {
+  try { await runFitReasons(id); }
+  catch (e) {
+    console.error('fit reasons failed', (e as Error).message);
+    await exec(`UPDATE screenings SET fit_reasons_status=? WHERE id=?`, [stopping ? 'queued' : 'error', id]).catch(() => undefined);
+  }
+}
+
 /** The three openings (R73). */
 async function processOpenings(id: number) {
   try { await runOpenings(id); }
@@ -369,6 +384,7 @@ async function shutdown() {
   await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`).catch(() => undefined);
   await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
@@ -390,6 +406,7 @@ async function main() {
   await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`);
   await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`);
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);

@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.18.0)
+## Status (v0.19.0)
+
+v0.19.0: on Continue after a Flag or Fail, Claude first offers reasons written for the job from its fit summary, as the app
+now does, then the stock quick picks.
+
+## Earlier (v0.18.0)
 
 v0.18.0: word shortcuts (`word_shortcuts` in `get_writing_guide`): always the short word, WhatsApp becomes WA. Opening
 templates can be ranked by hand (`rank_boost`, kind `opening_template`); shortcuts are kind `word_shortcut`.
