@@ -1003,6 +1003,18 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R86. A slim sidebar for small screens, and an icon of its own for every page (done, 15 October)
+
+- **What it is** (asked for by Ahmad, for the team members with small screens): a button on the "Upwork Pro" row of the sidebar
+  collapses it to a slim strip of icons, and back. Slim, each icon shows its name on hover, the page you are on (or its section) is
+  lit, and Library, Writing, Screening and Admin open their pages in a small panel beside the strip. The page gets about 175 pixels
+  wider. The choice is kept in that browser, since it is about that screen. Phones keep their Menu button.
+- **An icon of its own for every page and section**, so the slim strip can be read by its icons: Proposal feedback (a speech
+  bubble), Flag review (a flag), Library (books), Writing (a pen), Signals (waves), Reviewer (a magnifier with a tick), Screening (a
+  funnel), Gate instructions (a clipboard), Rules (scales), Admin (a shield), Changes (a history clock), Logs (a terminal), Guide (a
+  question mark). Before, several shared the same one.
+- Checked: full and slim at desktop width, a section's pages opening beside the strip, and the phone menu.
+
 ### R85. The Jobs list's columns: shown, hidden and in your own order, kept per person (done, 15 October)
 
 - **What it is** (asked for by Ahmad): **Columns** on the Jobs list now opens your columns for that tab in order. Drag one by its

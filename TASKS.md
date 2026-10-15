@@ -115,6 +115,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 66 | A document viewer: attached documents open in the app, previous and next to go through them (R83) | done |
 | 67 | Auto mode stops on too many flags and on the stop rules (G15, G18) and when the paste is not a job page (R84) | done |
 | 68 | Jobs list columns: order them (drag or arrows), hide and show, kept per person (R85, migration 049) | done |
+| 69 | A slim sidebar (icons only) for small screens, and a distinct icon for every page and section (R86) | done |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

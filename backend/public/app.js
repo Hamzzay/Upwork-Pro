@@ -23,6 +23,21 @@ const ICONS = {
   x: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   link: '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/>',
+  // one icon per page and section (R86), so the slim sidebar can be read by its icons alone
+  message: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 13.5h4"/>',
+  flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+  books: '<path d="M4 4h4v16H4z"/><path d="M10 4h4v16h-4z"/><path d="M16 5.5l3.4-.9 3.1 14.6-3.4.9z"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  signal: '<circle cx="12" cy="10" r="2"/><path d="M12 12v9"/><path d="M8.5 6.5a5 5 0 0 0 0 7M15.5 6.5a5 5 0 0 1 0 7M5.5 3.5a9 9 0 0 0 0 13M18.5 3.5a9 9 0 0 1 0 13"/>',
+  review: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><path d="M8 11l2 2 4-4"/>',
+  funnel: '<path d="M3 4h18l-7 9v6l-4 2v-8z"/>',
+  clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3"/>',
+  scale: '<path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 6a3 3 0 0 0 6 0zM19 7l-3 6a3 3 0 0 0 6 0z"/>',
+  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/>',
+  terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17h.01"/>',
+  panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
   compare: '<rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/>',
   clip: '<path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
   doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
@@ -361,41 +376,56 @@ const NAV = [
   { key: 'new', icon: 'screen', label: 'Screen a job' },
   { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
   { key: 'reports', icon: 'chart', label: 'Reports' },
-  { key: 'feedback', icon: 'audit', label: 'Proposal feedback' },
-  { key: 'flagreview', icon: 'warn', label: 'Flag review', roles: STAFF },
+  { key: 'feedback', icon: 'message', label: 'Proposal feedback' },
+  { key: 'flagreview', icon: 'flag', label: 'Flag review', roles: STAFF },
 ];
 const SETUP = [
-  { label: 'Library', icon: 'folder', links: [
+  { label: 'Library', icon: 'books', links: [
     { key: 'projects', icon: 'folder', label: 'Projects' },
     { key: 'industries', icon: 'building', label: 'Industries' },
     { key: 'dictionary', icon: 'tag', label: 'Tag dictionary', roles: ADMIN },
     { key: 'profiles', icon: 'badge', label: 'Upwork profiles', roles: ADMIN },
     { key: 'looms', icon: 'video', label: 'Loom videos', roles: ADMIN }] },
-  { label: 'Writing', icon: 'doc', links: [
+  { label: 'Writing', icon: 'pen', links: [
     { key: 'writing', icon: 'doc', label: 'Writing guide' },
-    { key: 'signals', icon: 'audit', label: 'Signals', roles: STAFF },
-    { key: 'reviewer', icon: 'skill', label: 'Reviewer' }] },
-  { label: 'Screening', icon: 'warn', links: [
-    { key: 'skill', icon: 'skill', label: 'Gate instructions', roles: ADMIN },
-    { key: 'rules', icon: 'warn', label: 'Rules', roles: ADMIN }] },
-  { label: 'Admin', icon: 'gear', links: [
+    { key: 'signals', icon: 'signal', label: 'Signals', roles: STAFF },
+    { key: 'reviewer', icon: 'review', label: 'Reviewer' }] },
+  { label: 'Screening', icon: 'funnel', links: [
+    { key: 'skill', icon: 'clipboard', label: 'Gate instructions', roles: ADMIN },
+    { key: 'rules', icon: 'scale', label: 'Rules', roles: ADMIN }] },
+  { label: 'Admin', icon: 'shield', links: [
     { key: 'settings', icon: 'gear', label: 'Settings', roles: ADMIN },
     { key: 'users', icon: 'users', label: 'Users', roles: ADMIN },
-    { key: 'changes', icon: 'back', label: 'Changes', roles: ADMIN },
-    { key: 'audit', icon: 'audit', label: 'Logs', roles: ADMIN }] },
+    { key: 'changes', icon: 'history', label: 'Changes', roles: ADMIN },
+    { key: 'audit', icon: 'terminal', label: 'Logs', roles: ADMIN }] },
 ];
 const allowed = (l) => !l.roles || l.roles.includes(me.role);
-const NAV_FOOT = [{ key: 'connect', icon: 'link', label: 'Connect Claude' }, { href: '/guide/', icon: 'info', label: 'Guide' }]; // the guide opens in its own tab
+const NAV_FOOT = [{ key: 'connect', icon: 'link', label: 'Connect Claude' }, { href: '/guide/', icon: 'help', label: 'Guide' }]; // the guide opens in its own tab
 let navOpen = null; // the sections open in this browser
 const navOpenSet = () => { if (!navOpen) { try { navOpen = new Set(JSON.parse(localStorage.getItem('nav.open2') || '[]')); } catch { navOpen = new Set(); } } return navOpen; };
 const saveNavOpen = () => { try { localStorage.setItem('nav.open2', JSON.stringify([...navOpen])); } catch { /* storage blocked */ } };
 let navLastActive = null;
+// the slim sidebar (R86): icons only, for small screens; kept in this browser, since it is about this screen
+const navMini = () => { try { return localStorage.getItem('nav.mini') === '1'; } catch { return false; } };
+const setNavMini = (on) => { try { localStorage.setItem('nav.mini', on ? '1' : '0'); } catch { /* storage blocked */ } };
+/** In the slim sidebar a section's pages open beside it, in a small panel; a click anywhere else closes it. */
+function navFlyout(head, g, link) {
+  document.querySelectorAll('.navfly').forEach((x) => x.remove());
+  const r = head.getBoundingClientRect();
+  const fly = h('div', { class: 'navfly', role: 'menu', style: `top:${Math.max(8, Math.min(r.top - 6, window.innerHeight - 60 - g.links.length * 38))}px;left:${r.right + 8}px` },
+    h('div', { class: 'navflyhead' }, g.label), g.links.map(link));
+  document.body.append(fly);
+  const close = (e) => { if (!fly.contains(e.target) && e.target !== head && !head.contains(e.target)) { fly.remove(); document.removeEventListener('mousedown', close); } };
+  setTimeout(() => document.addEventListener('mousedown', close));
+  fly.addEventListener('click', (e) => { if (e.target.closest('a')) fly.remove(); });
+}
 
 function shell(active, content, wide) {
   const a = ([key, ic, label]) => (key.startsWith('/') ? h('a', { href: key, target: '_blank', rel: 'noopener' }, icon(ic), h('span', {}, label))
     : h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label)));
   const linksOf = (ls) => ls.filter(allowed).map((l) => [l.href || l.key, l.icon, typeof l.label === 'function' ? l.label() : l.label]);
-  const navLink = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), h('span', {}, label));
+  const mini = navMini();
+  const navLink = ([key, ic, label]) => h('a', { href: '#/' + key, class: active === key ? 'active' : '', 'aria-current': active === key ? 'page' : null, title: mini ? label : null, 'aria-label': mini ? label : null }, icon(ic), h('span', {}, label));
   const opened = navOpenSet();
   const sections = SETUP.map((g) => ({ ...g, links: linksOf(g.links) })).filter((g) => g.links.length);
   // going to a page opens its section, and only it (once per page, so the person can still close it)
@@ -405,8 +435,9 @@ function shell(active, content, wide) {
   const section = (g) => {
     const isHere = g === here, isOpen = opened.has(g.label);
     const body = h('div', { class: 'nav-sub', hidden: !isOpen }, g.links.map(navLink));
-    const head = h('button', { type: 'button', class: 'nav-sec' + (isHere ? ' here' : ''), 'aria-expanded': String(isOpen) }, icon(g.icon), h('span', {}, g.label), h('span', { class: 'nav-chev', 'aria-hidden': 'true' }));
+    const head = h('button', { type: 'button', class: 'nav-sec' + (isHere ? ' here' : ''), 'aria-expanded': String(isOpen), title: mini ? g.label : null, 'aria-label': mini ? g.label : null }, icon(g.icon), h('span', {}, g.label), h('span', { class: 'nav-chev', 'aria-hidden': 'true' }));
     head.onclick = () => {
+      if (mini) return navFlyout(head, g, navLink); // slim: the pages open beside the icon
       const open = body.hidden;
       // one section at a time: opening this one closes the others
       if (open) head.closest('.nav').querySelectorAll('.nav-sec[aria-expanded="true"]').forEach((x) => { x.setAttribute('aria-expanded', 'false'); x.nextElementSibling.hidden = true; });
@@ -416,13 +447,16 @@ function shell(active, content, wide) {
     return h('div', { class: 'nav-group' }, head, body);
   };
   const menu = h('button', { class: 'btn sm navtoggle', type: 'button', 'aria-expanded': 'false', onclick: () => { const open = menu.closest('.shell').classList.toggle('navopen'); menu.setAttribute('aria-expanded', String(open)); } }, icon('list'), 'Menu');
-  $app.replaceChildren(h('div', { class: 'shell' },
+  // the switch between the full sidebar and the slim one, on the name's row (under the logo when slim)
+  const slim = h('button', { type: 'button', class: 'iconbtn navmini', title: mini ? 'Show the full sidebar' : 'Collapse the sidebar to icons', 'aria-label': mini ? 'Show the full sidebar' : 'Collapse the sidebar to icons', 'aria-pressed': String(mini),
+    onclick: () => { setNavMini(!mini); document.querySelectorAll('.navfly').forEach((x) => x.remove()); route(); } }, icon('panel'));
+  $app.replaceChildren(h('div', { class: 'shell' + (mini ? ' mini' : '') },
     h('aside', { class: 'side' },
-      h('a', { class: 'brand', href: '#/dashboard', style: 'color:inherit;text-decoration:none' }, h('div', { class: 'logo' }, icon('logo')), APP_NAME),
+      h('div', { class: 'brandrow' }, h('a', { class: 'brand', href: '#/dashboard', style: 'color:inherit;text-decoration:none', title: mini ? APP_NAME : null }, h('div', { class: 'logo' }, icon('logo')), h('span', { class: 'brandname' }, APP_NAME)), slim),
       menu,
       h('nav', { class: 'nav', 'aria-label': 'Main' }, linksOf(NAV).map(navLink), sections.length ? [h('div', { class: 'nav-sep' }), sections.map(section)] : null),
-      h('div', { class: 'nav-foot' }, linksOf(NAV_FOOT).map(a)),
-      h('div', { class: 'me' }, h('div', { class: 'avatar' }, initials(me.name)),
+      h('div', { class: 'nav-foot' }, linksOf(NAV_FOOT).map(([k, ic, label]) => { const el = a([k, ic, label]); if (mini) { el.title = label; el.setAttribute('aria-label', label); } return el; })),
+      h('div', { class: 'me' }, h('div', { class: 'avatar', title: mini ? `${me.name} (${me.role})` : null }, initials(me.name)),
         h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
         h('button', { class: 'iconbtn', title: 'Change your password', 'aria-label': 'Change your password', onclick: changePassword }, icon('key')),
         h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; CFG = null; route(); } }, icon('out')))),
