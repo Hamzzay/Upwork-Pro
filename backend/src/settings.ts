@@ -38,6 +38,9 @@ export const SETTINGS = {
     schema: z.number().int().min(1).max(90), def: 5 },
   'writer.requirement_rules': { label: 'Rules passed to the proposal writer', help: 'When one of these flags fires, its text is given to the writer as a client requirement (e.g. screening questions, required words, location rules).',
     schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G11', 'G12', 'G13'] },
+  // R84: auto mode goes on by itself only where a person would not stop to think
+  'auto.stop_rules': { label: 'Rules that always stop auto mode', help: 'Auto mode goes on by itself only for a PASS, or a FLAG with no more flags than the matching limit above. A job with any of these rules also stops, for a person to decide. G15 is a job page without the job or the client; G18 is a risk no other rule covers (for example a paste that is not a job post).',
+    schema: z.array(z.string().trim().regex(/^[A-Z]\d{1,3}$/)).max(30), def: ['G15', 'G18'] },
   'writer.loom_line': { label: 'The Loom video line', help: 'Put in a proposal when a Loom video is chosen, where the proposal type puts it. {title} is the video title and {url} its link.', schema: z.string().trim().min(5).max(400), def: 'Here is a short video walkthrough of a similar build:\n{url}' },
   // R73: the three openings to choose from. Each style is a base instruction for one opening; the Opening lines rules and the
   // proposal type's own first two lines rules apply on top, and win where they differ. Two to four styles, each switched on or off.

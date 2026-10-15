@@ -488,6 +488,46 @@ function filePicker(dropOn, max = FILES_MAX) {
   return { btn, input, list, files: () => chosen, clear: () => { chosen = []; draw(); } };
 }
 const READ_WORD = { code: 'Read', ai: 'Read by the AI', person: 'Described by you' };
+/**
+ * The document viewer (R83): a job's files, one at a time, on a full screen inside the app. Left and right (buttons, the arrow
+ * keys, or a swipe on a phone) go to the previous and next file. A PDF opens in the browser's own viewer, an image as a picture,
+ * a text, CSV or Markdown file as text, a Word file as a page made from it. Open in a new tab, Download and Close are always there.
+ */
+function docViewer(files, start = 0) {
+  let i = Math.max(0, Math.min(files.length - 1, start)), gen = 0;
+  const title = h('strong', { class: 'dvname' }), count = h('span', { class: 'faint small' });
+  const body = h('div', { class: 'dvbody' });
+  const prev = h('button', { class: 'dvnav prev', type: 'button', 'aria-label': 'Previous document', onclick: () => go(i - 1) }, '‹');
+  const next = h('button', { class: 'dvnav next', type: 'button', 'aria-label': 'Next document', onclick: () => go(i + 1) }, '›');
+  const openTab = h('a', { class: 'btn sm', target: '_blank', rel: 'noopener' }, 'Open in a new tab');
+  const download = h('a', { class: 'btn sm' }, 'Download');
+  const KIND = { pdf: 'PDF', docx: 'Word', text: 'Text', image: 'Image' };
+  const draw = async () => {
+    const my = ++gen, f = files[i], url = `/api/attachments/${f.id}/file`;
+    title.textContent = f.file_name; count.textContent = `${KIND[f.kind] || ''} · ${fileSize(f.size_bytes)}${files.length > 1 ? ` · ${i + 1} of ${files.length}` : ''}`;
+    openTab.href = url; download.href = url; download.setAttribute('download', f.file_name);
+    prev.disabled = i === 0; next.disabled = i === files.length - 1; prev.style.visibility = next.style.visibility = files.length < 2 ? 'hidden' : ''; // one file: no arrows, but they keep their place so the file stays in the middle
+    if (f.kind === 'pdf') return body.replaceChildren(h('iframe', { class: 'dvframe', src: url, title: f.file_name }));
+    if (f.kind === 'image') return body.replaceChildren(h('div', { class: 'dvimg' }, h('img', { src: url, alt: f.file_name })));
+    body.replaceChildren(h('div', { class: 'row muted small', style: 'padding:24px' }, h('span', { class: 'spin' }), 'Opening...'));
+    try {
+      const r = await api('GET', `/attachments/${f.id}/view`); if (my !== gen) return;
+      if (r.html != null) { const page = h('div', { class: 'dvdoc' }); page.innerHTML = r.html || '<p>(The document is empty.)</p>'; body.replaceChildren(h('div', { class: 'dvpaper' }, page)); } // sanitized on the server
+      else body.replaceChildren(h('div', { class: 'dvpaper' }, h('pre', { class: 'dvtext' }, r.text ?? '')));
+    } catch (x) { if (my === gen) body.replaceChildren(h('div', { class: 'card-pad' }, h('p', { class: 'err' }, x.message))); }
+  };
+  const go = (n) => { if (n < 0 || n >= files.length || n === i) return; i = n; draw(); };
+  const onKey = (e) => { if (e.key === 'ArrowLeft') { e.preventDefault(); go(i - 1); } else if (e.key === 'ArrowRight') { e.preventDefault(); go(i + 1); } };
+  const dlg = h('dialog', { class: 'fullview docview', 'aria-label': 'Document viewer' },
+    h('div', { class: 'fvbar' }, h('div', { class: 'fvtitle' }, title, count), openTab, download, h('button', { class: 'btn sm', type: 'button', onclick: () => dlg.close() }, icon('x'), 'Close')),
+    h('div', { class: 'dvstage' }, prev, body, next));
+  // a swipe on a phone or a touchpad: left for the next file, right for the previous
+  let sx = null; body.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
+  body.addEventListener('touchend', (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; sx = null; if (Math.abs(dx) > 60) go(i + (dx < 0 ? 1 : -1)); }, { passive: true });
+  dlg.addEventListener('keydown', onKey);
+  dlg.addEventListener('close', () => { gen++; dlg.remove(); });
+  document.body.append(dlg); dlg.showModal(); draw();
+}
 /** The Job post tab's documents: what the client attached, what the AI reads from each, and adding more. */
 function attachmentsCard(s) {
   const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin';
@@ -515,18 +555,21 @@ function attachmentsCard(s) {
       : h('span', { class: 'pill PASS' }, READ_WORD[a.read_by] || 'Read');
     const btn = (label, fn, danger) => h('button', { class: 'btn sm' + (danger ? ' danger' : ''), type: 'button', onclick: fn }, label);
     return h('div', { class: 'filerow' },
-      h('div', { style: 'min-width:0' }, h('a', { href: `/api/attachments/${a.id}/file`, target: '_blank', rel: 'noopener', class: 'filename' }, a.file_name),
+      h('div', { style: 'min-width:0' }, h('a', { href: `/api/attachments/${a.id}/file`, class: 'filename', onclick: (e) => { e.preventDefault(); docViewer(current, current.findIndex((x) => x.id === a.id)); } }, a.file_name),
         h('div', { class: 'faint small' }, [a.kind === 'docx' ? 'Word' : a.kind === 'text' ? 'Text' : a.kind === 'image' ? 'Image' : 'PDF', fileSize(a.size_bytes), a.status === 'done' ? `${Number(a.chars).toLocaleString()} characters for the AI` : null, a.user_name, ago(a.created_at)].filter(Boolean).join(' · ')),
         a.status === 'error' ? h('div', { class: 'err small' }, a.error || 'The AI could not read it.') : null,
         a.added_after_screening ? h('div', { class: 'faint small' }, 'Added after the screening: the matching, the proposal, the chat and the review read it from now on.') : null),
       h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;justify-content:flex-end' }, state,
+        btn('View', () => docViewer(current, current.findIndex((x) => x.id === a.id))),
         a.status === 'done' ? btn('What the AI reads', () => showText(a).catch((x) => toast(x.message, true))) : null,
         canEdit && (a.status === 'error' || (a.kind === 'image' && !busy)) ? btn(a.status === 'error' ? 'Describe it' : 'Change description', () => describe(a)) : null,
         canEdit && a.status === 'error' ? btn('Read again', async () => { try { await api('POST', `/attachments/${a.id}/read`, {}); load(); } catch (x) { toast(x.message, true); } }) : null,
         canEdit ? btn('Remove', () => modal({ title: 'Remove ' + a.file_name + '?', confirm: 'Remove', danger: true, body: h('p', { class: 'muted' }, 'The file and what the AI read from it are removed from this job. Proposals already written keep their text.'),
           onConfirm: async () => { await api('DELETE', `/attachments/${a.id}`); load(); } }), true) : null));
   };
+  let current = [];
   const draw = (items) => {
+    current = items;
     clearTimeout(timer);
     body.replaceChildren(...[
       items.length ? h('div', {}, items.map(row)) : h('div', { class: 'card-pad faint small' }, canEdit ? 'No documents. If the client attached files to the job on Upwork, download them and add them here.' : 'No documents.'),
@@ -2845,7 +2888,7 @@ async function settingsView() {
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
     (() => { const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' }); return group('Company', [row('company.name', el, () => el.value.trim())]); })(),
     group('Independent reviewer', [onoff('review.auto')]),
-    group('Project matching', [num('matching.auto_max_flags'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
+    group('Project matching and auto mode', [num('matching.auto_max_flags'), list('auto.stop_rules', 'G15, G18'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       (() => { const el = h('textarea', { rows: 2, style: 'min-width:380px;min-height:56px', 'aria-label': 'The Loom video line' }); el.value = settings['writer.loom_line']; return row('writer.loom_line', el, () => el.value.trim()); })(),

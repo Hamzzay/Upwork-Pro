@@ -13,9 +13,19 @@ const stop = (id: number, note: string) => exec(`UPDATE screenings SET auto_stat
 
 /** After the screening: go on to the matching, or stop on a FAIL. */
 export async function autoAfterScreening(id: number) {
-  const s = (await query<any>('SELECT id, user_id, auto_mode, verdict, rule_codes, continued_at FROM screenings WHERE id=?', [id]))[0];
+  const s = (await query<any>('SELECT id, user_id, auto_mode, verdict, rule_codes, title, continued_at FROM screenings WHERE id=?', [id]))[0];
   if (!s || !Number(s.auto_mode) || s.continued_at) return;
-  if (s.verdict === 'FAIL') return void (await stop(id, `The job failed the gate${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}. Decide on the Screening tab: continue it with a reason, and auto mode goes on, or skip it.`));
+  const decide = 'Decide on the Screening tab: continue it with a reason, and auto mode goes on, or skip it.';
+  if (s.verdict === 'FAIL') return void (await stop(id, `The job failed the gate${s.rule_codes ? ' (' + s.rule_codes + ')' : ''}. ${decide}`));
+  // R84 (Ahmad): auto mode goes on by itself only where a person would not stop to think. Not a job page at all: stop.
+  if (!s.title || /^not (shown|known)$/i.test(String(s.title).trim())) return void (await stop(id, `This does not look like an Upwork job page: the screening found no job title. ${decide}`));
+  if (s.verdict === 'FLAG') {
+    const cfg = await getSettings();
+    const codes = String(s.rule_codes || '').split(/\s*,\s*/).filter(Boolean);
+    const stopping = codes.filter((c) => cfg['auto.stop_rules'].includes(c));
+    if (stopping.length) return void (await stop(id, `The screening flagged ${stopping.join(', ')}, which always stop${stopping.length === 1 ? 's' : ''} auto mode. ${decide}`));
+    if (codes.length > cfg['matching.auto_max_flags']) return void (await stop(id, `The screening raised ${codes.length} flags (${codes.join(', ')}), more than auto mode goes past by itself (${cfg['matching.auto_max_flags']}). ${decide}`));
+  }
   if (s.verdict === 'FLAG') {
     await exec('INSERT IGNORE INTO overrides (screening_id, user_id, verdict_at_time, reason, reason_picks) VALUES (?,?,?,?,NULL)',
       [id, s.user_id, 'FLAG', `Auto mode: continued without asking${s.rule_codes ? ' (flags: ' + s.rule_codes + ')' : ''}.`]);

@@ -1003,6 +1003,31 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R84. Auto mode stops where a person would stop (fixed, 15 October)
+
+- **What went wrong** (found by Ahmad on job #79): a paste that was a writing prompt plus an old contract was flagged by the
+  screening (G15 no job or client data, G18 "not an Upwork job page"), and auto mode went straight on and wrote a proposal, because
+  R75 let auto mode past any FLAG. Job #76 (four flags, a $10 budget for a full SaaS build) went through the same way.
+- **Now** auto mode goes on by itself only for a **PASS**, or a **FLAG** with no more flags than the matching limit (Settings,
+  "Start matching by itself when a FLAG has at most this many flags", 2 by default) and none of the **rules that always stop auto
+  mode** (a new setting, G15 and G18 to start). It also stops when the screening found no job title (not a job page). When it stops,
+  the Overview says which flags stopped it; continuing the job with a reason lets auto mode go on.
+- Checked with five made up screenings (removed afterwards): the #79 case and the #76 case stop, three ordinary flags stop, two go
+  on, a pass goes on. Jobs #79 and #76 themselves are left as they are (discard them if they are not wanted).
+
+### R83. A document viewer in the app (done, 15 October)
+
+- **What it is** (asked for by Ahmad): clicking a document on the Job post tab (or its View button) opens it full screen inside the
+  app. **Previous** and **Next** at the sides (or the arrow keys, or a swipe on a phone) go through the job's other documents
+  without closing. A PDF opens in the browser's own viewer, an image as a picture, a text, CSV or Markdown file as text, and a Word
+  file as a page made from it on the server (`/attachments/:id/view`, cleaned of anything that could run). Open in a new tab,
+  Download and Close are always there.
+- A PDF may now be shown in a frame by this app only (the app otherwise forbids framing); other files keep the strict rules.
+- Fixed the same day (found by Ahmad): a job with a single document showed it squeezed into a narrow strip on the left, because the
+  hidden arrows gave up their place; they now keep it, so the document always sits in the middle.
+- Checked with a made up job holding a PDF, an image, a Word file and a text file (removed afterwards): each one shown, Next and
+  the arrow keys move through them.
+
 ### R82. Dashboard and Reports up to date; everything readable from Claude; rows per page (done, 15 October)
 
 - **Reports** (asked for by Ahmad: up to date with everything built since): seven new reports, each counted from screened to hired

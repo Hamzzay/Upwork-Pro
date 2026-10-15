@@ -112,6 +112,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 63 | The proposal screen in one card; profile and Loom video change in place, no new version; compare on a full screen with notes per version (R78) | done |
 | 64 | Compare versions: a picker over each column with the swap on a center line; notes titled per version, better, weaker, worth bringing in (R81) | done |
 | 65 | Dashboard and Reports up to date (seven new reports, a Proposal quality row); everything readable from Claude (get_dashboard, get_proposal_record, get_activity, more in analyze_jobs and get_trends; plugin v0.15.0); rows per page kept per person (R82, migration 048) | done |
+| 66 | A document viewer: attached documents open in the app, previous and next to go through them (R83) | done |
+| 67 | Auto mode stops on too many flags and on the stop rules (G15, G18) and when the paste is not a job page (R84) | done |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
 

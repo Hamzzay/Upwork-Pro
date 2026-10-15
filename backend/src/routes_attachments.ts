@@ -6,8 +6,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, query } from './db';
+import { sanitizeDoc } from './html';
 import { requireRole } from './auth';
-import { attachmentPath, prepareFiles, recordFiles, removeAttachment, uploadBody, MAX_FILES } from './screening/attachments';
+import { attachmentPath, prepareFiles, readFile, recordFiles, removeAttachment, uploadBody, MAX_FILES } from './screening/attachments';
 
 export const attachments = Router();
 const anyone = requireRole();
@@ -51,8 +52,19 @@ attachments.get('/attachments/:id/file', anyone, async (req, res) => {
   res.setHeader('Content-Type', a.kind === 'text' ? 'text/plain; charset=utf-8' : a.mime);
   res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(a.file_name)}`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+  // a PDF is shown in the app's viewer (R83), and the browser's PDF viewer refuses a sandboxed page: it gets no scripts instead
+  if (a.kind === 'pdf') { res.setHeader('X-Frame-Options', 'SAMEORIGIN'); res.setHeader('Content-Security-Policy', "frame-ancestors 'self'"); } // only this app may frame it
+  else res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'");
   res.sendFile(attachmentPath(a.stored_as), (e) => { if (e && !res.headersSent) res.status(404).json({ error: 'The file is missing' }); });
+});
+// What the document viewer shows for a file a browser cannot show by itself (R83): a Word file as a page, a text file as text.
+attachments.get('/attachments/:id/view', anyone, async (req, res) => {
+  const a = await fileOf(req, res, false); if (!a) return;
+  try {
+    if (a.kind === 'docx') { const mammoth = require('mammoth'); const r = await mammoth.convertToHtml({ buffer: readFile(a.stored_as) }); return void res.json({ html: sanitizeDoc(String(r.value ?? '')) }); }
+    if (a.kind === 'text') return void res.json({ text: readFile(a.stored_as).toString('utf8').slice(0, 400_000) });
+    res.json({});
+  } catch { res.status(422).json({ error: 'This file could not be shown. Download it instead.' }); }
 });
 // What the AI reads from it, to check; and what it shows, typed by the person when the AI could not read it.
 attachments.get('/attachments/:id/text', anyone, async (req, res) => {

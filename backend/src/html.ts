@@ -44,3 +44,14 @@ export function textToHtml(text: string): string {
     return `<p>${esc.replace(/\n/g, '<br>')}</p>`;
   }).join(''));
 }
+
+/** A Word file turned into a page for the document viewer (R83): its text, headings, lists and tables; no images, no links that run. */
+export function sanitizeDoc(html: string): string {
+  return sanitizeHtml(String(html ?? ''), {
+    allowedTags: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'hr',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'sup', 'sub', 'a'],
+    allowedAttributes: { a: ['href', 'target', 'rel'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'] },
+    allowedSchemes: ['http', 'https', 'mailto'],
+    transformTags: { a: (_tag, attribs): sanitizeHtml.Tag => ({ tagName: 'a', attribs: /^\s*(https?:|mailto:)/i.test(attribs.href ?? '') ? { href: attribs.href, target: '_blank', rel: 'noopener noreferrer' } as Record<string, string> : {} }) },
+  });
+}
