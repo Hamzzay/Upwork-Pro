@@ -1003,6 +1003,18 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R100. The Projects step: tags while it updates, your picks kept, more projects (done, 16 October)
+
+- **Why** (Ahmad): while the order updated after adding a tag, Add tags disappeared from the other cards; when it finished, the
+  picks went back to the recommended ones; the extra projects could not be closed; and there was no way to reach a project the list
+  did not show.
+- **Add tags stays** on every card while the order updates. Tags added during an update are picked up by one more pass at its end.
+- **Your picks are kept** when the order updates (those still in the list); nothing is ticked again for you.
+- **More projects** can be hidden again (**Hide**); the ones ticked there stay picked.
+- **Not the right project?** At the end of the list: **Load 10 more from the library** scores the next best projects the same way the
+  matching does, and a search finds any project by name, industry or tag and adds it as a card (marked **Added**). Projects you
+  bring in stay in the list when the job is matched again. Migration 057.
+
 ### R99. Every loading screen says what it is doing (done, 16 October)
 
 - **Why** (Ahmad): most waits were a spinner and a line of text; they should show, in detail, what the AI is working on.

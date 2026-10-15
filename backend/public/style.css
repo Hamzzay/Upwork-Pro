@@ -1142,3 +1142,10 @@ table.jobs tr.picked td { background: var(--fail-bg); }
 .llrow .lltxt { flex: 1 1 180px; }
 .llrow .llsec { margin-left: auto; }
 .sidebody .llrow .lltxt { order: 3; flex-basis: 100%; } /* a narrow panel: what it is looking at goes on its own line */
+/* not the right project: load more or find one (R100) */
+.finder { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); display: grid; gap: 8px; }
+.findwrap { position: relative; flex: 1; min-width: 260px; }
+.findres { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); padding: 4px; display: grid; max-height: 320px; overflow: auto; }
+.findrow { display: grid; gap: 2px; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+.findrow:hover:not(:disabled) { background: var(--brand-soft); }
+.findrow:disabled { opacity: .55; cursor: default; }

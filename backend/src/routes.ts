@@ -11,6 +11,7 @@ import { proposals, proposalFor, reviewOf } from './routes_proposals';
 import { imports } from './routes_import';
 import { pickLoom, validSelection } from './screening/matching';
 import { queueFitReasons, readFitReasons } from './screening/fit_reasons';
+import { addMatches } from './screening/more_matches';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { plugin } from './routes_plugin';
@@ -536,12 +537,12 @@ async function matchingFor(id: number) {
   base.tags = await query(
     `SELECT jt.tag_id AS id, jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
      WHERE jt.screening_id=? ORDER BY COALESCE(c.sort_order, 999), jt.weight DESC, jt.tag_name`, [id]);
-  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
+  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits, added FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   base.matches = rows.map((r) => ({
     project_id: r.project_id, project_name: r.project_name, rank: r.rank_no, score: r.score, max_score: r.max_score,
     percent: r.max_score ? Math.round((r.score / r.max_score) * 100) : 0, compliance_gap: r.compliance_gap,
     recommended: !!r.recommended, selected: !!r.selected, shared: JSON.parse(r.shared_tags), pool: r.pool, alternative: !!r.alternative, platform: r.platform,
-    proves_work: !!r.proves_work, named_in_screening: !!r.named_in_screening, extra: !!r.extra, ai_reason: r.ai_reason, ai_fits: r.ai_fits == null ? null : !!r.ai_fits,
+    proves_work: !!r.proves_work, named_in_screening: !!r.named_in_screening, extra: !!r.extra, ai_reason: r.ai_reason, ai_fits: r.ai_fits == null ? null : !!r.ai_fits, added: !!r.added,
   }));
   if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
     base.profiles = await query('SELECT id, name, tagline, price, gitlab_account, github_url, profile_url, services, notes, active FROM upwork_profiles ORDER BY active DESC, name');
@@ -1034,7 +1035,7 @@ api.post('/screenings/:id/projects/:pid/tags', requireRole(), async (req, res) =
   const s = (await query<any>('SELECT id, user_id, tagging_status, selection_confirmed_at, selection_confirmed_by FROM screenings WHERE id=? AND discarded_at IS NULL', [id]))[0];
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   if (req.user!.role === 'employee' && s.user_id !== req.user!.id) return void res.status(403).json({ error: 'Only the person who submitted this job can add tags from it' });
-  if (s.tagging_status !== 'done') return void res.status(409).json({ error: 'Wait until project matching has finished' });
+  if (!['done', 'queued', 'running'].includes(s.tagging_status)) return void res.status(409).json({ error: 'Wait until project matching has finished' }); // R100: also while it is matched again
   const row = (await query<any>('SELECT id, shared_tags, score, compliance_gap FROM job_matches WHERE screening_id=? AND project_id=?', [id, pid]))[0];
   if (!row) return void res.status(404).json({ error: 'That project is not one of this job\'s matches' });
   const jobTags = await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance FROM job_tags jt
@@ -1053,9 +1054,31 @@ api.post('/screenings/:id/projects/:pid/tags', requireRole(), async (req, res) =
       [JSON.stringify(shared), added.reduce((n, t) => n + Number(t.weight), 0), added.filter((t) => Number(t.compliance)).length, row.id]);
     return void res.json({ ok: true, rematch: false });
   }
+  // R100: already being matched again: one more pass when it ends picks these up too (a pass not started yet sees them anyway)
+  if (s.tagging_status === 'running') { await exec('UPDATE screenings SET rematch_pending=1 WHERE id=?', [id]); return void res.json({ ok: true, rematch: true }); }
+  if (s.tagging_status === 'queued') return void res.json({ ok: true, rematch: true });
   const keep = s.selection_confirmed_at ? JSON.stringify({ ids: (await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND selected=1', [id])).map((r) => r.project_id), by: s.selection_confirmed_by, at: s.selection_confirmed_at }) : null;
   await exec(`UPDATE screenings SET rematch_only=1, rematch_keep=?, tagging_status='queued', tagging_error_code=NULL, tagging_error_message=NULL WHERE id=? AND tagging_status='done'`, [keep, id]);
   res.json({ ok: true, rematch: true });
+});
+
+// R100 (Ahmad): the right project is not in the list: the next ten best from the library, or one found with the search
+api.post('/screenings/:id/matches/more', requireRole(), async (req, res) => {
+  const b = z.object({ project_id: z.number().int().positive().optional() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const id = Number(req.params.id);
+  const s = (await query<any>('SELECT user_id, tagging_status FROM screenings WHERE id=? AND discarded_at IS NULL', [id]))[0];
+  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
+  if (s.user_id !== req.user!.id && req.user!.role === 'employee') return void res.status(403).json({ error: 'Only the person who submitted this job can change its projects' });
+  if (s.tagging_status !== 'done') return void res.status(409).json({ error: 'Wait until project matching has finished' });
+  if (b.data.project_id) {
+    const p = (await query<any>('SELECT name FROM projects WHERE id=? AND active=1', [b.data.project_id]))[0];
+    if (!p) return void res.status(404).json({ error: 'That project is not in the library, or it is switched off' });
+    if ((await query<any>('SELECT 1 FROM job_matches WHERE screening_id=? AND project_id=?', [id, b.data.project_id])).length) return void res.json({ added: 0, already: true });
+  }
+  const r = await addMatches(id, b.data.project_id ? [b.data.project_id] : null, 10, b.data.project_id ? 'Added from the library search' : null);
+  await audit(req.user!.id, 'matches_more', `screening=${id} ${b.data.project_id ? 'project=' + b.data.project_id : 'next ' + r.added}`);
+  res.json(r);
 });
 
 // Small and cheap, so the page can poll it without rebuilding itself.

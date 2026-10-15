@@ -16,6 +16,7 @@ import { extractPosting } from './screening/posting';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { runOpenings } from './proposal/openings';
 import { queueFitReasons, runFitReasons } from './screening/fit_reasons';
+import { addMatches } from './screening/more_matches';
 import { autoAfterMatching, autoAfterProposal, autoAfterScreening } from './autopilot';
 import { runCompare } from './proposal/compare';
 import { docsBlock, runAttachmentRead } from './screening/attachments';
@@ -125,6 +126,8 @@ async function processTagging(id: number) {
         final = applyJudgement(matches, judged, { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'] }); order = 'ai';
       } catch (e) { console.error('matching order by the AI failed, the tag order is kept:', (e as Error).message); }
     }
+    // R100: projects a person brought into the list (Load more, the search) stay in it after matching again
+    const addedBefore = rematch ? (await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND added=1 AND project_id IS NOT NULL', [id])).map((r) => Number(r.project_id)) : [];
     await withRetry(async () => {
     const conn = await pool.getConnection();
     try {
@@ -152,6 +155,16 @@ async function processTagging(id: number) {
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     });
+    const back = addedBefore.filter((x) => !final.some((m) => m.project_id === x));
+    if (back.length) await addMatches(id, back, back.length, null).catch((e) => console.error('added projects not kept:', (e as Error).message));
+    if (kept && back.length) await exec('UPDATE job_matches SET selected=1 WHERE screening_id=? AND project_id IN (?) AND project_id IN (?)', [id, back, keep!.ids]);
+    // R100: tags were added while this pass ran: one more pass, keeping the choice as it now stands
+    if ((await query<any>('SELECT rematch_pending FROM screenings WHERE id=?', [id]))[0]?.rematch_pending) {
+      const sel = (await query<any>('SELECT s.selection_confirmed_at AS at, s.selection_confirmed_by AS by_ FROM screenings s WHERE s.id=?', [id]))[0];
+      const ids = (await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND selected=1', [id])).map((r) => r.project_id);
+      await exec(`UPDATE screenings SET rematch_pending=0, rematch_only=1, rematch_keep=?, tagging_status='queued' WHERE id=?`, [sel?.at ? JSON.stringify({ ids, by: sel.by_, at: sel.at }) : null, id]);
+      return;
+    }
     if (fromClaude || kept) return; // a kept choice goes on from where it was: no new early draft
     if (await autoAfterMatching(id)) return; // auto mode (R75): the proposal itself is written next, no early draft
     await queueEarlyDraft(id).catch((e) => console.error('early draft not queued:', (e as Error).message)); // a missed early draft only costs time

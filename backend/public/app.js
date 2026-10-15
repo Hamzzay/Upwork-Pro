@@ -1574,7 +1574,7 @@ function matchingSection(s, initial) {
   const owner = s.user_id === me.id;
   const setActions = actionsFor();
   const box = h('div', {});
-  let m = initial, timer = null, picked = null, showMore = false;
+  let m = initial, timer = null, picked = null, showMore = null, libList = null; // showMore: null until the person opens or hides the extra projects
   // R95 (Ahmad): the job's tags a project is missing, named, and added to the project right here (compliance first)
   const gapOpen = new Set(), gapTicks = new Map();
   const canTeach = owner || me.role === 'admin' || me.role === 'manager';
@@ -1588,7 +1588,7 @@ function matchingSection(s, initial) {
       return h('div', { class: 'mgap', onclick: stop },
         comp.length ? h('div', { class: 'mcomp short' }, h('div', { class: 't' }, icon('warn'), `Missing compliance: ${comp.map((t) => t.name).join(', ')}`)) : null,
         h('div', { class: 'fold' }, h('span', {}, 'Missing ', h('b', {}, String(miss.length)), ` of the job's tags: ${miss.map((t) => t.name).join(', ')}`),
-          canTeach && !busy() ? h('button', { type: 'button', class: 'btn sm', onclick: () => { gapOpen.add(r.project_id); draw(); } }, 'Add tags') : null));
+          canTeach && (!busy() || quiet) ? h('button', { type: 'button', class: 'btn sm', onclick: () => { gapOpen.add(r.project_id); draw(); } }, 'Add tags') : null)); // R100: also while the order updates
     }
     const chip = (t) => { const on = ticks.has(t.id);
       return h('button', { type: 'button', class: 'tgadd' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', title: t.reason || t.category,
@@ -1602,7 +1602,7 @@ function matchingSection(s, initial) {
         if (res.rematch) { // the card shows the tags at once; the order is worked out in the background
           const added = (m.tags || []).filter((t) => ticks.has(t.id) || res.added?.includes(t.id));
           r.shared = [...(r.shared || []), ...added.filter((t) => !(r.shared || []).some((x) => x.id === t.id)).map((t) => ({ id: t.id, name: t.name, category: t.category, weight: Number(t.weight), compliance: !!Number(t.compliance) }))];
-          quiet = true; m = { ...m, status: 'queued' }; draw(); timer = setTimeout(poll, 2500);
+          const already = quiet; quiet = true; m = { ...m, status: busy() ? m.status : 'queued' }; draw(); if (!already) timer = setTimeout(poll, 2500);
           toast(`Added to ${r.project_name}. The order updates in the background.`); }
         else { toast(`Added to ${r.project_name}. The proposal keeps its projects.`); m = (await api('GET', `/screenings/${s.id}/matching`)).matching; draw(); }
       } catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren(`Add ${ticks.size} tags to ${r.project_name}`); }
@@ -1625,7 +1625,14 @@ function matchingSection(s, initial) {
     try {
       const next = (await api('GET', `/screenings/${s.id}/matching`)).matching;
       if (quiet && (next.status === 'queued' || next.status === 'running')) m = { ...m, status: next.status };
-      else { if (quiet) { quiet = false; picked = null; if (next.status === 'done') toast('Projects matched again with the new tags'); } m = next; draw(); }
+      else {
+        if (quiet) { // R100: the projects ticked stay ticked (those still in the list); nothing is picked again for you
+          quiet = false;
+          if (picked && !next.confirmed_at) { const ids = new Set((next.matches || []).map((x) => x.project_id)); picked = new Set([...picked].filter((x) => ids.has(x))); if (!picked.size) picked = null; } else picked = null;
+          if (next.status === 'done') toast('The order is updated with the new tags');
+        }
+        m = next; draw();
+      }
     } catch (e) { /* try again next time */ }
     if (m && busy()) timer = setTimeout(poll, quiet ? 2500 : 1000);
   }
@@ -1690,8 +1697,34 @@ function matchingSection(s, initial) {
       !isRec && recIds.length >= pmin && recIds.length <= pmax ? actBtn('Use recommended', () => { picked = new Set(recIds); draw(); }) : null,
       changed ? actBtn(confirmLabel, (e) => save([...picked], e.currentTarget, confirmLabel), true) : null);
     const rec = rows.filter((r) => r.recommended), rest = rows.filter((r) => !r.recommended && !r.alternative && !r.extra), alt = rows.filter((r) => r.alternative);
-    const extra = rows.filter((r) => r.extra), moreOpen = showMore || extra.some((r) => picked.has(r.project_id));
+    const extra = rows.filter((r) => r.extra), moreOpen = showMore === true || (showMore !== false && extra.some((r) => picked.has(r.project_id))); // R100: can be hidden again
     const POOL = { same: 'Same industry', related: 'Related industry', other: 'Other industry' };
+    // R100: when the right project is not in the list: the next best ones from the library, or any one found by name, industry or tag
+    const finder = () => {
+      const inList = new Set(rows.map((r) => r.project_id));
+      const more = h('button', { class: 'btn', type: 'button' }, icon('screen'), 'Load 10 more from the library');
+      more.onclick = async () => { btnBusy(more, 'Loading');
+        try { const r = await api('POST', `/screenings/${s.id}/matches/more`, {}); m = (await api('GET', `/screenings/${s.id}/matching`)).matching; showMore = true;
+          toast(r.added ? `${r.added} more project${r.added === 1 ? '' : 's'} added below${r.left ? `, ${r.left} more left` : ''}` : 'No other project shares anything with this job. Search for one by name instead.'); draw(); }
+        catch (x) { toast(x.message, true); draw(); } };
+      const q = h('input', { type: 'search', class: 'findin', placeholder: 'Find a project by name, industry or tag', 'aria-label': 'Find a project in the library' });
+      const results = h('div', { class: 'findres', hidden: true });
+      const show = () => {
+        const t = q.value.trim().toLowerCase(); if (!t || !libList) { results.hidden = true; return; }
+        const hit = libList.filter((p) => Number(p.active) !== 0 && [p.name, ...(p.tags || []).map((x) => x.name), ...(p.industries || []).map((x) => x.name || x)].join(' ').toLowerCase().includes(t))
+          .sort((a, b) => Number(inList.has(a.id)) - Number(inList.has(b.id)) || Number(!a.name.toLowerCase().includes(t)) - Number(!b.name.toLowerCase().includes(t))).slice(0, 8); // new ones first, name matches first
+        results.hidden = false;
+        results.replaceChildren(...(hit.length ? hit.map((p) => { const there = inList.has(p.id);
+          return h('button', { type: 'button', class: 'findrow', disabled: there || null, onclick: async (e) => { btnBusy(e.currentTarget, 'Adding');
+            try { await api('POST', `/screenings/${s.id}/matches/more`, { project_id: p.id }); m = (await api('GET', `/screenings/${s.id}/matching`)).matching; showMore = true; toast(`${p.name} added below. Tick it to use it.`); draw(); }
+            catch (x) { toast(x.message, true); draw(); } } },
+            h('strong', {}, p.name), h('span', { class: 'small muted' }, there ? 'Already in the list' : ((p.industries || []).map((x) => x.name || x).join(', ') || (p.tags || []).slice(0, 4).map((x) => x.name).join(', ')))); })
+          : [h('div', { class: 'faint small', style: 'padding:8px 10px' }, 'No project matches that.')]));
+      };
+      q.oninput = () => { if (!libList) api('GET', '/projects').then((r) => { libList = r.projects; show(); }).catch(() => undefined); else show(); };
+      return h('div', { class: 'finder' }, h('div', { class: 'jp-sec' }, 'Not the right project?'),
+        h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:flex-start' }, more, h('div', { class: 'findwrap' }, q, results)));
+    };
     // R95: the job's tags none of the projects shown has (a later step can still write about them from the post)
     const noneHas = () => { const shown = rows.filter((r) => !r.extra && r.project_id); if (!shown.length) return null;
       const none = (m.tags || []).filter((t) => t.id && (Number(t.weight) > 0 || Number(t.compliance)) && shown.every((r) => !(r.shared || []).some((x) => x.id === t.id)));
@@ -1705,7 +1738,7 @@ function matchingSection(s, initial) {
       return h('div', { class: 'mcard' + (on ? ' on' : '') + (r.recommended ? ' rec' : '') + (owner && !locked ? ' pickable' : ''), onclick: owner ? toggle : null },
         h('div', { class: 'mtop' }, owner ? cb : null, h('span', { class: 'rank' }, '#' + r.rank),
           h('div', { class: 'mname' }, r.project_id ? h('a', { href: '#/p/' + r.project_id }, r.project_name) : h('span', {}, r.project_name, h('span', { class: 'faint small' }, ' (removed from library)'))),
-          r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip' }, r.alternative ? 'Alternative' : 'Match')),
+          r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip', title: r.added ? 'You brought it into the list (Load more or the search)' : null }, r.alternative ? 'Alternative' : r.added ? 'Added' : 'Match')),
         r.ai_reason ? h('p', { class: 'jp-body', style: 'margin:2px 0 0' }, r.ai_reason) : null,
         r.ai_fits === false ? h('div', { class: 'cgap' }, icon('warn'), 'The AI judged it a weak fit for this job') : null,
         r.proves_work === false ? h('div', { class: 'cgap' }, icon('warn'), 'Shares none of the job\'s core work (workflow or AI capability)') : null,
@@ -1729,9 +1762,11 @@ function matchingSection(s, initial) {
         alt.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'jp-sec' }, 'Alternative from another industry'),
           h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'It shares much more with this job than the best project from the same industry. Use it when the work matters more than the industry.'),
           h('div', { class: 'mgrid' }, alt.map(card))) : null,
-        extra.length && moreOpen ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'jp-sec' }, 'More projects'),
-          h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'The next best matches, in the same order.'), h('div', { class: 'mgrid' }, extra.map(card))) : null,
+        extra.length && moreOpen ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, `More projects (${extra.length})`),
+            h('button', { class: 'btn sm', type: 'button', onclick: () => { showMore = false; draw(); } }, 'Hide')),
+          h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'The next best matches, in the same order, then any you added.' + (extra.some((r) => picked.has(r.project_id)) ? ' The ones you ticked stay picked when this is hidden.' : '')), h('div', { class: 'mgrid' }, extra.map(card))) : null,
         extra.length && !moreOpen ? h('div', { style: 'margin-top:14px' }, h('button', { class: 'btn', type: 'button', onclick: () => { showMore = true; draw(); } }, `Show ${extra.length} more project${extra.length === 1 ? '' : 's'}`)) : null,
+        owner && !busy() ? finder() : null,
         owner && picked.size >= pmax ? h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, 'Untick one to choose a different project.') : null,
         h('p', { class: 'jp-label', style: 'margin:10px 0 0' }, m.order === 'ai'
           ? 'How these were chosen: the tags made the shortlist (what the job runs on, its core work, its industry), then the AI read each project\'s overview and case study and put them in order for this job. The line under each name is its reason. Score: the weights of the tags a project shares with the job (see Tag dictionary, How the scores work).'

@@ -6,7 +6,7 @@
  * - the top N are shown and the best few recommended; N, the recommended count and the minimum score are admin settings
  * Pure functions: no database, no model.
  */
-export interface MatchOptions { shown: number; recommended: number; minScore: number; related?: Map<string, string[]>; named?: string[]; more?: number; skip?: string[] }
+export interface MatchOptions { shown: number; recommended: number; minScore: number; related?: Map<string, string[]>; named?: string[]; more?: number; skip?: string[]; /** R100: score every project given, even one sharing nothing (a person asked for it) */ all?: boolean }
 export const DEFAULT_MATCH: MatchOptions = { shown: 5, recommended: 2, minScore: 1 };
 
 export type Platform = 'web' | 'mobile' | 'desktop';
@@ -101,7 +101,7 @@ export function rankProjects(jobTags: JobTag[], projects: LibProject[], o: Match
       proves: !core.length || core.some((t) => p.tagIds.has(t.id)), main: !main || p.tagIds.has(main.id), coreHits: core.filter((t) => p.tagIds.has(t.id)).length,
       fits: fits(p), named: named.has(p.name.toLowerCase()) };
   });
-  const rows = all.filter((r) => r.fits && r.score > 0 && r.score >= o.minScore); // a project that shares nothing of value is noise
+  const rows = o.all ? [...all] : all.filter((r) => r.fits && r.score > 0 && r.score >= o.minScore); // a project that shares nothing of value is noise
   rows.sort((a, b) => Number(b.proves) - Number(a.proves) || Number(b.main) - Number(a.main) || order[a.pool] - order[b.pool] || b.coreHits - a.coreHits || a.gap - b.gap || b.score - a.score || b.shared.length - a.shared.length || a.p.name.localeCompare(b.p.name));
   const top = rows.slice(0, o.shown);
   const bestSame = Math.max(0, ...rows.filter((r) => r.pool === 'same' && r.proves).map((r) => r.score));
