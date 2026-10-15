@@ -146,6 +146,58 @@ function changePassword() {
     } });
   cur.focus();
 }
+/** A person's picture (R87), or their initials when they have none. */
+function avatarEl(u, size) {
+  const el = h('div', { class: 'avatar', style: size ? `width:${size}px;height:${size}px;font-size:${Math.round(size / 2.6)}px` : null });
+  if (u && u.avatar_v != null) el.append(h('img', { src: `/api/users/${u.id}/avatar?v=${u.avatar_v}`, alt: '', onerror: (e) => { e.target.remove(); el.textContent = initials(u.name); } }));
+  else el.textContent = initials(u ? u.name : '');
+  return el;
+}
+/** A picture from the computer, cut to a centered square of 256 pixels and saved as a JPEG, in the browser. */
+function squareImage(file) {
+  // read straight from the file (no image address: the app's security rules allow images from itself only)
+  return (async () => {
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) throw new Error('Choose a JPEG, PNG or WebP picture');
+    if (file.size > 15 * 1024 * 1024) throw new Error('That picture is larger than 15 MB');
+    let img; try { img = await createImageBitmap(file); } catch { throw new Error('That picture could not be opened'); }
+    const side = Math.min(img.width, img.height), c = document.createElement('canvas'); c.width = c.height = 256;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 256, 256);
+    ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
+    if (img.close) img.close();
+    return c.toDataURL('image/jpeg', 0.88);
+  })();
+}
+/** Your account (R87): your picture, your name, and your password. Your email is how you sign in: an admin changes it. */
+function accountDialog() {
+  const pic = h('div', { class: 'acctpic' });
+  const drawPic = () => pic.replaceChildren(avatarEl(me, 84));
+  drawPic();
+  const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', hidden: true });
+  const up = h('button', { type: 'button', class: 'btn sm', onclick: () => file.click() }, 'Upload a picture');
+  const rm = h('button', { type: 'button', class: 'btn sm', hidden: me.avatar_v == null }, 'Remove');
+  file.onchange = async () => {
+    const f = file.files[0]; file.value = ''; if (!f) return;
+    btnBusy(up, 'Saving');
+    try { const r = await api('PUT', '/me/avatar', { data: await squareImage(f) }); me.avatar_v = r.avatar_v; drawPic(); rm.hidden = false; toast('Picture saved'); refreshSide(); }
+    catch (x) { toast(x.message, true); }
+    up.disabled = false; up.replaceChildren('Upload a picture');
+  };
+  rm.onclick = async () => { try { await api('DELETE', '/me/avatar'); me.avatar_v = null; drawPic(); rm.hidden = true; toast('Picture removed'); refreshSide(); } catch (x) { toast(x.message, true); } };
+  const name = h('input', { type: 'text', id: 'acname', maxlength: 120, value: me.name });
+  const saveName = h('button', { type: 'button', class: 'btn sm primary' }, 'Save name');
+  saveName.onclick = async () => {
+    btnBusy(saveName, 'Saving');
+    try { const r = await api('PUT', '/me/name', { name: name.value }); me.name = r.name; drawPic(); toast('Name saved'); refreshSide(); }
+    catch (x) { toast(x.message, true); }
+    saveName.disabled = false; saveName.replaceChildren('Save name');
+  };
+  const refreshSide = () => document.querySelectorAll('.me').forEach((el) => { const a = el.querySelector('.avatar'); if (a) a.replaceWith(avatarEl(me)); const w = el.querySelector('.who strong'); if (w) w.textContent = me.name; });
+  modal({ title: 'Your account', noConfirm: true, body: h('div', { class: 'stack', style: 'gap:18px' },
+    h('div', { class: 'row', style: 'gap:16px;align-items:center' }, pic, h('div', { class: 'stack', style: 'gap:6px' }, h('div', { class: 'row', style: 'gap:6px' }, up, rm), h('span', { class: 'hint', style: 'margin:0' }, 'A square is cut from the middle of the picture.')), file),
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'acname' }, 'Your name'), h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' }, name, saveName)),
+    h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Email'), h('div', {}, me.email), h('div', { class: 'hint' }, 'You sign in with it. An admin can change it on the Users page.')),
+    h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Password'), h('div', {}, h('button', { type: 'button', class: 'btn sm', onclick: (e) => { e.currentTarget.closest('dialog').close(); changePassword(); } }, 'Change your password')))) });
+}
 function btnBusy(btn, label) { btn.disabled = true; btn.replaceChildren(h('span', { class: 'spin' }), label); }
 const emptyState = (iconName, title, text, action) =>
   h('div', { class: 'empty' }, h('div', { class: 'ico' }, icon(iconName)), h('strong', {}, title), h('div', {}, text), action ? h('div', { style: 'margin-top:16px' }, action) : null);
@@ -456,9 +508,8 @@ function shell(active, content, wide) {
       menu,
       h('nav', { class: 'nav', 'aria-label': 'Main' }, linksOf(NAV).map(navLink), sections.length ? [h('div', { class: 'nav-sep' }), sections.map(section)] : null),
       h('div', { class: 'nav-foot' }, linksOf(NAV_FOOT).map(([k, ic, label]) => { const el = a([k, ic, label]); if (mini) { el.title = label; el.setAttribute('aria-label', label); } return el; })),
-      h('div', { class: 'me' }, h('div', { class: 'avatar', title: mini ? `${me.name} (${me.role})` : null }, initials(me.name)),
-        h('div', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role)),
-        h('button', { class: 'iconbtn', title: 'Change your password', 'aria-label': 'Change your password', onclick: changePassword }, icon('key')),
+      h('div', { class: 'me' }, h('button', { type: 'button', class: 'mebtn', title: 'Your account: name, picture, password', 'aria-label': 'Your account', onclick: accountDialog }, avatarEl(me),
+        h('span', { class: 'who' }, h('strong', {}, me.name), h('span', {}, me.role))),
         h('button', { class: 'iconbtn', title: 'Sign out', 'aria-label': 'Sign out', onclick: async () => { await api('POST', '/logout', {}); me = null; CFG = null; route(); } }, icon('out')))),
     h('main', { class: 'content' }, h('div', { class: 'page' }, content))));
   window.scrollTo(0, 0);
@@ -2415,7 +2466,7 @@ async function usersView() {
   /** The main admin can only be changed by the main admin. */
   const locked = (u) => u.main && !iAmMain;
   const row = (u) => h('tr', {},
-    h('td', {}, h('div', { class: 'row', style: 'gap:10px;flex-wrap:nowrap' }, h('div', { class: 'avatar' }, initials(u.name)),
+    h('td', {}, h('div', { class: 'row', style: 'gap:10px;flex-wrap:nowrap' }, avatarEl(u),
       h('div', {}, h('strong', {}, u.name, u.id === me.id ? h('span', { class: 'faint', style: 'font-weight:400' }, ' (you)') : null, u.main ? h('span', { class: 'srcchip', title: 'The first admin account. Only this person can change it.' }, 'Main admin') : null), h('div', { class: 'meta' }, u.email)))),
     h('td', {}, u.id === me.id || locked(u) ? cap(u.role) : roleSel(u.role, (e) => patch(u.id, { role: e.target.value }, 'Role updated'))),
     h('td', {}, activeSwitch(u.active, { name: u.name, url: '/admin/users/' + u.id, no: 'Disabled', can: u.id !== me.id && !locked(u), offText: 'They can no longer sign in. Their jobs stay as they are.' })),

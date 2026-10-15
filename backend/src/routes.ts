@@ -63,9 +63,44 @@ api.post('/logout', async (req, res) => { await logout(req, res); res.json({ ok:
 api.get('/me', async (req, res) => {
   if (!req.user) return void res.json({ user: null });
   // the person's own view settings (R85), with the user
+  const row = (await query<any>('SELECT prefs_json, avatar_v, avatar IS NOT NULL AS has_avatar FROM users WHERE id=?', [req.user.id]))[0];
   let prefs: Record<string, unknown> = {};
-  try { prefs = JSON.parse((await query<any>('SELECT prefs_json FROM users WHERE id=?', [req.user.id]))[0]?.prefs_json || '{}') || {}; } catch { prefs = {}; }
-  res.json({ user: { ...req.user, prefs } });
+  try { prefs = JSON.parse(row?.prefs_json || '{}') || {}; } catch { prefs = {}; }
+  res.json({ user: { ...req.user, prefs, avatar_v: Number(row?.has_avatar) ? Number(row.avatar_v) : null } });
+});
+// Your own account (R87): your name, and your picture. Your email is how you sign in, so only an admin changes it (Users page).
+api.put('/me/name', requireRole(), async (req, res) => {
+  const b = z.object({ name: z.string().trim().min(2, 'Enter your name').max(120) }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  await exec('UPDATE users SET name=? WHERE id=?', [b.data.name, req.user!.id]);
+  await audit(req.user!.id, 'name_change');
+  res.json({ ok: true, name: b.data.name });
+});
+api.put('/me/avatar', requireRole(), async (req, res) => {
+  const b = z.object({ data: z.string().min(20).max(500_000) }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: 'Choose a picture' });
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(b.data.data);
+  if (!m) return void res.status(400).json({ error: 'The picture must be a JPEG, PNG or WebP image' });
+  const buf = Buffer.from(m[2], 'base64');
+  const ok = (buf[0] === 0xff && buf[1] === 0xd8) || (buf[0] === 0x89 && buf[1] === 0x50) || buf.subarray(8, 12).toString('latin1') === 'WEBP';
+  if (!ok || buf.length > 350_000) return void res.status(400).json({ error: 'That picture could not be used. Try another one.' });
+  await exec('UPDATE users SET avatar=?, avatar_type=?, avatar_v=avatar_v+1 WHERE id=?', [buf, m[1], req.user!.id]);
+  await audit(req.user!.id, 'avatar_change');
+  const v = (await query<any>('SELECT avatar_v FROM users WHERE id=?', [req.user!.id]))[0].avatar_v;
+  res.json({ ok: true, avatar_v: Number(v) });
+});
+api.delete('/me/avatar', requireRole(), async (req, res) => {
+  await exec('UPDATE users SET avatar=NULL, avatar_type=NULL, avatar_v=avatar_v+1 WHERE id=?', [req.user!.id]);
+  res.json({ ok: true });
+});
+// A person's picture, for anyone signed in (the sidebar, the Users page). Cached by the browser; a new picture has a new address.
+api.get('/users/:id/avatar', requireRole(), async (req, res) => {
+  const u = (await query<any>('SELECT avatar, avatar_type FROM users WHERE id=?', [Number(req.params.id)]))[0];
+  if (!u || !u.avatar) return void res.status(404).json({ error: 'No picture' });
+  res.setHeader('Content-Type', u.avatar_type || 'image/jpeg');
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(u.avatar);
 });
 // One view setting of the person's own (R85): the Jobs list's columns of one tab, shown and in order. null puts the tab's own back.
 const PREF_KEY = /^jobs_cols\.(all|in_progress|submitted|closed|not_pursued)$/;
@@ -1016,7 +1051,7 @@ const admin = requireRole('admin');
 const mainAdminId = async (): Promise<number | null> => (await query<any>("SELECT MIN(id) AS id FROM users WHERE role='admin'"))[0]?.id ?? null;
 api.get('/admin/users', admin, async (req, res) => {
   const main = await mainAdminId();
-  res.json({ main_admin_id: main, i_am_main: main === req.user!.id, users: (await query<any>('SELECT id, name, email, role, active, created_at FROM users ORDER BY id')).map((u) => ({ ...u, main: u.id === main })) });
+  res.json({ main_admin_id: main, i_am_main: main === req.user!.id, users: (await query<any>('SELECT id, name, email, role, active, created_at, IF(avatar IS NULL, NULL, avatar_v) AS avatar_v FROM users ORDER BY id')).map((u) => ({ ...u, main: u.id === main })) });
 });
 api.post('/admin/users', admin, async (req, res) => {
   const b = z.object({

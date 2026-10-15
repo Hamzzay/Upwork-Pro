@@ -1003,6 +1003,19 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R87. Your account: your picture, your name and your password (done, 15 October)
+
+- **What it is** (asked for by Ahmad): clicking your name or picture at the bottom of the sidebar opens **Your account**:
+  **Upload a picture** (any JPEG, PNG or WebP; a square is cut from its middle and made small in the browser) or **Remove** it,
+  change **Your name** (Save name), and **Change your password**. The email shows but is not changed here: you sign in with it, so an
+  admin changes it on the Users page. Each saves on its own.
+- **Initials until there is a picture**, for everyone: in the sidebar and on the Users page.
+- Pictures are kept in the database (migration `050_user_avatar.sql`, 256 pixel JPEGs), so they need no files on the server and go
+  with a backup. Anyone signed in can see a person's picture.
+- Checked with a temporary employee account (removed afterwards): a picture uploaded, the name changed, both shown at once and after a
+  reload, and the picture on the Users page. Found and fixed while checking: the browser was refusing to open the picked file (the
+  app only allows images from itself), so the picture is now read straight from the file.
+
 ### R86. A slim sidebar for small screens, and an icon of its own for every page (done, 15 October)
 
 - **What it is** (asked for by Ahmad, for the team members with small screens): a button on the "Upwork Pro" row of the sidebar
