@@ -66,7 +66,8 @@ api.get('/me', async (req, res) => {
   const row = (await query<any>('SELECT prefs_json, avatar_v, avatar IS NOT NULL AS has_avatar FROM users WHERE id=?', [req.user.id]))[0];
   let prefs: Record<string, unknown> = {};
   try { prefs = JSON.parse(row?.prefs_json || '{}') || {}; } catch { prefs = {}; }
-  res.json({ user: { ...req.user, prefs, avatar_v: Number(row?.has_avatar) ? Number(row.avatar_v) : null } });
+  // R94: the main admin (the first admin account) may discard many jobs at once
+  res.json({ user: { ...req.user, prefs, avatar_v: Number(row?.has_avatar) ? Number(row.avatar_v) : null, main_admin: req.user.role === 'admin' && (await mainAdminId()) === req.user.id } });
 });
 // Your own account (R87): your name, and your picture. Your email is how you sign in, so only an admin changes it (Users page).
 api.put('/me/name', requireRole(), async (req, res) => {
@@ -591,6 +592,19 @@ api.post('/admin/screenings/:id/discard', requireRole('admin'), async (req, res)
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found, or already discarded' });
   await audit(req.user!.id, 'job_discard', `screening=${id}${b.data.reason ? ' reason=' + b.data.reason : ''}`);
   res.json({ ok: true });
+});
+// R94 (Ahmad): discard many jobs at once, for clearing out the first test jobs. Only the main admin. Each is discarded exactly as
+// one at a time would be: nothing is deleted, each can be restored, and the audit log names every job.
+api.post('/admin/screenings/discard-many', requireRole('admin'), async (req, res) => {
+  if ((await mainAdminId()) !== req.user!.id) return void res.status(403).json({ error: 'Only the main admin can discard many jobs at once' });
+  const b = z.object({ ids: z.array(z.number().int().positive()).min(1, 'Pick at least one job').max(500, 'At most 500 jobs at once'), reason: z.string().trim().max(300).optional() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const ids = [...new Set(b.data.ids)];
+  const live = (await query<any>('SELECT id FROM screenings WHERE id IN (?) AND discarded_at IS NULL', [ids])).map((r) => Number(r.id));
+  if (!live.length) return void res.status(404).json({ error: 'None of those jobs can be discarded (not found, or already discarded)' });
+  await exec('UPDATE screenings SET discarded_at=NOW(), discarded_by=?, discard_reason=? WHERE id IN (?) AND discarded_at IS NULL', [req.user!.id, b.data.reason || null, live]);
+  for (const id of live) await audit(req.user!.id, 'job_discard', `screening=${id} (with ${live.length - 1} other${live.length === 2 ? '' : 's'})${b.data.reason ? ' reason=' + b.data.reason : ''}`); // one line per job, as one at a time
+  res.json({ ok: true, discarded: live.length, skipped: ids.length - live.length });
 });
 api.post('/admin/screenings/:id/restore', requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);

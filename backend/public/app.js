@@ -1266,6 +1266,23 @@ async function historyView() {
   const mineBox = h('input', { type: 'checkbox', id: 'mine', checked: st.mine }); mineBox.onchange = () => { st.mine = mineBox.checked; st.page = 1; load(); };
   const outcomes = [...new Set([...outcomeList(), ...opts.outcomes])];
   const colBtn = h('button', { class: 'btn', type: 'button' }, 'Columns');
+  // R94 (Ahmad): the main admin can pick many jobs and discard them at once (the first jobs were all tests). Nothing is deleted:
+  // each one is discarded as it would be alone, and can be restored from the Discarded jobs view.
+  let picking = false; const picked = new Set();
+  const pickBtn = me.main_admin ? h('button', { class: 'btn', type: 'button' }, 'Select to discard') : null;
+  if (pickBtn) pickBtn.onclick = () => { picking = !picking; picked.clear(); pickBtn.replaceChildren(picking ? 'Stop selecting' : 'Select to discard'); pickBtn.classList.toggle('on', picking); load(); };
+  function discardPicked() {
+    const ids = [...picked], reason = h('input', { type: 'text', id: 'dmr', maxlength: 300, value: 'Test job' });
+    modal({ title: `Discard ${ids.length} job${ids.length === 1 ? '' : 's'}?`, confirm: `Discard ${ids.length} job${ids.length === 1 ? '' : 's'}`, danger: true,
+      body: h('div', { class: 'stack', style: 'gap:12px' },
+        h('p', { class: 'muted', style: 'margin:0' }, 'They leave every list, count, report and export, and Claude no longer sees them. Nothing is deleted: each one can be restored from Live jobs, Discarded jobs.'),
+        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'dmr' }, 'Reason (optional)'), reason)),
+      onConfirm: async () => {
+        const r = await api('POST', '/admin/screenings/discard-many', { ids, reason: reason.value.trim() || undefined });
+        toast(`${r.discarded} job${r.discarded === 1 ? '' : 's'} discarded${r.skipped ? ` (${r.skipped} already were)` : ''}`);
+        picked.clear(); picking = false; if (pickBtn) { pickBtn.replaceChildren('Select to discard'); pickBtn.classList.remove('on'); } load();
+      } });
+  }
   // the columns of this tab, the person's own (R85): drag (or the arrows) to order, Hide and Show; saved at once, for them alone
   colBtn.onclick = () => {
     const shownEl = h('ol', { class: 'colorder' }), hiddenEl = h('div', { class: 'colhidden' });
@@ -1320,7 +1337,7 @@ async function historyView() {
       sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]),
       me.role === 'admin' ? sel('discarded', 'Live jobs', [['1', 'Discarded jobs']]) : null,
       me.role !== 'employee' ? h('label', { class: 'check', for: 'mine' }, mineBox, 'Only mine') : null],
-      { actions: [colBtn, exportBtn], onClear: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } });
+      { actions: [st.discarded ? null : pickBtn, colBtn, exportBtn].filter(Boolean), onClear: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } });
     filters.replaceChildren(fbar);
   }
   function drawTabs() {
@@ -1369,11 +1386,21 @@ async function historyView() {
     const shown = cols.map((k) => JOB_COLS.find((c) => c.key === k)).filter(Boolean); // in the person's own order (R85)
     const filtered = FILTER_KEYS.some((k) => k !== 'tab' && st[k]);
     if (fbar) fbar.setActive(filtered);
+    // R94: picking jobs to discard (the main admin): a box on each row, one for the page, and a bar with the count
+    const pickOn = picking && !st.discarded;
+    const toggle = (id) => { if (picked.has(id)) picked.delete(id); else picked.add(id); drawRows(rows, total); };
+    const pageBox = h('input', { type: 'checkbox', 'aria-label': 'Select every job on this page', checked: rows.length > 0 && rows.every((r) => picked.has(r.id)) });
+    pageBox.indeterminate = !pageBox.checked && rows.some((r) => picked.has(r.id));
+    pageBox.onchange = () => { const all = rows.every((r) => picked.has(r.id)); rows.forEach((r) => (all ? picked.delete(r.id) : picked.add(r.id))); drawRows(rows, total); };
+    const pickBar = pickOn ? h('div', { class: 'pickbar' }, h('span', {}, h('strong', {}, `${picked.size} selected`), picked.size ? '' : ': tick the jobs to discard, on any page'),
+      h('span', { class: 'row', style: 'gap:8px' }, picked.size ? h('button', { class: 'btn sm', type: 'button', onclick: () => { picked.clear(); drawRows(rows, total); } }, 'Clear') : null,
+        h('button', { class: 'btn sm danger', type: 'button', disabled: !picked.size || null, onclick: discardPicked }, `Discard selected${picked.size ? ' (' + picked.size + ')' : ''}`))) : null;
     const empty = { in_progress: 'Nothing in progress', submitted: 'Nothing submitted yet', closed: 'Nothing closed yet', not_pursued: 'Nothing skipped or failed' }[st.tab] || 'No jobs yet';
     const table = !rows.length
       ? emptyState('list', filtered ? 'No matches' : empty, filtered ? 'Try different filters.' : st.tab ? 'Jobs move here as they progress.' : 'Screen your first job to see it here.', filtered ? clearBtn.cloneNode(true) : st.tab ? null : h('a', { class: 'btn primary', href: '#/new' }, 'Screen a job'))
-      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' }, h('thead', {}, h('tr', {}, headCell('Job', 'title'), shown.map(movableHead), h('th', { class: 'pin' }, ''))),
-        h('tbody', {}, rows.map((r) => h('tr', { class: 'click', tabindex: 0, onclick: () => (location.hash = '#/s/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') location.hash = '#/s/' + r.id; } },
+      : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' + (pickOn ? ' picking' : '') }, h('thead', {}, h('tr', {}, pickOn ? h('th', { class: 'pickcell' }, pageBox) : null, headCell('Job', 'title'), shown.map(movableHead), h('th', { class: 'pin' }, ''))),
+        h('tbody', {}, rows.map((r) => h('tr', { class: 'click' + (pickOn && picked.has(r.id) ? ' picked' : ''), tabindex: 0, onclick: () => (pickOn ? toggle(r.id) : (location.hash = '#/s/' + r.id)), onkeydown: (e) => { if (e.key === 'Enter') { if (pickOn) toggle(r.id); else location.hash = '#/s/' + r.id; } } },
+          pickOn ? h('td', { class: 'pickcell', onclick: (e) => e.stopPropagation() }, h('input', { type: 'checkbox', checked: picked.has(r.id), 'aria-label': 'Select job #' + r.id, onchange: () => toggle(r.id) })) : null,
           h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
           shown.map((c) => h('td', {}, c.cell(r))),
           // the row's action stays pinned to the right edge, visible however far the table scrolls
@@ -1383,7 +1410,7 @@ async function historyView() {
     const extras = Object.keys(EXTRA).filter((k) => st[k]);
     const note = extras.length ? h('div', { class: 'toolbar', style: 'gap:6px' }, h('span', { class: 'jp-label' }, 'Also filtered by'), extras.map((k) => h('button', { type: 'button', class: 'chip', title: 'Remove this filter', onclick: () => { st[k] = ''; st.page = 1; load(); } },
       `${EXTRA[k]}: ${k === 'loom' ? (st[k] === 'yes' ? 'with a video' : 'without a video') : k.startsWith('sent_') ? dayText(st[k]) : st[k]}`, h('span', { 'aria-hidden': 'true' }, ' ×')))) : null;
-    bodyEl.replaceChildren(...[note, table, pager(total, st.page, (n) => { st.page = n; load(); })].filter(Boolean));
+    bodyEl.replaceChildren(...[pickBar, note, table, pager(total, st.page, (n) => { st.page = n; load(); })].filter(Boolean));
   }
   let seq = 0;
   async function load() {

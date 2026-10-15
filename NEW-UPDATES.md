@@ -1003,6 +1003,14 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R94. Discard many jobs at once (done, 16 October)
+
+- **Why** (Ahmad): the first jobs were all tests, and discarding them one by one is slow.
+- **Select to discard**, beside Columns and Export on the Jobs list, for the main admin only (the first admin account): a box on
+  each row and one for the page, kept while moving between pages, and a bar with the count, Clear and Discard selected.
+- Each job is discarded exactly as one at a time would be: nothing is deleted, the audit log has a line per job, and any of them can
+  be restored from Live jobs, Discarded jobs. The server refuses it for anyone but the main admin, and takes up to 500 at once.
+
 ### R93. Platform review: every screen and pop-up checked (done, 16 October)
 
 - **Why** (Ahmad): after many updates, screens deeper in the app and some pop-ups had come apart.

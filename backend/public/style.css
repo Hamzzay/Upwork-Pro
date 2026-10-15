@@ -1034,3 +1034,8 @@ tr.toprow > td { vertical-align: top; }
 table.jobs .stand { min-width: 165px; }
 table.jobs td.jobcell { min-width: 190px; }
 table.jobs th, table.jobs td { padding-left: 10px; padding-right: 10px; }
+/* picking jobs to discard (R94) */
+.pickbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: var(--fail-bg); border-bottom: 1px solid var(--fail-line); font-size: 14px; }
+table.jobs th.pickcell, table.jobs td.pickcell { width: 1%; padding-right: 0; }
+table.jobs tr.picked td { background: var(--fail-bg); }
+.btn.on { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
