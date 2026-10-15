@@ -569,6 +569,8 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
       posting_json: undefined, posting: s.posting_json ? JSON.parse(s.posting_json) : null, gate_rules: s.gate_rules ? JSON.parse(s.gate_rules) : null,
       fit_reasons_json: undefined, fit_reasons: readFitReasons(s.fit_reasons_json),
+      // R99: how long the screening has been going, for its loading screen
+      ...(s.status === 'queued' || s.status === 'running' ? { run_elapsed_seconds: Number((await query<any>('SELECT TIMESTAMPDIFF(SECOND, COALESCE(started_at, created_at), NOW()) AS d FROM screenings WHERE id=?', [id]))[0]?.d ?? 0) } : {}),
       // R97: while auto mode runs, how long it has been going and how long a job in auto mode usually takes, paste to proposal
       ...(Number(s.auto_mode) && s.auto_state === 'running' ? {
         auto_elapsed_seconds: Number((await query<any>('SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS d FROM screenings WHERE id=?', [id]))[0]?.d ?? 0),
@@ -579,6 +581,28 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
     proposal: await proposalFor(id),
     attachments: await attachmentList(id),
   });
+});
+
+/**
+ * R99 (Ahmad): what the loading screens show while the AI works, so a wait says what is really being looked at: the rules a screening
+ * checks, the tag categories and projects a matching weighs, and how long each step usually takes here (the last 30 of each).
+ */
+let loaderCache: { at: number; data: unknown } | null = null;
+api.get('/loader-facts', requireRole(), async (_req, res) => {
+  if (loaderCache && Date.now() - loaderCache.at < 60_000) return void res.json(loaderCache.data);
+  const avg = async (sql: string) => Number((await query<any>(`SELECT ROUND(AVG(d)) AS t FROM (${sql}) x WHERE d BETWEEN 3 AND 1800`))[0]?.t) || null;
+  const data = {
+    rules: (await query<any>("SELECT code, rule FROM rules WHERE active=1 ORDER BY type, CAST(SUBSTRING(code, 2) AS UNSIGNED)")).map((r) => ({ code: r.code, rule: r.rule })),
+    categories: (await query<any>('SELECT name FROM tag_categories ORDER BY sort_order, name')).map((r) => r.name as string),
+    projects: (await query<any>('SELECT name FROM projects WHERE active=1 ORDER BY name')).map((r) => r.name as string),
+    openings: (await query<any>('SELECT name FROM opening_templates WHERE active=1 ORDER BY sort_order, id')).map((r) => r.name as string),
+    typical: {
+      screening: await avg("SELECT TIMESTAMPDIFF(SECOND, started_at, finished_at) AS d FROM screenings WHERE status='done' AND started_at IS NOT NULL AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 30"),
+      matching: await avg('SELECT TIMESTAMPDIFF(SECOND, continued_at, tagged_at) AS d FROM screenings WHERE continued_at IS NOT NULL AND tagged_at > continued_at ORDER BY id DESC LIMIT 30'),
+    },
+  };
+  loaderCache = { at: Date.now(), data };
+  res.json(data);
 });
 
 // R96: the reasons to continue written from this job's fit summary. A cheap read the decision polls; asking for them queues the

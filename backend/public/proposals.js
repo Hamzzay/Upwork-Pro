@@ -102,7 +102,7 @@ async function compareVersions(proposalId, versions, left, right, opts = {}) {
       const copy = h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(x.instruction); toast(ok ? 'Copied. Paste it into the chat.' : 'Could not copy', !ok); } }, 'Copy');
       const send = opts.send && opts.latest === v.version_no ? h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { const b = e.currentTarget; btnBusy(b, 'Sending'); try { await opts.send(x.instruction); dlg.close(); } catch (err) { toast(err.message, true); b.disabled = false; b.replaceChildren('Send to the chat'); } } }, 'Send to the chat') : null;
       return h('div', { class: 'fvbring' }, h('strong', {}, x.what), h('div', { class: 'fvinstr' }, h('span', { class: 'fvinstrlbl' }, 'For the chat'), x.instruction), h('div', { class: 'row', style: 'gap:6px' }, copy, send)); };
-    const notesEl = notes === 'busy' ? h('div', { class: 'fvnotes' }, h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), `The AI is comparing ${vs} with ${ov}.`))
+    const notesEl = notes === 'busy' ? h('div', { class: 'fvnotes' }, liveLine({ id: `cmp-${vs}-${ov}`, label: `Comparing ${vs} with ${ov}`, now: 'Looking at ', items: ['their openings', 'how specific each is to this client', 'the proof from the projects', 'clarity and length', 'the tone', 'the call to action', 'what is worth bringing over'], typical: 50 }))
       : notes ? h('div', { class: 'fvnotes' + (notes.stronger ? ' best' : '') },
         h('div', { class: 'fvnoteshead' }, h('strong', {}, `${vs} compared with ${ov}`)),
         list('good', `Where ${vs} is better`, notes.good), list('weak', `Where ${vs} is weaker`, notes.weak),
@@ -115,7 +115,7 @@ async function compareVersions(proposalId, versions, left, right, opts = {}) {
   const intro = 'The AI read both versions for this job. Each column says what that version does better and worse than the other one, and what is worth bringing into it.';
   const drawNotes = (r) => {
     const [a, b] = shown; if (!a || !b) return;
-    if (!r || r.status === 'queued' || r.status === 'running') { verdict.replaceChildren(h('span', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Comparing them. About a minute.')); column(0, a, 'busy'); column(1, b, 'busy'); return; }
+    if (!r || r.status === 'queued' || r.status === 'running') { verdict.replaceChildren(liveLine({ id: `cmpv-${a.version_no}-${b.version_no}`, label: 'Comparing them', now: '', items: ['Reading both versions for this job', 'Weighing what each does better', 'Deciding which one to send', 'Writing what to bring over'], typical: 50 })); column(0, a, 'busy'); column(1, b, 'busy'); return; }
     if (r.status === 'error' || !r.result) { verdict.replaceChildren(h('span', { class: 'err' }, icon('x'), 'The comparison could not be made' + (r.error ? ': ' + r.error : '.')), h('button', { class: 'btn sm', type: 'button', onclick: () => ask_(a.version_no, b.version_no) }, 'Try again')); column(0, a, null); column(1, b, null); return; }
     const c = r.result, best = c.stronger === 'left' ? a : c.stronger === 'right' ? b : null;
     verdict.replaceChildren(h('div', { class: 'fvrec' }, h('span', { class: 'fvreclbl' }, 'Recommendation'), h('span', { class: 'pill ' + (best ? 'PASS' : 'wait') }, best ? `Send v${best.version_no}` : 'Either one')),
@@ -235,7 +235,7 @@ function proposalSection(s, initial, matching) {
     drawChecks(); drawSideTabs();
     const g = data && data.gaps; if (!g || !g.items || !g.items.length) { gapsEl.replaceChildren(); return; }
     if (g.status === 'queued' || g.status === 'running') {
-      gapsEl.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Updating the proposal with your experience. Only those lines change.')); return; }
+      gapsEl.replaceChildren(liveLine({ id: 'gaps-' + data.id, label: 'Updating the proposal with your experience', now: 'Adding: ', typical: 40, items: g.items.filter((x) => x.status !== 'open' && x.has !== false).map((x) => x.skill || x.tag_name).filter(Boolean), hint: 'Only those lines change' })); return; }
     const open = g.items.filter((x) => x.status === 'open'), done = g.items.filter((x) => x.status !== 'open');
     const state = new Map(); // id -> { has, projects: Set, note, tag_name, category }
     const send = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Update the proposal');
@@ -393,7 +393,8 @@ function proposalSection(s, initial, matching) {
       try { await api('POST', `/proposals/${data.id}/openings`, { more }); data.openings = { ...o, status: 'queued', more }; if (!more) previewTo(0); drawOpenings(); startPolling(); } catch (x) { toast(x.message, true); drawOpenings(); } } }, label) : null);
     const shell = (...kids) => openEl.replaceChildren(h('div', { class: 'opencard' }, ...kids));
     const addingMore = openingsBusy() && o.more && o.items && o.items.length;
-    if (openingsBusy() && !addingMore) return shell(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing three other openings, the most sent first...'));
+    if (openingsBusy() && !addingMore) { if (!LOADER_FACTS) loaderFacts().then(() => openingsBusy() && drawOpenings()); // R99
+      return shell(liveLine({ id: 'open-' + data.id, label: 'Writing three other openings', now: 'Opening template: ', items: (LOADER_FACTS ? LOADER_FACTS.openings : []).filter((n) => n !== o.default), hint: 'The best ranked templates first', typical: 35 })); }
     if (!o.items || !o.items.length) return o.status === 'error'
       ? shell(h('div', { class: 'row spread' }, h('span', { class: 'err' }, icon('x'), 'The openings could not be written' + (o.error ? ': ' + o.error : '.')), writeBtn('Try again')))
       : owner ? shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Openings to choose from: one per opening template that is on, each its own direction and tone.'), writeBtn('Write the openings'))) : openEl.replaceChildren();
@@ -443,7 +444,7 @@ function proposalSection(s, initial, matching) {
       h('div', { class: 'row', style: 'gap:6px' }, counter, prev, next, act)), track,
       h('div', { class: 'row spread', style: 'margin-top:6px;gap:8px;flex-wrap:wrap' }, dots, h('span', { class: 'faint small' }, 'Swipe to try each one in the proposal below.'),
         h('span', { class: 'row', style: 'gap:10px' },
-          addingMore ? h('span', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Writing three more...')
+          addingMore ? liveLine({ id: 'more-' + data.id, label: 'Writing three more', now: 'Opening template: ', items: (LOADER_FACTS ? LOADER_FACTS.openings : []).filter((n) => !o.items.some((x) => x.style === n) && n !== o.default), typical: 35 })
             : o.left > 0 ? writeBtn(`Load ${Math.min(3, o.left)} more (${o.left} left)`, true) : null,
           owner && !addingMore ? h('button', { type: 'button', class: 'linkbtn small', onclick: () => writeBtn('').click() }, 'Write new ones') : null)));
     head();
@@ -465,7 +466,7 @@ function proposalSection(s, initial, matching) {
   function drawParts() {
     const pt = data && data.parts; if (!pt) { partsEl.replaceChildren(); return; }
     if (pt.status === 'queued' || pt.status === 'running') {
-      partsEl.replaceChildren(h('div', { class: 'row muted small', style: 'margin:8px 0' }, h('span', { class: 'spin' }), 'Updating the projects, the video and the sign off. Only those parts change.')); return; }
+      partsEl.replaceChildren(h('div', { style: 'margin:8px 0' }, liveLine({ id: 'parts-' + data.id, label: 'Updating the parts that changed', now: '', typical: 30, items: ['The projects and their proof', 'The Loom video line', 'The sign off', 'Keeping your own words as they are'] }))); return; }
     const offer = pt.offer || [];
     if (!offer.length) { partsEl.replaceChildren(pt.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The parts could not be updated' + (pt.error ? ': ' + pt.error : '.')) : ''); return; }
     const put = (o) => { const para = o.text.split(/\n{2,}/).map((x) => '<p>' + x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</p>').join('');
@@ -590,7 +591,7 @@ function proposalSection(s, initial, matching) {
           h('div', { class: 'jp-label' }, choices.ready
             ? (choices.defaulted ? 'No type matched this job\'s signals, so the default type is suggested. ' : 'The best fit for this job\'s signals is suggested and already selected. ') + 'Pick another if you prefer, then press Write the proposal at the top right. Only that type is written.'
             : 'The job\'s signals are still being read, so the types are not ranked yet. Wait a moment for the suggestion, or pick a type now.')),
-        !choices.ready ? h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'Reading the signals...') : null,
+        !choices.ready ? liveLine({ id: 'sig-' + s.id, label: 'Reading the signals', now: '', typical: 25, items: ['What the client asks for', 'How they write', 'What they will judge on', 'Which proposal type it points to'] }) : null,
         h('div', { class: 'pgrid2 typegrid', role: 'radiogroup', 'aria-label': 'Proposal type' }, shown.map(card)),
         choices.types.length > shown.length || showAll ? h('div', {}, h('button', { type: 'button', class: 'linkbtn', onclick: () => { showAll = !showAll; draw(); } }, showAll ? `Show the top ${SUGGEST} only` : `Show all ${choices.types.length} types`)) : null,
         loomBlock].filter(Boolean)); // replaceChildren prints a null as the word
@@ -621,39 +622,22 @@ function proposalSection(s, initial, matching) {
   const prog = { at: 0, stage: null, since: 0, pct: 0, tick: null };
   const stageNow = () => (data.status === 'queued' ? 'queued' : data.stage && BAND[data.stage] ? data.stage : 'signals');
   const fmtSecs = (n) => (n < 60 ? `${Math.max(5, Math.round(n / 5) * 5)} s` : `${Math.floor(n / 60)} min${n % 60 >= 30 ? ' 30 s' : ''}`);
-  function progressView() {
-    prog.at = Date.now() - (Number(data.elapsed_seconds) || 0) * 1000; prog.stage = null; prog.pct = 0;
-    const el = h('div', { class: 'propprogress pgx', role: 'status', 'aria-live': 'polite' },
-      h('div', { class: 'pgtop' }, h('div', {}, h('div', { class: 'pgtitle' }, 'Writing your proposal'), h('div', { class: 'pgsub' }, 'You can leave this page. It carries on, and the proposal is saved when it is done.')),
-        h('div', { class: 'pgtime' }, h('strong', { class: 'pgleft' }, ''), h('span', { class: 'pgelapsed' }, ''))),
-      h('div', { class: 'pgbar' }, h('i', {})),
-      h('ol', { class: 'pgsteps' }),
-      h('div', { class: 'pgdraft', 'aria-hidden': 'true' }, h('span', {}), h('span', {}), h('span', {}), h('span', {}), h('span', {})));
-    clearInterval(prog.tick);
-    prog.tick = setInterval(() => { if (!el.isConnected || !busy()) { clearInterval(prog.tick); return; } drawProgress(); }, 500);
-    requestAnimationFrame(drawProgress);
-    return el;
+  function progressView() { // R99: the shared loader, with what is really being used: the projects, the type, what is checked
+    const projects = matching && matching.matches ? matching.matches.filter((x) => x.selected).map((x) => x.project_name) : [];
+    const idOf = 'prop-' + data.id;
+    if (!busy()) forgetLoader(idOf);
+    return liveLoader({ id: idOf, title: 'Writing your proposal', sub: 'You can leave this page. It carries on, and the proposal is saved when it is done.',
+      typical: data.typical_seconds, elapsed: data.elapsed_seconds, typicalLabel: 'Usually a couple of minutes', stage: stageNow,
+      steps: [
+        { key: 'queued', label: PSTEPS[0][1], hint: PSTEPS[0][2], share: 0.3 },
+        { key: 'signals', label: PSTEPS[1][1], hint: PSTEPS[1][2], share: 2, now: 'Reading', items: ['What the client asks for', 'How they write', 'Their screening questions', 'Budget and timeline', 'Tools and stack they name', 'What they will judge on'] },
+        { key: 'template', label: PSTEPS[2][1], hint: PSTEPS[2][2], share: 1, now: 'Weighing', items: (templates || []).map((t) => t.name) },
+        { key: 'writing', label: PSTEPS[3][1], hint: PSTEPS[3][2], share: 5, now: 'Writing', items: ['The opening', ...projects.map((p) => `The proof from ${p}`), 'The approach', 'The call to action', 'The screening answers'] },
+        { key: 'checking', label: PSTEPS[4][1], hint: PSTEPS[4][2], share: 1.5, now: 'Checking', items: ['The first two lines', 'Every project link', 'The sign off', 'Banned phrases', 'The length for the type', 'Facts against the job post'] },
+      ] });
   }
-  function drawProgress() {
-    const el = box.querySelector('.pgx'); if (!el) return;
-    const st = stageNow(), now = Date.now(), elapsed = (now - prog.at) / 1000, T = Number(data.typical_seconds) || 120;
-    if (st !== prog.stage) { prog.stage = st; prog.since = now; }
-    const [from, to, share] = BAND[st], inStage = (now - prog.since) / 1000;
-    const pct = from + (to - from) * (1 - Math.exp(-inStage / Math.max(4, share * T))) * 0.95; // eases towards the end of its step
-    prog.pct = Math.max(prog.pct, pct); // never goes back
-    el.querySelector('.pgbar i').style.width = prog.pct.toFixed(1) + '%';
-    const left = T - elapsed;
-    el.querySelector('.pgleft').textContent = !data.typical_seconds ? 'Usually a couple of minutes' : left > 8 ? `About ${fmtSecs(left)} left` : 'Almost done';
-    el.querySelector('.pgelapsed').textContent = `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, '0')} so far` + (data.typical_seconds && left < -30 ? ', a little longer than usual' : '');
-    const idx = PSTEPS.findIndex((x) => x[0] === st);
-    const ol = el.querySelector('.pgsteps');
-    const sig = PSTEPS.map((x, i) => (i < idx ? 'd' : i === idx ? 'a' : 'w')).join('');
-    if (ol.dataset.sig === sig) return; // only redrawn when a step changes
-    ol.dataset.sig = sig;
-    ol.replaceChildren(...PSTEPS.filter((x, i) => i > 0 || st === 'queued').map((x) => { const i = PSTEPS.indexOf(x), state = i < idx ? 'done' : i === idx ? 'now' : 'next';
-      return h('li', { class: state }, h('span', { class: 'pgdot' }, state === 'done' ? icon('check') : state === 'now' ? h('span', { class: 'spin' }) : String(i)),
-        h('div', {}, h('div', { class: 'pgname' }, x[1]), state === 'now' ? h('div', { class: 'pghint' }, x[2]) : null)); }));
-  }
+  function drawProgress() { /* R99: the loader keeps itself up to date */ }
+
 
   function explain() {
     const t = data.template, rk = data.ranking;
@@ -690,7 +674,7 @@ function proposalSection(s, initial, matching) {
     if (!rv || (!rv.score && rv.status !== 'queued' && rv.status !== 'running' && rv.status !== 'error')) {
       el.replaceChildren(h('p', { class: 'jp-label', style: 'margin:0' }, 'A separate reader scores the proposal out of 10 and suggests two or three changes, before you copy it.'), ...(canAsk ? [h('div', {}, ask('Review this proposal', true))] : [])); return; }
     if (rv.status === 'queued' || rv.status === 'running') {
-      el.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'An independent reviewer is reading the proposal. This takes about a minute.')); return; }
+      el.replaceChildren(liveLine({ id: 'rev-' + data.id + '-' + (data.current ? data.current.version_no : 0), label: 'An independent reviewer is reading it', now: 'Judging ', typical: 60, items: ['the first two lines', 'whether it answers what the post asks', 'the proof against the facts', 'the format and length of the type', 'the writing rules', 'whether a client would reply'] })); return; }
     if (rv.status === 'error' && !rv.score) {
       el.replaceChildren(...[head(canAsk ? ask('Try again', true) : null), h('p', { class: 'err' }, icon('x'), 'The review could not be made' + (rv.error ? ': ' + rv.error : '.'))].filter(Boolean)); return; }
     const tone = rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL';
@@ -718,7 +702,11 @@ function proposalSection(s, initial, matching) {
   const ask2 = (title, text, confirm) => (typeof ask === 'function' ? ask(title, text, confirm) : Promise.resolve(true));
 
   function drawChat() {
-    if (chatLoader) chatLoader.hidden = !chatBusy();
+    if (chatLoader) { const was = chatLoader.hidden; chatLoader.hidden = !chatBusy();
+      // R99: what the chat is doing, from when it started; the request itself is the first thing shown
+      if (!chatLoader.hidden && was) { const last = [...(data.messages || [])].reverse().find((m) => m.role === 'user'); forgetLoader('chat-' + data.id);
+        chatLoader.querySelector('.chatll')?.replaceChildren(liveLine({ id: 'chat-' + data.id, label: 'Working on your request', now: '', typical: 45,
+          items: [last ? `"${String(last.content).slice(0, 80)}${String(last.content).length > 80 ? '...' : ''}"` : '', 'Reading the proposal and the job again', 'Changing only what the request touches', 'Keeping the facts and the links as they are', 'Checking it against the writing rules'].filter(Boolean) })); } }
     drawActions();
     const el = box.querySelector('.chatpanel'); if (!el) return;
     const list = h('div', { class: 'chatlist', 'aria-live': 'polite' }, data.messages.length ? data.messages.map((m) => {
@@ -759,8 +747,9 @@ function proposalSection(s, initial, matching) {
         n ? tab('answers', 'Screening answers', h('span', { class: 'n' }, String(n)), answersDirty() ? h('span', { class: 'dot', title: 'Unsaved changes' }) : null) : null].filter(Boolean));
       letterPane.hidden = mainTab !== 'letter'; answersPane.hidden = mainTab !== 'answers';
     };
-    chatLoader = h('div', { class: 'busycover', hidden: !chatBusy(), role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }), h('strong', {}, 'The AI is working on your request'),
-      h('div', { class: 'jp-label' }, 'If it rewrites the proposal, the new version loads here by itself.'));
+    chatLoader = h('div', { class: 'busycover', hidden: !chatBusy(), role: 'status', 'aria-live': 'polite' }, h('div', { class: 'chatll', style: 'width:min(460px,90%)' },
+      chatBusy() ? liveLine({ id: 'chat-' + data.id, label: 'Working on your request', now: '', typical: 45, items: ['Reading the proposal and the job again', 'Changing only what the request touches', 'Keeping the facts and the links as they are', 'Checking it against the writing rules'] }) : null),
+      h('div', { class: 'jp-label', style: 'margin-top:8px' }, 'If it rewrites the proposal, the new version loads here by itself.'));
     // the screening answers, apart from the letter: each its own box, Copy and edit; saved with Save version, never through the letter
     const drawAnswers = (answers, editable) => {
       shownAnswers = answers || []; answerBoxes = [];

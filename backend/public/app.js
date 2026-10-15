@@ -198,6 +198,94 @@ function accountDialog() {
     h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Email'), h('div', {}, me.email), h('div', { class: 'hint' }, 'You sign in with it. An admin can change it on the Users page.')),
     h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Password'), h('div', {}, h('button', { type: 'button', class: 'btn sm', onclick: (e) => { e.currentTarget.closest('dialog').close(); changePassword(); } }, 'Change your password')))) });
 }
+// ---------- loading screens (R99): every wait says what is being done, with real detail, and how long is left ----------
+let LOADER_FACTS = null, loaderFactsP = null;
+/** The rules, tag categories and projects the AI works through, and the usual time of each step (one call, then kept). */
+function loaderFacts() {
+  if (LOADER_FACTS) return Promise.resolve(LOADER_FACTS);
+  return (loaderFactsP = loaderFactsP || api('GET', '/loader-facts').then((d) => (LOADER_FACTS = d)).catch(() => (LOADER_FACTS = { rules: [], categories: [], projects: [], typical: {} })));
+}
+const LOADERS = new Map(); // a loader keeps its place across redraws of the page under it
+const fmtLeft = (n) => (n < 60 ? `${Math.max(5, Math.round(n / 5) * 5)} s` : `${Math.floor(n / 60)} min${n % 60 >= 30 ? ' 30 s' : ''}`);
+const fmtSoFar = (n) => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, '0')}`;
+const shuffleOnce = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
+/**
+ * A full loading screen: the steps (click one to see what it does and everything it looks at), a bar that keeps moving and never goes
+ * back, the time so far and about how long is left, and a line naming what is being looked at right now.
+ * o: { id, title, sub, steps: [{ key, label, hint, items?, share? }], stage: () => key, typical?: seconds, elapsed?: seconds, typicalLabel? }
+ */
+function liveLoader(o) {
+  let st = LOADERS.get(o.id);
+  if (!st) { st = { at: Date.now() - (o.elapsed || 0) * 1000, key: null, since: 0, pct: 0, open: null, tick: 0, order: {} }; LOADERS.set(o.id, st); }
+  const total = o.steps.reduce((n, x) => n + (x.share || 1), 0);
+  let acc = 0; const band = {}; for (const x of o.steps) { const w = ((x.share || 1) / total) * 97; band[x.key] = [acc, acc + w, (x.share || 1) / total]; acc += w; }
+  const left = h('strong', { class: 'pgleft' }), so = h('span', { class: 'pgelapsed' }), bar = h('i', {}), ol = h('ol', { class: 'pgsteps' });
+  const now1 = h('span', { class: 'lltxt' }), nowLine = h('div', { class: 'llnow', 'aria-live': 'off' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), now1);
+  const el = h('div', { class: 'pgx llx', role: 'status', 'aria-live': 'polite' },
+    h('div', { class: 'pgtop' }, h('div', {}, h('div', { class: 'pgtitle' }, o.title), o.sub ? h('div', { class: 'pgsub' }, o.sub) : null), h('div', { class: 'pgtime' }, left, so)),
+    h('div', { class: 'pgbar', title: 'Progress so far' }, bar), nowLine, ol);
+  const itemsOf = (x) => { const v = typeof x.items === 'function' ? x.items() : x.items; return Array.isArray(v) ? v.filter(Boolean) : []; };
+  const drawSteps = () => {
+    const idx = o.steps.findIndex((x) => x.key === st.key);
+    ol.replaceChildren(...o.steps.map((x, i) => {
+      const state = i < idx ? 'done' : i === idx ? 'now' : 'next', items = itemsOf(x), open = st.open === x.key;
+      const head = h('button', { type: 'button', class: 'llhead', 'aria-expanded': open ? 'true' : 'false', onclick: () => { st.open = open ? null : x.key; drawSteps(); } },
+        h('span', { class: 'pgdot' }, state === 'done' ? icon('check') : state === 'now' ? h('span', { class: 'spin' }) : String(i + 1)),
+        h('span', { class: 'pgname' }, x.label), items.length ? h('span', { class: 'llcount' }, String(items.length)) : null, h('span', { class: 'llchev', 'aria-hidden': 'true' }, open ? '−' : '+'));
+      return h('li', { class: state + (open ? ' open' : '') }, head,
+        open || state === 'now' ? h('div', { class: 'pghint' }, x.hint) : null,
+        open && items.length ? h('div', { class: 'llitems' }, items.map((t) => h('span', { class: 'chip' }, t))) : null);
+    }));
+  };
+  let seen = false; // this element stops once it has been on the page and is gone (a redraw put a new one in its place)
+  const paint = () => {
+    if (el.isConnected) seen = true; else if (seen) return false;
+    const key = o.stage(), now = Date.now();
+    if (key !== st.key) { st.key = key; st.since = now; drawSteps(); }
+    const [from, to, share] = band[key] || [0, 97, 1], T = Number(o.typical) || 0, inStage = (now - st.since) / 1000, elapsed = (now - st.at) / 1000;
+    st.pct = Math.max(st.pct, from + (to - from) * (1 - Math.exp(-inStage / Math.max(3, share * (T || 90)))) * 0.95);
+    bar.style.width = st.pct.toFixed(1) + '%';
+    const l = T - elapsed;
+    left.textContent = !T ? (o.typicalLabel || 'Usually under a minute') : l > 6 ? `About ${fmtLeft(l)} left` : 'Almost done';
+    so.textContent = `${fmtSoFar(elapsed)} so far` + (T && l < -30 ? ', a little longer than usual' : '');
+    // what is being looked at now: the current step's own items, one after another
+    if (st.tick % 4 === 0 || !now1.textContent) {
+      const x = o.steps.find((y) => y.key === key), items = x ? itemsOf(x) : [];
+      st.order[key] = st.order[key] && st.order[key].length === items.length ? st.order[key] : shuffleOnce(items);
+      const pick = items.length ? st.order[key][Math.floor(st.tick / 4) % items.length] : null;
+      now1.classList.remove('in'); void now1.offsetWidth; now1.classList.add('in');
+      now1.textContent = pick ? `${x.now || 'Looking at'}: ${pick}` : (x ? x.hint : '');
+    }
+    st.tick++;
+    return true;
+  };
+  paint(); drawSteps();
+  const t = setInterval(() => { if (!paint()) clearInterval(t); }, 450);
+  return el;
+}
+/** A one-line version for the smaller waits: what is being done, what it is looking at now, and a slim moving bar. */
+function liveLine(o) {
+  let st = LOADERS.get(o.id); if (!st) { st = { at: Date.now(), tick: 0, order: null }; LOADERS.set(o.id, st); }
+  const items = (o.items || []).filter(Boolean); if (!st.order || st.order.length !== items.length) st.order = shuffleOnce(items);
+  const txt = h('span', { class: 'lltxt' }), time = h('span', { class: 'llsec' }), fill = h('i');
+  const el = h('div', { class: 'llline', role: 'status' },
+    h('div', { class: 'row llrow', style: 'gap:4px 8px;min-width:0' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+      h('strong', { class: 'lllabel' }, o.label), txt, time),
+    h('div', { class: 'llbar' }, fill));
+  let seen = false;
+  const paint = () => {
+    if (el.isConnected) seen = true; else if (seen) return false;
+    const sec = (Date.now() - st.at) / 1000, T = Number(o.typical) || 40;
+    fill.style.width = (96 * (1 - Math.exp(-sec / (T * 0.6)))).toFixed(1) + '%';
+    time.textContent = fmtSoFar(sec);
+    if ((st.tick % 4 === 0 || !txt.textContent) && items.length) { txt.classList.remove('in'); void txt.offsetWidth; txt.classList.add('in'); txt.textContent = (o.now || '') + st.order[Math.floor(st.tick / 4) % items.length]; }
+    else if (!items.length && !txt.textContent) txt.textContent = o.hint || '';
+    st.tick++; return true;
+  };
+  paint(); const t = setInterval(() => { if (!paint()) clearInterval(t); }, 450);
+  return el;
+}
+const forgetLoader = (id) => LOADERS.delete(id);
 function btnBusy(btn, label) { btn.disabled = true; btn.replaceChildren(h('span', { class: 'spin' }), label); }
 const emptyState = (iconName, title, text, action) =>
   h('div', { class: 'empty' }, h('div', { class: 'ico' }, icon(iconName)), h('strong', {}, title), h('div', {}, text), action ? h('div', { style: 'margin-top:16px' }, action) : null);
@@ -651,7 +739,7 @@ function attachmentsCard(s) {
       onConfirm: async () => { await api('PUT', `/attachments/${a.id}/text`, { text: ta.value }); load(); } }); };
   const row = (a) => {
     const busy = a.status === 'queued' || a.status === 'running';
-    const state = busy ? h('span', { class: 'row small muted', style: 'gap:6px' }, h('span', { class: 'spin' }), 'The AI is reading it') : a.status === 'error' ? h('span', { class: 'pill FAIL' }, 'Not read')
+    const state = busy ? h('span', { class: 'row small muted', style: 'gap:6px' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), 'The AI is reading it') : a.status === 'error' ? h('span', { class: 'pill FAIL' }, 'Not read')
       : h('span', { class: 'pill PASS' }, READ_WORD[a.read_by] || 'Read');
     const btn = (label, fn, danger) => h('button', { class: 'btn sm' + (danger ? ' danger' : ''), type: 'button', onclick: fn }, label);
     return h('div', { class: 'filerow' },
@@ -1463,12 +1551,22 @@ function jobReportView(j, multi) {
       h('ul', { class: 'plain' }, j.proposal_notes.map((n) => h('li', {}, n)))) : null);
 }
 
-/** Step 1 while the gate runs: one spinner and plain words, inside the same workflow as every other step. */
-function progressCard(status) {
-  return h('div', { class: 'card progress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }),
-    h('strong', { style: 'font-size:17px' }, status === 'running' ? 'Screening this job' : 'Waiting for a free slot'),
-    h('p', { class: 'muted', style: 'margin:4px 0 0' }, status === 'running' ? 'Checking the job against the gate rules. ' : 'It starts as soon as a slot is free. ',
-      'This usually takes under a minute. You can leave this page; the result is saved.'));
+/** Step 1 while the gate runs (R99): the steps, the rules it checks one after another, a moving bar and the time left. */
+function progressCard(status, s) {
+  const f = LOADER_FACTS || { rules: [], typical: {} }, T = f.typical.screening || 45;
+  if (!LOADER_FACTS) loaderFacts().then(() => { const el = document.querySelector('.llx[data-l="screen"]'); if (el && s) el.replaceWith(progressCard(s.status, s)); });
+  const id = 'screen-' + (s ? s.id : 0), started = Date.now() - ((s && s.run_elapsed_seconds) || 0) * 1000;
+  const el = liveLoader({ id, title: status === 'running' ? 'Screening this job' : 'Waiting for a free slot', typical: status === 'running' ? T : null, elapsed: s ? s.run_elapsed_seconds : 0,
+    sub: 'You can leave this page. It carries on, and the result is saved.', typicalLabel: 'It starts as soon as a slot is free',
+    stage: () => (status !== 'running' ? 'queued' : (Date.now() - started) / 1000 < T * 0.7 ? 'rules' : 'verdict'),
+    steps: [
+      { key: 'queued', label: 'Waiting for a free slot', hint: 'Another job is being worked on. This one is next.', share: 0.4 },
+      { key: 'rules', label: 'Reading the post and checking every rule', hint: 'The job, the client and the competition, against each fail and flag rule.', now: 'Checking', share: 3,
+        items: f.rules.map((r) => `${r.code} ${r.rule}`) },
+      { key: 'verdict', label: 'Writing the verdict and the fit', hint: 'Pass, flag or fail with the reasons, the fit with ' + cfg('company.name', 'us') + ', and notes for the proposal.', share: 1 },
+    ] });
+  el.dataset.l = 'screen';
+  return el;
 }
 
 
@@ -1643,10 +1741,22 @@ function matchingSection(s, initial) {
 
   function draw() {
     let body;
+    if (!busy()) forgetLoader('match-' + s.id); // R99: a later matching starts its loader afresh
     if (busy() && !(quiet && (m.matches || []).length)) {
-      body = h('div', { class: 'progress', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'ring' }),
-        h('strong', { style: 'font-size:17px' }, m.status !== 'running' ? 'Waiting for a free slot' : m.tags && m.tags.length ? 'Matching the projects again' : 'Reading the job and choosing tags'),
-        h('p', { class: 'muted', style: 'margin-top:4px' }, 'Then the tags are matched with the project library. This usually takes a minute or two. You can leave this page.'));
+      // R99: the steps, the tag categories and the projects it weighs one after another, a moving bar and the time left
+      const f = LOADER_FACTS || { categories: [], projects: [], typical: {} }, T = f.typical.matching || 60, again = !!(m.tags && m.tags.length);
+      if (!LOADER_FACTS) loaderFacts().then(() => { if (box.isConnected && busy()) draw(); });
+      const started = (LOADERS.get('match-' + s.id) || { at: Date.now() }).at;
+      body = liveLoader({ id: 'match-' + s.id, title: again ? 'Matching the projects again' : 'Finding the projects that prove this work', typical: m.status === 'running' ? T : null,
+        sub: 'You can leave this page. The projects are here when it is done.', typicalLabel: 'It starts as soon as a slot is free',
+        stage: () => { const sec = (Date.now() - started) / 1000; return m.status !== 'running' ? 'queued' : !again && sec < T * 0.4 ? 'tags' : sec < T * 0.75 ? 'score' : 'order'; },
+        steps: [
+          { key: 'queued', label: 'Waiting for a free slot', hint: 'Another job is being worked on. This one is next.', share: 0.3 },
+          ...(again ? [] : [{ key: 'tags', label: 'Tagging the job', hint: 'What it runs on, the core work, the industry, the tools and the stack, from the tag dictionary.', now: 'Tagging', share: 2, items: f.categories }]),
+          { key: 'score', label: 'Weighing every project in the library', hint: 'Each project scores the weights of the tags it shares with the job; the core work and the industry come first.', now: 'Weighing', share: 1.5, items: f.projects },
+          { key: 'order', label: 'Reading the best ones and putting them in order', hint: 'The AI reads the overview and case study of the shortlist and orders them for this job, with a reason each.', now: 'Reading', share: 1.5,
+            items: (m.matches || []).length ? m.matches.map((x) => x.project_name) : f.projects },
+        ] });
     } else if (m.status === 'error') {
       if (owner) setActions(actBtn('Try again', (e) => start(e.currentTarget), true));
       body = h('div', { class: 'stack' }, h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'Project matching did not finish'), h('p', { class: 'jp-body', style: 'margin:6px 0 0' }, m.error || 'Something went wrong.')),
@@ -1770,7 +1880,7 @@ function postingCard(s, open = true, setButtons = null) {
     const refresh = async () => { if (!box.isConnected) return; try { const d = await api('GET', '/screenings/' + s.id); box.replaceWith(postingCard(d.screening, box.open, setButtons)); } catch { /* try again on the next visit */ } };
     go.onclick = async () => { btnBusy(go, 'Starting'); try { await api('POST', `/screenings/${s.id}/posting`, {}); toast('Reading the job post...'); setTimeout(refresh, 2500); } catch (x) { toast(x.message, true); go.disabled = false; } };
     if (busy) setTimeout(refresh, 2000);
-    body.replaceChildren(busy ? h('div', { class: 'row muted' }, h('span', { class: 'spin' }), 'Reading the job post into fields...')
+    body.replaceChildren(busy ? liveLine({ id: 'post-' + s.id, label: 'Reading the job post into fields', now: 'Finding ', typical: 30, items: ['the budget and job type', 'the client history', 'the skills it asks for', 'the screening questions', 'the timeline', 'the attachments it mentions'] })
       : h('div', {}, h('p', { class: 'muted', style: 'margin-top:0' }, s.posting_status === 'error' ? (s.posting_error || 'The job post could not be read into fields.') : 'This job was pasted before the posting was read into fields.'), canTrack(s.user_id) && !setButtons ? go : null), raw);
     if (setButtons) setButtons(!busy && canTrack(s.user_id) ? actBtn(go.textContent, () => go.click(), true) : null); // on the job page the button sits in the tab row
     return box;
@@ -2058,7 +2168,7 @@ async function jobPage(id, want) {
       const busy = mm && (mm.status === 'queued' || mm.status === 'running');
       const top = mm && mm.status === 'done' ? mm.matches.filter((x) => !x.extra).slice(0, cfg('matching.shown', 5)) : [];
       box.replaceChildren(h('div', { class: 'jp-sec' }, 'Projects that fit'),
-        busy ? h('div', { class: 'row muted small', style: 'margin-top:6px' }, h('span', { class: 'spin' }), 'Finding the projects that fit this job. They appear here in a minute or two.')
+        busy ? h('div', { style: 'margin-top:6px' }, liveLine({ id: 'fitp-' + s.id, label: 'Finding the projects that fit this job', now: 'Weighing ', typical: (LOADER_FACTS && LOADER_FACTS.typical.matching) || 60, items: LOADER_FACTS ? LOADER_FACTS.projects : [], hint: 'They appear here in a minute or two' }))
           : top.length ? h('ol', { class: 'jp-list', style: 'margin-top:6px' }, top.map((x) => h('li', {}, h('strong', {}, x.project_name), x.recommended ? h('span', { class: 'tagpill', style: 'margin-left:6px' }, 'Recommended') : null,
               x.ai_reason ? h('div', { class: 'jp-label' }, x.ai_reason) : null)))
           : h('p', { class: 'jp-label', style: 'margin:6px 0 0' }, mm && mm.status === 'done' ? 'No project in the library proves this kind of work.' : 'The projects are found once you continue with this job.'),
@@ -2071,7 +2181,7 @@ async function jobPage(id, want) {
 
   // ---- Screening: the verdict, the flags and the decision first; the job, client and competition facts after, collapsed
   function screeningTab() {
-    if (s.status === 'queued' || s.status === 'running') return h('div', { class: 'stack' }, progressCard(s.status));
+    if (s.status === 'queued' || s.status === 'running') return h('div', { class: 'stack' }, progressCard(s.status, s));
     if (s.status === 'error') {
       if (owner) setActions(actBtn('Paste the text instead', () => { location.hash = '#/new'; }), actBtn('Try again', async (e) => { btnBusy(e.currentTarget, 'Retrying'); try { await api('POST', `/screenings/${id}/retry`, {}); route(); } catch (x) { toast(x.message, true); } }, true));
       return h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, 'The screening did not finish'), h('p', { class: 'jp-body' }, s.error_message || 'Something went wrong.'));
@@ -2110,7 +2220,7 @@ async function jobPage(id, want) {
         const writing = fitStatus === 'queued' || fitStatus === 'running';
         fitBox.replaceChildren(h('div', { class: 'jp-label' }, 'From the fit with ' + cfg('company.name', 'us')),
           fitReasons.length ? h('div', { class: 'chips' }, fitReasons.map(reasonChip))
-            : writing ? h('div', { class: 'row muted small', style: 'gap:8px' }, h('span', { class: 'spin' }), 'Writing reasons from the fit summary...')
+            : writing ? liveLine({ id: 'fit-' + s.id, label: 'Writing reasons from the fit summary', now: 'Answering ', typical: 12, items: [...(j.flags || []), ...(j.fails || [])].map((x) => `${x.code} ${x.rule}`) })
               : h('div', { class: 'faint small' }, fitStatus === 'error' ? 'They could not be written this time; the reasons below still work.' : 'None for this job.'));
         markPicks();
       };
@@ -2768,7 +2878,7 @@ async function reviewerView() {
   };
   const testBtn = h('button', { class: 'btn', type: 'button', disabled: !jobs.length || null }, 'Try the draft');
   testBtn.onclick = async () => {
-    btnBusy(testBtn, 'Reviewing'); out.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), 'The reviewer is reading the proposal with the draft above. This takes about a minute.'));
+    btnBusy(testBtn, 'Reviewing'); forgetLoader('rvtry'); out.replaceChildren(liveLine({ id: 'rvtry', label: 'The reviewer is reading it with your draft', now: 'Judging ', typical: 60, items: ['the first two lines', 'what the post asks', 'the proof against the facts', 'the format and length', 'the writing rules'] }));
     try {
       const r = await api('POST', '/admin/reviewer/test', { sections: read(), screening_id: Number(jobSel.value) });
       out.replaceChildren(h('div', { class: 'two' }, reviewCard('With the draft above', r.review, `Proposal version ${r.proposal_version}. Not saved.`),
@@ -3414,6 +3524,7 @@ async function route() {
     if (!me) me = (await api('GET', '/me')).user;
     if (!me) return loginView();
     if (!CFG) CFG = (await api('GET', '/settings')).settings;
+    loaderFacts(); // R99: what the loading screens name, fetched once in the background
     const [, a, b, c] = location.hash.split('?')[0].split('/');
     if (a === 's' && b) { // #/s/12, #/s/12/proposal, and the older #/s/12/work?step=4
       const step = Number(hashParams().step);

@@ -1003,6 +1003,20 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R99. Every loading screen says what it is doing (done, 16 October)
+
+- **Why** (Ahmad): most waits were a spinner and a line of text; they should show, in detail, what the AI is working on.
+- **The big waits** (screening a job, matching the projects, writing the proposal) share one screen: the steps, each one clickable to
+  see what it does and everything it looks at; a bar that keeps moving and never goes back; the time so far and about how long is
+  left (from how long that step took on the last 30 jobs here); and a line naming what is being looked at right now, taken from your
+  own setup: the screening goes through your rules ("Checking: G16 Low ratings..."), the matching through your tag categories and
+  projects, the writing through the projects it uses as proof and the parts of the letter.
+- **The smaller waits** (other openings, the review, a comparison, the chat, your experience, the updated parts, the signals, the job
+  post, the reasons to continue, the reviewer test) get a one-line version: animated dots, what it is doing, what it is looking at
+  now (the opening templates, the flags, the review points...), the time so far and a slim moving bar.
+- Placeholders shimmer while a page loads. A loader keeps its place when the page under it refreshes, so the bar never jumps back.
+  Motion is reduced for people who turn it off in their system settings.
+
 ### R98. Edit an opening before using it, and the openings learn from it (done, 16 October)
 
 - **Why** (Ahmad): an opening is often nearly right; it should be fixable right there, and each fix should teach the next ones.
