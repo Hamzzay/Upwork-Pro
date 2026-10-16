@@ -23,6 +23,7 @@ import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposa
 import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from '../src/proposal/openings';
 import { checkFlags, examplesBlock, openingRules, readList, templateBlock } from '../src/proposal/opening_templates';
 import { shortcutsBlock, shortenHtml, shortenText } from '../src/proposal/shortcuts';
+import { openingLabel } from '../src/proposal/openings';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -694,6 +695,13 @@ const ctx = { rules, projects };
     assert.ok(templateBlock({ ...ex, match_examples: true }).includes('MATCH THE EXAMPLES'), 'the template carries its examples to the writer');
     // R101: examples are kept with whether they are in use; older ones (plain text) are in use
     assert.deepEqual(readList(JSON.stringify(['One.', { text: 'Two.', on: false }, { text: ' ' }])), [{ text: 'One.', on: true }, { text: 'Two.', on: false, at: null }], 'old text in use, the flag kept, empty dropped');
+    // R104: the opening sent is named by its template, the default too, and marked when edited
+    const ops = JSON.stringify({ items: [{ style: 'Invite opening' }, { style: 'Rescue opening', edited: true }], used: null, default: 'Problem first opening' });
+    assert.equal(openingLabel(ops, null), 'Problem first opening', 'the default is named, not "As written"');
+    assert.equal(openingLabel(ops, 'Problem first opening'), 'Problem first opening');
+    assert.equal(openingLabel(JSON.stringify({ ...JSON.parse(ops), used: 1 }), 'Rescue opening'), 'Rescue opening (edited)', 'an edited alternative is marked');
+    assert.equal(openingLabel(JSON.stringify({ ...JSON.parse(ops), edited_first: true }), null), 'Problem first opening (edited)', 'an edited default is marked');
+    assert.equal(openingLabel(null, null), null);
     // R98: openings the team edited on proposals are examples too, marked as theirs; none written by hand is enough
     const learnedOnly = examplesBlock({ ...tpl, learned: ['Understood. Four clinics, one missed call each night.'] });
     assert.ok(learnedOnly.includes('Edited by the team 1:') && learnedOnly.includes('rewrote on a real proposal'), 'a learned example alone is given, as the team\'s');

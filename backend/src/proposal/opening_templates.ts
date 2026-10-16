@@ -7,7 +7,7 @@
 import { exec, query } from '../db';
 
 export interface OpeningTemplate { id: number; name: string; instructions: string; starts: string | null; may_greet: boolean; may_talk_about_us: boolean; active: boolean;
-  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** R98: openings the team edited on a proposal and used, newest first; R101: only those in use */ learned: string[]; /** R101: every example and learned one, with whether it is in use */ all_examples?: Example[]; all_learned?: Example[]; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number }
+  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** R98: openings the team edited on a proposal and used, newest first; R101: only those in use */ learned: string[]; /** R101: every example and learned one, with whether it is in use */ all_examples?: Example[]; all_learned?: Example[]; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number; /** R104: what happened with it, and the points that earned */ viewed?: number; chat?: number; hired?: number; earned?: number }
 export const MAX_OPENINGS = 20; // R91 (was 10): they are written three at a time now, so more can be kept
 export const MAX_EXAMPLES = 5;
 export const OPENINGS_BATCH = 3;
@@ -19,24 +19,31 @@ export const readList = (json: unknown): Example[] => { try { const a = JSON.par
 const readExamples = (json: unknown): string[] => readList(json).filter((x) => x.on).map((x) => x.text);
 const shape = (r: any): OpeningTemplate => ({ id: Number(r.id), name: r.name, instructions: String(r.instructions ?? ''), starts: r.starts || null,
   may_greet: !!Number(r.may_greet), may_talk_about_us: !!Number(r.may_talk_about_us), active: !!Number(r.active),
-  examples: readExamples(r.examples_json), learned: readExamples(r.learned_json), all_examples: readList(r.examples_json), all_learned: readList(r.learned_json), match_examples: !!Number(r.match_examples), rank: Number(r.sent_n ?? 0) + Number(r.rank_boost ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0) });
-/** How many finalized proposals went out with each template, plus the points added by hand: its ranking (R91, R92). */
-const SENT = '(SELECT COUNT(*) FROM proposals p WHERE p.final_opening_id=o.id AND p.finalized_at IS NOT NULL)';
-/** R92: the ranking is the proposals sent with it plus its manual points. */
-const RANK = `${SENT} AS sent_n, ${SENT} + o.rank_boost AS rank_n`;
+  examples: readExamples(r.examples_json), learned: readExamples(r.learned_json), all_examples: readList(r.examples_json), all_learned: readList(r.learned_json), match_examples: !!Number(r.match_examples), rank: Number(r.rank_n ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0),
+  viewed: Number(r.viewed_n ?? 0), chat: Number(r.chat_n ?? 0), hired: Number(r.hired_n ?? 0), earned: Number(r.earned_n ?? 0) });
+/**
+ * R104 (Ahmad): an opening ranks by what happened with it, not only by being sent: 1 point per proposal that went out with it, and
+ * more when the client viewed it, opened a chat or hired, plus the points a person added by hand (rank = earned + boost).
+ */
+export const RESULT_POINTS = { sent: 1, viewed: 1, chat: 2, hired: 5 };
+const STATS = `LEFT JOIN (SELECT p.final_opening_id AS oid, COUNT(*) AS sent_n, SUM(s.client_viewed='yes') AS viewed_n, SUM(s.client_replied='yes') AS chat_n, SUM(s.outcome='Hired') AS hired_n
+  FROM proposals p JOIN screenings s ON s.id=p.screening_id WHERE p.final_opening_id IS NOT NULL AND s.discarded_at IS NULL
+    AND (p.finalized_at IS NOT NULL OR s.proposal_sent_at IS NOT NULL OR s.proposal_sent_date IS NOT NULL) GROUP BY p.final_opening_id) st ON st.oid=o.id`;
+const EARNED = `(COALESCE(st.sent_n,0)*${RESULT_POINTS.sent} + COALESCE(st.viewed_n,0)*${RESULT_POINTS.viewed} + COALESCE(st.chat_n,0)*${RESULT_POINTS.chat} + COALESCE(st.hired_n,0)*${RESULT_POINTS.hired})`;
+const RANK = `COALESCE(st.sent_n,0) AS sent_n, COALESCE(st.viewed_n,0) AS viewed_n, COALESCE(st.chat_n,0) AS chat_n, COALESCE(st.hired_n,0) AS hired_n, ${EARNED} AS earned_n, ${EARNED} + o.rank_boost AS rank_n`;
 
 export async function openingTemplate(id: number | null | undefined): Promise<OpeningTemplate | null> {
   if (!id) return null;
-  const r = (await query<any>(`SELECT o.*, ${RANK} FROM opening_templates o WHERE o.id=?`, [id]))[0];
+  const r = (await query<any>(`SELECT o.*, ${RANK} FROM opening_templates o ${STATS} WHERE o.id=?`, [id]))[0];
   return r ? shape(r) : null;
 }
 /** The active templates, best ranked first (the order the alternatives are written and shown in), then in their set order. */
 export async function activeOpenings(): Promise<OpeningTemplate[]> {
-  return (await query<any>(`SELECT o.*, ${RANK} FROM opening_templates o WHERE o.active=1 ORDER BY rank_n DESC, o.sort_order, o.id`)).map(shape);
+  return (await query<any>(`SELECT o.*, ${RANK} FROM opening_templates o ${STATS} WHERE o.active=1 ORDER BY rank_n DESC, o.sort_order, o.id`)).map(shape);
 }
 export async function allOpenings(): Promise<(OpeningTemplate & { sort_order: number; used_by: string | null })[]> {
   return (await query<any>(`SELECT o.*, ${RANK}, (SELECT GROUP_CONCAT(t.name ORDER BY t.priority SEPARATOR ', ') FROM templates t WHERE t.default_opening_id=o.id AND t.active=1) AS used_by
-    FROM opening_templates o ORDER BY rank_n DESC, o.sort_order, o.id`)).map((r) => ({ ...shape(r), sort_order: Number(r.sort_order), used_by: r.used_by || null }));
+    FROM opening_templates o ${STATS} ORDER BY rank_n DESC, o.sort_order, o.id`)).map((r) => ({ ...shape(r), sort_order: Number(r.sort_order), used_by: r.used_by || null }));
 }
 
 /** The required first words, said plainly ("Understood." or "For your platform," or "For you,"). */

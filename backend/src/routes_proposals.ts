@@ -392,7 +392,7 @@ export function reviewOf(p: any) {
 }
 export async function proposalFor(screeningId: number) {
   const p = (await query<any>(
-    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, p.gaps_status, p.gaps_error, p.openings_status, p.openings_json, p.openings_error, p.openings_more, u.name AS created_by_name
+    `SELECT p.id, p.status, p.stage, p.error_message, p.template_id, p.template_name, p.template_score, p.template_choice, p.template_ranking, p.warnings, p.model, p.created_at, p.finished_at, p.profile_id, p.finalized_at, p.review_status, p.review_json, p.review_version, p.review_error, p.reviewed_at, p.parts_status, p.parts_offer_json, p.parts_error, p.gaps_status, p.gaps_error, p.openings_status, p.openings_json, p.openings_error, p.openings_more, p.sent_version_no, u.name AS created_by_name
      FROM proposals p JOIN users u ON u.id=p.created_by WHERE p.screening_id=?`, [screeningId]))[0];
   if (!p) return null;
   const versions = await query('SELECT v.version_no, v.source, v.note, v.based_on_version, v.created_at, u.name AS user_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by WHERE v.proposal_id=? ORDER BY v.version_no DESC', [p.id]);
@@ -405,7 +405,7 @@ export async function proposalFor(screeningId: number) {
       WHERE finished_at IS NOT NULL AND status='done' AND (model IS NULL OR model<>'claude-plugin') AND TIMESTAMPDIFF(SECOND, created_at, finished_at) BETWEEN 15 AND 1800 ORDER BY id DESC LIMIT 30) x`))[0]?.s) || null,
     elapsed_seconds: p.status === 'done' || p.status === 'error' ? null : Number((await query<any>('SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS s FROM proposals WHERE id=?', [p.id]))[0]?.s ?? 0),
     id: p.id, status: p.status, stage: p.stage, error: p.error_message, template: p.template_id || p.template_name ? { id: p.template_id, name: p.template_name, score: p.template_score, choice: p.template_choice } : null,
-    ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at,
+    ranking: p.template_ranking ? JSON.parse(p.template_ranking) : null, warnings: p.warnings ? JSON.parse(p.warnings) : [], created_by: p.created_by_name, finished_at: p.finished_at, profile_id: p.profile_id, finalized_at: p.finalized_at, sent_version_no: p.sent_version_no ?? null, // R104: the version that went out
     current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers, in_parts: !!cur.parts } : null, versions, signals, messages,
     openings: { status: p.openings_status, error: p.openings_error, more: !!Number(p.openings_more), ...(readOpenings(p.openings_json) ?? {}), left: await openingsLeft(readOpenings(p.openings_json), p.template_id ? (await query<any>('SELECT default_opening_id FROM templates WHERE id=?', [p.template_id]))[0]?.default_opening_id : null) }, // to pick from (R73), three at a time (R91)
     review: reviewOf(p), parts: { status: p.parts_status, error: p.parts_error, offer: p.parts_offer_json ? JSON.parse(p.parts_offer_json) : [] },
@@ -515,6 +515,17 @@ export async function setFinalOpening(proposalId: number) {
   const def = p.template_id ? (await loadTemplate(p.template_id))?.opening ?? null : null;
   const o = await openingInUse(proposalId, def);
   await exec('UPDATE proposals SET final_opening_id=? WHERE id=?', [o?.id ?? null, proposalId]);
+}
+
+/** R104: a job marked Sent keeps the version that went out (the first time it is marked) and the opening it went out with. */
+export async function recordSent(screeningId: number) {
+  const p = (await query<any>('SELECT id, template_id, final_opening_id FROM proposals WHERE screening_id=?', [screeningId]))[0]; if (!p) return;
+  await exec('UPDATE proposals SET sent_version_no=COALESCE(sent_version_no, (SELECT MAX(version_no) FROM proposal_versions WHERE proposal_id=?)) WHERE id=?', [p.id, p.id]);
+  if (!p.final_opening_id) {
+    const def = p.template_id ? (await loadTemplate(p.template_id))?.opening ?? null : null;
+    const o = await openingInUse(p.id, def);
+    if (o) await exec('UPDATE proposals SET final_opening_id=? WHERE id=?', [o.id, p.id]);
+  }
 }
 
 // The person is happy with the proposal: this opens the tracking step.

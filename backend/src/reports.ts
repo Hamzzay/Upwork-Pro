@@ -170,7 +170,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
     dim('outcome', 'Outcome', 'How sent proposals ended.', 'sent'),
     dim('loss_reason', 'Why lost', 'The reason recorded for each lost proposal.', 'sent'),
     dim('mode', 'Auto mode', 'Jobs screened and written in auto mode against those done step by step.', 'jobs', 'key'),
-    dim('opening', 'Opening sent', 'Sent proposals by the opening they went out with: the style picked, or as written.', 'sent'),
+    dim('opening', 'Opening sent', 'Sent proposals by the opening template they went out with (the one picked, else the type\'s default), and whether it was edited first.', 'sent'),
     dim('review', 'Review score', 'The independent review\'s score of the newest version.', 'jobs', 'key'),
     dim('versions', 'Versions', 'How many versions the proposal went through before it was sent.', 'jobs', 'key'),
     dim('documents', 'Attached documents', 'Jobs with the client\'s documents attached against those without.', 'jobs', 'key'),

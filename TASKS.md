@@ -134,6 +134,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 86 | An opening template's own page; examples without limit, 10 in use at most; one plain loader everywhere (R101) | done |
 | 87 | Industries counted from the project's industry; practice-wide tags; Experience answers in three choices (R102) | done |
 | 88 | Openings card in fixed places; the job's key facts beside its title (R103) | done |
+| 89 | What each opening led to; ranking by results; the sent version recorded (R104) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

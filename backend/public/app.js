@@ -2077,9 +2077,11 @@ async function jobPage(id, want) {
       ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
       ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
       ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : null) : null],
-      ['Status', status], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) : null],
+      ['Status', status], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) + (proposal && proposal.sent_version_no ? ` · version ${proposal.sent_version_no}` : '') : null],
+      // R104: the opening the proposal went out with (the one picked, else its type's default)
+      ['Opening', proposal && proposal.openings && (proposal.openings.used != null || proposal.openings.default) ? (proposal.openings.used != null && proposal.openings.items[proposal.openings.used] ? proposal.openings.items[proposal.openings.used].style : proposal.openings.default) : null],
       ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
-      ['Paste to proposal', toProposal != null ? mins(toProposal) : null],
+      ['Paste to proposal', toProposal != null && toProposal >= 0 ? mins(toProposal) : null],
       ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
     ].filter(([, v]) => v);
     return h('div', { class: 'stack' },
@@ -3215,7 +3217,10 @@ async function openingView(idStr) {
     h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'How it is used'),
       h('dl', { class: 'facts one' },
         h('div', {}, h('dt', {}, 'Rank'), h('dd', {}, `#${o.position} of ${o.of}`)),
-        h('div', {}, h('dt', {}, 'Sent with it'), h('dd', {}, `${o.sent} proposal${o.sent === 1 ? '' : 's'}${o.boost ? ` + ${o.boost} points by hand` : ''}`)),
+        h('div', {}, h('dt', {}, 'Sent with it'), h('dd', {}, `${o.sent} proposal${o.sent === 1 ? '' : 's'}`)),
+        h('div', {}, h('dt', {}, 'What happened'), h('dd', {}, h('span', { class: 'opres' }, ...[['Viewed', o.viewed], ['Chat', o.chat], ['Hired', o.hired]].map(([k, v]) =>
+          h('span', {}, h('strong', {}, String(v || 0)), ' ' + k.toLowerCase() + (o.sent ? ` (${Math.round(100 * (v || 0) / o.sent)}%)` : '')))))),
+        h('div', {}, h('dt', {}, 'Score'), h('dd', {}, `${o.rank} = ${o.earned ?? o.sent} earned${o.boost ? ` + ${o.boost} by hand` : ''}`, h('div', { class: 'faint small' }, '1 per proposal sent, +1 viewed, +2 chat, +5 hired'))),
         h('div', {}, h('dt', {}, 'Default of'), h('dd', {}, used.length ? used.join(', ') : 'No proposal type (it is written as an alternative)'))),
       h('p', { class: 'hint', style: 'margin:10px 0 0' }, 'The ranking is changed on the Writing guide, Openings, Change ranking.')),
     h('details', { class: 'card fold' }, h('summary', {}, 'What the AI reads for this opening'), h('div', { class: 'card-pad' }, h('pre', { class: 'aiblock' }, d.block || ''),
@@ -3251,7 +3256,7 @@ function rankingEditor(items, after) {
   let dragging = null;
   const points = () => { // the points each needs for the scores to follow the order: bottom up, one more than the one below
     const out = new Map(); let below = null;
-    for (let i = order.length - 1; i >= 0; i--) { const o = order[i]; const score = below == null ? o.sent : Math.max(o.sent, below + 1); out.set(o.id, score - o.sent); below = score; }
+    for (let i = order.length - 1; i >= 0; i--) { const o = order[i]; const base = o.earned ?? o.sent; const score = below == null ? base : Math.max(base, below + 1); out.set(o.id, score - base); below = score; } // R104: from what it earned
     return out;
   };
   const draw = () => {
@@ -3260,7 +3265,7 @@ function rankingEditor(items, after) {
       const move = (d) => { const j = i + d; if (j < 0 || j >= order.length) return; [order[i], order[j]] = [order[j], order[i]]; draw(); list.children[j]?.querySelector(d < 0 ? '.up' : '.down')?.focus(); };
       const li = h('li', { draggable: 'true', class: o.active ? '' : 'off' },
         h('span', { class: 'grip', 'aria-hidden': 'true' }, '⋮⋮'), h('span', { class: 'pos' }, String(i + 1)),
-        h('span', { class: 'nm' }, h('strong', {}, o.name), h('span', { class: 'small muted' }, `${o.sent} sent${pts.get(o.id) ? ` + ${pts.get(o.id)} by hand` : ''} = ${o.sent + pts.get(o.id)}${o.active ? '' : ' · off'}`)),
+        h('span', { class: 'nm' }, h('strong', {}, o.name), h('span', { class: 'small muted' }, `${o.earned ?? o.sent} earned (${o.sent} sent, ${o.viewed || 0} viewed, ${o.chat || 0} chat, ${o.hired || 0} hired)${pts.get(o.id) ? ` + ${pts.get(o.id)} by hand` : ''} = ${(o.earned ?? o.sent) + pts.get(o.id)}${o.active ? '' : ' · off'}`)),
         h('span', { class: 'row', style: 'gap:4px;flex-wrap:nowrap' },
           h('button', { type: 'button', class: 'btn sm up', 'aria-label': `Move ${o.name} up`, disabled: i === 0 || null, onclick: () => move(-1) }, '↑'),
           h('button', { type: 'button', class: 'btn sm down', 'aria-label': `Move ${o.name} down`, disabled: i === order.length - 1 || null, onclick: () => move(1) }, '↓')));
@@ -3272,10 +3277,10 @@ function rankingEditor(items, after) {
     }));
   };
   draw();
-  const reset = () => h('button', { class: 'btn', type: 'button', onclick: () => { order.sort((a, b) => b.sent - a.sent || a.sort_order - b.sort_order || a.id - b.id); draw(); } }, 'Order by sent only');
+  const reset = () => h('button', { class: 'btn', type: 'button', onclick: () => { order.sort((a, b) => (b.earned ?? b.sent) - (a.earned ?? a.sent) || a.sort_order - b.sort_order || a.id - b.id); draw(); } }, 'Order by results only');
   modal({ title: 'Change the ranking', confirm: 'Save ranking', wide: true, extra: reset,
     body: h('div', { class: 'stack', style: 'gap:12px' },
-      h('p', { class: 'hint', style: 'margin:0' }, 'Drag the openings, or use the arrows, into the order you want. The ones at the top are written first on every proposal. Each score is the proposals sent with it plus points added here; proposals sent later keep adding points, so a template that keeps working can still move up.'),
+      h('p', { class: 'hint', style: 'margin:0' }, 'Drag the openings, or use the arrows, into the order you want. The ones at the top are written first on every proposal. Each score is what it earned (1 per proposal sent with it, +1 viewed, +2 chat, +5 hired) plus points added here; results later keep adding points, so a template that keeps working can still move up.'),
       list),
     onConfirm: async () => {
       const pts = points(); const changed = order.filter((o) => pts.get(o.id) !== o.boost);
@@ -3314,8 +3319,8 @@ function shortcutsSection(items, staff) {
 function openingsSection(data, staff) {
   const card = (o, i) => h('button', { type: 'button', class: 'card card-pad cardlink openingcard', onclick: () => { location.hash = '#/o/' + o.id; } },
     h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('strong', {}, o.name), o.active ? null : h('span', { class: 'pill wait' }, 'Off')),
-    h('div', { class: 'small', title: 'Its score: the finished proposals sent with it, plus points added by hand. The alternatives on a proposal are written and shown in this order.' }, h('span', { class: 'rankn' }, '#' + (i + 1)),
-      ` ${o.sent} sent${o.boost ? ` + ${o.boost} by hand` : ''}`),
+    h('div', { class: 'small', title: 'Its score: 1 per proposal sent with it, +1 viewed, +2 chat, +5 hired, plus points added by hand. The alternatives on a proposal are written and shown in this order.' }, h('span', { class: 'rankn' }, '#' + (i + 1)),
+      ` ${o.sent} sent · ${o.viewed || 0} viewed · ${o.chat || 0} chat · ${o.hired || 0} hired${o.boost ? ` · +${o.boost} by hand` : ''}`),
     h('div', { class: 'jp-label clamp2' }, o.instructions),
     h('div', { class: 'chips' }, ...[o.used_by ? h('span', { class: 'chip brand' }, 'Default of ' + o.used_by.replace(/Type (\d+)\. /g, 'Type $1 ')) : h('span', { class: 'chip' }, 'Alternative only'),
       o.starts ? h('span', { class: 'chip' }, 'Starts: ' + o.starts.split('|').join(' or ')) : null, o.may_greet ? h('span', { class: 'chip' }, 'May greet') : null, o.may_talk_about_us ? h('span', { class: 'chip' }, 'May say how we start') : null,
@@ -3345,7 +3350,7 @@ async function writingView() {
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
   const active = types.filter((t) => Number(t.active)).sort(byName), retired = types.filter((t) => !Number(t.active)).sort(byName);
   const TABS = [
-    { key: 'openings', label: 'Openings', n: openingData.items.length, sub: 'The first two lines Upwork shows in the preview. Each proposal type is written with its default opening; the other openings that are on are written beside it three at a time, the most sent first. Ranked by how many finalized proposals went out with each.' },
+    { key: 'openings', label: 'Openings', n: openingData.items.length, sub: 'The first two lines Upwork shows in the preview. Each proposal type is written with its default opening; the other openings that are on are written beside it three at a time, the best ranked first. Ranked by results: 1 per proposal sent, +1 viewed, +2 chat, +5 hired, plus points added by hand.' },
     { key: 'types', label: 'Proposal types', n: active.length, sub: 'One is picked for each job from its signals. Each has its format, length, signals, samples and default opening.' },
     { key: 'shortcuts', label: 'Shortcuts', n: shortcuts.length, sub: 'A main word and the short word every proposal uses instead (WhatsApp becomes WA). The app\'s writer and the Claude plugin both use them; links are never changed.' },
     { key: 'rules', label: 'Rules for every proposal', n: docs.length, sub: 'Applied with every type: by the app\'s writer, its checks, the review and the plugin.' },

@@ -12,6 +12,7 @@ import { imports } from './routes_import';
 import { pickLoom, validSelection } from './screening/matching';
 import { queueFitReasons, readFitReasons } from './screening/fit_reasons';
 import { addMatches } from './screening/more_matches';
+import { openingLabel } from './proposal/openings';
 import { EXPORT_LIMIT, exportRows, toCsv, toXlsx } from './export';
 import { getSettings, setSetting, SETTINGS, settingsConflict, type SettingKey } from './settings';
 import { plugin } from './routes_plugin';
@@ -421,11 +422,8 @@ api.get('/plugin/activity', requireRole('admin', 'manager'), async (req, res) =>
 });
 
 /** Which opening a proposal went out with (R73): the style of the one used, "As written" when openings were offered and none used. */
-export function openingUsed(json: string | null): string | null {
-  if (!json) return null;
-  try { const o = JSON.parse(json); if (!o || !Array.isArray(o.items) || !o.items.length) return null;
-    return o.used != null && o.items[o.used] ? String(o.items[o.used].style || `Opening ${Number(o.used) + 1}`) : 'As written'; } catch { return null; }
-}
+/** The opening a proposal went out with (R104: named by its template, and marked when edited). */
+export const openingUsed = openingLabel;
 /** The jobs the filters match, as the reports read them, with their tags, projects and signals. Shared by the Reports page and the plugin. */
 export const REPORT_LIMIT = 10000;
 export async function reportFor(req: any, f: ListFilters) {
@@ -437,14 +435,14 @@ export async function reportFor(req: any, f: ListFilters) {
       s.client_country, s.job_type, s.experience_level, s.loom_video_id, s.loom_video_title,
       TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal,
       (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html,
-      s.auto_mode, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json,
+      s.auto_mode, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json, (SELECT name FROM opening_templates WHERE id=p.final_opening_id) AS final_opening_name, p.sent_version_no,
       (SELECT COUNT(*) FROM proposal_versions pv2 WHERE pv2.proposal_id=p.id) AS versions,
       (SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) AS docs,
       (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id) AS gaps_asked, (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes') AS gaps_yes,
       (SELECT COUNT(*) FROM proposal_feedback fb WHERE fb.screening_id=s.id) AS feedback_n
     ${listFrom} ${w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, REPORT_LIMIT + 1]);
   const capped = jobs.length > REPORT_LIMIT; if (capped) jobs.pop();
-  for (const j of jobs) { const t = j.html ? splitText(htmlToPlain(j.html)).letter.trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; j.opening = openingUsed(j.openings_json); delete j.openings_json; } // the cover letter's words; the opening sent
+  for (const j of jobs) { const t = j.html ? splitText(htmlToPlain(j.html)).letter.trim() : ''; j.words = t ? t.split(/\s+/).length : null; delete j.html; j.opening = openingUsed(j.openings_json, j.final_opening_name); delete j.openings_json; delete j.final_opening_name; } // the cover letter's words; the opening sent
   const ids = jobs.map((j) => j.id);
   const extra = ids.length ? {
     tags: await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?)', [ids]),
@@ -736,6 +734,7 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
     client_replied_at=IF(client_replied='yes', COALESCE(client_replied_at, NOW()), client_replied_at), interviewed_at=IF(interviewed='yes', COALESCE(interviewed_at, NOW()), interviewed_at),
     outcome_at=IF(outcome IS NOT NULL, COALESCE(outcome_at, NOW()), outcome_at),
     proposal_sent_at=IF(proposal_sent_date IS NOT NULL AND (proposal_sent_at IS NULL OR DATE(proposal_sent_at)<>proposal_sent_date), proposal_sent_date, proposal_sent_at) WHERE id=?`, [id]);
+  if (becomesSent) { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104
   const after = await trackSnapshot(id);
   await recordChanges(id, before, after, 'tracking form', req.user!.id);
   // a milestone first set through the form also goes into the status history, like the status button
@@ -835,7 +834,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       s.outcome, s.outcome_at, s.outcome_reason, s.outcome_note, s.connects_spent, s.boost_connects, s.loom_video_title,
       s.client_country, s.budget, s.job_type, s.experience_level, s.hire_rate, s.total_spent, s.payment_verified, s.client_rating, s.avg_hourly_paid, s.proposals AS proposals_on_job, s.posted,
       TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, s.notes,
-      s.auto_mode, s.auto_state, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json,
+      s.auto_mode, s.auto_state, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json, (SELECT name FROM opening_templates WHERE id=p.final_opening_id) AS final_opening_name, p.sent_version_no,
       (SELECT COUNT(*) FROM proposal_versions pv2 WHERE pv2.proposal_id=p.id) AS versions,
       (SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) AS docs,
       (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes') AS gaps_yes, (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='open') AS gaps_open,
@@ -876,7 +875,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       r.template_name, r.template_name ? r.template_choice : null, (projects.get(r.id) ?? []).map((x) => x.project_name).join('; ') || null, t.filter((x) => /^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null,
       prop ? prop.split(/\s+/).length : null, r.loom_video_title, r.connects_spent, r.boost_connects, when(r.sent_at), yes(r.client_viewed), when(r.client_viewed_at), yes(r.client_replied), when(r.client_replied_at),
       yes(r.interviewed), when(r.interviewed_at), r.outcome, when(r.outcome_at), r.outcome_reason, r.client_country, r.budget, r.job_type, r.experience_level, r.secs_to_proposal,
-      Number(r.auto_mode) ? 'auto' + (r.auto_state === 'stopped' ? ' (stopped)' : '') : 'steps', r.review_score == null ? null : Number(r.review_score), openingUsed(r.openings_json),
+      Number(r.auto_mode) ? 'auto' + (r.auto_state === 'stopped' ? ' (stopped)' : '') : 'steps', r.review_score == null ? null : Number(r.review_score), openingUsed(r.openings_json, r.final_opening_name),
       Number(r.versions) || null, Number(r.docs) || 0, Number(r.gaps_yes) || 0, Number(r.gaps_open) || 0, Number(r.feedback_n) || 0,
       ...(inc.has('client') ? [r.hire_rate, r.total_spent, r.payment_verified, r.client_rating, r.avg_hourly_paid, r.proposals_on_job, r.posted] : []),
       ...(inc.has('tags') ? [t.filter((x) => !/^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null] : []),
@@ -963,6 +962,7 @@ const postStatus = async (req: any, res: any) => {
   // what it cost and any note, when sent along (the plugin records them with the status)
   const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes]].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
   if (more.length) await exec(`UPDATE screenings SET ${more.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...more.map(([, v]) => v), id]);
+  if (st === 'Sent') { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104: the version that went out
   await recordChanges(id, before, await trackSnapshot(id), 'status', req.user!.id);
   await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, req.user!.id, lost ? b.data.reason : null, b.data.note || null]);
   await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}`);

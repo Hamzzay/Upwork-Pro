@@ -1003,6 +1003,19 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R104. What each opening led to, and ranking by results; the sent version recorded (done, 17 October)
+
+- **Why** (Ahmad): which proposal and which opening got viewed, a chat or a hire was not visible, and the ranking counted sends only.
+- **Opening sent (Reports)** now names the opening template that went out (a default opening was "As written" before), with
+  "(edited)" when it was changed before sending.
+- **Each opening** shows its sent, viewed, chat and hired figures: on its card in the Writing guide (Openings) and on its own page
+  ("What happened", with the share of sent, and "Score").
+- **Ranking by results**: 1 per proposal sent, +1 viewed, +2 chat, +5 hired, plus points added by hand. Change ranking shows each
+  part; its reset button is now "Order by results only".
+- **The sent version**: marking a job Sent records which proposal version went out (the first time only). The Overview shows it
+  ("Sent · version N") with the opening used, and the version list marks it "· Sent".
+- Migration 059 adds `sent_version_no` and fills it, and the opening used, for jobs already sent.
+
 ### R103. A steady openings card; the job's key facts in the header (done, 16 October)
 
 - **Why** (Ahmad): a long opening name or a long opening pushed the card's chips and buttons into a jumble; and the space beside a

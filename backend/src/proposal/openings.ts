@@ -19,7 +19,7 @@ import { activeShortcuts, shortenText } from './shortcuts';
 
 export interface Opening { angle: string; tone: string; why: string; text: string; style?: string; /** the opening template it was written from (R88) */ template_id?: number;
   /** R91: how closely it follows its template's examples, out of 10 (only when the template has examples), and why */ match?: number | null; match_note?: string | null }
-export interface Openings { version: number; first: string; items: Opening[]; used?: number | null; /** the opening template the proposal itself was written with (R88) */ default?: string | null; default_id?: number | null;
+export interface Openings { version: number; first: string; items: Opening[]; used?: number | null; /** R104: the default opening was edited before use */ edited_first?: boolean; /** the opening template the proposal itself was written with (R88) */ default?: string | null; default_id?: number | null;
   /** R91: the proposal's own opening against its default template's examples, out of 10 */ first_match?: number | null; first_match_note?: string | null }
 
 /** One opening per style (Settings: Opening styles), in the styles' order. */
@@ -195,9 +195,23 @@ export async function editOpening(proposalId: number, index: number | null, text
     const parts: Parts = { ...cur.parts, letter: replaceFirstParagraph(cur.parts.letter, t) };
     no = await addVersion(proposalId, textToHtml(assembleParts(parts, cfg['writer.loom_line'])), 'manual', userId, note, cur.version_no, undefined, parts);
   } else no = await addVersion(proposalId, replaceFirstHtmlParagraph(cur.html, t), 'manual', userId, note, cur.version_no);
-  const items = o.items.map((x, i) => (i === index ? { ...x, text: t, edited: true } : x));
+  const at = index ?? o.used ?? null; // the opening edited: the one chosen here, else the alternative already in use
+  const items = o.items.map((x, i) => (i === at ? { ...x, text: t, edited: true } : x));
   await exec('UPDATE proposals SET openings_json=?, final_opening_id=IF(finalized_at IS NULL, final_opening_id, COALESCE(?, final_opening_id)) WHERE id=?',
-    [JSON.stringify({ ...o, items, version: no, first: t, used: index ?? o.used ?? null }), templateId, proposalId]);
+    [JSON.stringify({ ...o, items, version: no, first: t, used: index ?? o.used ?? null, ...(at == null ? { edited_first: true } : {}) }), templateId, proposalId]); // R104: the reports name an edited opening
   if (templateId) await addLearned(templateId, t);
   return { version_no: no };
+}
+
+/**
+ * The opening a proposal went out with, for the reports and the export (R104): named by its opening template (the default one too,
+ * which used to read only "As written"), with "(edited)" when a person changed its words before using it.
+ */
+export function openingLabel(json: string | null, finalName?: string | null): string | null {
+  let o: any = null; try { o = json ? JSON.parse(json) : null; } catch { o = null; }
+  const items = o && Array.isArray(o.items) ? o.items : [];
+  const usedItem = o && o.used != null ? items[o.used] : null;
+  const name = finalName || (usedItem ? usedItem.style : null) || (o ? o.default : null) || (items.length ? 'As written' : null);
+  const edited = usedItem ? !!usedItem.edited : !!(o && o.edited_first);
+  return name ? name + (edited ? ' (edited)' : '') : null;
 }

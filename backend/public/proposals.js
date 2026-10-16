@@ -783,7 +783,7 @@ function proposalSection(s, initial, matching) {
     editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); drawMainTabs(); } dirtyChip.hidden = !d; count(); } });
     let wasDirty = false;
     const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
-    const vsel = h('select', { id: 'ver-sel', class: 'sm', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}`)));
+    const vsel = h('select', { id: 'ver-sel', class: 'sm', 'aria-label': 'Version' }, data.versions.map((v) => h('option', { value: v.version_no, selected: v.version_no === cur.version_no }, `v${v.version_no} · ${SOURCE_TEXT[v.source] || v.source} · ${ago(v.created_at)}${v.version_no === data.sent_version_no ? ' · Sent' : ''}`))); // R104: the one that went out
     // with two or more versions: any two side by side (the one shown and the one before it, to start)
     const cmpBtn = data.versions.length > 1 ? h('button', { class: 'btn sm', type: 'button', onclick: () => {
       const shown = Number(vsel.value), nos = data.versions.map((v) => v.version_no).sort((x, y) => x - y);
