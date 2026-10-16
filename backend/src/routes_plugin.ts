@@ -39,6 +39,7 @@ const posting = z.object({
   activity: z.array(pair).max(30).default([]), client: z.array(pair).max(40).default([]),
   client_history: z.array(z.object({ title: z.string().max(300).default(''), dates: z.string().max(120).default(''), amount: z.string().max(120).default(''), rating: z.string().max(60).default(''), feedback: z.string().max(4000).default('') })).max(40).default([]),
   other_open_jobs: z.array(z.string().max(300)).max(30).default([]),
+  company_name: z.string().max(190).default(''), client_name: z.string().max(120).default(''), // R107: only when the post states them
 }).partial();
 const jobBody = z.object({
   job_text: z.string().trim().min(50, 'Send the full job page text (at least 50 characters)').max(100_000),

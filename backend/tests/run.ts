@@ -542,6 +542,12 @@ const ctx = { rules, projects };
     assert.deepEqual(sameClient(stranger!, earlier!), [], 'one shared past job title alone is not enough');
     assert.ok(sameTitle('Build a WhatsApp booking bot for our clinic', 'Build a WhatsApp booking bot for our c'), 'a title cut short in a list still matches');
     assert.ok(!sameTitle('Website', 'Website'), 'a short generic title never matches');
+    // R107: the same company the posts state; a first name alone, or a placeholder, says nothing
+    const co = (company: string, contact: string, country = 'United States') => clientPost('Some different job title here', { company_name: company, client_name: contact, client: [{ label: 'Country', value: country }], client_history: [], other_open_jobs: [] })!;
+    assert.ok(sameClient(co('Acme Dental LLC', ''), co('Acme Dental', '')).some((w) => w.includes('same company')), 'the same company, with or without LLC');
+    assert.deepEqual(sameClient(co('', 'Sarah'), co('', 'Sarah')).filter((w) => !w.includes('job title')), [], 'a first name alone is not a match');
+    assert.ok(sameClient(co('', 'Sarah Jones'), co('', 'Sarah Jones')).some((w) => w.includes('client name')), 'a full name in the same country is');
+    assert.equal(co('not shown', 'Not stated').company, '', 'a placeholder is no company');
     // a bulk read is cut by size, never mid row, and always moves on
     const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
     let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }

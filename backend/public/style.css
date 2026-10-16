@@ -1208,3 +1208,7 @@ table.jobs tr.picked td { background: var(--fail-bg); }
 .clientcard .jp-sec { display: flex; align-items: center; gap: 6px; }
 .clientjobs { margin: 8px 0 0; display: grid; gap: 6px; }
 .clientjobs li { overflow-wrap: anywhere; }
+/* R107: a client's history on Upwork, and their open jobs */
+.clienthist { display: grid; gap: 10px; margin: 0; }
+.clienthist li { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .grid2:has(> .card .facts) { grid-template-columns: 1fr; } }

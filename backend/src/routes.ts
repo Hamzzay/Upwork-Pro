@@ -33,7 +33,7 @@ import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
 import { testCall } from './llm';
 import { inviteSql, looksInvited } from './invite';
-import { clientFor } from './clients';
+import { clientFor, clientProfile, mergeClients, separateJob } from './clients';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
 
 export const api = Router();
@@ -603,27 +603,52 @@ async function clientView(req: any, id: number) {
   const all = canSeeAll(req.user.role);
   return { ...c, jobs: c.jobs.map((j: any) => ({ ...j, can_open: all || (j.user_id ?? null) === req.user.id })) };
 }
+// R107 (Hamza): every client in one place, the returning ones first; no rates, only what happened
 api.get('/clients', requireRole(), async (req, res) => {
   const q = z.object({ q: z.string().trim().max(100).optional() }).parse(req.query);
   const like = q.q ? `%${likeEsc(q.q)}%` : null;
-  const rows = await query<any>(`SELECT c.id, c.name, c.country, c.member_since, c.notes, COUNT(s.id) AS jobs, SUM(${sentSql}) AS sent, SUM(s.client_replied='yes') AS chats, SUM(s.outcome='Hired') AS hired,
-      MIN(s.created_at) AS first_seen, MAX(s.created_at) AS last_seen, SUBSTRING_INDEX(GROUP_CONCAT(s.title ORDER BY s.id DESC SEPARATOR '\n'), '\n', 1) AS last_title
-    FROM clients c JOIN screenings s ON s.client_id=c.id AND s.discarded_at IS NULL
-    ${like ? 'WHERE (c.name LIKE ? OR c.country LIKE ? OR s.title LIKE ?)' : ''} GROUP BY c.id HAVING jobs > 1 ORDER BY last_seen DESC LIMIT 500`, like ? [like, like, like] : []);
-  res.json({ clients: rows.map((r) => ({ ...r, jobs: Number(r.jobs), sent: Number(r.sent || 0), chats: Number(r.chats || 0), hired: Number(r.hired || 0) })) });
+  const rows = await query<any>(`SELECT c.id, c.name, c.company, c.contact_name, c.country, c.member_since, c.notes, COUNT(s.id) AS jobs, SUM(${sentSql}) AS sent, SUM(${inviteSql}) AS invites,
+      SUM(s.outcome='Hired') AS hired, MIN(s.created_at) AS first_seen, MAX(s.created_at) AS last_seen,
+      SUBSTRING_INDEX(GROUP_CONCAT(s.title ORDER BY s.id DESC SEPARATOR '\n'), '\n', 1) AS last_title,
+      GROUP_CONCAT(DISTINCT pr.name ORDER BY pr.name SEPARATOR ', ') AS profiles, GROUP_CONCAT(DISTINCT u.name ORDER BY u.name SEPARATOR ', ') AS people
+    FROM clients c JOIN screenings s ON s.client_id=c.id AND s.discarded_at IS NULL JOIN users u ON u.id=s.user_id
+      LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id
+    WHERE c.merged_into IS NULL ${like ? 'AND (c.name LIKE ? OR c.company LIKE ? OR c.contact_name LIKE ? OR c.country LIKE ? OR c.notes LIKE ? OR s.title LIKE ?)' : ''}
+    GROUP BY c.id ORDER BY COUNT(s.id) > 1 DESC, MAX(s.created_at) DESC LIMIT 2000`, like ? [like, like, like, like, like, like] : []);
+  res.json({ clients: rows.map((r) => ({ ...r, jobs: Number(r.jobs), sent: Number(r.sent || 0), invites: Number(r.invites || 0), hired: Number(r.hired || 0) })) });
 });
 api.get('/clients/:id', requireRole(), async (req, res) => {
-  const c = (await query<any>('SELECT id, name, country, member_since, notes, created_at FROM clients WHERE id=?', [Number(req.params.id)]))[0];
+  let c = await clientProfile(Number(req.params.id));
+  if (c?.merged_into) c = await clientProfile(c.merged_into); // a profile merged into another opens that one
   if (!c) return void res.status(404).json({ error: 'Not found' });
   const all = canSeeAll(req.user!.role);
-  const jobs = await query<any>(`SELECT s.id, s.user_id, s.title, s.created_at, s.verdict, s.client_match_json, ${sentSql} AS sent, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at,
-      ${stageSql} AS stage, ${statusSql} AS current_status, u.name AS user_name, pr.name AS profile_name, p.template_name, ${inviteSql} AS invite
+  const jobs = await query<any>(`SELECT s.id, s.user_id, s.title, s.created_at, s.verdict, s.client_match_json, s.client_manual, ${sentSql} AS sent, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at,
+      ${stageSql} AS stage, ${statusSql} AS current_status, u.name AS user_name, pr.name AS profile_name, p.template_name, ${inviteSql} AS invite, s.budget, s.job_type
     ${listFrom} WHERE s.client_id=? AND s.discarded_at IS NULL ORDER BY s.id DESC`, [c.id]);
-  res.json({ client: c, jobs: jobs.map((j) => { let why = null; try { why = j.client_match_json ? JSON.parse(j.client_match_json) : null; } catch { why = null; }
-    return { ...j, client_match_json: undefined, why, sent: !!Number(j.sent), invite: !!Number(j.invite), can_open: all || j.user_id === req.user!.id }; }) });
+  res.json({ client: c, can_fix: all, jobs: jobs.map((j) => { let why = null; try { why = j.client_match_json ? JSON.parse(j.client_match_json) : null; } catch { why = null; }
+    return { ...j, client_match_json: undefined, why, manual: !!Number(j.client_manual), sent: !!Number(j.sent), invite: !!Number(j.invite), can_open: all || j.user_id === req.user!.id }; }) });
+});
+// R107: fixing a match by hand (managers and admins): a job out of its client, or two profiles that are one client
+api.post('/screenings/:id/client/separate', requireRole('admin', 'manager'), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!(await query<any>('SELECT id FROM screenings WHERE id=?', [id])).length) return void res.status(404).json({ error: 'Not found' });
+  const clientId = await separateJob(id);
+  await audit(req.user!.id, 'client_separate', `screening=${id} client=${clientId}`);
+  res.json({ client_id: clientId });
+});
+api.post('/clients/:id/merge', requireRole('admin', 'manager'), async (req, res) => {
+  const b = z.object({ into: z.number().int().positive() }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: 'Pick the client to merge into' });
+  const from = Number(req.params.id), into = b.data.into;
+  if (from === into) return void res.status(400).json({ error: 'That is the same client' });
+  const both = await query<any>('SELECT id FROM clients WHERE id IN (?) AND merged_into IS NULL', [[from, into]]);
+  if (both.length !== 2) return void res.status(404).json({ error: 'Not found' });
+  await mergeClients(from, into);
+  await audit(req.user!.id, 'client_merge', `client=${from} into=${into}`);
+  res.json({ ok: true, id: into });
 });
 api.patch('/clients/:id', requireRole(), async (req, res) => {
-  const b = z.object({ name: z.string().trim().max(190).nullable().optional(), notes: z.string().trim().max(4000).nullable().optional() }).safeParse(req.body);
+  const b = z.object({ name: z.string().trim().max(190).nullable().optional(), company: z.string().trim().max(190).nullable().optional(), contact_name: z.string().trim().max(120).nullable().optional(), notes: z.string().trim().max(4000).nullable().optional() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const id = Number(req.params.id);
   if (!(await query<any>('SELECT id FROM clients WHERE id=?', [id])).length) return void res.status(404).json({ error: 'Not found' });

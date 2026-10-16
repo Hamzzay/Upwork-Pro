@@ -111,7 +111,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
       posting: z.object({ posted: z.string().optional(), location: z.string().optional(), description: z.string().optional(), skills: z.array(z.string()).optional(), terms: pairs.optional(),
         screening_questions: z.array(z.string()).optional(), activity: pairs.optional(), client: pairs.optional(),
         client_history: z.array(z.object({ title: z.string().optional(), dates: z.string().optional(), amount: z.string().optional(), rating: z.string().optional(), feedback: z.string().optional() })).optional(),
-        other_open_jobs: z.array(z.string()).optional() }).optional().describe('Leave out: Upwork Pro reads the post into fields from job_text by itself, in the background. Send it only if you already have it in this exact shape'),
+        other_open_jobs: z.array(z.string()).optional(), company_name: z.string().optional(), client_name: z.string().optional() }).optional().describe('Leave out: Upwork Pro reads the post into fields from job_text by itself, in the background. Send it only if you already have it in this exact shape'),
       decision: z.object({ continue: z.boolean(), reason: z.string().optional() }).optional().describe('If the person already decided: continue (a FLAG or FAIL needs their reason) or skip'),
       force_new: z.boolean().optional(),
       invited: z.boolean().optional().describe('True when the client invited us to this job (an invitation, not a post we found). Upwork opens the chat itself, so reports count invites apart. Left out: an invitation page is noticed from job_text'),

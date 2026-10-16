@@ -1003,6 +1003,25 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R107. Clients: every client in one place (done, 17 October)
+
+- **Why** (Hamza): one central space to see who posts, how often, from which profiles we applied, the invites, and what kind of
+  client it is, with no stats.
+- **Every job has a client profile** (not only returning ones). Jobs join the same profile by themselves from each post: the earlier
+  job in the client's history or open jobs, the same member-since date and country, two or more past jobs in common, and now also
+  **the same company** or **the same full name and country** when the post states them. Reading the post now picks out the
+  company and the person's name, only when the post itself states them (never from the reviews).
+- **Clients** (the sidebar page, was Returning clients): every client, returning ones first, with their jobs and invites, the
+  profiles and people who had them, and when we saw them; search, and show only returning clients, those who sent invites, or those
+  who hired us, or one profile's clients.
+- **A client's page**: their jobs with us (who, which profile, invite, proposal type, where it stands, why it was matched), what
+  Upwork shows about them (from their newest post), their history on Upwork and their other open jobs gathered from every post we
+  saw, and a name, company, person and notes you set. A job page shows the client too once it has a name or notes.
+- **Fixing a match** (managers and admins): "Not this client" gives a job a profile of its own; "Same client as another" merges two
+  profiles. The matching leaves a job a person placed where they put it.
+- Migration 062: the client's company, person and merge pointer, and a flag for jobs placed by hand. Every saved job gets its profile
+  when the worker starts. Names are picked out of posts read from now on; older ones can be named on the client's page.
+
 ### R106. Proposals written from the job only; edit an opening with the AI; returning clients (done, 17 October)
 
 - **Why** (Hamza): the writer read the client's past reviews on the pasted page as part of the job and wrote to them; an opening could

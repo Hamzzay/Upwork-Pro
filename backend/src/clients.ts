@@ -6,7 +6,7 @@
  */
 import { exec, query } from './db';
 
-export interface ClientPost { title: string; history: { title: string; dates: string }[]; open: string[]; country: string; memberSince: string }
+export interface ClientPost { title: string; history: { title: string; dates: string }[]; open: string[]; country: string; memberSince: string; company: string; contact: string }
 export interface ClientMatch { job_id: number; why: string[] }
 
 const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -22,13 +22,15 @@ export function sameTitle(a: string, b: string): boolean {
 /** A job's client, from its post's fields. */
 export function clientPost(title: string | null, posting: any): ClientPost | null {
   if (!posting || typeof posting !== 'object') return null;
-  const pair = (re: RegExp) => String(((posting.client ?? []) as any[]).find((c) => re.test(String(c?.label ?? '')))?.value ?? '').trim();
+  const real = (v: unknown) => { const t = String(v ?? '').trim(); return /^(not (shown|known|stated|given)|none|n\/a|unknown|-)$/i.test(t) ? '' : t; }; // a placeholder is no value
+  const pair = (re: RegExp) => real(((posting.client ?? []) as any[]).find((c) => re.test(String(c?.label ?? '')))?.value);
   return {
     title: String(posting.title || title || ''),
     history: ((posting.client_history ?? []) as any[]).map((h) => ({ title: String(h?.title ?? ''), dates: String(h?.dates ?? '') })).filter((h) => norm(h.title)),
     open: ((posting.other_open_jobs ?? []) as any[]).map((x) => String(x ?? '')).filter((x) => norm(x)),
     country: pair(/^country$/i),
     memberSince: pair(/member since/i).replace(/^member since\s*/i, ''),
+    company: real(posting.company_name), contact: real(posting.client_name), // R107: only when the post states them
   };
 }
 
@@ -42,6 +44,10 @@ export function sameClient(a: ClientPost, b: ClientPost): string[] {
   if (norm(a.memberSince) && /\d{4}/.test(a.memberSince) && norm(a.memberSince) === norm(b.memberSince) && norm(a.country) && norm(a.country) === norm(b.country)) why.push(`the same member-since date (${a.memberSince}) and country`);
   const shared = a.history.filter((h) => b.history.some((g) => sameTitle(g.title, h.title) && norm(g.dates) === norm(h.dates))).length;
   if (shared >= 2) why.push(`${shared} past jobs in common in the client's history`);
+  // R107: the same company, or the same full name in the same country (a first name alone says nothing)
+  const co = norm(a.company).replace(/\b(inc|llc|ltd|limited|corp|co|gmbh|pty|the)\b/g, '').trim();
+  if (co.length >= 4 && co === norm(b.company).replace(/\b(inc|llc|ltd|limited|corp|co|gmbh|pty|the)\b/g, '').trim()) why.push(`the same company (${a.company})`);
+  if (norm(a.contact).split(' ').length >= 2 && norm(a.contact) === norm(b.contact) && norm(a.country) && norm(a.country) === norm(b.country)) why.push(`the same client name (${a.contact}) and country`);
   if (why.length && twin) why.unshift('the same job title: it may be this same job saved again');
   return why;
 }
@@ -51,12 +57,13 @@ export function sameClient(a: ClientPost, b: ClientPost): string[] {
  * post is read into fields; a job without them is left to be checked later.
  */
 export async function linkClient(screeningId: number): Promise<ClientMatch[] | null> {
-  const me = (await query<any>('SELECT id, title, posting_json, client_id FROM screenings WHERE id=?', [screeningId]))[0];
+  const me = (await query<any>('SELECT id, title, posting_json, client_id, client_manual FROM screenings WHERE id=?', [screeningId]))[0];
   if (!me) return null;
+  if (Number(me.client_manual) && me.client_id) { await exec('UPDATE screenings SET client_checked_at=NOW() WHERE id=?', [me.id]); return []; } // placed by a person: left where they put it
   let posting: any = null; try { posting = me.posting_json ? JSON.parse(me.posting_json) : null; } catch { posting = null; }
   const mine = clientPost(me.title, posting);
   if (!mine) return null;
-  const others = await query<any>('SELECT id, title, posting_json, client_id FROM screenings WHERE id<>? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC LIMIT 5000', [me.id]);
+  const others = await query<any>('SELECT id, title, posting_json, client_id, client_manual FROM screenings WHERE id<>? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC LIMIT 5000', [me.id]);
   const matches: (ClientMatch & { client_id: number | null })[] = [];
   for (const o of others) {
     let p: any = null; try { p = JSON.parse(o.posting_json); } catch { continue; }
@@ -65,15 +72,20 @@ export async function linkClient(screeningId: number): Promise<ClientMatch[] | n
     if (why.length) matches.push({ job_id: o.id, why, client_id: o.client_id ?? null });
   }
   let clientId: number | null = me.client_id ?? null;
+  // R107: every job has a profile; the second job from a client joins the first one's
+  const known = [...new Set([clientId, ...matches.map((m) => m.client_id)].filter((x): x is number => !!x))].sort((x, y) => x - y);
+  if (known.length) clientId = known[0];
+  else clientId = Number((await exec('INSERT INTO clients (country, member_since) VALUES (?,?)', [mine.country || null, mine.memberSince || null])).insertId);
   if (matches.length) {
-    const known = [...new Set([clientId, ...matches.map((m) => m.client_id)].filter((x): x is number => !!x))].sort((x, y) => x - y);
-    if (known.length) clientId = known[0];
-    else clientId = Number((await exec('INSERT INTO clients (country, member_since) VALUES (?,?)', [mine.country || null, mine.memberSince || null])).insertId);
-    // every job of these clients is one client now (a new job can show that two profiles were the same client)
-    if (known.length > 1) await exec('UPDATE screenings SET client_id=? WHERE client_id IN (?)', [clientId, known.slice(1)]);
-    await exec('UPDATE screenings SET client_id=? WHERE id IN (?) AND client_id IS NULL', [clientId, matches.map((m) => m.job_id)]);
-    await exec('UPDATE clients SET country=COALESCE(country, ?), member_since=COALESCE(member_since, ?) WHERE id=?', [mine.country || null, mine.memberSince || null, clientId]);
+    // every job of these profiles is one client now (a new job can show that two profiles were the same client); a job a person placed stays
+    if (known.length > 1) {
+      await exec('UPDATE screenings SET client_id=? WHERE client_id IN (?) AND client_manual=0', [clientId, known.slice(1)]);
+      await exec(`UPDATE clients c SET merged_into=? WHERE c.id IN (?) AND NOT EXISTS (SELECT 1 FROM screenings s WHERE s.client_id=c.id)`, [clientId, known.slice(1)]);
+    }
+    await exec('UPDATE screenings SET client_id=? WHERE id IN (?) AND (client_id IS NULL OR client_manual=0)', [clientId, matches.map((m) => m.job_id)]);
   }
+  await exec('UPDATE clients SET country=COALESCE(country, ?), member_since=COALESCE(member_since, ?), company=COALESCE(company, ?), contact_name=COALESCE(contact_name, ?) WHERE id=?',
+    [mine.country || null, mine.memberSince || null, mine.company || null, mine.contact || null, clientId]);
   const found = matches.map(({ job_id, why }) => ({ job_id, why }));
   await exec('UPDATE screenings SET client_id=?, client_match_json=?, client_checked_at=NOW() WHERE id=?', [clientId, found.length ? JSON.stringify(found) : null, me.id]);
   return found;
@@ -90,7 +102,7 @@ export async function linkUnchecked(limit = 500): Promise<number> {
 export async function clientFor(screeningId: number) {
   const s = (await query<any>('SELECT id, client_id, client_match_json FROM screenings WHERE id=?', [screeningId]))[0];
   if (!s?.client_id) return null;
-  const c = (await query<any>('SELECT id, name, country, member_since, notes FROM clients WHERE id=?', [s.client_id]))[0];
+  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes FROM clients WHERE id=?', [s.client_id]))[0];
   if (!c) return null;
   let why: ClientMatch[] = []; try { why = s.client_match_json ? JSON.parse(s.client_match_json) : []; } catch { why = []; }
   const jobs = await query<any>(`SELECT s.id, s.user_id, s.title, s.created_at, s.verdict, s.proceeded, s.continued_at IS NOT NULL AS continued, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at,
@@ -98,4 +110,41 @@ export async function clientFor(screeningId: number) {
     FROM screenings s JOIN users u ON u.id=s.user_id LEFT JOIN upwork_profiles pr ON pr.id=s.upwork_profile_id LEFT JOIN proposals p ON p.screening_id=s.id
     WHERE s.client_id=? AND s.id<>? AND s.discarded_at IS NULL ORDER BY s.id DESC`, [c.id, s.id]);
   return { ...c, jobs: jobs.map((j) => ({ ...j, continued: !!Number(j.continued), why: why.find((w) => w.job_id === j.id)?.why ?? null })) };
+}
+
+/**
+ * R107 (Hamza): one place for a client: their jobs with us (who had them, from which profile, invites, how each went), what Upwork
+ * shows about them (the newest post's client section), and their history and other open jobs on Upwork, from every post we saw.
+ */
+export async function clientProfile(clientId: number) {
+  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes, merged_into, created_at FROM clients WHERE id=?', [clientId]))[0];
+  if (!c) return null;
+  const posts = await query<any>('SELECT id, posting_json, created_at FROM screenings WHERE client_id=? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC', [clientId]);
+  let about: { label: string; value: string }[] = [], aboutFrom: number | null = null;
+  const history = new Map<string, any>(), open = new Map<string, { title: string; seen: string }>();
+  for (const r of posts) {
+    let p: any = null; try { p = JSON.parse(r.posting_json); } catch { continue; }
+    if (!about.length && Array.isArray(p.client) && p.client.length) { about = p.client.filter((x: any) => x && x.label && x.value); aboutFrom = r.id; }
+    for (const h of p.client_history ?? []) { const k = norm(h?.title) + '|' + norm(h?.dates); if (norm(h?.title) && !history.has(k)) history.set(k, { ...h, seen_on: r.id }); }
+    for (const t of p.other_open_jobs ?? []) { const k = norm(t); if (k && !open.has(k)) open.set(k, { title: String(t), seen: r.created_at }); }
+  }
+  return { ...c, about, about_from: aboutFrom, history: [...history.values()], open_jobs: [...open.values()] };
+}
+
+/** A job taken out of its client by hand: it gets a profile of its own, and the matching leaves it there. */
+export async function separateJob(screeningId: number): Promise<number> {
+  const s = (await query<any>('SELECT id, posting_json FROM screenings WHERE id=?', [screeningId]))[0];
+  let p: any = null; try { p = s?.posting_json ? JSON.parse(s.posting_json) : null; } catch { p = null; }
+  const cp = clientPost(null, p);
+  const id = Number((await exec('INSERT INTO clients (country, member_since, company, contact_name) VALUES (?,?,?,?)', [cp?.country || null, cp?.memberSince || null, cp?.company || null, cp?.contact || null])).insertId);
+  await exec('UPDATE screenings SET client_id=?, client_manual=1, client_match_json=NULL, client_checked_at=NOW() WHERE id=?', [id, screeningId]);
+  return id;
+}
+
+/** Two profiles that are one client: every job of the first moves to the second, which keeps its own name and notes (the first's notes are added). */
+export async function mergeClients(fromId: number, intoId: number) {
+  const from = (await query<any>('SELECT name, notes FROM clients WHERE id=?', [fromId]))[0];
+  await exec('UPDATE screenings SET client_id=?, client_manual=1 WHERE client_id=?', [intoId, fromId]);
+  await exec(`UPDATE clients SET name=COALESCE(name, ?), notes=IF(? IS NULL OR ? = '', notes, CONCAT_WS('\n\n', notes, ?)) WHERE id=?`, [from?.name ?? null, from?.notes ?? null, from?.notes ?? null, from?.notes ?? null, intoId]);
+  await exec('UPDATE clients SET merged_into=? WHERE id=?', [intoId, fromId]);
 }
