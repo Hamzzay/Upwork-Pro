@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { appRoot } from '../src/config';
 import { pool } from '../src/db';
 import { splitMobile } from '../src/library/mobile';
+import { regroupAll } from '../src/clients';
 
 const statements = (sql: string) => sql.split(/;\s*(?:\r?\n|$)/).map((s) => s.trim()).filter(Boolean);
 
@@ -48,6 +49,8 @@ const run = async (stmt: string) => {
       for (const r of rows) { const m = splitMobile(r.mobile_link); await pool.query('UPDATE projects SET android_link=?, ios_link=?, mobile_link=? WHERE id=?', [m.android, m.ios, m.other, r.id]); }
       return rows.length;
     }],
+    // R111: clients worked out again with the stricter rules (a new client's join date and country alone no longer join two jobs)
+    ['063_regroup_clients.data', () => regroupAll()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;

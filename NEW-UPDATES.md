@@ -1003,6 +1003,22 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R110. Client IDs in the Jobs list; stricter matching so new clients are never joined (done, 17 October)
+
+- **Why** (Hamza): see in the Jobs list that a job is from a returning client and which other jobs share it; refine the Clients list;
+  and make sure brand-new clients (no history, no reviews, one job posted) are never grouped together.
+- **Client IDs**: every client has one ("C-12"). In the Jobs list a job from a **returning** client shows its ID and how many jobs
+  it has ("C-2 · 3 jobs"); clicking it lists that client's jobs. A first-time client shows no tag. A new filter, **Any client**, lists
+  only clients with more than one job, and searching "C-12" finds that client's jobs. The job page and the client page show the ID.
+- **Clients list**: the ID first (highlighted when returning), the client's name or else their latest job, then country and member
+  since; their jobs (returning, invites, hired us); the profiles as chips and the people; last and first seen.
+- **Stricter matching**: the same member-since date and country no longer join two jobs on their own (new clients often join the
+  same day); it counts only beside the same city, the same job or a past job in common. A job listed in another's history or open
+  jobs counts only when the countries do not differ, and the same Upwork link always means the same job. A test checks that fifty
+  first-job clients who joined the same day in the same country stay fifty clients.
+- **Data step 063** works every client out again with these rules when `migrate` runs: a grouping made by the old rule is undone,
+  each group keeps its profile (with its name and notes), and jobs placed by hand stay where they are.
+
 ### R109. The opening uses only the job description (done, 17 October)
 
 - **Why** (Hamza): an opening used the hours per week the client set, which is in Upwork's terms box, not the description.

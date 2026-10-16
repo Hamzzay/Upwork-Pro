@@ -1232,3 +1232,15 @@ a.cjob:hover { background: var(--surface-2); }
 .citem-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 @media (max-width: 900px) { .chip.brand { flex: none; padding: 2px 9px; } } /* the sidebar's .brand rule is not for chips */
 @media (max-width: 700px) { .cjob-side { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } }
+/* R110: a client's ID, the same on each of their jobs; highlighted when they are returning */
+.cidchip { display: inline-flex; align-items: center; gap: 0; padding: 1px 7px; border-radius: var(--radius-xs); border: 1px solid var(--line); background: var(--surface-2); color: var(--muted);
+  font-size: 12px; line-height: 18px; font-weight: 500; white-space: nowrap; text-decoration: none; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.cidchip b, span.cidchip { font-weight: 700; letter-spacing: .02em; }
+.cidchip.ret { color: var(--brand); background: var(--brand-soft); border-color: transparent; }
+a.cidchip:hover { border-color: var(--brand); }
+td > .cidchip:first-child, .chips > .cidchip:first-child { margin-left: 0; }
+.cltable td { vertical-align: top; }
+.clcell { white-space: normal; min-width: 200px; max-width: 420px; }
+.clclip { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.clcell .chips { gap: 4px; }
+.clclip.strong { color: var(--text); font-weight: 600; font-size: 14px; }

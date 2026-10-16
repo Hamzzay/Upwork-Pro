@@ -246,6 +246,7 @@ export const listFilters = z.object({
   source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(160).optional(), tag: z.string().trim().max(120).optional(),
   project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
   invite: z.enum(['yes', 'no']).optional(), // R105: invites only, or proposals only (the Reports default)
+  client: z.coerce.number().int().positive().optional(), // R110: one client's jobs
   discarded: z.enum(['1']).optional(), // admins only: the discarded jobs instead of the live ones
 });
 export type ListFilters = z.infer<typeof listFilters>;
@@ -257,7 +258,9 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   where.push(f.discarded === '1' && req.user.role === 'admin' ? 's.discarded_at IS NOT NULL' : 's.discarded_at IS NULL');
   if (!canSeeAll(req.user.role) || f.mine === '1') { where.push('s.user_id=?'); p.push(req.user.id); }
   if (f.verdict) { where.push('s.verdict=?'); p.push(f.verdict); }
-  if (f.q) {
+  const cq = f.q ? /^c-?(\d{1,9})$/i.exec(f.q.trim()) : null; // R110: "C-12" finds that client's jobs
+  if (cq) { where.push('s.client_id=?'); p.push(Number(cq[1])); }
+  else if (f.q) {
     const like = `%${likeEsc(f.q)}%`;
     where.push(`(s.title LIKE ? OR u.name LIKE ? OR pr.name LIKE ? OR s.rule_codes LIKE ? OR s.source_url LIKE ? OR s.client_country LIKE ?)`);
     p.push(like, like, like, like, like, like);
@@ -275,6 +278,7 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.project) { where.push('EXISTS (SELECT 1 FROM job_matches jm WHERE jm.screening_id=s.id AND jm.selected=1 AND jm.project_name=?)'); p.push(f.project); }
   if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
   if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
+  if (f.client) { where.push('s.client_id=?'); p.push(f.client); }
   if (f.sent_from) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(f.sent_from + ' 00:00:00'); }
   if (f.sent_to) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(f.sent_to); }
   if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
@@ -505,6 +509,9 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
     rules: await query("SELECT code, type, rule FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
     outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL AND discarded_at IS NULL ORDER BY outcome')).map((r) => r.outcome),
     types: (await query<any>('SELECT DISTINCT template_name FROM proposals WHERE template_name IS NOT NULL ORDER BY template_name')).map((r) => r.template_name),
+    // R110: the clients with more than one job, for the client filter (one job is not a client worth filtering by)
+    clients: (await query<any>(`SELECT c.id, COALESCE(c.name, c.company, c.contact_name) AS name, COUNT(s.id) AS jobs FROM clients c JOIN screenings s ON s.client_id=c.id AND s.discarded_at IS NULL
+      ${all ? '' : 'AND s.user_id=' + Number(req.user!.id)} WHERE c.merged_into IS NULL GROUP BY c.id HAVING jobs > 1 ORDER BY MAX(s.id) DESC LIMIT 300`)).map((r) => ({ id: r.id, name: r.name, jobs: Number(r.jobs) })),
     stages: STAGES, needs_action: NEEDS_ACTION, in_progress: IN_PROGRESS, phases: PHASES,
   });
 });

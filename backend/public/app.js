@@ -1302,11 +1302,11 @@ const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pic
 const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, type: 4, review: 4 };
 /** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'discarded'];
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'discarded'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', discarded: 'discarded' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', discarded: 'discarded' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
@@ -1425,6 +1425,8 @@ async function historyView() {
       (opts.types || []).length ? sel('ptype', 'Any proposal type', opts.types.map((x) => [x, x])) : null,
       sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]),
       sel('invite', 'Proposals and invites', [['no', 'Proposals only'], ['yes', 'Invites only']]), // R105
+      (opts.clients || []).length || st.client ? sel('client', 'Any client', [...(opts.clients || []).map((c) => [c.id, `${clientId(c.id)}${c.name ? ' \u00b7 ' + c.name : ''} \u00b7 ${c.jobs} jobs`]),
+        ...(st.client && !(opts.clients || []).some((c) => String(c.id) === String(st.client)) ? [[st.client, clientId(st.client)]] : [])]) : null, // R110: returning clients only
       me.role === 'admin' ? sel('discarded', 'Live jobs', [['1', 'Discarded jobs']]) : null,
       me.role !== 'employee' ? h('label', { class: 'check', for: 'mine' }, mineBox, 'Only mine') : null],
       { actions: [st.discarded ? null : pickBtn, colBtn, exportBtn].filter(Boolean), onClear: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } });
@@ -1492,7 +1494,7 @@ async function historyView() {
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click' + (pickOn && picked.has(r.id) ? ' picked' : ''), tabindex: 0, onclick: () => (pickOn ? toggle(r.id) : (location.hash = '#/s/' + r.id)), onkeydown: (e) => { if (e.key === 'Enter') { if (pickOn) toggle(r.id); else location.hash = '#/s/' + r.id; } } },
           pickOn ? h('td', { class: 'pickcell', onclick: (e) => e.stopPropagation() }, h('input', { type: 'checkbox', checked: picked.has(r.id), 'aria-label': 'Select job #' + r.id, onchange: () => toggle(r.id) })) : null,
           h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null,
-            Number(r.invite) ? h('span', { class: 'srcchip' }, 'Invite') : null, Number(r.client_jobs) ? h('span', { class: 'srcchip', title: `This client posted ${r.client_jobs} other job${Number(r.client_jobs) === 1 ? '' : 's'} we screened` }, 'Returning client') : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
+            Number(r.invite) ? h('span', { class: 'srcchip' }, 'Invite') : null, r.client_id ? clientChip(r) : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
           shown.map((c) => h('td', {}, c.cell(r))),
           // the row's action stays pinned to the right edge, visible however far the table scrolls
           h('td', { class: 'pin' }, rowAction(r, load)))))));
@@ -2076,11 +2078,11 @@ async function jobPage(id, want) {
   function clientCard() {
     if (!client) return null;
     const who = client.name || client.company || client.contact_name;
-    if (!client.jobs || !client.jobs.length) return who || client.notes ? h('div', { class: 'card card-pad clientcard row spread', style: 'gap:8px' }, h('div', {}, h('div', { class: 'jp-sec' }, icon('users'), ' Client: ' + (who || 'notes saved')), client.notes ? h('div', { class: 'small', style: 'margin-top:4px' }, client.notes) : null), h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')) : null;
+    if (!client.jobs || !client.jobs.length) return who || client.notes ? h('div', { class: 'card card-pad clientcard row spread', style: 'gap:8px' }, h('div', {}, h('div', { class: 'jp-sec' }, icon('users'), ' Client: ' + (who || 'notes saved'), h('span', { class: 'cidchip' }, clientId(client.id))), client.notes ? h('div', { class: 'small', style: 'margin-top:4px' }, client.notes) : null), h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')) : null;
     const how = (j) => j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened, not continued');
     const n = client.jobs.length;
     return h('div', { class: 'card card-pad clientcard' },
-      h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('div', { class: 'jp-sec' }, icon('users'), ` Returning client${who ? ': ' + who : ''}`),
+      h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('div', { class: 'jp-sec' }, icon('users'), ` Returning client${who ? ': ' + who : ''}`, h('span', { class: 'cidchip ret' }, clientId(client.id))),
         h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')),
       h('div', { class: 'jp-label' }, `We have seen this client before: ${n} other job${n === 1 ? '' : 's'}${client.country ? ' · ' + client.country : ''}${client.member_since ? ' · member since ' + client.member_since : ''}.`),
       h('ul', { class: 'plain clientjobs' }, client.jobs.slice(0, 6).map((j) => h('li', {},
@@ -2125,7 +2127,7 @@ async function jobPage(id, want) {
       ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
       ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
       ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : null) : null],
-      ['Status', status], ['Invite', s.invite ? 'Yes, the client invited us' : null], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) + (proposal && proposal.sent_version_no ? ` · version ${proposal.sent_version_no}` : '') : null],
+      ['Status', status], ['Invite', s.invite ? 'Yes, the client invited us' : null], ['Client', client && client.jobs && client.jobs.length ? `${clientId(client.id)}, returning: ${client.jobs.length + 1} jobs` : null], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) + (proposal && proposal.sent_version_no ? ` · version ${proposal.sent_version_no}` : '') : null],
       // R104: the opening the proposal went out with (the one picked, else its type's default)
       ['Opening', proposal && proposal.openings && (proposal.openings.used != null || proposal.openings.default) ? (proposal.openings.used != null && proposal.openings.items[proposal.openings.used] ? proposal.openings.items[proposal.openings.used].style : proposal.openings.default) : null],
       ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
@@ -3160,22 +3162,35 @@ async function feedbackView() {
 
 // ---------- Clients (R106, R107, Hamza): every Upwork client we screened a job for, in one place ----------
 const howWent = (j) => j.current_status || (j.stage ? (STAGE_INFO[j.stage] || [])[1] : '') || '';
+/** R110: a client's short ID, the same on every job of theirs: "C-12". */
+const clientId = (id) => 'C-' + id;
+/** The client's ID on a job in the Jobs list: highlighted when they are returning; it lists that client's jobs. */
+const clientChip = (r) => { const more = Number(r.client_jobs) || 0; if (!more) return null; // R110: only a returning client is worth a tag
+  return h('a', { class: 'cidchip' + (more ? ' ret' : ''), href: '#/history?client=' + r.client_id, onclick: (e) => e.stopPropagation(),
+    title: more ? `Returning client: ${more} other job${more === 1 ? '' : 's'} with ${clientId(r.client_id)}. Click to list them.` : `Client ${clientId(r.client_id)}: their first job with us` },
+    h('b', {}, clientId(r.client_id)), more ? ` \u00b7 ${more + 1} jobs` : null); };
 const clientName = (c) => c.name || c.company || c.contact_name || (c.last_title && !/^not shown/i.test(c.last_title) ? c.last_title : null) || 'Client #' + c.id;
 async function clientsView() {
   const r = await api('GET', '/clients');
-  const row = (c) => h('tr', { class: 'click', onclick: () => (location.hash = '#/clients/' + c.id) },
-    h('td', { style: 'white-space:normal;min-width:220px' }, h('strong', {}, clientName(c)), c.jobs > 1 ? h('span', { class: 'srcchip', style: 'margin-left:6px' }, 'Returning') : null,
-      h('div', { class: 'small muted' }, [c.company && c.company !== clientName(c) ? c.company : null, c.contact_name && c.contact_name !== clientName(c) ? c.contact_name : null, c.country, c.member_since ? 'member since ' + c.member_since : null].filter(Boolean).join(' · ')),
-      c.name || c.company || c.contact_name ? h('div', { class: 'small faint' }, 'Latest: ' + (c.last_title || '')) : null),
-    h('td', {}, `${c.jobs} job${c.jobs === 1 ? '' : 's'}`, c.invites ? h('div', { class: 'small muted' }, `${c.invites} invite${c.invites === 1 ? '' : 's'}`) : null),
-    h('td', { style: 'white-space:normal' }, c.profiles || h('span', { class: 'faint' }, '-'), h('div', { class: 'small muted' }, c.people || '')),
-    h('td', { class: 'nowrap' }, dayText(c.last_seen), c.jobs > 1 ? h('div', { class: 'small muted' }, 'first ' + dayText(c.first_seen)) : null));
-  shell('clients', [pageHead('Clients', 'Every Upwork client we screened a job for, in one place: their jobs with us, who had them and from which profile, invites, and what Upwork shows about them. Jobs from the same client are joined by themselves, from each post: the client\u2019s recent history and other open jobs, the member-since date and country, or the company or name the post states. Returning clients come first.'),
+  // R110: the ID first (the same one each of their jobs shows), then who they are, their jobs, and who handled them
+  const row = (c) => { const named = c.name || c.company || c.contact_name, latest = c.last_title && !/^not shown/i.test(c.last_title) ? c.last_title : null;
+    return h('tr', { class: 'click', onclick: () => (location.hash = '#/clients/' + c.id) },
+      h('td', { class: 'nowrap' }, h('span', { class: 'cidchip' + (c.jobs > 1 ? ' ret' : '') }, clientId(c.id))),
+      h('td', { class: 'clcell' }, named ? h('strong', {}, named) : h('div', { class: 'clclip strong', title: latest || '' }, latest || 'No job title'),
+        named && latest ? h('div', { class: 'clclip', title: latest }, 'Latest: ' + latest) : null,
+        c.country || c.member_since ? h('div', { class: 'small faint' }, [c.country, c.member_since ? 'member since ' + c.member_since : null].filter(Boolean).join(' \u00b7 ')) : null),
+      h('td', { class: 'nowrap' }, h('strong', {}, String(c.jobs)), c.jobs > 1 ? h('span', { class: 'small muted' }, ' returning') : null,
+        c.invites || c.hired ? h('div', { class: 'small muted' }, [c.invites ? `${c.invites} invite${c.invites === 1 ? '' : 's'}` : null, c.hired ? `hired us ${c.hired === 1 ? 'once' : c.hired + ' times'}` : null].filter(Boolean).join(' \u00b7 ')) : null),
+      h('td', { class: 'clcell' }, c.profiles ? h('div', { class: 'chips' }, c.profiles.split(', ').map((x) => h('span', { class: 'chip' }, x))) : h('span', { class: 'faint' }, 'No profile yet'),
+        c.people ? h('div', { class: 'small muted', style: 'margin-top:4px' }, c.people) : null),
+      h('td', { class: 'nowrap' }, dayText(c.last_seen), c.jobs > 1 && dayText(c.first_seen) !== dayText(c.last_seen) ? h('div', { class: 'small muted' }, 'first ' + dayText(c.first_seen)) : null)); };
+  const returning = r.clients.filter((c) => c.jobs > 1).length;
+  shell('clients', [pageHead('Clients', `Every Upwork client we screened a job for: ${r.clients.length} client${r.clients.length === 1 ? '' : 's'}, ${returning} returning. Each has an ID, and every job of theirs shows the same one in the Jobs list. Jobs are joined by themselves from each post: the same Upwork job, the client\u2019s recent history or other open jobs, past jobs in common, or the company or name the post states. A new client\u2019s join date and country alone never join two jobs.`),
     listCard({ items: r.clients, paged: true, icon: 'users', emptyTitle: 'No clients yet', emptyText: 'Each job\u2019s client is added here once its post is read.',
-      search: { placeholder: 'Search by name, company, country, notes or job title', text: (c) => [c.name, c.company, c.contact_name, c.country, c.last_title, c.notes, c.profiles, c.people].join(' ') },
+      search: { placeholder: 'Search by ID (C-12), name, company, country, notes or job', text: (c) => [clientId(c.id), 'C' + c.id, c.name, c.company, c.contact_name, c.country, c.last_title, c.notes, c.profiles, c.people].join(' ') },
       filters: [{ key: 'kind', label: 'Every client', options: [['returning', 'Returning clients'], ['invites', 'Sent us invites'], ['hired', 'Hired us']], test: (c, v) => (v === 'returning' ? c.jobs > 1 : v === 'invites' ? c.invites > 0 : c.hired > 0) },
         { key: 'profile', label: 'Any profile', options: [...new Set(r.clients.flatMap((c) => (c.profiles || '').split(', ')).filter(Boolean))].sort().map((x) => [x, x]), test: (c, v) => (c.profiles || '').split(', ').includes(v) }],
-      render: (slice) => dataTable(['Client', 'Jobs', 'Profiles and people', 'Last seen'], slice.map(row), 'rulestable') })], true);
+      render: (slice) => dataTable(['ID', 'Client', 'Jobs', 'Profiles and people', 'Last seen'], slice.map(row), 'rulestable cltable') })], true);
 }
 async function clientView(id) {
   const r = await api('GET', '/clients/' + id), c = r.client;
@@ -3183,7 +3198,7 @@ async function clientView(id) {
   const jobs = r.jobs, n = jobs.length, invites = jobs.filter((j) => j.invite).length, hired = jobs.filter((j) => /^hired$/i.test(j.current_status || '')).length;
   const named = c.name || c.company || c.contact_name;
   // R107 refinement: a short name for the heading (never a long job title), the key facts as chips under it
-  const chips = [n > 1 ? h('span', { class: 'chip brand' }, 'Returning') : null, c.country ? h('span', { class: 'chip' }, c.country) : null,
+  const chips = [h('span', { class: 'cidchip' + (n > 1 ? ' ret' : '') }, clientId(c.id)), n > 1 ? h('span', { class: 'chip brand' }, 'Returning') : null, c.country ? h('span', { class: 'chip' }, c.country) : null,
     c.member_since ? h('span', { class: 'chip' }, 'Member since ' + c.member_since) : null, h('span', { class: 'chip' }, `${n} job${n === 1 ? '' : 's'} with us`),
     invites ? h('span', { class: 'chip' }, `${invites} invite${invites === 1 ? '' : 's'}`) : null, hired ? h('span', { class: 'chip good' }, `Hired us ${hired === 1 ? 'once' : hired + ' times'}`) : null].filter(Boolean);
   const merge = r.can_fix ? h('button', { class: 'btn', type: 'button', onclick: () => mergeDialog(c) }, 'Same client as another') : null;
@@ -3216,7 +3231,7 @@ async function clientView(id) {
   const open = c.open_jobs.length ? h('div', { class: 'clist' }, c.open_jobs.map((x) => h('div', { class: 'citem citem-row' }, h('span', {}, x.title), h('span', { class: 'small muted nowrap' }, 'seen ' + dayText(x.seen))))) : null;
 
   const main = h('div', { class: 'stack' }, why,
-    card('Their jobs with us', 'Newest first', n ? h('div', { class: 'clist' }, jobs.map(jobRow)) : empty('No jobs.')),
+    card('Their jobs with us', h('a', { href: '#/history?client=' + c.id }, 'Open in the Jobs list'), n ? h('div', { class: 'clist' }, jobs.map(jobRow)) : empty('No jobs.')),
     card('Their history on Upwork', `${c.history.length} past job${c.history.length === 1 ? '' : 's'}, from every post of theirs we saw`, history),
     open ? card('Their other open jobs', 'As listed on their posts', open) : null);
 

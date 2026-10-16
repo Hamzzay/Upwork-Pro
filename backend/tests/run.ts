@@ -552,6 +552,17 @@ const ctx = { rules, projects };
     assert.deepEqual(sameClient(co('', 'Sarah'), co('', 'Sarah')).filter((w) => !w.includes('job title')), [], 'a first name alone is not a match');
     assert.ok(sameClient(co('', 'Sarah Jones'), co('', 'Sarah Jones')).some((w) => w.includes('client name')), 'a full name in the same country is');
     assert.equal(co('not shown', 'Not stated').company, '', 'a placeholder is no company');
+    // R111: two brand-new clients (no history, no reviews) who joined the same day in the same country are not one client
+    const fresh = (title: string, city = '') => clientPost(title, { client: [{ label: 'Country', value: 'United States' }, { label: 'Member since', value: 'Oct 16, 2026' }, ...(city ? [{ label: 'City', value: city + ' 9:15 AM' }] : []), { label: 'Jobs posted', value: '1 job posted' }], client_history: [], other_open_jobs: [] })!;
+    assert.deepEqual(sameClient(fresh('Build a Shopify store for my candle brand'), fresh('Need a React Native developer for a fitness app')), [], 'the join date and country alone never join two jobs');
+    assert.ok(sameClient(fresh('Build a Shopify store for my candle brand', 'Austin'), fresh('Need a React Native developer for a fitness app', 'Austin')).some((w) => w.includes('city (Austin)')), 'with the same city, it does');
+    assert.ok(sameClient(fresh('Build a Shopify store for my candle brand'), fresh('Build a Shopify store for my candle brand'))[0].includes('saved again'), 'the same job saved twice is one client');
+    assert.deepEqual(sameClient({ ...fresh('Build a Shopify store for my candle brand'), memberSince: 'Jan 2, 2020' }, { ...fresh('Build a Shopify store for my candle brand'), memberSince: 'Mar 9, 2021' }), [], 'the same title alone, from two clients, is not one client');
+    assert.ok(sameClient(clientPost('A', {}, '0123456789')!, clientPost('B', {}, '0123456789')!).some((w) => w.includes('same Upwork job')), 'the same Upwork link is the same job');
+    // R111: fifty first-job clients, all joined the same day in the same country, stay fifty clients (not one growing group)
+    const firsts = Array.from({ length: 50 }, (_, i) => fresh(`Job number ${i + 1}: ${['Shopify store', 'React Native app', 'n8n automation', 'Logo and brand kit', 'Data scraping tool'][i % 5]} for a small business`));
+    let joinedPairs = 0; for (let i = 0; i < firsts.length; i++) for (let j = 0; j < i; j++) if (sameClient(firsts[i], firsts[j]).length) joinedPairs++;
+    assert.equal(joinedPairs, 0, 'no two first-job clients are joined');
     // a bulk read is cut by size, never mid row, and always moves on
     const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
     let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }

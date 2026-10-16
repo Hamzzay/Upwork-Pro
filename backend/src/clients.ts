@@ -6,7 +6,7 @@
  */
 import { exec, query } from './db';
 
-export interface ClientPost { title: string; history: { title: string; dates: string }[]; open: string[]; country: string; memberSince: string; company: string; contact: string }
+export interface ClientPost { title: string; history: { title: string; dates: string }[]; open: string[]; country: string; memberSince: string; city: string; company: string; contact: string; jobId: string }
 export interface ClientMatch { job_id: number; why: string[] }
 
 const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -19,8 +19,8 @@ export function sameTitle(a: string, b: string): boolean {
   return s.length >= 20 && l.startsWith(s);
 }
 
-/** A job's client, from its post's fields. */
-export function clientPost(title: string | null, posting: any): ClientPost | null {
+/** A job's client, from its post's fields. jobId: the Upwork job id from the job's link, when there is one. */
+export function clientPost(title: string | null, posting: any, jobId?: string | null): ClientPost | null {
   if (!posting || typeof posting !== 'object') return null;
   const real = (v: unknown) => { const t = String(v ?? '').trim(); return /^(not (shown|known|stated|given)|none|n\/a|unknown|-)$/i.test(t) ? '' : t; }; // a placeholder is no value
   const pair = (re: RegExp) => real(((posting.client ?? []) as any[]).find((c) => re.test(String(c?.label ?? '')))?.value);
@@ -30,24 +30,41 @@ export function clientPost(title: string | null, posting: any): ClientPost | nul
     open: ((posting.other_open_jobs ?? []) as any[]).map((x) => String(x ?? '')).filter((x) => norm(x)),
     country: pair(/^country$/i),
     memberSince: pair(/member since/i).replace(/^member since\s*/i, ''),
+    // the city, without the local time Upwork shows beside it ("Charlotte Amalie 11:58 AM")
+    city: pair(/^city/i).replace(/\s*\d{1,2}:\d{2}\s*(am|pm)?.*$/i, '').trim(),
     company: real(posting.company_name), contact: real(posting.client_name), // R107: only when the post states them
+    jobId: jobId ? String(jobId) : '',
   };
 }
 
-/** Why two jobs are from the same client, or [] when nothing says so. a is the newer job. */
+/**
+ * Why two jobs are from the same client, or [] when nothing says so. a is the newer job.
+ * R111 (Hamza): a brand-new client (no history, one job, no reviews) shares nothing with another one but, at most, the day they joined
+ * and the country, and many new clients join on the same day. So that alone never joins two jobs: it counts only beside the same city,
+ * the same job or a past job in common. Every reason here is one a new client cannot match by chance.
+ */
 export function sameClient(a: ClientPost, b: ClientPost): string[] {
   const why: string[] = [];
+  const countriesDiffer = !!(norm(a.country) && norm(b.country) && norm(a.country) !== norm(b.country));
+  if (a.jobId && a.jobId === b.jobId) why.push('the same Upwork job (the same link)');
   const twin = sameTitle(a.title, b.title); // the same title: most likely this same job, saved twice
-  if (a.history.some((h) => sameTitle(h.title, b.title))) why.push('the earlier job is in this client\'s recent history');
-  else if (a.open.some((t) => sameTitle(t, b.title))) why.push('the earlier job is one of this client\'s open jobs');
-  else if (b.open.some((t) => sameTitle(t, a.title)) || b.history.some((h) => sameTitle(h.title, a.title))) why.push('this job was listed on the earlier job\'s page');
-  if (norm(a.memberSince) && /\d{4}/.test(a.memberSince) && norm(a.memberSince) === norm(b.memberSince) && norm(a.country) && norm(a.country) === norm(b.country)) why.push(`the same member-since date (${a.memberSince}) and country`);
+  // a job of one is listed on the other's page (history or open jobs), and nothing says they are in different countries
+  if (!countriesDiffer) {
+    if (a.history.some((h) => sameTitle(h.title, b.title))) why.push('the earlier job is in this client\'s recent history');
+    else if (a.open.some((t) => sameTitle(t, b.title))) why.push('the earlier job is one of this client\'s open jobs');
+    else if (b.open.some((t) => sameTitle(t, a.title)) || b.history.some((h) => sameTitle(h.title, a.title))) why.push('this job was listed on the earlier job\'s page');
+  }
   const shared = a.history.filter((h) => b.history.some((g) => sameTitle(g.title, h.title) && norm(g.dates) === norm(h.dates))).length;
   if (shared >= 2) why.push(`${shared} past jobs in common in the client's history`);
+  // the member-since day and country: only beside something a new client cannot share by chance
+  const sameDay = !!(norm(a.memberSince) && /\d{4}/.test(a.memberSince) && norm(a.memberSince) === norm(b.memberSince) && norm(a.country) && norm(a.country) === norm(b.country));
+  const sameCity = !!(norm(a.city) && norm(a.city) === norm(b.city));
+  if (sameDay && (sameCity || twin || shared >= 1 || why.length)) why.push(`the same member-since date (${a.memberSince}) and country${sameCity ? ` and city (${a.city})` : ''}`);
   // R107: the same company, or the same full name in the same country (a first name alone says nothing)
   const co = norm(a.company).replace(/\b(inc|llc|ltd|limited|corp|co|gmbh|pty|the)\b/g, '').trim();
   if (co.length >= 4 && co === norm(b.company).replace(/\b(inc|llc|ltd|limited|corp|co|gmbh|pty|the)\b/g, '').trim()) why.push(`the same company (${a.company})`);
   if (norm(a.contact).split(' ').length >= 2 && norm(a.contact) === norm(b.contact) && norm(a.country) && norm(a.country) === norm(b.country)) why.push(`the same client name (${a.contact}) and country`);
+  // the same title alone joins nothing (two clients can post the same title); beside a reason above, it says it may be one job twice
   if (why.length && twin) why.unshift('the same job title: it may be this same job saved again');
   return why;
 }
@@ -57,17 +74,17 @@ export function sameClient(a: ClientPost, b: ClientPost): string[] {
  * post is read into fields; a job without them is left to be checked later.
  */
 export async function linkClient(screeningId: number): Promise<ClientMatch[] | null> {
-  const me = (await query<any>('SELECT id, title, posting_json, client_id, client_manual FROM screenings WHERE id=?', [screeningId]))[0];
+  const me = (await query<any>('SELECT id, title, posting_json, client_id, client_manual, upwork_job_id FROM screenings WHERE id=?', [screeningId]))[0];
   if (!me) return null;
   if (Number(me.client_manual) && me.client_id) { await exec('UPDATE screenings SET client_checked_at=NOW() WHERE id=?', [me.id]); return []; } // placed by a person: left where they put it
   let posting: any = null; try { posting = me.posting_json ? JSON.parse(me.posting_json) : null; } catch { posting = null; }
-  const mine = clientPost(me.title, posting);
+  const mine = clientPost(me.title, posting, me.upwork_job_id);
   if (!mine) return null;
-  const others = await query<any>('SELECT id, title, posting_json, client_id, client_manual FROM screenings WHERE id<>? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC LIMIT 5000', [me.id]);
+  const others = await query<any>('SELECT id, title, posting_json, client_id, client_manual, upwork_job_id FROM screenings WHERE id<>? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC LIMIT 5000', [me.id]);
   const matches: (ClientMatch & { client_id: number | null })[] = [];
   for (const o of others) {
     let p: any = null; try { p = JSON.parse(o.posting_json); } catch { continue; }
-    const theirs = clientPost(o.title, p); if (!theirs) continue;
+    const theirs = clientPost(o.title, p, o.upwork_job_id); if (!theirs) continue;
     const why = o.id < me.id ? sameClient(mine, theirs) : sameClient(theirs, mine);
     if (why.length) matches.push({ job_id: o.id, why, client_id: o.client_id ?? null });
   }
@@ -147,4 +164,40 @@ export async function mergeClients(fromId: number, intoId: number) {
   await exec('UPDATE screenings SET client_id=?, client_manual=1 WHERE client_id=?', [intoId, fromId]);
   await exec(`UPDATE clients SET name=COALESCE(name, ?), notes=IF(? IS NULL OR ? = '', notes, CONCAT_WS('\n\n', notes, ?)) WHERE id=?`, [from?.name ?? null, from?.notes ?? null, from?.notes ?? null, from?.notes ?? null, intoId]);
   await exec('UPDATE clients SET merged_into=? WHERE id=?', [intoId, fromId]);
+}
+
+/**
+ * R111 (Hamza): every client worked out again with the current rules, so a grouping made by a looser rule is undone. Jobs a person
+ * placed by hand stay where they are. A group keeps the profile most of its jobs had (with its name and notes); a job that no longer
+ * matches anyone gets a profile of its own. Returns how many jobs changed client.
+ */
+export async function regroupAll(): Promise<number> {
+  const rows = await query<any>('SELECT id, title, posting_json, client_id, upwork_job_id FROM screenings WHERE discarded_at IS NULL AND posting_json IS NOT NULL AND client_manual=0 ORDER BY id');
+  const posts = rows.map((r) => { let p: any = null; try { p = JSON.parse(r.posting_json); } catch { p = null; } return { id: r.id as number, old: (r.client_id ?? null) as number | null, cp: clientPost(r.title, p, r.upwork_job_id) }; }).filter((x) => x.cp);
+  // the groups: jobs joined by any reason, directly or through another job
+  const parent = new Map<number, number>(posts.map((x) => [x.id, x.id]));
+  const find = (x: number): number => { let r = x; while (parent.get(r) !== r) r = parent.get(r)!; parent.set(x, r); return r; };
+  const reasons = new Map<number, ClientMatch[]>();
+  for (let i = 0; i < posts.length; i++) for (let j = 0; j < i; j++) {
+    const why = sameClient(posts[i].cp!, posts[j].cp!); // i is the newer job
+    if (!why.length) continue;
+    parent.set(find(posts[i].id), find(posts[j].id));
+    for (const [me, other] of [[posts[i].id, posts[j].id], [posts[j].id, posts[i].id]]) { const l = reasons.get(me) ?? []; l.push({ job_id: other, why }); reasons.set(me, l); }
+  }
+  const groups = new Map<number, typeof posts>();
+  for (const x of posts) { const g = groups.get(find(x.id)) ?? []; g.push(x); groups.set(find(x.id), g); }
+  // a profile goes to the group that holds most of its jobs; the biggest groups choose first
+  const taken = new Set<number>(); let changed = 0;
+  for (const g of [...groups.values()].sort((x, y) => y.length - x.length)) {
+    const count = new Map<number, number>(); for (const x of g) if (x.old && !taken.has(x.old)) count.set(x.old, (count.get(x.old) ?? 0) + 1);
+    let id = [...count.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0]?.[0] ?? null;
+    if (!id) { const c = g[0].cp!; id = Number((await exec('INSERT INTO clients (country, member_since, company, contact_name) VALUES (?,?,?,?)', [c.country || null, c.memberSince || null, c.company || null, c.contact || null])).insertId); }
+    taken.add(id);
+    for (const x of g) {
+      if (x.old !== id) changed++;
+      const why = reasons.get(x.id) ?? [];
+      await exec('UPDATE screenings SET client_id=?, client_match_json=?, client_checked_at=NOW() WHERE id=?', [id, why.length ? JSON.stringify(why) : null, x.id]);
+    }
+  }
+  return changed;
 }
