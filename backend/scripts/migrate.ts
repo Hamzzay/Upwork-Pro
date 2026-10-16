@@ -12,7 +12,9 @@ const statements = (sql: string) => sql.split(/;\s*(?:\r?\n|$)/).map((s) => s.tr
 // parses on MySQL, then ignore the "already there / not there" errors below so it stays idempotent on both.
 const forMySQL = (sql: string) =>
   sql.replace(/\b(ADD|DROP)\s+(COLUMN|KEY|INDEX|UNIQUE(?:\s+KEY)?|FOREIGN\s+KEY|CONSTRAINT)\s+IF\s+(?:NOT\s+)?EXISTS\b/gi,
-    (_m, verb, obj) => `${verb} ${obj}`);
+    (_m, verb, obj) => `${verb} ${obj}`)
+    // and `CREATE [UNIQUE] INDEX IF NOT EXISTS` (MySQL rejects it too; a second run then fails with 1061, ignored below)
+    .replace(/\bCREATE\s+(UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\b/gi, (_m, u) => `CREATE ${u || ''}INDEX`);
 
 // errno: 1060 duplicate column, 1061 duplicate key name, 1091 can't DROP missing column/key, 1826 duplicate foreign key.
 // These are exactly the cases MariaDB's IF [NOT] EXISTS would have silently skipped.

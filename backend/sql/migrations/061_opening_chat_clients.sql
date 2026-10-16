@@ -32,4 +32,4 @@ CREATE TABLE IF NOT EXISTS clients (
 ALTER TABLE screenings ADD COLUMN IF NOT EXISTS client_id INT UNSIGNED NULL;
 ALTER TABLE screenings ADD COLUMN IF NOT EXISTS client_match_json TEXT NULL;
 ALTER TABLE screenings ADD COLUMN IF NOT EXISTS client_checked_at DATETIME NULL;
-CREATE INDEX IF NOT EXISTS idx_screenings_client ON screenings (client_id);
+ALTER TABLE screenings ADD INDEX IF NOT EXISTS idx_screenings_client (client_id);
