@@ -398,6 +398,46 @@ function proposalSection(s, initial, matching) {
     await api('POST', `/proposals/${data.id}/openings/${sl.index}/use`, {});
     previewIdx = 0;
   }
+  /**
+   * R106 (Hamza): the chat that edits an opening. Each answer's version goes into the box (and the proposal below shows it); the
+   * person keeps asking, edits by hand, or saves. A turn is about the words in the box when it is sent.
+   */
+  function openingChat(ed, ta, show) {
+    const q = ed.index == null ? 'in_use' : ed.index, list = h('div', { class: 'chatlist', style: 'max-height:260px' });
+    const input = h('textarea', { rows: 2, maxlength: 2000, placeholder: 'What should change? For example: shorter; lead with their deadline; less formal; use their word "dispatch"', 'aria-label': 'Ask the AI' });
+    const send = h('button', { class: 'btn sm primary', type: 'button' }, 'Send');
+    let msgs = [], seen = null, timer = null, gone = false;
+    const pending = () => msgs.some((m) => m.role === 'user' && (m.status === 'queued' || m.status === 'running'));
+    const draw = () => {
+      list.replaceChildren(...(msgs.length ? msgs.map((m) => h('div', { class: 'msg ' + (m.role === 'user' ? 'me' : 'ai') },
+        h('div', { class: 'bubble' }, m.content, m.draft ? h('div', { class: 'faint small', style: 'margin-top:6px' }, '\u201c' + m.draft + '\u201d') : null),
+        m.role === 'assistant' && m.draft && m.draft !== ta.value.trim() ? h('button', { class: 'btn sm', type: 'button', style: 'justify-self:start', onclick: () => { ta.value = m.draft; show(); draw(); } }, 'Put this one in the box') : null,
+        m.status === 'error' ? h('span', { class: 'err small' }, icon('x'), 'The AI could not answer: ' + (m.error_message || 'try again')) : null))
+        : [h('p', { class: 'jp-label', style: 'margin:0' }, 'Say what to change. The AI gives the whole opening back with only that changed, and it comes into the box above. Keep asking until it reads right, then Save and use.')]),
+        pending() ? h('div', { class: 'msg ai' }, h('div', { class: 'bubble faint' }, 'Rewriting the opening\u2026')) : '');
+      send.disabled = pending(); list.scrollTop = list.scrollHeight;
+    };
+    const load = async () => {
+      if (gone || !openEl.isConnected || editing !== ed) { gone = true; return; }
+      try { msgs = (await api('GET', `/proposals/${data.id}/openings/chat?index=${q}`)).messages; } catch { /* next time */ }
+      const last = [...msgs].reverse().find((m) => m.role === 'assistant' && m.draft);
+      if (seen === null) seen = last ? last.id : 0; // what was there when the chat opened stays out of the box
+      else if (last && last.id !== seen) { seen = last.id; ta.value = last.draft; show(); } // a new answer goes into the box
+      draw(); clearTimeout(timer); if (pending()) timer = setTimeout(load, 2000);
+    };
+    const go = async () => {
+      const content = input.value.trim(); if (!content || pending()) return;
+      if (ta.value.trim().length < 10) return toast('Put the opening in the box first', true);
+      btnBusy(send, 'Sending');
+      try { await api('POST', `/proposals/${data.id}/openings/chat`, { index: ed.index, content, current: ta.value.trim() }); input.value = ''; await load(); }
+      catch (x) { toast(x.message, true); } finally { send.replaceChildren('Send'); draw(); }
+    };
+    send.onclick = go;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } });
+    load();
+    return { el: h('div', { class: 'chatpanel', style: 'margin-top:12px;padding-top:12px' }, list, h('div', { class: 'row', style: 'gap:8px;margin-top:8px;align-items:flex-end' }, h('div', { style: 'flex:1' }, input), send)),
+      focus: () => input.focus() };
+  }
   function drawOpenings() {
     const o = data && data.openings;
     if (!o || !data.current || !editor || viewingOther) { openEl.replaceChildren(); return; }
@@ -422,9 +462,11 @@ function proposalSection(s, initial, matching) {
         try { await api('POST', `/proposals/${data.id}/openings/edit`, { index: ed.index, text: ta.value }); editing = null; toast(ed.label ? `Used, and kept as an example for ${ed.label}` : 'Used'); await reload(); newer = null; previewIdx = 0; drawAll(); }
         catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren('Save and use'); } };
       const cancel = h('button', { class: 'btn sm', type: 'button', onclick: () => { editing = null; if (editor && !editor.isDirty()) editor.setHtml(previewIdx > 0 && slides[previewIdx] ? withOpening(data.current.html, slides[previewIdx].text) : data.current.html); drawOpenings(); } }, 'Cancel');
-      shell(h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('strong', {}, `Edit the opening${ed.label ? ': ' + ed.label : ''}`), h('span', { class: 'row', style: 'gap:6px' }, cancel, save)), ta,
-        h('div', { class: 'faint small', style: 'margin-top:6px' }, ed.label ? `Your version goes into the proposal and is kept as an example for ${ed.label}, so later openings learn from it.` : 'Your version goes into the proposal.'));
-      requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); show(); });
+      const chat = ed.ai ? openingChat(ed, ta, show) : null;
+      if (!ed.ai) cancel.after(h('button', { class: 'btn sm', type: 'button', title: 'Tell the AI what to change; its version comes into the box above', onclick: () => { editing = { ...ed, ai: true, text: ta.value }; drawOpenings(); } }, icon('message'), 'Ask the AI'));
+      shell(h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('strong', {}, `${ed.ai ? 'Edit the opening with the AI' : 'Edit the opening'}${ed.label ? ': ' + ed.label : ''}`), h('span', { class: 'row', style: 'gap:6px' }, cancel, save)), ta,
+        h('div', { class: 'faint small', style: 'margin-top:6px' }, ed.label ? `Your version goes into the proposal and is kept as an example for ${ed.label}, so later openings learn from it.` : 'Your version goes into the proposal.'), chat ? chat.el : null);
+      requestAnimationFrame(() => { if (chat) chat.focus(); else { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } show(); });
       return;
     }
     if (norm(curFirst) !== norm(o.first)) return shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'The openings were written for an earlier first paragraph.'), writeBtn('Write new ones')));
@@ -448,6 +490,7 @@ function proposalSection(s, initial, matching) {
       dots.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === previewIdx));
       prev.disabled = previewIdx === 0; next.disabled = previewIdx === slides.length - 1;
       act.replaceChildren(...[owner ? h('button', { class: 'btn sm', type: 'button', title: 'Change the words, then use it. Your version is kept as an example, so later openings learn from it.', onclick: () => { editing = { index: sl.index, label: sl.style || (sl.index == null ? (usedIt ? usedIt.style : o.default) : sl.label), text: sl.text }; drawOpenings(); } }, 'Edit') : null,
+        owner ? h('button', { class: 'btn sm', type: 'button', title: 'Tell the AI what to change, as often as you like, then save it. It is kept as an example, like your own edit.', onclick: () => { editing = { index: sl.index, label: sl.style || (sl.index == null ? (usedIt ? usedIt.style : o.default) : sl.label), text: sl.text, ai: true }; drawOpenings(); } }, icon('message'), 'Edit with AI') : null,
         sl.index != null && owner ? h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
         try { await useOpening(); toast('Saved as a new version'); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); head(); } } }, 'Use this opening') : null].filter(Boolean));
     };

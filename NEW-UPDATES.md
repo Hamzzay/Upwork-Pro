@@ -1003,6 +1003,28 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R106. Proposals written from the job only; edit an opening with the AI; returning clients (done, 17 October)
+
+- **Why** (Hamza): the writer read the client's past reviews on the pasted page as part of the job and wrote to them; an opening could
+  only be edited by hand; and a client who posts again (or the same job saved twice, from two profiles) was not noticed.
+- **The job only**: everything that writes, edits or reviews a proposal (the writer, the openings, the chat, the review, the
+  comparison, the experience update) now reads the job post alone: title, description, skills, terms and Upwork's questions, from
+  the post's fields, or the page text with the client's sections cut out when the fields are not read yet. The client's stats,
+  recent history, reviews and other open jobs are left out. A fixed rule in the writer says the same, the gate's notes for the
+  proposal come from the job post only, and the plugin's skills say it too. The gate itself still reads the whole page.
+- **Edit with AI** beside Edit on the openings card: say what to change ("shorter", "lead with their deadline"); the AI gives the
+  whole opening back with only that changed, and it comes into the box (the proposal below shows it). Keep asking, edit by hand,
+  or "Put this one in the box" for an earlier answer, then **Save and use**: like an edit by hand, it becomes a new version and is
+  kept as an example for its opening template. Each turn is kept with the proposal.
+- **Returning clients**: once a job's post is read, Upwork Pro looks for earlier jobs from the same client: the earlier job in this
+  client's recent history or open jobs, the same member-since date and country, or two or more past jobs in common. Matched jobs
+  share a client profile. The job's Overview and Screening show "Returning client" with each earlier job, who had it and how it went,
+  and why it matched ("the same job title: it may be this same job saved again" when it looks like a duplicate). The Jobs list shows
+  a "Returning client" chip (and "Invite"). A new page, **Returning clients**, lists them, and each client can be given a name and notes.
+  Jobs saved before were checked when the worker started.
+- **Claude plugin 0.23.0**: `returning_client` on `save_job` and `get_job`, said to the person before writing.
+- Migration 061: `opening_messages`, `clients`, and `screenings.client_id`, `client_match_json`, `client_checked_at`.
+
 ### R105. Invites are recorded and counted apart from proposals (done, 17 October)
 
 - **Why** (Ahmad): an invite opens the chat by itself, so counting invites with submitted proposals made the view and chat rates

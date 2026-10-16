@@ -118,6 +118,10 @@ If it is refused as a duplicate, go back to step 2. Keep the job number N from i
 
 ## Step 5. Read the job
 
+**Returning client.** If `save_job` answered with `returning_client`, or `get_job` shows it, tell the person before going on: this client posted
+jobs we screened before, which ones, who handled them, and how each went (sent, viewed, chat, hired or skipped). It is not a verdict;
+it is for the person to weigh, and for the proposal it can matter (do not repeat what did not work last time).
+
 Apply the `job-signals` skill. Do not show the full signal table unless asked. Show one compact line: job industry, proposal type candidates, compliance, explicit asks count, invite yes or no.
 
 **Save it:** `save_step` with `step: "read"` and `data`: `tags` (each tag's name exactly as in `get_library`, a reason of a few words, and `core_rank` 1 to 3 on the core work tags), `industry` (the one job industry with a reason of a few words, or null), `signals` (the stated values only, each with the signal number or name, the value name, and as `evidence` the shortest quote from the post that shows it, at most about twelve words). Send it in the same message as Decision 2. Upwork Pro names any tag or signal it does not have and leaves it out; say so in one line if that happens.
@@ -167,6 +171,9 @@ Nothing is written until this is answered too. The videos are in `get_library` (
 ## Step 9. Draft and verify
 
 Apply the `proposal-writer` skill with: job data, signals, profile record, chosen projects, chosen type, the chosen Loom video (or none), and the rate.
+
+The job data is this job's post only: title, description, skills, terms and Upwork's questions. The client's stats, past jobs, reviews
+and feedback, and other open jobs were for the gate; never use, quote or answer them in the proposal.
 
 1. Write the cover letter and, if the job has screening questions, the screening answers.
 2. Run the verification checklist. Rewrite any failing item once. If it still fails, list it under "Needs your eye".

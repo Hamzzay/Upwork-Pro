@@ -13,6 +13,7 @@ import { reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerSections } fro
 import { activeReviewer } from './reviewer_store';
 import { pickLoom } from '../screening/matching';
 import { docsBlock, postOnly } from '../screening/attachments';
+import { jobPostOnly } from '../screening/posting';
 import { checkFlags, openingInUse, openingTemplate } from './opening_templates';
 import { activeShortcuts, shortenHtml, shortenText } from './shortcuts';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
@@ -69,9 +70,11 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
     WHERE p.screening_id=? AND g.status='yes' ORDER BY g.id`, [screeningId]);
   if (confirmed.length) requirements.push(`CONFIRMED BY THE SENDER after the screening (true; it overrides any screening note above that it cannot be claimed or answered): ${confirmed.map((c) => `${c.skill}${c.project_name ? ' (in ' + c.project_name + ')' : ''}${c.note ? ': ' + c.note : ''}`).join('; ')}.`);
   let posting: any = null; try { posting = s.posting_json ? JSON.parse(s.posting_json) : null; } catch { /* none */ }
-  const post = (s.job_text ?? s.raw_input) as string;
+  const page = (s.job_text ?? s.raw_input) as string;
+  // R106: the writer reads the job only, never the client's history, reviews or other jobs on the same page
+  const post = jobPostOnly(page, posting);
   // Upwork's separate questions: answered apart from the cover letter, and the letter is written from the job without them
-  const questions = jobQuestions(post, posting);
+  const questions = jobQuestions(page, posting);
   // the client's attached documents (R74) follow the post everywhere the AI reads it
   const docs = await docsBlock(screeningId);
   return { jobText: post + docs, jobOnly: separateQuestions(post).jobOnly + docs, questions, sender, projects, requirements, profileId, projectIds: ids as number[], loomId: loom ? (s.loom_video_id as number) : null };

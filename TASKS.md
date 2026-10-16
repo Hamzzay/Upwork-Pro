@@ -136,6 +136,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 88 | Openings card in fixed places; the job's key facts beside its title (R103) | done |
 | 89 | What each opening led to; ranking by results; the sent version recorded (R104) | done |
 | 90 | Invites recorded on the job and counted apart in Reports, the Dashboard and the openings ranking (R105) | done |
+| 91 | Proposals written from the job post only; edit an opening with the AI; returning clients (R106) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

@@ -33,6 +33,7 @@ import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
 import { testCall } from './llm';
 import { inviteSql, looksInvited } from './invite';
+import { clientFor } from './clients';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
 
 export const api = Router();
@@ -227,7 +228,8 @@ const listSelect = `SELECT s.id, s.user_id, s.notes, s.skip_reason, s.skip_note,
   IF(s.source = 'claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS secs_to_proposal, ${stageSql} AS stage, ${phaseSql} AS phase,
   TIMESTAMPDIFF(DAY, COALESCE(${statusAtSql}, s.created_at), NOW()) AS days_since_update,
   TIMESTAMPDIFF(DAY, COALESCE(s.proposal_sent_at, s.proposal_sent_date), s.outcome_at) AS days_to_close, s.outcome_reason, s.proposal_sent_at,
-  ${statusSql} AS current_status, ${statusAtSql} AS status_at, ${inviteSql} AS invite
+  ${statusSql} AS current_status, ${statusAtSql} AS status_at, ${inviteSql} AS invite, s.client_id,
+  IF(s.client_id IS NULL, 0, (SELECT COUNT(*) FROM screenings c2 WHERE c2.client_id=s.client_id AND c2.id<>s.id AND c2.discarded_at IS NULL)) AS client_jobs
   ${listFrom}`;
 
 /** Rows per page in the lists: each person's own choice (R82), 20 unless they picked another. */
@@ -587,10 +589,49 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
         auto_typical_seconds: Number((await query<any>(`SELECT ROUND(AVG(d)) AS t FROM (SELECT TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS d FROM screenings s JOIN proposals p ON p.screening_id=s.id
           WHERE s.auto_mode=1 AND s.auto_state='done' AND p.finished_at IS NOT NULL ORDER BY s.id DESC LIMIT 20) x WHERE d BETWEEN 30 AND 3600`))[0]?.t) || null } : {}) },
     override: ov[0] ?? null,
+    client: await clientView(req, id), // R106: a client we have seen before
     matching: await matchingFor(id),
     proposal: await proposalFor(id),
     attachments: await attachmentList(id),
   });
+});
+
+// ---------- R106 (Hamza): returning clients ----------
+/** A job's client for the person looking: everyone sees that the client is known and how those jobs went; a job opens only if they may see it. */
+async function clientView(req: any, id: number) {
+  const c = await clientFor(id); if (!c) return null;
+  const all = canSeeAll(req.user.role);
+  return { ...c, jobs: c.jobs.map((j: any) => ({ ...j, can_open: all || (j.user_id ?? null) === req.user.id })) };
+}
+api.get('/clients', requireRole(), async (req, res) => {
+  const q = z.object({ q: z.string().trim().max(100).optional() }).parse(req.query);
+  const like = q.q ? `%${likeEsc(q.q)}%` : null;
+  const rows = await query<any>(`SELECT c.id, c.name, c.country, c.member_since, c.notes, COUNT(s.id) AS jobs, SUM(${sentSql}) AS sent, SUM(s.client_replied='yes') AS chats, SUM(s.outcome='Hired') AS hired,
+      MIN(s.created_at) AS first_seen, MAX(s.created_at) AS last_seen, SUBSTRING_INDEX(GROUP_CONCAT(s.title ORDER BY s.id DESC SEPARATOR '\n'), '\n', 1) AS last_title
+    FROM clients c JOIN screenings s ON s.client_id=c.id AND s.discarded_at IS NULL
+    ${like ? 'WHERE (c.name LIKE ? OR c.country LIKE ? OR s.title LIKE ?)' : ''} GROUP BY c.id HAVING jobs > 1 ORDER BY last_seen DESC LIMIT 500`, like ? [like, like, like] : []);
+  res.json({ clients: rows.map((r) => ({ ...r, jobs: Number(r.jobs), sent: Number(r.sent || 0), chats: Number(r.chats || 0), hired: Number(r.hired || 0) })) });
+});
+api.get('/clients/:id', requireRole(), async (req, res) => {
+  const c = (await query<any>('SELECT id, name, country, member_since, notes, created_at FROM clients WHERE id=?', [Number(req.params.id)]))[0];
+  if (!c) return void res.status(404).json({ error: 'Not found' });
+  const all = canSeeAll(req.user!.role);
+  const jobs = await query<any>(`SELECT s.id, s.user_id, s.title, s.created_at, s.verdict, s.client_match_json, ${sentSql} AS sent, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at,
+      ${stageSql} AS stage, ${statusSql} AS current_status, u.name AS user_name, pr.name AS profile_name, p.template_name, ${inviteSql} AS invite
+    ${listFrom} WHERE s.client_id=? AND s.discarded_at IS NULL ORDER BY s.id DESC`, [c.id]);
+  res.json({ client: c, jobs: jobs.map((j) => { let why = null; try { why = j.client_match_json ? JSON.parse(j.client_match_json) : null; } catch { why = null; }
+    return { ...j, client_match_json: undefined, why, sent: !!Number(j.sent), invite: !!Number(j.invite), can_open: all || j.user_id === req.user!.id }; }) });
+});
+api.patch('/clients/:id', requireRole(), async (req, res) => {
+  const b = z.object({ name: z.string().trim().max(190).nullable().optional(), notes: z.string().trim().max(4000).nullable().optional() }).safeParse(req.body);
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const id = Number(req.params.id);
+  if (!(await query<any>('SELECT id FROM clients WHERE id=?', [id])).length) return void res.status(404).json({ error: 'Not found' });
+  const sets = Object.entries(b.data).filter(([, v]) => v !== undefined);
+  if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
+  await exec(`UPDATE clients SET ${sets.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...sets.map(([, v]) => v || null), id]);
+  await audit(req.user!.id, 'client_update', `client=${id} fields=${sets.map(([k]) => k).join(',')}`);
+  res.json({ ok: true });
 });
 
 /**
@@ -794,7 +835,11 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
     ['type', 'the proposal type'], ['draft', 'the Loom video, then the first draft'], ['final', 'the approval of the draft']];
   const next = s2.proceeded === 'no' ? null : order.find(([k]) => !done[k]);
   const rvw = (await query<any>('SELECT review_status, review_json, review_version, review_error, reviewed_at FROM proposals WHERE screening_id=?', [id]))[0];
-  res.json({ job: { ...pluginRow(r), proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.html), screening_answers: cur.answers.length ? cur.answers : undefined, finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
+  // R106: a client we have seen before, so Claude can tell the person before writing
+  const cl = await clientFor(id);
+  const returning = cl && cl.jobs.length ? { client_id: cl.id, name: cl.name, earlier_jobs: cl.jobs.map((j: any) => ({ id: j.id, title: j.title, screened: j.created_at, by: j.user_name, profile: j.profile_name,
+    status: j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened'), why: j.why ?? undefined })) } : null;
+  res.json({ job: { ...pluginRow(r), returning_client: returning, proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.html), screening_answers: cur.answers.length ? cur.answers : undefined, finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
     saved: { decision: s2.proceeded === 'no' ? { continue: false, reason: s2.skip_note } : s2.continued_at ? { continue: true, reason: s2.continue_reason ?? null } : null,
       tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
       signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),

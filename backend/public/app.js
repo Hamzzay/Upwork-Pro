@@ -504,6 +504,7 @@ const NAV = [
   { key: 'new', icon: 'screen', label: 'Screen a job' },
   { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
   { key: 'reports', icon: 'chart', label: 'Reports' },
+  { key: 'clients', icon: 'users', label: 'Returning clients' },
   { key: 'feedback', icon: 'message', label: 'Proposal feedback' },
   { key: 'flagreview', icon: 'flag', label: 'Flag review', roles: STAFF },
 ];
@@ -1490,7 +1491,8 @@ async function historyView() {
       : h('div', { class: 'tablewrap' }, h('table', { class: 'jobs' + (pickOn ? ' picking' : '') }, h('thead', {}, h('tr', {}, pickOn ? h('th', { class: 'pickcell' }, pageBox) : null, headCell('Job', 'title'), shown.map(movableHead), h('th', { class: 'pin' }, ''))),
         h('tbody', {}, rows.map((r) => h('tr', { class: 'click' + (pickOn && picked.has(r.id) ? ' picked' : ''), tabindex: 0, onclick: () => (pickOn ? toggle(r.id) : (location.hash = '#/s/' + r.id)), onkeydown: (e) => { if (e.key === 'Enter') { if (pickOn) toggle(r.id); else location.hash = '#/s/' + r.id; } } },
           pickOn ? h('td', { class: 'pickcell', onclick: (e) => e.stopPropagation() }, h('input', { type: 'checkbox', checked: picked.has(r.id), 'aria-label': 'Select job #' + r.id, onchange: () => toggle(r.id) })) : null,
-          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
+          h('td', { class: 'jobcell' }, h('span', { class: 'title' }, r.title || (r.input_type === 'link' ? 'Upwork link' : 'Pasted job text')), h('span', { class: 'meta' }, '#' + r.id, r.source === 'claude_plugin' ? h('span', { class: 'srcchip' }, 'Claude plugin') : null,
+            Number(r.invite) ? h('span', { class: 'srcchip' }, 'Invite') : null, Number(r.client_jobs) ? h('span', { class: 'srcchip', title: `This client posted ${r.client_jobs} other job${Number(r.client_jobs) === 1 ? '' : 's'} we screened` }, 'Returning client') : null, r.discarded_at ? h('span', { class: 'pill wait', style: 'margin-left:8px', title: r.discard_reason || '' }, 'Discarded') : null)),
           shown.map((c) => h('td', {}, c.cell(r))),
           // the row's action stays pinned to the right edge, visible however far the table scrolls
           h('td', { class: 'pin' }, rowAction(r, load)))))));
@@ -2030,7 +2032,7 @@ const actionsFor = () => { const g = tabGen; return (...btns) => { if (g === tab
 const actBtn = (label, onclick, primary = false) => h('button', { class: 'btn sm' + (primary ? ' primary' : ''), type: 'button', onclick }, label);
 
 async function jobPage(id, want) {
-  let { screening: s, override, matching, proposal, attachments } = await api('GET', '/screenings/' + id);
+  let { screening: s, override, matching, proposal, attachments, client } = await api('GET', '/screenings/' + id);
   if (!new RegExp(`^#/s/${id}(/|$|[?])`).test(location.hash)) return; // you moved on while this job loaded: never draw it over the next page
   const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin' || me.role === 'manager';
   let st = stepState(matching, proposal), stage = stageOf(s, matching, proposal);
@@ -2054,7 +2056,7 @@ async function jobPage(id, want) {
   }
   async function refresh() {
     const d = await api('GET', '/screenings/' + id);
-    s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal; attachments = d.attachments;
+    s = d.screening; override = d.override; matching = d.matching; proposal = d.proposal; attachments = d.attachments; client = d.client;
     st = stepState(matching, proposal); stage = stageOf(s, matching, proposal); drawTabs();
     headEl.replaceChildren(...jobHeader(s, stage)); // the step and status in the header follow too
   }
@@ -2068,6 +2070,22 @@ async function jobPage(id, want) {
         title: locked ? 'Finish the earlier steps first' : null, onclick: () => { if (locked) toast('Finish the earlier steps first'); else setTab(k); } },
         step ? (done ? icon('check') : h('span', { class: 'jn' }, String(n + 1) + '.')) : null, label);
     }));
+  }
+
+  /** R106 (Hamza): a client we have seen before: the other jobs from the same Upwork client, who had them and how each went. */
+  function clientCard() {
+    if (!client || !client.jobs || !client.jobs.length) return null;
+    const how = (j) => j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened, not continued');
+    const n = client.jobs.length;
+    return h('div', { class: 'card card-pad clientcard' },
+      h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('div', { class: 'jp-sec' }, icon('users'), ` Returning client${client.name ? ': ' + client.name : ''}`),
+        h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')),
+      h('div', { class: 'jp-label' }, `We have seen this client before: ${n} other job${n === 1 ? '' : 's'}${client.country ? ' · ' + client.country : ''}${client.member_since ? ' · member since ' + client.member_since : ''}.`),
+      h('ul', { class: 'plain clientjobs' }, client.jobs.slice(0, 6).map((j) => h('li', {},
+        j.can_open ? h('a', { href: '#/s/' + j.id }, `#${j.id} ${j.title || 'Untitled'}`) : h('span', {}, `#${j.id} ${j.title || 'Untitled'}`),
+        h('span', { class: 'muted' }, ` · ${dayText(j.created_at)} · ${j.user_name}${j.profile_name ? ' (' + j.profile_name + ')' : ''} · `), h('strong', {}, how(j)),
+        j.why && j.why.length ? h('div', { class: 'faint small' }, 'Matched because ' + j.why.join('; ')) : null))),
+      client.notes ? h('div', { class: 'small', style: 'margin-top:6px' }, h('strong', {}, 'Notes: '), client.notes) : null);
   }
 
   // ---- Overview: where it stands, what is next (its button is in the tab row), and the facts that have a value
@@ -2116,6 +2134,7 @@ async function jobPage(id, want) {
       Number(s.auto_mode) && s.auto_state ? autoCard() : null,
       s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
         h('div', { style: 'margin-top:4px' }, `It is hidden from every list, count, report and export, and from Claude. Discarded ${full(s.discarded_at)}${s.discarded_by_name ? ' by ' + s.discarded_by_name : ''}${s.discard_reason ? ': ' + s.discard_reason : '.'}`)) : null,
+      clientCard(),
       next[0] && !(Number(s.auto_mode) && s.auto_state === 'running') ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
       facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null,
       ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
@@ -2214,6 +2233,7 @@ async function jobPage(id, want) {
     const parts = [];
     // the verdict, in one line
     parts.push(h('div', { class: 'card card-pad verdictline ' + j.verdict }, verdictBadge(j.verdict), h('div', {}, h('div', { class: 'jp-sec' }, title), h('div', { class: 'jp-label' }, sub))));
+    const cc = clientCard(); if (cc) parts.push(cc); // R106: before the decision, say we know this client
     // the decision
     if (decided) {
       parts.push(h('div', { class: 'card card-pad' }, h('div', { class: 'jp-sec' }, override ? `Continued despite the ${vword(override.verdict_at_time)}` : 'Continued'),
@@ -3136,6 +3156,35 @@ async function feedbackView() {
       render: (slice) => dataTable(['When', 'Job', 'What kind', 'The part', 'Feedback'], slice.map(row), 'rulestable') })], true);
 }
 
+// ---------- Returning clients (R106, Hamza): Upwork clients who posted more than one job we screened ----------
+const howWent = (j) => j.current_status || (j.stage ? (STAGE_INFO[j.stage] || [])[1] : '') || '';
+async function clientsView() {
+  const r = await api('GET', '/clients');
+  const row = (c) => h('tr', { class: 'click', onclick: () => (location.hash = '#/clients/' + c.id) },
+    h('td', { style: 'white-space:normal;min-width:200px' }, h('strong', {}, c.name || c.last_title || 'Client #' + c.id), h('div', { class: 'small muted' }, [c.name ? 'Latest: ' + c.last_title : null, c.country, c.member_since ? 'member since ' + c.member_since : null].filter(Boolean).join(' · '))),
+    h('td', { class: 'num' }, c.jobs), h('td', { class: 'num' }, c.sent), h('td', { class: 'num' }, c.chats), h('td', { class: 'num' }, c.hired),
+    h('td', { class: 'nowrap' }, dayText(c.first_seen)), h('td', { class: 'nowrap' }, dayText(c.last_seen)));
+  shell('clients', [pageHead('Returning clients', 'Upwork clients who posted more than one job we screened. Found by themselves from each post: the client\u2019s recent history and other open jobs, or the same member-since date and country. A returning client is also shown on the job itself, before anyone decides or writes.'),
+    listCard({ items: r.clients, paged: true, icon: 'users', emptyTitle: 'No returning clients yet', emptyText: 'When a job comes from a client we screened a job for before, it is listed here.',
+      search: { placeholder: 'Search by name, country or job title', text: (c) => [c.name, c.country, c.last_title, c.notes].join(' ') },
+      render: (slice) => dataTable(['Client', 'Jobs', 'Sent', 'Chats', 'Hired', 'First seen', 'Last seen'], slice.map(row), 'rulestable') })], true);
+}
+async function clientView(id) {
+  const r = await api('GET', '/clients/' + id), c = r.client;
+  const name = h('input', { type: 'text', id: 'cname', maxlength: 190, value: c.name || '', placeholder: 'For example: the dental clinic in Austin' });
+  const notes = h('textarea', { id: 'cnotes', maxlength: 4000, style: 'min-height:80px', placeholder: 'What to remember about this client: how they talk, what they care about, what did not work last time' }); notes.value = c.notes || '';
+  const save = h('button', { class: 'btn primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving'); try { await api('PATCH', '/clients/' + id, { name: name.value.trim() || null, notes: notes.value.trim() || null }); toast('Saved'); route(); } catch (x) { toast(x.message, true); route(); } } }, 'Save');
+  const row = (j) => h('tr', { class: j.can_open ? 'click' : '', onclick: j.can_open ? () => (location.hash = '#/s/' + j.id) : null },
+    h('td', { style: 'white-space:normal;min-width:220px' }, h('strong', {}, `#${j.id} ${j.title || 'Untitled'}`), j.invite ? h('span', { class: 'srcchip', style: 'margin-left:6px' }, 'Invite') : null,
+      j.why && j.why.length ? h('div', { class: 'faint small' }, 'Matched: ' + [...new Set(j.why.flatMap((w) => w.why))].join('; ')) : null),
+    h('td', { class: 'nowrap' }, dayText(j.created_at)), h('td', {}, j.user_name, j.profile_name ? h('div', { class: 'small muted' }, j.profile_name) : null),
+    h('td', {}, j.template_name || h('span', { class: 'faint' }, '-')), h('td', {}, howWent(j)));
+  shell('clients', [pageHead(c.name || 'Returning client', [c.country, c.member_since ? 'Member since ' + c.member_since : null, `${r.jobs.length} job${r.jobs.length === 1 ? '' : 's'} screened`].filter(Boolean).join(' · '), null, { back: ['#/clients', 'Returning clients'] }),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Their jobs'), h('span', { class: 'sub' }, 'Newest first')), r.jobs.length ? dataTable(['Job', 'Screened', 'By', 'Proposal type', 'Where it stands'], r.jobs.map(row), 'rulestable') : h('p', { class: 'card-pad muted' }, 'No jobs.')),
+    h('div', { class: 'card card-pad stack' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cname' }, 'Name'), name, h('div', { class: 'hint' }, 'Upwork does not show the client\u2019s name on a job. Give them one you will recognise.')),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cnotes' }, 'Notes'), notes), h('div', { class: 'row' }, save))], true);
+}
+
 // ---------- Flag review (R63): per rule, what people did when it fired and how those jobs went; for relaxing rules with evidence ----------
 const FR_HINT = { relax: ['Candidate to relax', 'PASS'], keep: ['Keep it', 'FAIL'], working: ['Doing its job', ''], mixed: ['Mixed', 'FLAG'], too_few: ['Too few jobs yet', 'wait'] };
 async function flagReviewView() {
@@ -3604,6 +3653,7 @@ async function route() {
     if (a === 'history') return await historyView();
     if (a === 'dashboard' || !a) return await dashboardView();
     if (a === 'reports') return await reportsView();
+    if (a === 'clients') return b ? await clientView(Number(b)) : await clientsView();
     if (a === 'templates') { location.hash = '#/writing?tab=types'; return; } // the proposal types live on the Writing guide now
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'o' && b) return await openingView(b); // R101: an opening template's own page

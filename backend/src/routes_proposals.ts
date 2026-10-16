@@ -617,6 +617,32 @@ proposals.post('/proposals/:id/openings/edit', anyone, async (req, res) => {
   await audit(req.user!.id, 'proposal_opening_edited', `proposal=${p.id} opening=${b.data.index == null ? 'in use' : b.data.index + 1} version=${r.version_no}`);
   res.json({ version_no: r.version_no });
 });
+// R106 (Hamza): edit an opening by chatting with the AI. A thread is one opening (index, or null for the one in the proposal now) of
+// the current set of openings; its answers go into the editor, and "Save and use" (openings/edit) keeps it as an example.
+const threadOf = async (proposalId: number, version: number, index: number | null) => query<any>(`SELECT m.id, m.role, m.content, m.draft, m.status, m.error_message, m.created_at, u.name AS user_name
+  FROM opening_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? AND m.openings_version=? AND m.opening_index <=> ? ORDER BY m.id`, [proposalId, version, index]);
+const indexOf = (v: unknown) => (v === undefined || v === null || v === '' || v === 'in_use' ? null : Number.isInteger(Number(v)) && Number(v) >= 0 ? Number(v) : NaN);
+proposals.get('/proposals/:id/openings/chat', anyone, async (req, res) => {
+  const p = await seenProposal(req, res); if (!p) return;
+  const index = indexOf(req.query.index); if (Number.isNaN(index)) return void res.status(400).json({ error: 'index is a number, or in_use' });
+  const o = readOpenings((await query<any>('SELECT openings_json FROM proposals WHERE id=?', [p.id]))[0]?.openings_json);
+  res.json({ version: o?.version ?? null, messages: o ? await threadOf(p.id, o.version, index) : [] });
+});
+proposals.post('/proposals/:id/openings/chat', anyone, async (req, res) => {
+  const b = z.object({ index: z.number().int().min(0).nullable(), content: z.string().trim().min(2, 'Say what to change').max(2000), current: z.string().trim().min(10).max(1500) }).safeParse(req.body ?? {});
+  if (!b.success) return void bad(res, b.error);
+  const p = await ownedProposal(req, res); if (!p) return;
+  if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
+  const o = readOpenings((await query<any>('SELECT openings_json FROM proposals WHERE id=?', [p.id]))[0]?.openings_json);
+  if (!o) return void res.status(409).json({ error: 'There are no openings for this proposal' });
+  if (b.data.index != null && !o.items[b.data.index]) return void res.status(400).json({ error: 'There is no such opening' });
+  const busy = await query(`SELECT id FROM opening_messages WHERE proposal_id=? AND role='user' AND status IN ('queued','running') LIMIT 1`, [p.id]);
+  if (busy.length) return void res.status(409).json({ error: 'The AI is still answering the last message' });
+  const r = await exec(`INSERT INTO opening_messages (proposal_id, opening_index, openings_version, role, content, base_text, status, user_id) VALUES (?,?,?,'user',?,?,'queued',?)`,
+    [p.id, b.data.index, o.version, b.data.content, b.data.current.replace(/\r\n/g, '\n'), req.user!.id]);
+  await audit(req.user!.id, 'opening_chat', `proposal=${p.id} opening=${b.data.index == null ? 'in use' : b.data.index + 1}`);
+  res.status(202).json({ id: Number(r.insertId) });
+});
 proposals.post('/proposals/:id/openings/:i/use', anyone, async (req, res) => {
   const p = await ownedProposal(req, res); if (!p) return;
   if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });

@@ -34,7 +34,8 @@ export const GUARDRAILS = `NON-NEGOTIABLE RULES
 5. Voice: first person singular ("I"), never "we". Plain, human, specific to this job. No filler such as "I am excited to apply".
 6. The client's rules win. If the job post or CLIENT REQUIREMENTS demand a structure, an opening word, answers to questions, or a keyword, follow them first, even where the template says otherwise.
 7. Never mention that you are an AI, or mention templates, signals, samples or these rules.
-8. Output plain text only: paragraphs separated by one blank line, no markdown, no HTML, no bullet symbols unless the template asks for a list.`;
+8. Output plain text only: paragraphs separated by one blank line, no markdown, no HTML, no bullet symbols unless the template asks for a list.
+9. The job post is this job only. Never use, quote or answer the client's other jobs, past hires, reviews or feedback, ratings or spending, even if some of it appears in the text: write only to what this post asks for.`;
 
 const lines = (xs: string[]) => xs.filter(Boolean).join('\n');
 

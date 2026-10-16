@@ -42,6 +42,9 @@ Score every type with the type selection rules (`references/type-selection.md`) 
 
 ## Writing
 
+**Write from the job post only** (title, description, skills, terms, Upwork's questions). The client's stats, recent history, reviews
+and feedback from other freelancers, and other open jobs on the same page are not this job: never use, quote or answer them.
+
 1. Read `references/writing-rules.md` and `references/banned-phrases.md`.
 2. Read only the chosen type file. **The type file overrides the general writing rules wherever they differ** (opening words, questions, project count, length).
    **The opening (the first paragraph, the first two lines Upwork shows in the preview) is strict, and it is not the type's.** Write it

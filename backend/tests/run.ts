@@ -25,6 +25,8 @@ import { checkFlags, examplesBlock, openingRules, readList, templateBlock } from
 import { shortcutsBlock, shortenHtml, shortenText } from '../src/proposal/shortcuts';
 import { openingLabel } from '../src/proposal/openings';
 import { looksInvited } from '../src/invite';
+import { jobPostOnly } from '../src/screening/posting';
+import { clientPost, sameClient, sameTitle } from '../src/clients';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -520,6 +522,26 @@ const ctx = { rules, projects };
     assert.ok(looksInvited('Invitation to interview\nHi, I saw your profile'), 'an invitation page is an invite');
     assert.ok(looksInvited('', 'https://www.upwork.com/ab/proposals/interview/uid/123'), 'an invitation link is an invite');
     assert.ok(!looksInvited('Activity on this job\nInvites sent: 4\nUnanswered invites: 2'), 'the activity box is not an invite');
+    // R106: the writer reads the job only, never the client's history and reviews
+    const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
+    const cut = jobPostOnly(page, null);
+    assert.ok(cut.includes('books visits') && cut.includes('Node.js'), 'the job and its skills stay');
+    assert.ok(!cut.includes('Great to work with') && !cut.includes('Payment verified') && !cut.includes('Logo design'), 'the client sections are cut out');
+    const fromFields = jobPostOnly(page, { title: 'Build a booking bot', description: 'We need a WhatsApp bot that books visits for our clinic, with reminders.', skills: ['Node.js'], terms: [{ label: 'Hourly', value: '$20-$40' }],
+      screening_questions: ['Have you used Twilio?'], client_history: [{ title: 'CRM cleanup', dates: '', amount: '', rating: '5', feedback: 'Great to work with, fast replies and clean code.' }] } as any);
+    assert.ok(fromFields.includes('books visits') && fromFields.includes('Hourly: $20-$40') && fromFields.includes('Have you used Twilio?'), 'from the fields: description, terms and questions');
+    assert.ok(!fromFields.includes('Great to work with'), 'from the fields: no client history');
+    // R106: the same client, from the post's fields
+    const earlier = clientPost('Build a WhatsApp booking bot for our clinic', { client: [{ label: 'Country', value: 'United States' }, { label: 'Member since', value: 'Mar 15, 2021' }],
+      client_history: [{ title: 'CRM cleanup for a dental group', dates: 'Jan 2026 - Feb 2026' }, { title: 'Landing page redesign for our clinic', dates: 'Nov 2025' }], other_open_jobs: [] });
+    const later = clientPost('Add SMS reminders to the clinic booking bot', { client: [{ label: 'Country', value: 'United States' }, { label: 'Member since', value: 'Mar 15, 2021' }],
+      client_history: [{ title: 'Build a WhatsApp booking bot for our clinic', dates: 'Sep 2026 - Oct 2026' }, { title: 'CRM cleanup for a dental group', dates: 'Jan 2026 - Feb 2026' }], other_open_jobs: [] });
+    const why = sameClient(later!, earlier!);
+    assert.ok(why.some((w) => w.includes('recent history')) && why.some((w) => w.includes('member-since')), 'the earlier job in the history, and the same member-since date');
+    const stranger = clientPost('Logo design for a bakery brand', { client: [{ label: 'Country', value: 'United States' }, { label: 'Member since', value: 'Apr 2, 2019' }], client_history: [{ title: 'CRM cleanup for a dental group', dates: 'Jan 2026 - Feb 2026' }], other_open_jobs: [] });
+    assert.deepEqual(sameClient(stranger!, earlier!), [], 'one shared past job title alone is not enough');
+    assert.ok(sameTitle('Build a WhatsApp booking bot for our clinic', 'Build a WhatsApp booking bot for our c'), 'a title cut short in a list still matches');
+    assert.ok(!sameTitle('Website', 'Website'), 'a short generic title never matches');
     // a bulk read is cut by size, never mid row, and always moves on
     const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
     let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }

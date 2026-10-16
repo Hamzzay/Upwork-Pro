@@ -1,5 +1,6 @@
 import { activeOpenings, templateBlock } from './proposal/opening_templates';
 import { looksInvited } from './invite';
+import { linkClient } from './clients';
 import { activeShortcuts, shortenText } from './proposal/shortcuts';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -95,8 +96,9 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
       await conn.query('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason, reason_picks) VALUES (?,?,?,?,?)', [id, user.id, d.verdict, d.decision!.reason, picks.length ? JSON.stringify(picks) : null]); }
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+  const returning = post ? await linkClient(id).catch(() => null) : null; // R106: with the post in fields, a client seen before is found now
   await audit(user.id, 'plugin_job_save', `screening=${id} verdict=${d.verdict}${codes.length ? ' codes=' + codes.join(',') : ''}${cont === undefined ? '' : cont ? ' continued' : ' skipped'}`);
-  res.status(201).json({ id, url: `/#/s/${id}` });
+  res.status(201).json({ id, url: `/#/s/${id}`, ...(returning && returning.length ? { returning_client: { earlier_jobs: returning.map((m) => ({ id: m.job_id, why: m.why })), note: 'This client posted jobs we screened before. Tell the person, with get_job for how those went.' } } : {}) });
 });
 
 /** Record the decision on a job saved earlier: continue (a FLAG or FAIL needs a reason) or skip. */

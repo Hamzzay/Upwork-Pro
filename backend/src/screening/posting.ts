@@ -50,3 +50,33 @@ export async function extractPosting(jobText: string): Promise<Posting> {
   if (!p.success) throw new Error('invalid_output');
   return p.data;
 }
+
+/**
+ * R106 (Hamza): the job, and only the job, for everything that writes, edits or reviews a proposal. The pasted page also holds the
+ * client's stats, recent history, reviews of other freelancers and other open jobs; a writer that reads them takes them as part of
+ * this job. From the post's fields when they are read (title, description, skills, terms, Upwork's questions), else the page text
+ * with the client's sections cut out.
+ */
+const QUESTIONS_HEAD = 'You will be asked to answer the following questions when submitting a proposal:';
+// the blocks of an Upwork page that are about the client, not this job, and the blocks that are this job again
+const CLIENT_HEAD = /^(activity on this job|about the client|client'?s recent history|recent history|other open jobs by this client|other open jobs|similar jobs on upwork|explore similar jobs|other jobs by this client|client'?s other jobs|jobs in progress|reviews?\b.*\bfrom (freelancers|clients)|member since)\b/i;
+const JOB_HEAD = /^(you will be asked to answer the following questions|skills and expertise|mandatory skills|nice-to-have skills|preferred qualifications|project type)\b/i;
+export function jobPostOnly(page: string, posting?: Partial<Posting> | null): string {
+  const desc = String(posting?.description ?? '').trim();
+  if (desc.length >= 40) {
+    const terms = (posting?.terms ?? []).filter((t) => t && t.label && t.value);
+    const qs = (posting?.screening_questions ?? []).map((q) => String(q).trim()).filter(Boolean);
+    return [posting?.title ? String(posting.title).trim() : '', desc,
+      posting?.skills?.length ? 'Skills and Expertise\n' + posting.skills.join(', ') : '',
+      terms.length ? terms.map((t) => `${t.label}: ${t.value}`).join('\n') : '',
+      qs.length ? QUESTIONS_HEAD + '\n' + qs.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''].filter(Boolean).join('\n\n');
+  }
+  let skip = false; const out: string[] = [];
+  for (const line of String(page ?? '').split('\n')) {
+    const t = line.trim();
+    if (t && CLIENT_HEAD.test(t)) skip = true;
+    else if (t && JOB_HEAD.test(t)) skip = false;
+    if (!skip) out.push(line);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}

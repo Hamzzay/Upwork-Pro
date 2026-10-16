@@ -13,6 +13,8 @@ import { applyJudgement, judgeProjects } from './screening/judge';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
+import { linkClient, linkUnchecked } from './clients';
+import { runOpeningChat } from './proposal/openings';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { runOpenings } from './proposal/openings';
 import { queueFitReasons, runFitReasons } from './screening/fit_reasons';
@@ -187,6 +189,7 @@ async function processPosting(id: number) {
     const s = (await query<any>('SELECT job_text, raw_input FROM screenings WHERE id=?', [id]))[0];
     const p = await extractPosting(s.job_text ?? s.raw_input);
     await exec(`UPDATE screenings SET posting_json=?, posting_status='done', posting_error=NULL WHERE id=?`, [JSON.stringify(p), id]);
+    await linkClient(id).catch((e) => console.error('client link failed', id, (e as Error).message)); // R106: a client we have seen before
   } catch (e) {
     if (stopping) { await exec(`UPDATE screenings SET posting_status='queued' WHERE id=?`, [id]); return; }
     const info = errorInfo(e);
@@ -226,6 +229,17 @@ async function processEarlyDraft(screeningId: number) {
   }
 }
 
+/** One turn of the chat that edits an opening (R106). */
+async function processOpeningChat(id: number) {
+  try { await runOpeningChat(id); }
+  catch (e) {
+    if (stopping) { await exec(`UPDATE opening_messages SET status='queued' WHERE id=?`, [id]); return; }
+    const info = errorInfo(e);
+    await exec(`UPDATE opening_messages SET status='error', error_message=? WHERE id=?`, [info.message, id]);
+    await audit(null, 'opening_chat_error', `message=${id} code=${info.code}`);
+  }
+}
+
 /** One chat turn. */
 async function processChat(id: number) {
   try { await runChat(id); }
@@ -257,6 +271,10 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const ch = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM proposal_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
   if (ch.length) return { kind: 'chat', claim: async () => !!(await exec(`UPDATE proposal_messages SET status='running' WHERE id=? AND status='queued'`, [ch[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'chat', proposalId: ch[0].proposal_id, screeningId: ch[0].screening_id }, () => processChat(ch[0].id)) };
+  // the chat that edits an opening (R106): a person is waiting on it, like the proposal chat
+  const oc = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM opening_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
+  if (oc.length) return { kind: 'opening_chat', claim: async () => !!(await exec(`UPDATE opening_messages SET status='running' WHERE id=? AND status='queued'`, [oc[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'chat', proposalId: oc[0].proposal_id, screeningId: oc[0].screening_id }, () => processOpeningChat(oc[0].id)) };
   // two versions compared for a person looking at them (R76)
   const cm = await query<{ id: number; proposal_id: number }>(`SELECT id, proposal_id FROM proposal_comparisons WHERE status='queued' ORDER BY id LIMIT 1`);
   if (cm.length) return { kind: 'compare', claim: async () => !!(await exec(`UPDATE proposal_comparisons SET status='running' WHERE id=? AND status='queued'`, [cm[0].id])).affectedRows,
@@ -400,6 +418,7 @@ async function shutdown() {
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE opening_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
   await pool.end().catch(() => undefined);
@@ -422,8 +441,11 @@ async function main() {
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE opening_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);
+  // R106: jobs saved before returning clients were looked for (no AI; a few seconds at most)
+  linkUnchecked(5000).then((n) => { if (n) console.log(`clients checked for ${n} jobs`); }).catch((e) => console.error('client check failed', (e as Error).message));
   console.log(`worker started ai=${providerName === 'mock' ? 'mock' : 'chosen in Settings'} concurrency=${config.llm.concurrency}`);
   while (!stopping) {
     let busy = false;
