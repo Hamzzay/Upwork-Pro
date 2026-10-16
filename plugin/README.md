@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.23.0)
+## Status (v0.24.0)
+
+v0.24.0: the opening uses only the words of the job description, never the job's terms (hours per week, budget, length),
+the skill tags or a screening note.
+
+## Earlier (v0.23.0)
 
 v0.23.0: `returning_client` on `save_job` and `get_job`: other jobs we screened from the same Upwork client, said to the person
 before writing. Proposals are written from the job post only, never the client's history or reviews on the same page.

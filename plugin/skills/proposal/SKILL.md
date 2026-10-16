@@ -172,8 +172,9 @@ Nothing is written until this is answered too. The videos are in `get_library` (
 
 Apply the `proposal-writer` skill with: job data, signals, profile record, chosen projects, chosen type, the chosen Loom video (or none), and the rate.
 
-The job data is this job's post only: title, description, skills, terms and Upwork's questions. The client's stats, past jobs, reviews
-and feedback, and other open jobs were for the gate; never use, quote or answer them in the proposal.
+The job data is this job's post only: title, description and Upwork's questions. The terms box (hours per week, budget, length,
+level), the skill tags, the client's stats, past jobs, reviews and feedback, and other open jobs were for the gate; never use, quote
+or answer them in the proposal, and the opening uses only the words of the description.
 
 1. Write the cover letter and, if the job has screening questions, the screening answers.
 2. Run the verification checklist. Rewrite any failing item once. If it still fails, list it under "Needs your eye".

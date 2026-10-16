@@ -1,4 +1,4 @@
-import { openingRules, type OpeningTemplate } from './opening_templates';
+import { OPENING_SOURCE, openingRules, type OpeningTemplate } from './opening_templates';
 import { z } from 'zod';
 import { htmlToPlain } from '../html';
 import type { DetectedValue } from './signals';
@@ -20,7 +20,7 @@ export function openingSection(t: TemplateFact | null, shared?: string | null): 
   if (t?.opening) return openingRules(shared, t.opening); // R88: the opening template decides; the type's old fields are not read
   const own = t?.opening_rules?.trim(), all = shared?.trim();
   if (!own && !all) return '';
-  return `FIRST TWO LINES (strict: Upwork shows them in the preview before the client opens the proposal. Follow every rule below exactly; they win over anything else in the type about the opening, except a client\'s required opening words)\n`
+  return `FIRST TWO LINES (strict: Upwork shows them in the preview before the client opens the proposal. Follow every rule below exactly; they win over anything else in the type about the opening, except a client\'s required opening words)\n${OPENING_SOURCE}\n`
     + (all ? `FOR EVERY PROPOSAL TYPE\n${all}\n` : '')
     + (own ? `${all ? '\nFOR THIS PROPOSAL TYPE (where these differ from the rules above, these win)\n' : ''}${own}\n` : '');
 }

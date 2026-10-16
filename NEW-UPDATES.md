@@ -1003,6 +1003,18 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R109. The opening uses only the job description (done, 17 October)
+
+- **Why** (Hamza): an opening used the hours per week the client set, which is in Upwork's terms box, not the description.
+- **The job text** everything that writes reads (the proposal, the openings, the chat, the review) is now the title, the description
+  and Upwork's questions only. The terms box (hours per week, budget or rate, length, level) and the skill tags are left out, from the
+  post's fields or, before they are read, from the page text line by line. The gate still reads the whole page.
+- **Every opening** (the one in the proposal, the alternatives, Edit with AI, the automatic fix of the first two lines) carries a strict
+  rule: only the words of the job description; never a job term, the client's stats or history, or a screening note.
+- **The gate's notes** for the proposal no longer repeat the terms box; a note about weekly hours saved on an older job is not passed
+  to the writer.
+- **Claude plugin 0.24.0**: the same rule in its writing skills.
+
 ### R108. A clearer client page (done, 17 October)
 
 - **Why** (Hamza): the client page needed UI/UX refinement.

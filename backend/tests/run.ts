@@ -525,11 +525,15 @@ const ctx = { rules, projects };
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);
-    assert.ok(cut.includes('books visits') && cut.includes('Node.js'), 'the job and its skills stay');
+    assert.ok(cut.includes('books visits') && !cut.includes('Node.js'), 'the job stays; R109: its skill tags do not');
     assert.ok(!cut.includes('Great to work with') && !cut.includes('Payment verified') && !cut.includes('Logo design'), 'the client sections are cut out');
     const fromFields = jobPostOnly(page, { title: 'Build a booking bot', description: 'We need a WhatsApp bot that books visits for our clinic, with reminders.', skills: ['Node.js'], terms: [{ label: 'Hourly', value: '$20-$40' }],
       screening_questions: ['Have you used Twilio?'], client_history: [{ title: 'CRM cleanup', dates: '', amount: '', rating: '5', feedback: 'Great to work with, fast replies and clean code.' }] } as any);
-    assert.ok(fromFields.includes('books visits') && fromFields.includes('Hourly: $20-$40') && fromFields.includes('Have you used Twilio?'), 'from the fields: description, terms and questions');
+    assert.ok(fromFields.includes('books visits') && fromFields.includes('Have you used Twilio?'), 'from the fields: the description and the questions');
+    assert.ok(!fromFields.includes('$20-$40') && !fromFields.includes('Node.js'), 'R109: never the terms or the skill tags');
+    const termsPage = 'Booking bot\nWe need a bot that books visits.\nLess than 30 hrs/week\nHourly\n$15.00 - $40.00\n3-6 months\nDuration\nExpert\nI am looking for comparatively experienced freelancers';
+    const tcut = jobPostOnly(termsPage, null);
+    assert.ok(tcut.includes('books visits') && !/hrs\/week|\$15|3-6 months|Expert|Duration/.test(tcut), 'R109: the terms lines on the page are cut too');
     assert.ok(!fromFields.includes('Great to work with'), 'from the fields: no client history');
     // R106: the same client, from the post's fields
     const earlier = clientPost('Build a WhatsApp booking bot for our clinic', { client: [{ label: 'Country', value: 'United States' }, { label: 'Member since', value: 'Mar 15, 2021' }],

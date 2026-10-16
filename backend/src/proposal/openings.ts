@@ -12,7 +12,7 @@ import { htmlToPlain, textToHtml } from '../html';
 import { run } from '../llm';
 import { bannedPatterns, loadGuide } from './guide';
 import { GUARDRAILS } from './writer';
-import { activeOpenings, addLearned, OPENINGS_BATCH, openingTemplate, templateBlock, type OpeningTemplate } from './opening_templates';
+import { activeOpenings, addLearned, OPENING_SOURCE, OPENINGS_BATCH, openingTemplate, templateBlock, type OpeningTemplate } from './opening_templates';
 import { addVersion, assembleParts, latestVersion, loadFacts, loadTemplate } from './pipeline';
 import { PROOF, VIDEO, type Parts } from './parts';
 import { activeShortcuts, shortenText } from './shortcuts';
@@ -108,6 +108,7 @@ export async function runOpenings(proposalId: number) {
   if (!styles.length) { await save(base); return { stale: false }; }
   const system = [
     'You write the opening of an Upwork proposal: its first paragraph, the part Upwork shows in the preview before the client opens it. Most clients decide there whether to read on.',
+    OPENING_SOURCE,
     GUARDRAILS,
     `SENDER: ${f.sender.name}${f.sender.voice ? `. Voice: ${f.sender.voice} (never "we")` : ''}${f.sender.rules ? `. Rules: ${f.sender.rules}` : ''}`,
     guide.opening ? `RULES FOR EVERY OPENING (strict; each opening template below may make its own exceptions, and where it does, the template wins)\n${guide.opening.trim()}` : '',
@@ -118,7 +119,7 @@ export async function runOpenings(proposalId: number) {
   const prompt = `<job_page>\n${f.questions.length ? f.jobOnly : f.jobText}\n</job_page>\n\nTHE PROPOSAL\n${letter}\n\nITS FIRST PARAGRAPH (what each opening replaces)\n${first}${taken}\n\n`
     + `Write ${styles.length} different opening${styles.length === 1 ? '' : 's'} to replace that first paragraph, one per OPENING TEMPLATE below, in this order. Each follows its own template exactly (what it leads with, its tone, its first words, its exceptions and its examples), so they are real choices, not wordings of one idea.\n\n`
     + styles.map((x, i) => `${i + 1}. ${templateBlock(x)}`).join('\n\n') + '\n\n'
-    + `Each one follows the rules for every opening above except where its own template says otherwise, uses only facts from the job post and the proposal, and reads straight on into the paragraph after it, so the rest of the proposal stays as it is. `
+    + `Each one follows the rules for every opening above except where its own template says otherwise, uses only what the client's job description says (never the job's terms, such as hours or budget), and reads straight on into the paragraph after it, so the rest of the proposal stays as it is. `
     + `Keep each about as long as the current first paragraph (${words} words; never more than ${Math.max(45, Math.round(words * 1.4))}), unless its template says to match its examples: then about as long as they are. `
     + `"angle": what it leads with, in two to five words. "tone": one to three words. "why": one sentence on why it may land with this client. "text": the paragraph itself, ready to paste.`;
   const r = await run({ label: 'openings', system, prompt, schema: schemaFor(styles.length), timeoutMs: config.llm.timeoutMs });
@@ -230,6 +231,7 @@ export async function runOpeningChat(messageId: number) {
   const system = [
     'You help a person edit the opening of an Upwork proposal: its first paragraph, the part Upwork shows in the preview before the client opens it. '
       + 'Do what the person asks and change nothing else. If they only ask a question, answer it and give the opening back unchanged.',
+    OPENING_SOURCE + ' (Unless the person asks for it: then it is their words.)',
     GUARDRAILS,
     `SENDER: ${f.sender.name}${f.sender.voice ? `. Voice: ${f.sender.voice} (never "we")` : ''}${f.sender.rules ? `. Rules: ${f.sender.rules}` : ''}`,
     guide.opening ? `RULES FOR EVERY OPENING (its template below may make its own exceptions, and where it does, the template wins; the person\'s request wins over both)\n${guide.opening.trim()}` : '',
@@ -241,7 +243,7 @@ export async function runOpeningChat(messageId: number) {
   const prompt = `<job_page>\n${f.questions.length ? f.jobOnly : f.jobText}\n</job_page>\n\nTHE PROPOSAL (the opening is its first paragraph; the rest stays as it is)\n${letter}\n\n`
     + `${transcript ? `EARLIER IN THIS CHAT\n${transcript}\n\n` : ''}THE OPENING NOW\n${opening}\n\nTHE PERSON ASKS\n${m.content}\n\n`
     + '"reply": one or two plain sentences: what you changed, or the answer to their question. "opening": the whole opening paragraph, ready to paste: one paragraph, '
-    + 'only facts from the job post and the proposal, reading straight on into the paragraph after it.';
+    + 'only what the client\'s job description says, reading straight on into the paragraph after it.';
   const r = await run({ label: 'opening chat', system, prompt, schema: chatSchema, timeoutMs: config.llm.timeoutMs });
   const out = chatOut.safeParse(r.data); if (!out.success) throw new Error('invalid_output');
   const draft = shortenText(out.data.opening.replace(/\r\n/g, '\n').replace(/\n\s*\n+/g, ' ').trim(), await activeShortcuts()) || opening;

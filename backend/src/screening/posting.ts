@@ -57,29 +57,31 @@ export async function extractPosting(jobText: string): Promise<Posting> {
 /**
  * R106 (Hamza): the job, and only the job, for everything that writes, edits or reviews a proposal. The pasted page also holds the
  * client's stats, recent history, reviews of other freelancers and other open jobs; a writer that reads them takes them as part of
- * this job. From the post's fields when they are read (title, description, skills, terms, Upwork's questions), else the page text
+ * this job. From the post's fields when they are read (title, description, Upwork's questions; R109: not the terms or skills), else the page text
  * with the client's sections cut out.
  */
 const QUESTIONS_HEAD = 'You will be asked to answer the following questions when submitting a proposal:';
 // the blocks of an Upwork page that are about the client, not this job, and the blocks that are this job again
 const CLIENT_HEAD = /^(activity on this job|about the client|client'?s recent history|recent history|other open jobs by this client|other open jobs|similar jobs on upwork|explore similar jobs|other jobs by this client|client'?s other jobs|jobs in progress|reviews?\b.*\bfrom (freelancers|clients)|member since)\b/i;
-const JOB_HEAD = /^(you will be asked to answer the following questions|skills and expertise|mandatory skills|nice-to-have skills|preferred qualifications|project type)\b/i;
+const JOB_HEAD = /^(you will be asked to answer the following questions)\b/i;
+// R109: Upwork's terms box and skill tags, line by line: they are not the description
+const TERMS_HEAD = /^(skills and expertise|mandatory skills|nice-to-have skills|preferred qualifications|project type)\b/i;
+const TERM_LINE = /hrs?\/week|hours? (per|a) week|hours to be determined|^(hourly|fixed[- ]price|ongoing project|one-time project|complex project|contract-to-hire)$|^(entry level|intermediate|expert)$|^(duration|project length|experience level|hours per week|budget|hourly range|contract type|payment type)\b|^\$[\d,.]+(\s*-\s*\$[\d,.]+)?(\s*(\/hr|hourly|fixed))?$|^(less than|more than) (1|a|6) months?$|^\d+\s*(to|-)\s*\d+ months$|^i am looking for (comparatively|a mix|freelancers with)/i;
 export function jobPostOnly(page: string, posting?: Partial<Posting> | null): string {
   const desc = String(posting?.description ?? '').trim();
   if (desc.length >= 40) {
-    const terms = (posting?.terms ?? []).filter((t) => t && t.label && t.value);
     const qs = (posting?.screening_questions ?? []).map((q) => String(q).trim()).filter(Boolean);
+    // R109 (Hamza): the title and the description only. Upwork's terms box (hours per week, budget, length, level) and the skill
+    // tags are the gate's, not the writer's: the questions stay, as they are answered apart.
     return [posting?.title ? String(posting.title).trim() : '', desc,
-      posting?.skills?.length ? 'Skills and Expertise\n' + posting.skills.join(', ') : '',
-      terms.length ? terms.map((t) => `${t.label}: ${t.value}`).join('\n') : '',
       qs.length ? QUESTIONS_HEAD + '\n' + qs.map((q, i) => `${i + 1}. ${q}`).join('\n') : ''].filter(Boolean).join('\n\n');
   }
   let skip = false; const out: string[] = [];
   for (const line of String(page ?? '').split('\n')) {
     const t = line.trim();
-    if (t && CLIENT_HEAD.test(t)) skip = true;
+    if (t && (CLIENT_HEAD.test(t) || TERMS_HEAD.test(t))) skip = true;
     else if (t && JOB_HEAD.test(t)) skip = false;
-    if (!skip) out.push(line);
+    if (!skip && !(t && TERM_LINE.test(t))) out.push(line);
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

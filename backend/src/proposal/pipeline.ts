@@ -62,7 +62,8 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   let report: any = null; try { report = JSON.parse(s.report_json); } catch { /* old or missing */ }
   const job = report?.job ?? report?.jobs?.[0] ?? null;
   const requirements: string[] = [];
-  for (const n of job?.proposal_notes ?? []) if (n && !/^mock provider/i.test(n)) requirements.push(String(n));
+  // R109: a note about the job's weekly hours comes from Upwork's terms box, not the description: the proposal never repeats it
+  for (const n of job?.proposal_notes ?? []) if (n && !/^mock provider/i.test(n) && !/hrs?\/week|hours? (per|a) week|\d+\+?\s*hours? weekly|\b(full|part)[- ]time (role|position|hours)/i.test(n)) requirements.push(String(n));
   const passOn = new Set((await getSettings())['writer.requirement_rules']); // flags the writer must treat as client requirements (admin setting)
   for (const f of job?.flags ?? []) if (passOn.has(f.code)) requirements.push(`${f.rule}: ${f.value}`);
   // experience the sender confirmed on the proposal page (R67): true, and it wins over any screening note that it cannot be claimed
@@ -375,7 +376,7 @@ async function rewriteOpening(system: string, jobPart: string, letter: string, i
   const at = invite && paras.length > 1 && /^(hi|hello|hey)\b/i.test(paras[0].trim()) && paras[0].length < 80 ? 1 : 0; // an invite's greeting stays
   const r = await run({ label: 'writing: first two lines', system, timeoutMs: config.llm.timeoutMs,
     schema: { type: 'object', properties: { paragraph: { type: 'string' } }, required: ['paragraph'], additionalProperties: false },
-    prompt: `${jobPart}\n\nTHE OPENING PARAGRAPH OF YOUR DRAFT\n${paras[at]}\n\nIts first two lines break the FIRST TWO LINES rules: they ${issues.join('; ')}. Write this one paragraph again so its first two lines follow every FIRST TWO LINES rule, keeping what the rest of it says. Answer with the paragraph only, in "paragraph". Never name a project or add a link.` });
+    prompt: `${jobPart}\n\nTHE OPENING PARAGRAPH OF YOUR DRAFT\n${paras[at]}\n\nIts first two lines break the FIRST TWO LINES rules: they ${issues.join('; ')}. Write this one paragraph again so its first two lines follow every FIRST TWO LINES rule, keeping what the rest of it says. Use only what the client's job description says: never the job's terms (hours per week, budget, rate, length). Answer with the paragraph only, in "paragraph". Never name a project or add a link.` });
   const para = String((r.data as any)?.paragraph ?? '').trim();
   if (!para) return null;
   paras[at] = para;

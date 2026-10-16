@@ -76,10 +76,15 @@ export function examplesBlock(o: OpeningTemplate): string {
  * The FIRST TWO LINES section the writer, the chat and the review read: the rules for every opening, then the opening template's own
  * part, which wins where the two differ. Whatever the proposal type's format says about its opening gives way to this.
  */
+/**
+ * R109 (Hamza): what an opening may be built from: the words of the client's job description, nothing else. Not the job's terms
+ * (hours per week, budget, rate, length, experience level), not the client's stats or history, not the screening's notes.
+ */
+export const OPENING_SOURCE = 'WHAT THE OPENING IS BUILT FROM (strict): only the words of the client\'s job description. Never the hours per week, the budget or rate, the project length, the experience level or any other job term, never the client\'s stats, history or reviews, and never a screening note. If the description itself does not say it, the opening does not say it.';
 export function openingRules(rules: string | null | undefined, o: OpeningTemplate | null): string {
   const all = rules?.trim();
   if (!all && !o) return '';
-  return `FIRST TWO LINES (the opening paragraph; strict: Upwork shows it in the preview before the client opens the proposal. This section decides the opening: where the proposal type's format describes its opening differently, follow this. A client's own required opening words come first of all)\n`
+  return `FIRST TWO LINES (the opening paragraph; strict: Upwork shows it in the preview before the client opens the proposal. This section decides the opening: where the proposal type's format describes its opening differently, follow this. A client's own required opening words come first of all)\n${OPENING_SOURCE}\n`
     + (all ? `RULES FOR EVERY OPENING\n${all}\n` : '')
     + (o ? `\n${all ? 'THE OPENING TO WRITE (where it differs from the rules above, it wins)\n' : ''}${templateBlock(o)}\n` : '');
 }
