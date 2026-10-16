@@ -4,6 +4,7 @@
  * first words, whether it may greet, whether it may talk about us. Every proposal type has one default template: the proposal is
  * written with it, and one opening per other active template is written beside it to pick from (openings.ts).
  */
+import { inviteSql } from '../invite';
 import { exec, query } from '../db';
 
 export interface OpeningTemplate { id: number; name: string; instructions: string; starts: string | null; may_greet: boolean; may_talk_about_us: boolean; active: boolean;
@@ -26,7 +27,7 @@ const shape = (r: any): OpeningTemplate => ({ id: Number(r.id), name: r.name, in
  * more when the client viewed it, opened a chat or hired, plus the points a person added by hand (rank = earned + boost).
  */
 export const RESULT_POINTS = { sent: 1, viewed: 1, chat: 2, hired: 5 };
-const STATS = `LEFT JOIN (SELECT p.final_opening_id AS oid, COUNT(*) AS sent_n, SUM(s.client_viewed='yes') AS viewed_n, SUM(s.client_replied='yes') AS chat_n, SUM(s.outcome='Hired') AS hired_n
+const STATS = `LEFT JOIN (SELECT p.final_opening_id AS oid, COUNT(*) AS sent_n, SUM(s.client_viewed='yes' AND NOT ${inviteSql}) AS viewed_n, SUM(s.client_replied='yes' AND NOT ${inviteSql}) AS chat_n, SUM(s.outcome='Hired') AS hired_n
   FROM proposals p JOIN screenings s ON s.id=p.screening_id WHERE p.final_opening_id IS NOT NULL AND s.discarded_at IS NULL
     AND (p.finalized_at IS NOT NULL OR s.proposal_sent_at IS NOT NULL OR s.proposal_sent_date IS NOT NULL) GROUP BY p.final_opening_id) st ON st.oid=o.id`;
 const EARNED = `(COALESCE(st.sent_n,0)*${RESULT_POINTS.sent} + COALESCE(st.viewed_n,0)*${RESULT_POINTS.viewed} + COALESCE(st.chat_n,0)*${RESULT_POINTS.chat} + COALESCE(st.hired_n,0)*${RESULT_POINTS.hired})`;

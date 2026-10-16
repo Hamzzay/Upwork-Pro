@@ -1003,6 +1003,24 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R105. Invites are recorded and counted apart from proposals (done, 17 October)
+
+- **Why** (Ahmad): an invite opens the chat by itself, so counting invites with submitted proposals made the view and chat rates
+  (and the openings' ranking) look better than the proposals really did.
+- **On the job**: "The client invited us (an invite)" in Mark as sent (on the job and from the Jobs list) and in Edit details; the
+  Overview shows it. It is ticked by itself when the pasted page is an invitation, or when the job is written with the Invite type
+  (untick it to say otherwise). Every change is kept in the job's history.
+- **Reports**: a filter, **Proposals only** (the default), **Invites only** or **Proposals and invites**. Invites only shows invites
+  sent, interview, hire and lost, without view or chat. A new report, **Proposal or invite**, puts the two side by side. The Jobs list
+  has the same filter.
+- **Dashboard**: the funnel from Sent on counts proposals; invites are one line under it (sent, interviews, hired). Sent and Hired
+  include both and say how many were invites.
+- **Openings ranking**: an invite still counts as sent and as a hire for its opening, but its view and chat earn no points.
+- **Claude plugin 0.22.0**: `invited` on `save_job` and `update_status`; an invitation page pasted as the job is noticed without it.
+  The export for Claude has an `invite` column.
+- Migration 060 adds `screenings.invited` and marks jobs already saved whose page was an invitation, or that were continued past a
+  flag because the client invited us.
+
 ### R104. What each opening led to, and ranking by results; the sent version recorded (done, 17 October)
 
 - **Why** (Ahmad): which proposal and which opening got viewed, a chat or a hire was not visible, and the ranking counted sends only.

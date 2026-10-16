@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.21.0)
+## Status (v0.22.0)
+
+v0.22.0: `invited` on `save_job` and `update_status`: say when the client invited us, so reports count invites apart from
+proposals (an invite opens the chat itself). An invitation page pasted as `job_text` is noticed without it.
+
+## Earlier (v0.21.0)
 
 v0.21.0: `practice_wide` in `get_writing_guide`: what the team does on every project, said as how we work. Tags can be marked
 `practice` (setup-admin, kind `tag`).

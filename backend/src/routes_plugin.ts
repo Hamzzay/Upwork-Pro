@@ -1,4 +1,5 @@
 import { activeOpenings, templateBlock } from './proposal/opening_templates';
+import { looksInvited } from './invite';
 import { activeShortcuts, shortenText } from './proposal/shortcuts';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -50,6 +51,7 @@ const jobBody = z.object({
   posting: posting.optional(),
   decision: z.object({ continue: z.boolean(), reason: z.string().trim().max(2000).optional() }).optional(),
   force_new: z.boolean().optional(),
+  invited: z.boolean().optional(), // R105: the client invited us (Upwork opens the chat itself)
 });
 
 /** Save a job the plugin screened. One job per Upwork job id: a second save of the same job is refused unless force_new. */
@@ -81,12 +83,13 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
     await conn.beginTransaction();
     const [r]: any = await conn.query(
       `INSERT INTO screenings (user_id, input_type, source, source_url, upwork_job_id, raw_input, job_text, status, title, verdict, report_json, rule_codes, fail_reasons, flag_reasons,
-         client_country, budget, hire_rate, job_type, model, provider, started_at, finished_at, posting_json, posting_status, proceeded, continued_at, skip_note)
-       VALUES (?, 'text', ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude-plugin', 'plugin', NOW(), NOW(), ?, ?, ?, ?, ?)`,
+         client_country, budget, hire_rate, job_type, model, provider, started_at, finished_at, posting_json, posting_status, proceeded, continued_at, skip_note, invited)
+       VALUES (?, 'text', ?, ?, ?, ?, ?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude-plugin', 'plugin', NOW(), NOW(), ?, ?, ?, ?, ?, ?)`,
       [user.id, SOURCE, d.job_url ?? null, jobId, d.job_text, d.job_text, d.title, d.verdict, JSON.stringify(report), codes.join(', ') || null,
         fails.map((x) => `${x.rule}${x.value ? ': ' + x.value : ''}`).join(' | ') || null, flags.map((x) => `${x.rule}${x.value ? ': ' + x.value : ''}`).join(' | ') || null,
         d.client_country ?? null, d.budget ?? null, d.hire_rate ?? null, d.job_type ?? null, post ? JSON.stringify(post) : null, post ? 'done' : 'queued', // no post in fields: the worker reads it, so Claude does not have to
-        cont === undefined ? null : cont ? 'yes' : 'no', cont ? new Date() : null, cont === false ? d.decision?.reason ?? null : null]);
+        cont === undefined ? null : cont ? 'yes' : 'no', cont ? new Date() : null, cont === false ? d.decision?.reason ?? null : null,
+        d.invited !== undefined ? (d.invited ? 'yes' : 'no') : looksInvited(d.job_text, d.job_url) ? 'yes' : null]);
     id = Number(r.insertId);
     if (cont && d.verdict !== 'PASS') { const picks = picksOf(null, d.decision!.reason ?? null, cfg['override.reasons']);
       await conn.query('INSERT INTO overrides (screening_id, user_id, verdict_at_time, reason, reason_picks) VALUES (?,?,?,?,?)', [id, user.id, d.verdict, d.decision!.reason, picks.length ? JSON.stringify(picks) : null]); }

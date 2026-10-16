@@ -32,6 +32,7 @@ import { ChangedSince, KINDS, raw, record as recordChange, recordSetupChanges, r
 import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
 import { testCall } from './llm';
+import { inviteSql, looksInvited } from './invite';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
 
 export const api = Router();
@@ -166,9 +167,10 @@ api.post('/screenings', requireRole(), async (req, res) => {
   try {
     await conn.beginTransaction();
     const [r]: any = await conn.query(
-      `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status, auto_mode, auto_state) VALUES (?,?,?,?,?,?,'queued',?,?)`,
+      `INSERT INTO screenings (user_id, input_type, source_url, upwork_job_id, raw_input, job_text, posting_status, auto_mode, auto_state, invited) VALUES (?,?,?,?,?,?,'queued',?,?,?)`,
       [req.user!.id, parsed.type, sourceUrl, parsed.type === 'link' ? parsed.jobId : (sourceUrl ? jobIdFromUrl(sourceUrl) : null),
-       b.data.input.trim(), parsed.type === 'text' ? parsed.text : null, b.data.auto ? 1 : 0, b.data.auto ? 'running' : null]);
+       b.data.input.trim(), parsed.type === 'text' ? parsed.text : null, b.data.auto ? 1 : 0, b.data.auto ? 'running' : null,
+       looksInvited(b.data.input, sourceUrl) ? 'yes' : null]); // R105: an invitation pasted is an invite
     id = Number(r.insertId);
     await recordFiles((sql, p) => conn.query(sql, p as any[]), id, req.user!.id, ready, false);
     await conn.commit();
@@ -225,7 +227,7 @@ const listSelect = `SELECT s.id, s.user_id, s.notes, s.skip_reason, s.skip_note,
   IF(s.source = 'claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at)) AS secs_to_proposal, ${stageSql} AS stage, ${phaseSql} AS phase,
   TIMESTAMPDIFF(DAY, COALESCE(${statusAtSql}, s.created_at), NOW()) AS days_since_update,
   TIMESTAMPDIFF(DAY, COALESCE(s.proposal_sent_at, s.proposal_sent_date), s.outcome_at) AS days_to_close, s.outcome_reason, s.proposal_sent_at,
-  ${statusSql} AS current_status, ${statusAtSql} AS status_at
+  ${statusSql} AS current_status, ${statusAtSql} AS status_at, ${inviteSql} AS invite
   ${listFrom}`;
 
 /** Rows per page in the lists: each person's own choice (R82), 20 unless they picked another. */
@@ -241,6 +243,7 @@ export const listFilters = z.object({
   // added for the reports: where it was written, the proposal type, a job tag, a project shown, with or without a Loom video, and the date it was sent
   source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(160).optional(), tag: z.string().trim().max(120).optional(),
   project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
+  invite: z.enum(['yes', 'no']).optional(), // R105: invites only, or proposals only (the Reports default)
   discarded: z.enum(['1']).optional(), // admins only: the discarded jobs instead of the live ones
 });
 export type ListFilters = z.infer<typeof listFilters>;
@@ -269,6 +272,7 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.tag) { where.push('EXISTS (SELECT 1 FROM job_tags jt WHERE jt.screening_id=s.id AND jt.tag_name=?)'); p.push(f.tag); }
   if (f.project) { where.push('EXISTS (SELECT 1 FROM job_matches jm WHERE jm.screening_id=s.id AND jm.selected=1 AND jm.project_name=?)'); p.push(f.project); }
   if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
+  if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
   if (f.sent_from) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(f.sent_from + ' 00:00:00'); }
   if (f.sent_to) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(f.sent_to); }
   if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
@@ -327,8 +331,11 @@ const dashboard = async (req: any, res: any) => {
   const n = (v: any) => Number(v || 0);
   const c = await one(`SELECT COUNT(*) AS screened, SUM(s.verdict='PASS') AS pass_n, SUM(s.verdict='FLAG') AS flag_n, SUM(s.verdict='FAIL') AS fail_n,
       SUM(s.status='error') AS failed, SUM(s.continued_at IS NOT NULL) AS continued, SUM(o.id IS NOT NULL) AS overridden,
-      SUM(p.finished_at IS NOT NULL) AS proposals, SUM(p.finalized_at IS NOT NULL) AS finalized, SUM(s.proposal_sent_date IS NOT NULL) AS sent,
-      SUM(s.client_viewed='yes') AS viewed, SUM(s.client_replied='yes') AS replied, SUM(s.interviewed='yes') AS interviewed, SUM(s.outcome='Hired') AS hired,
+      SUM(p.finished_at IS NOT NULL) AS proposals, SUM(p.finalized_at IS NOT NULL) AS finalized,
+      -- R105: the funnel after sending counts proposals only; an invite opens the chat itself, so invites are counted apart
+      SUM(s.proposal_sent_date IS NOT NULL AND NOT ${inviteSql}) AS sent, SUM(s.client_viewed='yes' AND NOT ${inviteSql}) AS viewed, SUM(s.client_replied='yes' AND NOT ${inviteSql}) AS replied,
+      SUM(s.interviewed='yes' AND NOT ${inviteSql}) AS interviewed, SUM(s.outcome='Hired' AND NOT ${inviteSql}) AS hired,
+      SUM(s.proposal_sent_date IS NOT NULL AND ${inviteSql}) AS inv_sent, SUM(s.interviewed='yes' AND ${inviteSql}) AS inv_interviewed, SUM(s.outcome='Hired' AND ${inviteSql}) AS inv_hired,
       SUM(s.connects_spent) + COALESCE(SUM(s.boost_connects), 0) AS connects,
       AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS avg_to_proposal, MIN(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS min_to_proposal,
       MAX(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS max_to_proposal,
@@ -363,7 +370,8 @@ const dashboard = async (req: any, res: any) => {
   const ruleText = new Map((await query<any>('SELECT code, type, rule FROM rules')).map((r) => [r.code, r]));
   res.json({
     counts: { screened: n(c.screened), PASS: n(c.pass_n), FLAG: n(c.flag_n), FAIL: n(c.fail_n), failed: n(c.failed), continued: n(c.continued), overridden: n(c.overridden),
-      proposals: n(c.proposals), finalized: n(c.finalized), sent: n(c.sent), viewed: n(c.viewed), replied: n(c.replied), interviewed: n(c.interviewed), hired: n(c.hired), connects: n(c.connects) },
+      proposals: n(c.proposals), finalized: n(c.finalized), sent: n(c.sent), viewed: n(c.viewed), replied: n(c.replied), interviewed: n(c.interviewed), hired: n(c.hired), connects: n(c.connects),
+      invites: { sent: n(c.inv_sent), interviewed: n(c.inv_interviewed), hired: n(c.inv_hired) } },
     timings: { avg_to_proposal: c.avg_to_proposal == null ? null : Math.round(c.avg_to_proposal), min_to_proposal: c.min_to_proposal, max_to_proposal: c.max_to_proposal,
       avg_screening: c.avg_screening == null ? null : Math.round(c.avg_screening), avg_matching: c.avg_matching == null ? null : Math.round(c.avg_matching),
       avg_writing: c.avg_writing == null ? null : Math.round(c.avg_writing) },
@@ -435,7 +443,7 @@ export async function reportFor(req: any, f: ListFilters) {
       s.client_country, s.job_type, s.experience_level, s.loom_video_id, s.loom_video_title,
       TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal,
       (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html,
-      s.auto_mode, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json, (SELECT name FROM opening_templates WHERE id=p.final_opening_id) AS final_opening_name, p.sent_version_no,
+      s.auto_mode, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json, (SELECT name FROM opening_templates WHERE id=p.final_opening_id) AS final_opening_name, p.sent_version_no, ${inviteSql} AS invite,
       (SELECT COUNT(*) FROM proposal_versions pv2 WHERE pv2.proposal_id=p.id) AS versions,
       (SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) AS docs,
       (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id) AS gaps_asked, (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes') AS gaps_yes,
@@ -563,6 +571,9 @@ api.get('/screenings/:id', requireRole(), async (req, res) => {
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   if (s.discarded_at && req.user!.role !== 'admin') return void res.status(404).json({ error: 'Not found' }); // discarded: gone for everyone but an admin
   if (s.discarded_by) s.discarded_by_name = (await query<any>('SELECT name FROM users WHERE id=?', [s.discarded_by]))[0]?.name ?? null;
+  // R105: whether it counts as an invite, and why (said on the job, or written with the Invite type)
+  const inv = (await query<any>(`SELECT ${inviteSql} AS on_, p.template_name LIKE '%Invite%' AS by_type FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
+  s.invite = !!Number(inv?.on_); s.invite_by_type = s.invited == null && !!Number(inv?.by_type);
   const ov = await query<any>(`SELECT o.id, o.reason, o.verdict_at_time, o.created_at, u.name AS user_name FROM overrides o JOIN users u ON u.id=o.user_id WHERE o.screening_id=?`, [id]);
   res.json({
     screening: { ...s, raw_input: undefined, report_json: undefined, job_description: s.job_text, job_text: undefined, report: s.report_json ? normalizeReport(JSON.parse(s.report_json)) : null,
@@ -674,8 +685,9 @@ const trackBody = z.object({
   loom_video_id: z.number().int().positive().nullable().optional(),
   skip_reason: z.string().trim().max(120).nullable().optional(),
   skip_note: z.string().trim().max(2000).nullable().optional(),
+  invited: z.enum(['yes', 'no']).nullable().optional(), // R105
 });
-const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id', 'skip_reason', 'skip_note'] as const;
+const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id', 'skip_reason', 'skip_note', 'invited'] as const;
 /** Every tracked field, so a change can be stored as old value -> new value. */
 const TRACKED = [...TRACK_KEYS, 'proposal_sent_at', 'client_viewed_at', 'client_replied_at', 'interviewed_at', 'outcome_at'];
 const show = (v: any) => (v == null ? null : v instanceof Date ? v.toLocaleString('sv', { timeZone: 'Asia/Karachi' }) : String(v));
@@ -834,7 +846,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       s.outcome, s.outcome_at, s.outcome_reason, s.outcome_note, s.connects_spent, s.boost_connects, s.loom_video_title,
       s.client_country, s.budget, s.job_type, s.experience_level, s.hire_rate, s.total_spent, s.payment_verified, s.client_rating, s.avg_hourly_paid, s.proposals AS proposals_on_job, s.posted,
       TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal, s.notes,
-      s.auto_mode, s.auto_state, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json, (SELECT name FROM opening_templates WHERE id=p.final_opening_id) AS final_opening_name, p.sent_version_no,
+      s.auto_mode, s.auto_state, JSON_EXTRACT(p.review_json, '$.score') AS review_score, p.openings_json, (SELECT name FROM opening_templates WHERE id=p.final_opening_id) AS final_opening_name, p.sent_version_no, ${inviteSql} AS invite,
       (SELECT COUNT(*) FROM proposal_versions pv2 WHERE pv2.proposal_id=p.id) AS versions,
       (SELECT COUNT(*) FROM job_attachments ja WHERE ja.screening_id=s.id) AS docs,
       (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='yes') AS gaps_yes, (SELECT COUNT(*) FROM proposal_gaps g WHERE g.screening_id=s.id AND g.status='open') AS gaps_open,
@@ -860,7 +872,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   const openingsOf = (r: any) => { try { const o = JSON.parse(r.openings_json || 'null'); return o?.items?.length ? o.items.map((x: any, i: number) => `${x.style || 'Opening ' + (i + 1)}${o.used === i ? ' (used)' : ''}: ${x.text}`).join(' || ') : null; } catch { return null; } };
   const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (v ? String(v).slice(0, 16) : null);
   const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',
-    'proposal_words', 'loom_video', 'connects', 'boost', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
+    'proposal_words', 'loom_video', 'connects', 'boost', 'invite', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
     'client_country', 'budget', 'job_type', 'experience_level', 'secs_to_proposal',
     'mode', 'review_score', 'opening_sent', 'versions', 'documents', 'experience_confirmed', 'experience_waiting', 'feedback_count',
     ...(inc.has('client') ? ['hire_rate', 'total_spent', 'payment_verified', 'client_rating', 'avg_hourly_paid', 'proposals_on_job', 'posted'] : []),
@@ -873,7 +885,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
     if (inc.has('flags') || inc.has('description')) { try { rep = r.report_json ? normalizeReport(JSON.parse(r.report_json)).jobs[0] : null; } catch { rep = null; } try { post = r.posting_json ? JSON.parse(r.posting_json) : null; } catch { post = null; } }
     return [r.id, when(r.created_at), r.person, r.profile, r.source === 'claude_plugin' ? 'Claude plugin' : 'Upwork Pro', (r.title ?? '').slice(0, 90), r.stage, r.verdict, r.rule_codes, Number(r.continued), r.continued_past,
       r.template_name, r.template_name ? r.template_choice : null, (projects.get(r.id) ?? []).map((x) => x.project_name).join('; ') || null, t.filter((x) => /^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null,
-      prop ? prop.split(/\s+/).length : null, r.loom_video_title, r.connects_spent, r.boost_connects, when(r.sent_at), yes(r.client_viewed), when(r.client_viewed_at), yes(r.client_replied), when(r.client_replied_at),
+      prop ? prop.split(/\s+/).length : null, r.loom_video_title, r.connects_spent, r.boost_connects, Number(r.invite) ? 1 : 0, when(r.sent_at), yes(r.client_viewed), when(r.client_viewed_at), yes(r.client_replied), when(r.client_replied_at),
       yes(r.interviewed), when(r.interviewed_at), r.outcome, when(r.outcome_at), r.outcome_reason, r.client_country, r.budget, r.job_type, r.experience_level, r.secs_to_proposal,
       Number(r.auto_mode) ? 'auto' + (r.auto_state === 'stopped' ? ' (stopped)' : '') : 'steps', r.review_score == null ? null : Number(r.review_score), openingUsed(r.openings_json, r.final_opening_name),
       Number(r.versions) || null, Number(r.docs) || 0, Number(r.gaps_yes) || 0, Number(r.gaps_open) || 0, Number(r.feedback_n) || 0,
@@ -936,7 +948,8 @@ const postStatus = async (req: any, res: any) => {
   const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
   const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time'),
     reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish(),
-    connects: z.number().int().min(0).max(1000).nullish(), boost: z.number().int().min(0).max(1000).nullish(), notes: z.string().trim().max(4000).nullish() }).safeParse(req.body);
+    connects: z.number().int().min(0).max(1000).nullish(), boost: z.number().int().min(0).max(1000).nullish(), notes: z.string().trim().max(4000).nullish(),
+    invited: z.boolean().nullish() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status, at = b.data.at.replace('T', ' ').slice(0, 16) + ':00';
   const lost = cfg['tracking.loss_outcomes'].includes(st);
@@ -960,7 +973,7 @@ const postStatus = async (req: any, res: any) => {
   if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
   else await exec('UPDATE screenings SET outcome=?, outcome_at=?, outcome_reason=?, outcome_note=?, tracking_updated_at=NOW() WHERE id=?', [st, at, lost ? b.data.reason : null, b.data.note || null, id]);
   // what it cost and any note, when sent along (the plugin records them with the status)
-  const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes]].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
+  const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes], ['invited', b.data.invited == null ? null : b.data.invited ? 'yes' : 'no']].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
   if (more.length) await exec(`UPDATE screenings SET ${more.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...more.map(([, v]) => v), id]);
   if (st === 'Sent') { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104: the version that went out
   await recordChanges(id, before, await trackSnapshot(id), 'status', req.user!.id);

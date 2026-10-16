@@ -105,7 +105,7 @@ SECTIONS = [
     'Further down, <b>What hurts it</b> and <b>What works</b> open to show each point. A low score most often means the proposal claims something our project facts do not say: fix that first.'),
   shot('job-sent.jpg', 'Send it on Upwork, then mark it as sent', 'Copy the proposal, paste it into Upwork and submit it there. Then press <b>Save and mark sent</b>. One window records everything.', [
     'The status: Sent.', 'The Connects it cost, and any boost.', 'The Loom video you sent with it, if any. This is how we learn whether videos help.', '<b>Save</b>.'],
-    'There is no Tracking tab any more. After this, the job\'s status lives on its Overview tab.'),
+    'There is no Tracking tab any more. After this, the job\'s status lives on its Overview tab. If the client invited you, tick <b>The client invited us</b>: an invite opens the chat by itself, so the reports keep it apart from proposals you submitted.'),
   shot('job-status-sent.jpg', 'Updating the status takes one click', 'Do this every time something happens on Upwork. It is what the reports are built from.', [
     'Pick what happened: Sent, Viewed, Chat opened, Interview, or how it ended. The next likely one is already chosen.',
     'It is set to now. Change it only if it happened earlier.', 'Save.']),
@@ -268,7 +268,7 @@ SECTIONS = [
   shot('dashboard.jpg', 'Dashboard', 'How the team is doing right now.', [
     'The period, and filters for a profile or a person.', 'The headline numbers. Click any of them to open those jobs.', 'The funnel, from screened to hired.', 'How fast we get from paste to proposal.', 'Screen a job.']),
   shot('reports-top.jpg', 'Reports', 'What is working and what is not.', [
-    'The period, whether dates mean screened or sent, and filters.', 'The rates, of sent proposals: viewed, chat opened, interview, hired, and what a hire costs in Connects.',
+    'The period, whether dates mean screened or sent, proposals or invites (proposals only unless you change it), and filters.', 'The rates, of sent proposals: viewed, chat opened, interview, hired, and what a hire costs in Connects.',
     'The funnel. Each step shows its share of the step before.', '<b>What is working</b>: the best group in each report, against the others. It only speaks when there are enough sent proposals to mean something.', '<b>Export</b> every report as one file.']),
   shot('reports-breakdown.jpg', 'Break it down', 'The same jobs, cut 27 ways: by profile, person, proposal type, project, industry, tag, signal, rule, Loom video, day sent, client country and more.', [
     'Choose the report, and "At least 5 sent" to hide groups too small to trust.', 'Click a column title to sort by it.', 'Click a row to open the jobs behind it.', 'Every report as a small card. Click one to open it in full.'],

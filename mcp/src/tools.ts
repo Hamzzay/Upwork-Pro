@@ -114,6 +114,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
         other_open_jobs: z.array(z.string()).optional() }).optional().describe('Leave out: Upwork Pro reads the post into fields from job_text by itself, in the background. Send it only if you already have it in this exact shape'),
       decision: z.object({ continue: z.boolean(), reason: z.string().optional() }).optional().describe('If the person already decided: continue (a FLAG or FAIL needs their reason) or skip'),
       force_new: z.boolean().optional(),
+      invited: z.boolean().optional().describe('True when the client invited us to this job (an invitation, not a post we found). Upwork opens the chat itself, so reports count invites apart. Left out: an invitation page is noticed from job_text'),
     }, { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async (a) => api.call('POST', '/plugin/jobs', a));
 
   T('record_decision', 'Record the person\'s decision on a saved job: continue (a FLAG or FAIL needs their reason) or skip (give the reason they skip, too).',
@@ -237,11 +238,12 @@ Never send the person's raw text: write every text field yourself in the format 
   T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now.',
     { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
       reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional().describe('A note about this status, e.g. what the client said'),
-      connects: z.number().int().optional().describe('Connects the proposal cost (with Sent)'), boost: z.number().int().optional().describe('Extra Connects spent on a boost'), notes: z.string().optional().describe('The job\'s own notes (replaces them)') },
+      connects: z.number().int().optional().describe('Connects the proposal cost (with Sent)'), boost: z.number().int().optional().describe('Extra Connects spent on a boost'), notes: z.string().optional().describe('The job\'s own notes (replaces them)'),
+      invited: z.boolean().optional().describe('With Sent: true when the client invited us to this job, false when we found it ourselves') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async (a) => {
       const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      return api.call('POST', `/plugin/jobs/${a.id}/status`, { status: a.status, at: a.at || local, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes });
+      return api.call('POST', `/plugin/jobs/${a.id}/status`, { status: a.status, at: a.at || local, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes, invited: a.invited });
     });
 
   if (opts.importDir) {

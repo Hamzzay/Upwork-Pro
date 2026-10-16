@@ -24,6 +24,7 @@ import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from
 import { checkFlags, examplesBlock, openingRules, readList, templateBlock } from '../src/proposal/opening_templates';
 import { shortcutsBlock, shortenHtml, shortenText } from '../src/proposal/shortcuts';
 import { openingLabel } from '../src/proposal/openings';
+import { looksInvited } from '../src/invite';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -511,6 +512,14 @@ const ctx = { rules, projects };
     assert.equal(weekStart(new Date('2026-10-07T10:00:00')), '2026-10-05', 'weeks start on Monday'); assert.deepEqual(dim('week').map((x) => x.key), ['2026-10-05'], 'weeks by the date screened');
     assert.deepEqual([r.timing.hours_to_view, r.timing.hours_to_chat, r.timing.days_to_close], [2, 4, 2]);
     assert.equal(buildReport([], { tags: [], projects: [], signals: [] }, []).totals.jobs, 0, 'no jobs is not an error');
+    // R105: invites are their own group of sent proposals
+    const ri = buildReport([job({ id: 5, sent: 1, chat: 1, invite: 1 }), job({ id: 6, sent: 1 }), job({ id: 7, sent: 0, invite: 1 })], { tags: [], projects: [], signals: [] }, []);
+    const inv = ri.dims.find((d) => d.key === 'invite')!.rows;
+    assert.deepEqual(inv.map((x) => [x.name, x.sent, x.chat]), [['Invite', 1, 1], ['Proposal submitted', 1, 0]], 'sent invites and proposals apart; an unsent job is in neither');
+    assert.deepEqual(inv[0].link, { invite: 'yes' });
+    assert.ok(looksInvited('Invitation to interview\nHi, I saw your profile'), 'an invitation page is an invite');
+    assert.ok(looksInvited('', 'https://www.upwork.com/ab/proposals/interview/uid/123'), 'an invitation link is an invite');
+    assert.ok(!looksInvited('Activity on this job\nInvites sent: 4\nUnanswered invites: 2'), 'the activity box is not an invite');
     // a bulk read is cut by size, never mid row, and always moves on
     const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
     let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }

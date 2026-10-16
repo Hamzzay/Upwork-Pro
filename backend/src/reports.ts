@@ -16,6 +16,8 @@ export interface ReportJob {
   loom_video_id: number | null; loom_video_title: string | null; secs_to_proposal: number | null; words: number | null;
   /** R82: auto mode, the review score, the opening sent, versions, documents, experience questions and feedback */
   auto_mode?: any; review_score?: number | string | null; opening?: string | null; versions?: number | null; docs?: number | null; gaps_asked?: number | null; gaps_yes?: number | null; feedback_n?: number | null;
+  /** R105: the client invited us */
+  invite?: any;
 }
 export interface ReportExtras {
   tags: { screening_id: number; tag_name: string; category_name: string }[];
@@ -75,7 +77,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
   const d: Record<string, Counter> = {};
   for (const k of ['profile', 'person', 'type', 'type_choice', 'project', 'project_count', 'industry', 'tag', 'signal', 'rule', 'verdict', 'decision', 'source', 'loom', 'loom_video',
     'country', 'job_type', 'experience', 'boost', 'connects', 'length', 'speed', 'week', 'sent_weekday', 'sent_time', 'loss_reason', 'outcome',
-    'mode', 'opening', 'review', 'versions', 'documents', 'gaps', 'feedback']) d[k] = C();
+    'mode', 'opening', 'invite', 'review', 'versions', 'documents', 'gaps', 'feedback']) d[k] = C();
   const byJob = <T extends { screening_id: number }>(rows: T[]) => { const m = new Map<number, T[]>(); for (const r of rows) { const a = m.get(r.screening_id); if (a) a.push(r); else m.set(r.screening_id, [r]); } return m; };
   const tags = byJob(extra.tags), projects = byJob(extra.projects), signals = byJob(extra.signals);
   const toView: number[] = [], toChat: number[] = [], toClose: number[] = [], toProposal: number[] = [];
@@ -137,6 +139,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
       }
       if (j.outcome && j.outcome !== 'Pending') d.outcome.add(j.outcome, j.outcome, j, { outcome: j.outcome });
       if (j.opening) d.opening.add(j.opening, j.opening, j);
+      d.invite.add(on(j.invite) ? 'invite' : 'proposal', on(j.invite) ? 'Invite' : 'Proposal submitted', j, { invite: on(j.invite) ? 'yes' : 'no' });
       if (j.outcome && lossOutcomes.includes(j.outcome)) d.loss_reason.add(j.outcome_reason || 'none', j.outcome_reason || 'No reason recorded', j);
     }
   }
@@ -171,6 +174,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
     dim('loss_reason', 'Why lost', 'The reason recorded for each lost proposal.', 'sent'),
     dim('mode', 'Auto mode', 'Jobs screened and written in auto mode against those done step by step.', 'jobs', 'key'),
     dim('opening', 'Opening sent', 'Sent proposals by the opening template they went out with (the one picked, else the type\'s default), and whether it was edited first.', 'sent'),
+    dim('invite', 'Proposal or invite', 'Proposals we submitted against invites. An invite opens the chat itself, so its view and chat rates say nothing; compare interviews and hires. Set Proposals and invites above to see both.', 'sent', 'key'),
     dim('review', 'Review score', 'The independent review\'s score of the newest version.', 'jobs', 'key'),
     dim('versions', 'Versions', 'How many versions the proposal went through before it was sent.', 'jobs', 'key'),
     dim('documents', 'Attached documents', 'Jobs with the client\'s documents attached against those without.', 'jobs', 'key'),

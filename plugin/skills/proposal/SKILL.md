@@ -109,6 +109,8 @@ Call `save_job` once, as soon as the gate result is shown and before Decision 1,
 * `verdict`, and every fail and flag as `{ code, rule, value }`, the value being the actual number or text behind it ("Hire rate 32%").
 * `job`, `client`, `competition`: the label and value pairs from the gate's Job, Client and Competition sections. `fit` and `proposal_notes`.
 * `client_country`, `budget`, `hire_rate`, `job_type` as shown.
+* `invited: true` when the client invited us to this job (the person says so, or it is an invitation). Reports count invites apart,
+  since Upwork opens the chat itself.
 * Leave `posting` out. Upwork Pro reads the post into fields from `job_text` by itself, in the background; writing it out again only makes the run slower.
 * Leave `decision` out: the person has not decided yet. It is recorded with `record_decision` when they answer Decision 1.
 
