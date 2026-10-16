@@ -1952,11 +1952,18 @@ function jobHeader(s, stage) {
   const sep = () => h('span', { class: 'dot' }, '·');
   const bits = [s.source === 'claude_plugin' ? 'From the Claude plugin' : null, s.user_name, h('span', { title: full(s.created_at) }, ago(s.created_at)),
     s.profile_name, gateChip(s), s.source_url ? h('a', { href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, 'Upwork post') : null].filter(Boolean);
+  // R103 (Ahmad): the space beside the title holds the job's key facts, the ones a person checks before spending Connects
+  const known = (v) => v && !/^(not shown|not known|none|n\/a|-)$/i.test(String(v).trim());
+  const FACTS = [['Budget', s.budget], ['Client', s.client_country], ['Hire rate', s.hire_rate], ['Avg paid', s.avg_hourly_paid], ['Proposals', s.proposals], ['Connects', s.connects_cost]]
+    .filter(([, v]) => known(v)).slice(0, 5);
   return [
     h('a', { href: lastList.history, class: 'jp-back' }, icon('back'), 'Jobs'),
-    h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? verdictBadge(s.verdict) : null,
-      label ? h('span', { class: 'jp-stage' }, n ? `Step ${n} of 5 · ${label}` : label) : null),
-    h('div', { class: 'jp-meta' }, bits.flatMap((b, i) => (i ? [sep(), b] : [b]))),
+    h('div', { class: 'jp-headgrid' },
+      h('div', { class: 'jp-headmain' },
+        h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? verdictBadge(s.verdict) : null,
+          label ? h('span', { class: 'jp-stage' }, n ? `Step ${n} of 5 · ${label}` : label) : null),
+        h('div', { class: 'jp-meta' }, bits.flatMap((b, i) => (i ? [sep(), b] : [b])))),
+      FACTS.length ? h('dl', { class: 'jp-facts' }, FACTS.map(([k, v]) => h('div', { title: `${k}: ${cap(String(v))}` }, h('dt', {}, k), h('dd', {}, cap(String(v)))))) : null),
   ];
 }
 

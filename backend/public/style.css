@@ -1184,3 +1184,21 @@ table.jobs tr.picked td { background: var(--fail-bg); }
 .gapmore textarea { min-height: 0; }
 .gapmode { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .gapmode button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 6px; padding-right: 6px; font-size: 13px; }
+/* the openings card (R103): fixed places, so a long name or a long opening never pushes things around */
+.ophead { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.optitle { font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opnav { display: flex; align-items: center; gap: 6px; flex: none; }
+.opchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.opchips:empty { display: none; }
+.opfoot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); }
+.opentrack { align-items: flex-start; }
+.openslide { padding-right: 2px; }
+/* the job header (R103): the title on the left, the key facts in the space on the right */
+.jp-headgrid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: start; }
+.jp-headmain { min-width: 0; }
+.jp-facts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(84px, max-content); gap: 0; margin: 4px 0 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
+.jp-facts > div { padding: 7px 14px; border-left: 1px solid var(--line); min-width: 0; max-width: 170px; }
+.jp-facts > div:first-child { border-left: 0; }
+.jp-facts dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.jp-facts dd { margin: 2px 0 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1100px) { .jp-headgrid { grid-template-columns: minmax(0, 1fr); } .jp-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; border: 0; background: none; margin-top: 2px; } .jp-facts > div { display: flex; gap: 5px; align-items: baseline; padding: 0; border: 0; max-width: 100%; } .jp-facts dt { font-size: 11px; } .jp-facts dd { margin: 0; font-size: 13px; } }

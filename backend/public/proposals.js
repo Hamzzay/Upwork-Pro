@@ -436,13 +436,14 @@ function proposalSection(s, initial, matching) {
       ...o.items.map((x, i) => ({ ...x, label: x.style || `Opening ${i + 1}`, index: i })).filter((x) => x.index !== o.used)]; // labelled by its style (Settings)
     if (previewIdx >= slides.length) previewIdx = 0;
     const track = h('div', { class: 'opentrack' }, slides.map((sl) => h('div', { class: 'openslide' }, h('p', { class: 'opentext' }, sl.text), sl.why ? h('div', { class: 'faint small' }, sl.why) : null)));
-    const counter = h('span', { class: 'small muted' }), chips = h('span', { class: 'row', style: 'gap:6px' }), act = h('span', {});
+    const counter = h('span', { class: 'small muted' }), chips = h('div', { class: 'opchips' }), act = h('span', { class: 'row', style: 'gap:6px' }), titleEl = h('strong', { class: 'optitle' }); // R103: fixed places, whatever the length
     const dots = h('div', { class: 'opendots' }, slides.map((_, i) => h('button', { type: 'button', 'aria-label': `Show ${slides[i].label}`, onclick: () => go(i) })));
     const prev = h('button', { class: 'btn sm', type: 'button', 'aria-label': 'Previous opening', onclick: () => go(previewIdx - 1) }, '‹'), next = h('button', { class: 'btn sm', type: 'button', 'aria-label': 'Next opening', onclick: () => go(previewIdx + 1) }, '›');
     const head = () => {
       const sl = slides[previewIdx];
       counter.textContent = `${previewIdx + 1} of ${slides.length}`;
-      chips.replaceChildren(...[h('strong', {}, sl.label), sl.angle ? h('span', { class: 'chip brand' }, sl.angle) : null, sl.tone ? h('span', { class: 'chip' }, sl.tone) : null,
+      titleEl.textContent = sl.label; titleEl.title = sl.label;
+      chips.replaceChildren(...[sl.angle ? h('span', { class: 'chip brand' }, sl.angle) : null, sl.tone ? h('span', { class: 'chip' }, sl.tone) : null,
         sl.match != null ? h('span', { class: 'chip matchsc ' + (sl.match >= 8 ? 'hi' : sl.match >= 5 ? 'mid' : 'lo'), title: 'How close it is to the opening template\'s examples' + (sl.match_note ? ': ' + sl.match_note : '') }, `Like the examples ${sl.match}/10`) : null].filter(Boolean));
       dots.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === previewIdx));
       prev.disabled = previewIdx === 0; next.disabled = previewIdx === slides.length - 1;
@@ -453,9 +454,9 @@ function proposalSection(s, initial, matching) {
     const go = (i) => { i = Math.max(0, Math.min(slides.length - 1, i)); previewTo(i); track.scrollTo({ left: previewIdx * track.clientWidth, behavior: 'smooth' }); head(); };
     // swiping: the slide that comes to rest is the one shown in the proposal
     let t = null; track.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); if (i !== previewIdx) { if (!previewTo(i)) track.scrollTo({ left: previewIdx * track.clientWidth, behavior: 'smooth' }); head(); } }, 90); }, { passive: true });
-    shell(h('div', { class: 'row spread', style: 'flex-wrap:wrap;gap:8px' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, chips),
-      h('div', { class: 'row', style: 'gap:6px' }, counter, prev, next, act)), track,
-      h('div', { class: 'row spread', style: 'margin-top:6px;gap:8px;flex-wrap:wrap' }, dots, h('span', { class: 'faint small' }, 'Swipe to try each one in the proposal below.'),
+    // R103: the name and the arrows on one line, the chips under it, the text, then the actions: nothing wraps into anything else
+    shell(h('div', { class: 'ophead' }, titleEl, h('div', { class: 'opnav' }, counter, prev, next)), chips, track,
+      h('div', { class: 'opfoot' }, h('div', { class: 'row', style: 'gap:12px' }, dots, act),
         h('span', { class: 'row', style: 'gap:10px' },
           addingMore ? liveLine({ id: 'more-' + data.id, label: 'Writing three more', now: 'Opening template: ', items: (LOADER_FACTS ? LOADER_FACTS.openings : []).filter((n) => !o.items.some((x) => x.style === n) && n !== o.default), typical: 35 })
             : o.left > 0 ? writeBtn(`Load ${Math.min(3, o.left)} more (${o.left} left)`, true) : null,

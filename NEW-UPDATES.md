@@ -1003,6 +1003,16 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R103. A steady openings card; the job's key facts in the header (done, 16 October)
+
+- **Why** (Ahmad): a long opening name or a long opening pushed the card's chips and buttons into a jumble; and the space beside a
+  job's title was empty.
+- **The openings card** has fixed places: the opening's name on one line (cut with "..." when long, the full name on hover) with the
+  counter and arrows on the right, its chips under it, the text, then one line of actions (Edit, Use this opening, Load more, Write
+  new ones).
+- **The job header** shows the key facts beside the title on a wide screen: budget, client, hire rate, average paid, proposals (or
+  Connects), whichever the post states. On a narrow screen they become one compact line under the title.
+
 ### R102. Practice-wide tags; industries on the Projects step; a cleaner Experience panel (done, 16 October)
 
 - **Why** (Ahmad): Legal showed as a missing tag on legal projects; some tags (Claude Code, documentation, QA, consultation, server
