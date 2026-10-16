@@ -1212,3 +1212,23 @@ table.jobs tr.picked td { background: var(--fail-bg); }
 .clienthist { display: grid; gap: 10px; margin: 0; }
 .clienthist li { overflow-wrap: anywhere; }
 @media (max-width: 900px) { .grid2:has(> .card .facts) { grid-template-columns: 1fr; } }
+/* R107 refinement: a client's page */
+.clist { display: grid; }
+.clist > * + * { border-top: 1px solid var(--line); }
+.citem { padding: 12px 20px; display: grid; gap: 3px; }
+.cjob { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 12px 20px; color: inherit; text-decoration: none; }
+a.cjob:hover { background: var(--surface-2); }
+.cjob-main { min-width: 0; display: grid; gap: 3px; }
+.cjob-title { font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cjob-meta { font-size: 13px; color: var(--muted); }
+.cjob-side { flex: none; display: grid; gap: 4px; justify-items: end; }
+.cquote { margin: 6px 0 0; padding: 2px 0 2px 12px; border-left: 2px solid var(--line); color: var(--muted); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cfacts { display: grid; gap: 0; margin: 0; }
+.cfacts > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.cfacts > div:first-child { border-top: 0; }
+.cfacts dt { color: var(--muted); } .cfacts dd { margin: 0; text-align: right; font-weight: 500; overflow-wrap: anywhere; }
+.chip.good { color: var(--pass); background: var(--pass-bg); border-color: var(--pass-line); }
+@media (max-width: 700px) { .cjob { flex-direction: column; align-items: stretch; } .cjob-side { justify-items: start; } .cjob-side > .row { justify-content: flex-start !important; } }
+.citem-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+@media (max-width: 900px) { .chip.brand { flex: none; padding: 2px 9px; } } /* the sidebar's .brand rule is not for chips */
+@media (max-width: 700px) { .cjob-side { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } }

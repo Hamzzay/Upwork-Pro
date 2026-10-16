@@ -1003,6 +1003,18 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R108. A clearer client page (done, 17 October)
+
+- **Why** (Hamza): the client page needed UI/UX refinement.
+- The heading is the client's name (or "Unnamed client", with a line saying where to name them), never a long job title, with the key
+  facts as chips under it: returning, country, member since, jobs with us, invites, hired us.
+- Why the jobs were joined is said once at the top, not repeated under every job.
+- **Their jobs with us** is a list, not a cramped table: the title, then one line with the job number, date, who had it and from which
+  profile, the proposal type and the budget; on the right, invite, where it stands (hired in green, lost in red) and "Not this client".
+- **Your notes** and **What Upwork shows** sit in a column on the right that stays in view; Upwork's facts are compact label and value
+  rows. Their Upwork history shows the client's rating with a star and each review as a quote; their other open jobs are one line each.
+- On a phone the column moves under the page, and the chips keep their size (a sidebar rule made the brand chip stretch on every page).
+
 ### R107. Clients: every client in one place (done, 17 October)
 
 - **Why** (Hamza): one central space to see who posts, how often, from which profiles we applied, the invites, and what kind of

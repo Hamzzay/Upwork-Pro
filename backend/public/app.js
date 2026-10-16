@@ -3180,32 +3180,58 @@ async function clientsView() {
 async function clientView(id) {
   const r = await api('GET', '/clients/' + id), c = r.client;
   if (c.id !== id) { location.hash = '#/clients/' + c.id; return; } // merged into another profile
-  const field = (key, label, max, placeholder, hint) => { const el = h('input', { type: 'text', id: 'c_' + key, maxlength: max, value: c[key] || '', placeholder }); return { key, el, box: h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'c_' + key }, label), el, hint ? h('div', { class: 'hint' }, hint) : null) }; };
-  const fields = [field('name', 'Name', 190, 'For example: the dental clinic in Austin', 'Your own name for them. Upwork does not show who the client is.'), field('company', 'Company', 190, 'When you know it'), field('contact_name', 'Person', 120, 'The person who posts')];
-  const notes = h('textarea', { id: 'cnotes', maxlength: 4000, style: 'min-height:90px', placeholder: 'What to remember: how they talk, what they care about, what did not work last time' }); notes.value = c.notes || '';
-  const save = h('button', { class: 'btn primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
-    try { await api('PATCH', '/clients/' + id, { ...Object.fromEntries(fields.map((f) => [f.key, f.el.value.trim() || null])), notes: notes.value.trim() || null }); toast('Saved'); route(); } catch (x) { toast(x.message, true); route(); } } }, 'Save');
-  const separate = (j) => r.can_fix && r.jobs.length > 1 ? h('button', { class: 'btn sm', type: 'button', title: 'This job is from another client: give it a profile of its own', onclick: async (e) => { e.stopPropagation();
+  const jobs = r.jobs, n = jobs.length, invites = jobs.filter((j) => j.invite).length, hired = jobs.filter((j) => /^hired$/i.test(j.current_status || '')).length;
+  const named = c.name || c.company || c.contact_name;
+  // R107 refinement: a short name for the heading (never a long job title), the key facts as chips under it
+  const chips = [n > 1 ? h('span', { class: 'chip brand' }, 'Returning') : null, c.country ? h('span', { class: 'chip' }, c.country) : null,
+    c.member_since ? h('span', { class: 'chip' }, 'Member since ' + c.member_since) : null, h('span', { class: 'chip' }, `${n} job${n === 1 ? '' : 's'} with us`),
+    invites ? h('span', { class: 'chip' }, `${invites} invite${invites === 1 ? '' : 's'}`) : null, hired ? h('span', { class: 'chip good' }, `Hired us ${hired === 1 ? 'once' : hired + ' times'}`) : null].filter(Boolean);
+  const merge = r.can_fix ? h('button', { class: 'btn', type: 'button', onclick: () => mergeDialog(c) }, 'Same client as another') : null;
+  const head = h('div', {}, h('a', { href: '#/clients', class: 'back' }, icon('back'), 'Clients'),
+    h('div', { class: 'page-head' }, h('div', { style: 'min-width:0' }, h('h1', {}, named || 'Unnamed client'),
+      h('div', { class: 'chips', style: 'margin-top:8px' }, chips),
+      !named && n ? h('p', { class: 'sub' }, 'Give them a name in Your notes. Upwork does not show who the client is.') : null),
+      merge ? h('div', { class: 'actions' }, merge) : null));
+
+  // why these jobs are one client: said once, not under every job
+  const reasons = [...new Set(jobs.flatMap((j) => (j.why || []).flatMap((w) => w.why)))];
+  const why = n > 1 && reasons.length ? h('div', { class: 'notice' }, icon('info'), h('span', {}, h('strong', {}, 'Joined because '), reasons.join('; ') + '.')) : null;
+
+  const tone = (t) => /^hired$/i.test(t) ? 'PASS' : /lost|not hired|declined|closed|cancel/i.test(t) ? 'FAIL' : /skipped|not continued/i.test(t) ? 'wait' : 'brand';
+  const separate = (j) => r.can_fix && n > 1 ? h('button', { class: 'linkbtn small', type: 'button', title: 'This job is from another client: give it a profile of its own', onclick: async (e) => { e.preventDefault(); e.stopPropagation();
     if (!(await ask('Not this client?', `Job #${j.id} gets a client profile of its own, and the matching leaves it there.`, 'Take it out'))) return;
     try { const x = await api('POST', `/screenings/${j.id}/client/separate`, {}); toast('Taken out'); location.hash = '#/clients/' + x.client_id; } catch (x) { toast(x.message, true); } } }, 'Not this client') : null;
-  const row = (j) => h('tr', { class: j.can_open ? 'click' : '', onclick: j.can_open ? () => (location.hash = '#/s/' + j.id) : null },
-    h('td', { style: 'white-space:normal;min-width:240px' }, h('strong', {}, `#${j.id} ${j.title || 'Untitled'}`), j.invite ? h('span', { class: 'srcchip', style: 'margin-left:6px' }, 'Invite') : null,
-      h('div', { class: 'small muted' }, [j.job_type, j.budget].filter((x) => x && !/^not shown$/i.test(x)).join(' · ')),
-      j.why && j.why.length ? h('div', { class: 'faint small' }, 'Matched: ' + [...new Set(j.why.flatMap((w) => w.why))].join('; ')) : j.manual ? h('div', { class: 'faint small' }, 'Placed here by hand') : null),
-    h('td', { class: 'nowrap' }, dayText(j.created_at)), h('td', {}, j.user_name, j.profile_name ? h('div', { class: 'small muted' }, j.profile_name) : null),
-    h('td', {}, j.template_name || h('span', { class: 'faint' }, '-')), h('td', {}, howWent(j)), h('td', { class: 'acts' }, separate(j)));
-  const section = (title, sub, body) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), body);
-  const merge = r.can_fix ? h('button', { class: 'btn', type: 'button', onclick: () => mergeDialog(c) }, 'Same client as another') : null;
-  const sub = [c.company && c.company !== clientName(c) ? c.company : null, c.contact_name && c.contact_name !== clientName(c) ? c.contact_name : null, c.country, c.member_since ? 'Member since ' + c.member_since : null,
-    `${r.jobs.length} job${r.jobs.length === 1 ? '' : 's'} with us`].filter(Boolean).join(' · ');
-  shell('clients', [pageHead(clientName({ ...c, last_title: r.jobs[0] && r.jobs[0].title }), sub, merge, { back: ['#/clients', 'Clients'], badges: r.jobs.length > 1 ? h('span', { class: 'srcchip' }, 'Returning') : null }),
-    section('Their jobs with us', 'Newest first. A row opens the job.', r.jobs.length ? dataTable(['Job', 'Screened', 'By', 'Proposal type', 'Where it stands', null], r.jobs.map(row), 'rulestable') : h('p', { class: 'card-pad muted' }, 'No jobs.')),
-    h('div', { class: 'grid2' },
-      section('About the client', c.about_from ? `As Upwork showed it on job #${c.about_from}` : null, c.about.length ? h('div', { class: 'card-pad' }, h('dl', { class: 'facts' }, c.about.map((x) => h('div', {}, h('dt', {}, x.label), h('dd', {}, x.value))))) : h('p', { class: 'card-pad muted' }, 'Not shown on the posts we saw.')),
-      section('Your notes', null, h('div', { class: 'card-pad stack' }, ...fields.map((f) => f.box), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cnotes' }, 'Notes'), notes), h('div', { class: 'row' }, save)))),
-    section('Their history on Upwork', `${c.history.length} past job${c.history.length === 1 ? '' : 's'}, from every post of theirs we saw`, c.history.length ? h('ul', { class: 'plain clienthist card-pad' }, c.history.map((x) => h('li', {},
-      h('strong', {}, x.title), h('span', { class: 'muted small' }, ' ' + [x.dates, x.amount, x.rating ? 'rated ' + x.rating : null].filter(Boolean).join(' · ')), x.feedback ? h('div', { class: 'small' }, x.feedback) : null))) : h('p', { class: 'card-pad muted' }, 'No history on the posts we saw.')),
-    c.open_jobs.length ? section('Their other open jobs', 'As listed on their posts', h('ul', { class: 'plain clienthist card-pad' }, c.open_jobs.map((x) => h('li', {}, x.title, h('span', { class: 'muted small' }, ' · seen ' + dayText(x.seen)))))) : null], true);
+  const jobRow = (j) => h(j.can_open ? 'a' : 'div', { class: 'cjob', href: j.can_open ? '#/s/' + j.id : null },
+    h('div', { class: 'cjob-main' }, h('div', { class: 'cjob-title' }, j.title || 'Untitled'),
+      h('div', { class: 'cjob-meta' }, [`#${j.id}`, dayText(j.created_at), j.profile_name ? `${j.user_name} as ${j.profile_name}` : j.user_name, j.template_name, [j.job_type, j.budget].filter((x) => x && !/^not shown$/i.test(x)).join(' ')].filter(Boolean).join(' \u00b7 ')),
+      j.manual ? h('div', { class: 'cjob-meta faint' }, 'Placed in this client by hand') : null),
+    h('div', { class: 'cjob-side' }, h('div', { class: 'row', style: 'gap:6px;justify-content:flex-end;flex-wrap:wrap' }, j.invite ? h('span', { class: 'srcchip' }, 'Invite') : null, h('span', { class: 'pill ' + tone(howWent(j)) }, howWent(j) || 'Screened')), separate(j)));
+  const card = (title, sub, body) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), body);
+  const empty = (t) => h('p', { class: 'card-pad muted', style: 'margin:0' }, t);
+
+  const history = c.history.length ? h('div', { class: 'clist' }, c.history.map((x) => h('div', { class: 'citem' },
+    h('div', { class: 'row spread', style: 'gap:10px;align-items:baseline' }, h('strong', {}, x.title), x.rating ? h('span', { class: 'small nowrap', title: 'The client\u2019s rating of that job' }, '\u2605 ' + x.rating) : null),
+    h('div', { class: 'small muted' }, [x.dates, x.amount].filter(Boolean).join(' \u00b7 ')),
+    x.feedback ? h('blockquote', { class: 'cquote' }, x.feedback) : null))) : empty('No history on the posts we saw.');
+  const open = c.open_jobs.length ? h('div', { class: 'clist' }, c.open_jobs.map((x) => h('div', { class: 'citem citem-row' }, h('span', {}, x.title), h('span', { class: 'small muted nowrap' }, 'seen ' + dayText(x.seen))))) : null;
+
+  const main = h('div', { class: 'stack' }, why,
+    card('Their jobs with us', 'Newest first', n ? h('div', { class: 'clist' }, jobs.map(jobRow)) : empty('No jobs.')),
+    card('Their history on Upwork', `${c.history.length} past job${c.history.length === 1 ? '' : 's'}, from every post of theirs we saw`, history),
+    open ? card('Their other open jobs', 'As listed on their posts', open) : null);
+
+  // the side: what you know about them, then what Upwork shows
+  const input = (key, label, max, placeholder) => { const el = h('input', { type: 'text', id: 'c_' + key, maxlength: max, value: c[key] || '', placeholder }); return { key, el, box: h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'c_' + key }, label), el) }; };
+  const fName = input('name', 'Name', 190, 'For example: the dental clinic in Austin'), fCo = input('company', 'Company', 190, 'If you know it'), fWho = input('contact_name', 'Person', 120, 'Who posts');
+  const notes = h('textarea', { id: 'cnotes', maxlength: 4000, rows: 4, placeholder: 'How they talk, what they care about, what did not work last time' }); notes.value = c.notes || '';
+  const save = h('button', { class: 'btn primary', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
+    try { await api('PATCH', '/clients/' + id, { ...Object.fromEntries([fName, fCo, fWho].map((f) => [f.key, f.el.value.trim() || null])), notes: notes.value.trim() || null }); toast('Saved'); route(); } catch (x) { toast(x.message, true); route(); } } }, 'Save');
+  const side = h('div', { class: 'stack', style: 'gap:14px' },
+    h('div', { class: 'card card-pad stack', style: 'gap:12px' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Your notes'), fName.box, h('div', { class: 'grid2', style: 'gap:10px' }, fCo.box, fWho.box),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'cnotes' }, 'Notes'), notes), h('div', {}, save)),
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'What Upwork shows'), c.about_from ? h('div', { class: 'small muted', style: 'margin:-4px 0 10px' }, `From their newest post, job #${c.about_from}`) : null,
+      c.about.length ? h('dl', { class: 'cfacts' }, c.about.map((x) => h('div', {}, h('dt', {}, x.label), h('dd', {}, x.value)))) : h('p', { class: 'muted small', style: 'margin:0' }, 'Not shown on the posts we saw.')));
+  shell('clients', [head, h('div', { class: 'opgrid' }, main, side)], true);
 }
 async function mergeDialog(c) {
   const { clients } = await api('GET', '/clients');
