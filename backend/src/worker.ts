@@ -110,7 +110,8 @@ async function processTagging(id: number) {
     const tagged = rematch
       ? saved.map((r) => ({ tag: { id: r.tag_id, name: r.tag_name, category: r.category_name, weight: Number(r.weight), compliance: !!r.is_compliance }, reason: r.reason, core: r.core_rank ?? null }))
       : await tagJob(jobText, await loadDictionary());
-    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance, core: x.core }));
+    const practiceIds = new Set((await query<any>('SELECT id FROM tags WHERE practice=1')).map((r) => Number(r.id))); // R102
+    const jobTags: JobTag[] = tagged.map((x) => ({ id: x.tag.id, name: x.tag.name, category: x.tag.category, weight: x.tag.weight, compliance: !!x.tag.compliance, core: x.core, practice: practiceIds.has(x.tag.id) }));
     const cfg = await getSettings();
     const lib = await loadLibraryProjects(); // once per tagging (it was read twice)
     const matches = rankProjects(jobTags, lib, { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], minScore: cfg['matching.min_score'], related: await loadRelatedIndustries(),

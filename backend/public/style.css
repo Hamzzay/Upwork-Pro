@@ -1149,3 +1149,38 @@ table.jobs tr.picked td { background: var(--fail-bg); }
 .findrow { display: grid; gap: 2px; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
 .findrow:hover:not(:disabled) { background: var(--brand-soft); }
 .findrow:disabled { opacity: .55; cursor: default; }
+/* R101: the one plain loader (replaces the busier R97 and R99 looks) */
+.ld { display: grid; gap: 10px; width: 100%; max-width: 680px; margin: 0 auto; padding: 22px 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.card .ld, .propcard .ld { border: 0; padding: 10px 0; background: none; }
+.ldhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.ldhead strong { font-size: 16px; font-weight: 600; }
+.ldtime { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+.ldbar { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.ldbar.thin { height: 3px; }
+.ldbar i { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--brand); transition: width .5s linear; }
+.ldstep { font-size: 13.5px; color: var(--muted); }
+.ldline { display: grid; gap: 6px; padding: 6px 0; min-width: 0; }
+.ldline .ldhead { align-items: center; }
+.ldlabel { font-size: 13.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ldline .spin { width: 13px; height: 13px; flex: none; }
+.opencard .ldline { padding: 2px 0; }
+@media (prefers-reduced-motion: reduce) { .ldbar i { transition: none; } }
+/* an opening template's own page (R101) */
+.opgrid { display: grid; gap: 16px; align-items: start; }
+@media (min-width: 1100px) { .opgrid { grid-template-columns: minmax(0, 1fr) 340px; } .opgrid > :last-child { position: sticky; top: 72px; } }
+.matchrow { gap: 10px; align-items: flex-start; flex-wrap: nowrap; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.aiblock { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; margin: 0; max-height: 420px; overflow: auto; }
+.exrow { display: grid; gap: 6px; }
+.usebox { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.usebox.on { color: var(--brand); font-weight: 600; }
+.exrow.off textarea, .learnrow.off .txt { opacity: .55; }
+.chip.warnchip { background: var(--flag-bg); border-color: var(--flag-line); color: var(--flag); }
+/* the experience questions (R102): three plain choices, projects as chips, no long list */
+.gapmode { display: flex; flex-wrap: wrap; margin: 4px 0 6px; }
+.gapmode button { flex: 1 1 auto; }
+.gapproj { display: grid; gap: 8px; margin: 6px 0 8px; }
+.gapproj .chips { gap: 6px; }
+.gapmore { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.gapmore textarea { min-height: 0; }
+.gapmode { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gapmode button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 6px; padding-right: 6px; font-size: 13px; }

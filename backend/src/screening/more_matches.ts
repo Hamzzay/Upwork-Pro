@@ -9,9 +9,9 @@ import { loadLibraryProjects, loadRelatedIndustries } from './context';
 import { rankProjects, TECH_STACK, type JobTag } from './matching';
 
 export async function jobTagsOf(id: number): Promise<JobTag[]> {
-  return (await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance FROM job_tags jt
-    LEFT JOIN tag_categories c ON c.name=jt.category_name WHERE jt.screening_id=? AND jt.tag_id IS NOT NULL`, [id]))
-    .map((r) => ({ id: r.tag_id, name: r.tag_name, category: r.category_name, weight: Number(r.weight), compliance: !!Number(r.compliance), core: r.core_rank ?? null }));
+  return (await query<any>(`SELECT jt.tag_id, jt.tag_name, jt.category_name, jt.weight, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance, COALESCE(t.practice, 0) AS practice FROM job_tags jt
+    LEFT JOIN tag_categories c ON c.name=jt.category_name LEFT JOIN tags t ON t.id=jt.tag_id WHERE jt.screening_id=? AND jt.tag_id IS NOT NULL`, [id]))
+    .map((r) => ({ id: r.tag_id, name: r.tag_name, category: r.category_name, weight: Number(r.weight), compliance: !!Number(r.compliance), core: r.core_rank ?? null, practice: !!Number(r.practice) }));
 }
 
 /** Add projects to the job's list: these ones (projectIds), or else the next `n` best not shown yet. Returns how many were added and how many more there are. */

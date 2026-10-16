@@ -7,15 +7,19 @@
 import { exec, query } from '../db';
 
 export interface OpeningTemplate { id: number; name: string; instructions: string; starts: string | null; may_greet: boolean; may_talk_about_us: boolean; active: boolean;
-  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** R98: openings the team edited on a proposal and used, newest first (at most 5) */ learned: string[]; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number }
+  /** R91: up to five example openings, and whether to write the opening very close to them */ examples: string[]; match_examples: boolean; /** R98: openings the team edited on a proposal and used, newest first; R101: only those in use */ learned: string[]; /** R101: every example and learned one, with whether it is in use */ all_examples?: Example[]; all_learned?: Example[]; /** proposals finalized with it */ rank: number; /** R92: proposals finalized with it, and the points a person added by hand (rank = sent + boost) */ sent: number; boost: number }
 export const MAX_OPENINGS = 20; // R91 (was 10): they are written three at a time now, so more can be kept
 export const MAX_EXAMPLES = 5;
 export const OPENINGS_BATCH = 3;
 
-const readExamples = (json: unknown): string[] => { try { const a = JSON.parse(String(json ?? '[]')); return Array.isArray(a) ? a.map((x) => String(x).trim()).filter(Boolean).slice(0, MAX_EXAMPLES) : []; } catch { return []; } };
+/** R101: one example, written or learned, and whether the writer uses it (at most MAX_ACTIVE across both lists). Older rows were plain text: in use. */
+export interface Example { text: string; on: boolean; at?: string | null }
+export const MAX_ACTIVE = 10;
+export const readList = (json: unknown): Example[] => { try { const a = JSON.parse(String(json ?? '[]')); return Array.isArray(a) ? a.map((x: any) => (typeof x === 'string' ? { text: x.trim(), on: true } : { text: String(x?.text ?? '').trim(), on: x?.on !== false, at: x?.at ?? null })).filter((x) => x.text) : []; } catch { return []; } };
+const readExamples = (json: unknown): string[] => readList(json).filter((x) => x.on).map((x) => x.text);
 const shape = (r: any): OpeningTemplate => ({ id: Number(r.id), name: r.name, instructions: String(r.instructions ?? ''), starts: r.starts || null,
   may_greet: !!Number(r.may_greet), may_talk_about_us: !!Number(r.may_talk_about_us), active: !!Number(r.active),
-  examples: readExamples(r.examples_json), learned: readExamples(r.learned_json), match_examples: !!Number(r.match_examples), rank: Number(r.sent_n ?? 0) + Number(r.rank_boost ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0) });
+  examples: readExamples(r.examples_json), learned: readExamples(r.learned_json), all_examples: readList(r.examples_json), all_learned: readList(r.learned_json), match_examples: !!Number(r.match_examples), rank: Number(r.sent_n ?? 0) + Number(r.rank_boost ?? 0), sent: Number(r.sent_n ?? 0), boost: Number(r.rank_boost ?? 0) });
 /** How many finalized proposals went out with each template, plus the points added by hand: its ranking (R91, R92). */
 const SENT = '(SELECT COUNT(*) FROM proposals p WHERE p.final_opening_id=o.id AND p.finalized_at IS NOT NULL)';
 /** R92: the ranking is the proposals sent with it plus its manual points. */
@@ -84,10 +88,16 @@ export async function openingInUse(proposalId: number, fallback: OpeningTemplate
   return fallback ?? null;
 }
 
-/** R98: an opening edited on a proposal and used, kept on its template as a learned example (newest first, the last five). */
+/**
+ * R98: an opening edited on a proposal and used, kept on its template as a learned example, newest first and in use. R101: they are
+ * all kept (no cap); at most MAX_ACTIVE examples are in use across both lists, so the oldest learned one in use is switched off.
+ */
 export async function addLearned(templateId: number, text: string) {
   const t = text.trim(); if (!t) return;
-  const cur = readExamples((await query<any>('SELECT learned_json FROM opening_templates WHERE id=?', [templateId]))[0]?.learned_json);
-  const next = [t, ...cur.filter((x) => x.replace(/\s+/g, ' ') !== t.replace(/\s+/g, ' '))].slice(0, MAX_EXAMPLES);
-  await exec('UPDATE opening_templates SET learned_json=? WHERE id=?', [JSON.stringify(next), templateId]);
+  const r = (await query<any>('SELECT examples_json, learned_json FROM opening_templates WHERE id=?', [templateId]))[0]; if (!r) return;
+  const same = (x: string) => x.replace(/\s+/g, ' ') === t.replace(/\s+/g, ' ');
+  const learned: Example[] = [{ text: t, on: true, at: new Date().toISOString() }, ...readList(r.learned_json).filter((x) => !same(x.text))].slice(0, 200);
+  let active = readList(r.examples_json).filter((x) => x.on).length + learned.filter((x) => x.on).length;
+  for (let i = learned.length - 1; i > 0 && active > MAX_ACTIVE; i--) if (learned[i].on) { learned[i] = { ...learned[i], on: false }; active--; }
+  await exec('UPDATE opening_templates SET learned_json=? WHERE id=?', [JSON.stringify(learned), templateId]);
 }

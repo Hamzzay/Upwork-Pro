@@ -543,6 +543,7 @@ export async function runGapUpdate(proposalId: number) {
     const names: string[] = g.project_names ? String(g.project_names).split('\x1f') : [];
     const shown = names.filter((n) => inProposal.has(String(n).toLowerCase())), other = names.filter((n) => !inProposal.has(String(n).toLowerCase()));
     const how = g.note ? ' (' + g.note + ')' : '';
+    if (Number(g.practice)) return `- ${g.skill} (the client asks: ${g.ask}). Part of how the team works on every project${how}: say it once in the letter as how we work, never tied to one project.`; // R102
     return `- ${g.skill} (the client asks: ${g.ask}). ${shown.length ? `Done in ${shown.length === 1 ? 'the project' : 'the projects'} ${shown.join(', ')}, ${shown.length === 1 ? "one of this proposal's projects: explain in that project's block" : "all in this proposal: explain in each of those projects' blocks"}, in one or two sentences, how ${g.skill} was used there${how}.${other.length ? ' It was also done in other projects not shown here: do not name them.' : ''}` : `The sender's own experience${g.note ? ': ' + g.note : ''}. Say it in one sentence in the letter where it fits${other.length ? `; it was done in projects that are not in this proposal, so do not name them` : ''}.`}`;
   }).join('\n');
   const current = inParts

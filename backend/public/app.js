@@ -210,79 +210,52 @@ const fmtLeft = (n) => (n < 60 ? `${Math.max(5, Math.round(n / 5) * 5)} s` : `${
 const fmtSoFar = (n) => `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, '0')}`;
 const shuffleOnce = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
 /**
- * A full loading screen: the steps (click one to see what it does and everything it looks at), a bar that keeps moving and never goes
- * back, the time so far and about how long is left, and a line naming what is being looked at right now.
- * o: { id, title, sub, steps: [{ key, label, hint, items?, share? }], stage: () => key, typical?: seconds, elapsed?: seconds, typicalLabel? }
+ * R101 (Ahmad): one plain loading screen everywhere. A title with the time on the right, a thin bar that never goes back, and the
+ * step it is on ("Step 2 of 3: Checking the rules"). Nothing else moves. It keeps its place when the page under it refreshes.
+ * o: { id, title, steps: [{ key, label, share? }], stage: () => key, typical?: seconds, elapsed?: seconds }
  */
 function liveLoader(o) {
   let st = LOADERS.get(o.id);
-  if (!st) { st = { at: Date.now() - (o.elapsed || 0) * 1000, key: null, since: 0, pct: 0, open: null, tick: 0, order: {} }; LOADERS.set(o.id, st); }
+  if (!st) { st = { at: Date.now() - (o.elapsed || 0) * 1000, key: null, since: 0, pct: 0 }; LOADERS.set(o.id, st); }
   const total = o.steps.reduce((n, x) => n + (x.share || 1), 0);
   let acc = 0; const band = {}; for (const x of o.steps) { const w = ((x.share || 1) / total) * 97; band[x.key] = [acc, acc + w, (x.share || 1) / total]; acc += w; }
-  const left = h('strong', { class: 'pgleft' }), so = h('span', { class: 'pgelapsed' }), bar = h('i', {}), ol = h('ol', { class: 'pgsteps' });
-  const now1 = h('span', { class: 'lltxt' }), nowLine = h('div', { class: 'llnow', 'aria-live': 'off' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), now1);
-  const el = h('div', { class: 'pgx llx', role: 'status', 'aria-live': 'polite' },
-    h('div', { class: 'pgtop' }, h('div', {}, h('div', { class: 'pgtitle' }, o.title), o.sub ? h('div', { class: 'pgsub' }, o.sub) : null), h('div', { class: 'pgtime' }, left, so)),
-    h('div', { class: 'pgbar', title: 'Progress so far' }, bar), nowLine, ol);
-  const itemsOf = (x) => { const v = typeof x.items === 'function' ? x.items() : x.items; return Array.isArray(v) ? v.filter(Boolean) : []; };
-  const drawSteps = () => {
-    const idx = o.steps.findIndex((x) => x.key === st.key);
-    ol.replaceChildren(...o.steps.map((x, i) => {
-      const state = i < idx ? 'done' : i === idx ? 'now' : 'next', items = itemsOf(x), open = st.open === x.key;
-      const head = h('button', { type: 'button', class: 'llhead', 'aria-expanded': open ? 'true' : 'false', onclick: () => { st.open = open ? null : x.key; drawSteps(); } },
-        h('span', { class: 'pgdot' }, state === 'done' ? icon('check') : state === 'now' ? h('span', { class: 'spin' }) : String(i + 1)),
-        h('span', { class: 'pgname' }, x.label), items.length ? h('span', { class: 'llcount' }, String(items.length)) : null, h('span', { class: 'llchev', 'aria-hidden': 'true' }, open ? '−' : '+'));
-      return h('li', { class: state + (open ? ' open' : '') }, head,
-        open || state === 'now' ? h('div', { class: 'pghint' }, x.hint) : null,
-        open && items.length ? h('div', { class: 'llitems' }, items.map((t) => h('span', { class: 'chip' }, t))) : null);
-    }));
-  };
-  let seen = false; // this element stops once it has been on the page and is gone (a redraw put a new one in its place)
+  const time = h('span', { class: 'ldtime' }), bar = h('i', {}), step = h('div', { class: 'ldstep' });
+  const el = h('div', { class: 'ld', role: 'status', 'aria-live': 'polite' },
+    h('div', { class: 'ldhead' }, h('strong', {}, o.title), time), h('div', { class: 'ldbar' }, bar), step);
+  let seen = false;
   const paint = () => {
     if (el.isConnected) seen = true; else if (seen) return false;
     const key = o.stage(), now = Date.now();
-    if (key !== st.key) { st.key = key; st.since = now; drawSteps(); }
-    const [from, to, share] = band[key] || [0, 97, 1], T = Number(o.typical) || 0, inStage = (now - st.since) / 1000, elapsed = (now - st.at) / 1000;
+    if (key !== st.key) { st.key = key; st.since = now; }
+    const idx = Math.max(0, o.steps.findIndex((x) => x.key === key)), x = o.steps[idx];
+    const [from, to, share] = band[key] || [0, 97, 1], T = Number(o.typical) || 0, inStage = (now - st.since) / 1000, sec = (now - st.at) / 1000;
     st.pct = Math.max(st.pct, from + (to - from) * (1 - Math.exp(-inStage / Math.max(3, share * (T || 90)))) * 0.95);
     bar.style.width = st.pct.toFixed(1) + '%';
-    const l = T - elapsed;
-    left.textContent = !T ? (o.typicalLabel || 'Usually under a minute') : l > 6 ? `About ${fmtLeft(l)} left` : 'Almost done';
-    so.textContent = `${fmtSoFar(elapsed)} so far` + (T && l < -30 ? ', a little longer than usual' : '');
-    // what is being looked at now: the current step's own items, one after another
-    if (st.tick % 4 === 0 || !now1.textContent) {
-      const x = o.steps.find((y) => y.key === key), items = x ? itemsOf(x) : [];
-      st.order[key] = st.order[key] && st.order[key].length === items.length ? st.order[key] : shuffleOnce(items);
-      const pick = items.length ? st.order[key][Math.floor(st.tick / 4) % items.length] : null;
-      now1.classList.remove('in'); void now1.offsetWidth; now1.classList.add('in');
-      now1.textContent = pick ? `${x.now || 'Looking at'}: ${pick}` : (x ? x.hint : '');
-    }
-    st.tick++;
+    const left = T - sec;
+    time.textContent = fmtSoFar(sec) + (T ? (left > 6 ? ` · about ${fmtLeft(left)} left` : ' · almost done') : '');
+    const txt = o.steps.length > 1 ? `Step ${idx + 1} of ${o.steps.length}: ${x ? x.label : ''}` : x ? x.label : '';
+    if (step.textContent !== txt) step.textContent = txt;
     return true;
   };
-  paint(); drawSteps();
-  const t = setInterval(() => { if (!paint()) clearInterval(t); }, 450);
+  paint();
+  const t = setInterval(() => { if (!paint()) clearInterval(t); }, 500);
   return el;
 }
-/** A one-line version for the smaller waits: what is being done, what it is looking at now, and a slim moving bar. */
+/** The one-line version for the smaller waits: a spinner, what it is doing, the time so far, and a thin bar. */
 function liveLine(o) {
-  let st = LOADERS.get(o.id); if (!st) { st = { at: Date.now(), tick: 0, order: null }; LOADERS.set(o.id, st); }
-  const items = (o.items || []).filter(Boolean); if (!st.order || st.order.length !== items.length) st.order = shuffleOnce(items);
-  const txt = h('span', { class: 'lltxt' }), time = h('span', { class: 'llsec' }), fill = h('i');
-  const el = h('div', { class: 'llline', role: 'status' },
-    h('div', { class: 'row llrow', style: 'gap:4px 8px;min-width:0' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
-      h('strong', { class: 'lllabel' }, o.label), txt, time),
-    h('div', { class: 'llbar' }, fill));
+  let st = LOADERS.get(o.id); if (!st) { st = { at: Date.now() }; LOADERS.set(o.id, st); }
+  const time = h('span', { class: 'ldtime' }), fill = h('i');
+  const el = h('div', { class: 'ldline', role: 'status' }, h('div', { class: 'ldhead' }, h('span', { class: 'row', style: 'gap:8px;min-width:0' }, h('span', { class: 'spin' }), h('span', { class: 'ldlabel' }, o.label)), time),
+    h('div', { class: 'ldbar thin' }, fill));
   let seen = false;
   const paint = () => {
     if (el.isConnected) seen = true; else if (seen) return false;
     const sec = (Date.now() - st.at) / 1000, T = Number(o.typical) || 40;
     fill.style.width = (96 * (1 - Math.exp(-sec / (T * 0.6)))).toFixed(1) + '%';
     time.textContent = fmtSoFar(sec);
-    if ((st.tick % 4 === 0 || !txt.textContent) && items.length) { txt.classList.remove('in'); void txt.offsetWidth; txt.classList.add('in'); txt.textContent = (o.now || '') + st.order[Math.floor(st.tick / 4) % items.length]; }
-    else if (!items.length && !txt.textContent) txt.textContent = o.hint || '';
-    st.tick++; return true;
+    return true;
   };
-  paint(); const t = setInterval(() => { if (!paint()) clearInterval(t); }, 450);
+  paint(); const t = setInterval(() => { if (!paint()) clearInterval(t); }, 500);
   return el;
 }
 const forgetLoader = (id) => LOADERS.delete(id);
@@ -1554,16 +1527,16 @@ function jobReportView(j, multi) {
 /** Step 1 while the gate runs (R99): the steps, the rules it checks one after another, a moving bar and the time left. */
 function progressCard(status, s) {
   const f = LOADER_FACTS || { rules: [], typical: {} }, T = f.typical.screening || 45;
-  if (!LOADER_FACTS) loaderFacts().then(() => { const el = document.querySelector('.llx[data-l="screen"]'); if (el && s) el.replaceWith(progressCard(s.status, s)); });
+  if (!LOADER_FACTS) loaderFacts().then(() => { const el = document.querySelector('.ld[data-l="screen"]'); if (el && s) el.replaceWith(progressCard(s.status, s)); });
   const id = 'screen-' + (s ? s.id : 0), started = Date.now() - ((s && s.run_elapsed_seconds) || 0) * 1000;
   const el = liveLoader({ id, title: status === 'running' ? 'Screening this job' : 'Waiting for a free slot', typical: status === 'running' ? T : null, elapsed: s ? s.run_elapsed_seconds : 0,
     sub: 'You can leave this page. It carries on, and the result is saved.', typicalLabel: 'It starts as soon as a slot is free',
     stage: () => (status !== 'running' ? 'queued' : (Date.now() - started) / 1000 < T * 0.7 ? 'rules' : 'verdict'),
     steps: [
       { key: 'queued', label: 'Waiting for a free slot', hint: 'Another job is being worked on. This one is next.', share: 0.4 },
-      { key: 'rules', label: 'Reading the post and checking every rule', hint: 'The job, the client and the competition, against each fail and flag rule.', now: 'Checking', share: 3,
+      { key: 'rules', label: 'Checking the job against the rules', hint: 'The job, the client and the competition, against each fail and flag rule.', now: 'Checking', share: 3,
         items: f.rules.map((r) => `${r.code} ${r.rule}`) },
-      { key: 'verdict', label: 'Writing the verdict and the fit', hint: 'Pass, flag or fail with the reasons, the fit with ' + cfg('company.name', 'us') + ', and notes for the proposal.', share: 1 },
+      { key: 'verdict', label: 'Writing the verdict', hint: 'Pass, flag or fail with the reasons, the fit with ' + cfg('company.name', 'us') + ', and notes for the proposal.', share: 1 },
     ] });
   el.dataset.l = 'screen';
   return el;
@@ -1578,7 +1551,10 @@ function matchingSection(s, initial) {
   // R95 (Ahmad): the job's tags a project is missing, named, and added to the project right here (compliance first)
   const gapOpen = new Set(), gapTicks = new Map();
   const canTeach = owner || me.role === 'admin' || me.role === 'manager';
-  const missingOf = (r) => { const have = new Set((r.shared || []).map((t) => t.id)); return (m.tags || []).filter((t) => t.id && !have.has(t.id) && (Number(t.weight) > 0 || Number(t.compliance))); };
+  // R102: an industry is matched by the project's own industry (Industries page), never as a shared tag: a project of the same
+  // industry has it (it showed Legal as missing on projects whose industry is Legal)
+  const missingOf = (r) => { const have = new Set((r.shared || []).map((t) => t.id));
+    return (m.tags || []).filter((t) => t.id && !have.has(t.id) && (Number(t.weight) > 0 || Number(t.compliance)) && !(t.category === 'Industry' && r.pool === 'same') && !Number(t.practice)); };
   function gapBlock(r) {
     const miss = missingOf(r); if (!miss.length || !r.project_id) return null;
     const comp = miss.filter((t) => Number(t.compliance)), other = miss.filter((t) => !Number(t.compliance));
@@ -1600,7 +1576,7 @@ function matchingSection(s, initial) {
         const res = await api('POST', `/screenings/${s.id}/projects/${r.project_id}/tags`, { tag_ids: [...ticks] });
         gapTicks.delete(r.project_id); gapOpen.delete(r.project_id);
         if (res.rematch) { // the card shows the tags at once; the order is worked out in the background
-          const added = (m.tags || []).filter((t) => ticks.has(t.id) || res.added?.includes(t.id));
+          const added = (m.tags || []).filter((t) => (ticks.has(t.id) || res.added?.includes(t.id)) && t.category !== 'Industry'); if ((m.tags || []).some((t) => ticks.has(t.id) && t.category === 'Industry')) r.pool = 'same';
           r.shared = [...(r.shared || []), ...added.filter((t) => !(r.shared || []).some((x) => x.id === t.id)).map((t) => ({ id: t.id, name: t.name, category: t.category, weight: Number(t.weight), compliance: !!Number(t.compliance) }))];
           const already = quiet; quiet = true; m = { ...m, status: busy() ? m.status : 'queued' }; draw(); if (!already) timer = setTimeout(poll, 2500);
           toast(`Added to ${r.project_name}. The order updates in the background.`); }
@@ -1727,7 +1703,7 @@ function matchingSection(s, initial) {
     };
     // R95: the job's tags none of the projects shown has (a later step can still write about them from the post)
     const noneHas = () => { const shown = rows.filter((r) => !r.extra && r.project_id); if (!shown.length) return null;
-      const none = (m.tags || []).filter((t) => t.id && (Number(t.weight) > 0 || Number(t.compliance)) && shown.every((r) => !(r.shared || []).some((x) => x.id === t.id)));
+      const none = (m.tags || []).filter((t) => t.id && (Number(t.weight) > 0 || Number(t.compliance)) && !Number(t.practice) && shown.every((r) => missingOf(r).some((x) => x.id === t.id)));
       return none.length ? h('div', { class: 'gapsum' }, h('strong', {}, `No project shown has: ${none.map((t) => t.name).join(', ')}`),
         h('div', { class: 'small muted' }, canTeach ? 'If one of these projects did this work, add the tag on its card. A tag no project has can still be written about from the job post.' : 'A tag no project has can still be written about from the job post.')) : null; };
     const card = (r) => {
@@ -1788,8 +1764,8 @@ function matchingSection(s, initial) {
         steps: [
           { key: 'queued', label: 'Waiting for a free slot', hint: 'Another job is being worked on. This one is next.', share: 0.3 },
           ...(again ? [] : [{ key: 'tags', label: 'Tagging the job', hint: 'What it runs on, the core work, the industry, the tools and the stack, from the tag dictionary.', now: 'Tagging', share: 2, items: f.categories }]),
-          { key: 'score', label: 'Weighing every project in the library', hint: 'Each project scores the weights of the tags it shares with the job; the core work and the industry come first.', now: 'Weighing', share: 1.5, items: f.projects },
-          { key: 'order', label: 'Reading the best ones and putting them in order', hint: 'The AI reads the overview and case study of the shortlist and orders them for this job, with a reason each.', now: 'Reading', share: 1.5,
+          { key: 'score', label: 'Scoring the projects', hint: 'Each project scores the weights of the tags it shares with the job; the core work and the industry come first.', now: 'Weighing', share: 1.5, items: f.projects },
+          { key: 'order', label: 'Putting the best ones in order', hint: 'The AI reads the overview and case study of the shortlist and orders them for this job, with a reason each.', now: 'Reading', share: 1.5,
             items: (m.matches || []).length ? m.matches.map((x) => x.project_name) : f.projects },
         ] });
     } else if (m.status === 'error') {
@@ -2134,40 +2110,13 @@ async function jobPage(id, want) {
    * the time so far and about how long is left (from how long jobs in auto mode took here). Only this card is redrawn.
    */
   let autoProg = { key: null, since: 0, pct: 0, at: 0 };
-  function autoProgress() {
-    const P = [['screening', 0, 22, 0.25], ['projects', 22, 48, 0.25], ['p:queued', 48, 52, 0.02], ['p:signals', 52, 62, 0.1], ['p:template', 62, 68, 0.05], ['p:writing', 68, 90, 0.25], ['p:checking', 90, 97, 0.08]];
-    const SUB = [['p:signals', 'Reading the job'], ['p:template', 'Choosing the proposal type'], ['p:writing', 'Writing the letter and the answers'], ['p:checking', 'Checking it']];
+  function autoProgress() { // R101: the same plain loader as everywhere, inside the auto mode card
     const screened = s.status === 'done', matched = !!(matching && matching.confirmed_at);
-    const key = !screened ? 'screening' : !matched || !proposal ? 'projects' : 'p:' + (proposal.status === 'queued' ? 'queued' : proposal.stage && P.some((x) => x[0] === 'p:' + proposal.stage) ? proposal.stage : 'signals');
-    if (!autoProg.at) autoProg.at = Date.now() - (Number(s.auto_elapsed_seconds) || 0) * 1000;
-    if (autoProg.key !== key) { autoProg.key = key; autoProg.since = Date.now(); }
-    const idx = P.findIndex((x) => x[0] === key);
-    const T = Number(s.auto_typical_seconds) || 180;
-    const chosen = matched ? matching.matches.filter((x) => x.selected).map((x) => x.project_name) : [];
-    const li = (state, title, detail, kids) => h('li', { class: state }, h('span', { class: 'pgdot' }, state === 'done' ? icon('check') : state === 'now' ? h('span', { class: 'spin' }) : ''),
-      h('div', {}, h('div', { class: 'pgname' }, title), detail ? h('div', { class: 'pghint' }, detail) : null, kids || null));
-    const at = (k) => P.findIndex((x) => x[0] === k), st = (from, to) => (idx > to ? 'done' : idx >= from ? 'now' : 'next');
-    const subList = idx >= at('p:queued') ? h('ol', { class: 'pgsteps pgsub' }, SUB.map(([k, t]) => li(idx > at(k) ? 'done' : idx === at(k) ? 'now' : 'next', t))) : null;
-    const left = h('strong', { class: 'pgleft' }), so = h('span', { class: 'pgelapsed' }), bar = h('i', {});
-    const card = h('div', { class: 'card card-pad pgx autopg', role: 'status', 'aria-live': 'polite' },
-      h('div', { class: 'pgtop' }, h('div', {}, h('div', { class: 'pgtitle' }, 'Auto mode: writing the proposal for you'), h('div', { class: 'pgsub' }, 'You can leave this page. It carries on, and the proposal opens here when it is written.')),
-        h('div', { class: 'pgtime' }, left, so)),
-      h('div', { class: 'pgbar' }, bar),
-      h('ol', { class: 'pgsteps' },
-        li(st(0, 0), 'Screening', screened ? `${cap(vword(s.verdict))}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : 'Checking the job against the rules'),
-        li(st(1, 1), 'Projects', matched ? chosen.join(', ') : 'Tagging the job and picking the projects that prove the work'),
-        li(matched ? 'done' : 'next', 'Profile', matched && matching.proposal_profile ? matching.proposal_profile.name : 'The profile whose services fit the job'),
-        li(st(2, 6), 'Proposal', idx < 2 ? 'The suggested proposal type, then the writing' : proposal && proposal.status === 'queued' ? 'Waiting for a free slot' : null, subList)));
-    const paint = () => {
-      const [, from, to, share] = P[idx], now = Date.now(), inStage = (now - autoProg.since) / 1000, elapsed = (now - autoProg.at) / 1000;
-      autoProg.pct = Math.max(autoProg.pct, from + (to - from) * (1 - Math.exp(-inStage / Math.max(4, share * T))) * 0.95);
-      bar.style.width = autoProg.pct.toFixed(1) + '%';
-      const l = T - elapsed;
-      left.textContent = !s.auto_typical_seconds ? 'Usually a few minutes' : l > 8 ? `About ${l < 60 ? Math.max(5, Math.round(l / 5) * 5) + ' s' : Math.floor(l / 60) + ' min' + (l % 60 >= 30 ? ' 30 s' : '')} left` : 'Almost done';
-      so.textContent = `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, '0')} so far` + (s.auto_typical_seconds && l < -30 ? ', a little longer than usual' : '');
-    };
-    paint();
-    const anim = setInterval(() => { if (!card.isConnected) return clearInterval(anim); paint(); }, 500);
+    const sub = proposal && proposal.status !== 'queued' && ['signals', 'template', 'writing', 'checking'].includes(proposal.stage) ? proposal.stage : 'signals';
+    const key = !screened ? 'screening' : !matched || !proposal ? 'projects' : 'p:' + sub;
+    const card = h('div', { class: 'card card-pad autold' }, liveLoader({ id: 'auto-' + s.id, title: 'Auto mode: writing the proposal for you', typical: s.auto_typical_seconds, elapsed: s.auto_elapsed_seconds, stage: () => key,
+      steps: [{ key: 'screening', label: 'Screening the job', share: 2 }, { key: 'projects', label: 'Picking the projects and the profile', share: 2 }, { key: 'p:signals', label: 'Reading the job for the proposal', share: 1 },
+        { key: 'p:template', label: 'Choosing the proposal type', share: 0.5 }, { key: 'p:writing', label: 'Writing the proposal', share: 2.5 }, { key: 'p:checking', label: 'Checking it', share: 0.7 }] }));
     // the data every few seconds; only this card is swapped, the rest of the page stays as it is
     const tick = async () => {
       if (!card.isConnected) return;
@@ -2416,12 +2365,15 @@ async function dictionaryView() {
     const f = { name: h('input', { type: 'text', id: 'tn1', maxlength: 120, value: t ? t.name : '' }),
       cat: h('select', { id: 'tc1', style: 'width:100%' }, categories.map((c) => h('option', { value: c.id, selected: t ? c.id === t.category_id : c.id === (Number(hashParams().cat) || categories[0].id) }, c.name))),
       score: h('input', { type: 'number', id: 'ts1', min: 0, max: 10, step: 1, value: t ? t.weight : 1 }), desc: h('input', { type: 'text', id: 'td1', maxlength: 500, value: t && t.description ? t.description : '' }),
-      active: h('input', { type: 'checkbox', id: 'ta1', checked: t ? !!Number(t.active) : true }) };
+      active: h('input', { type: 'checkbox', id: 'ta1', checked: t ? !!Number(t.active) : true }),
+      practice: h('input', { type: 'checkbox', id: 'tpw1', checked: t ? !!Number(t.practice) : false }) };
     modal({ title: t ? 'Edit tag' : 'Add a tag', confirm: t ? 'Save tag' : 'Add tag', wide: true,
       body: h('div', {}, h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn1' }, 'Tag name'), f.name), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tc1' }, 'Category'), f.cat)),
         h('div', { class: 'grid2', style: 'margin-top:16px' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ts1' }, 'Score (match weight, 0 to 10)'), f.score,
           h('div', { class: 'hint' }, 'What a shared tag is worth when jobs are matched to projects. 0 means the tag is ignored.')),
-          h('div', { class: 'field row', style: 'align-self:start;padding-top:28px' }, f.active, h('label', { for: 'ta1', style: 'font-weight:600' }, 'Active (used for tagging jobs)'))),
+          h('div', { class: 'field', style: 'align-self:start;padding-top:24px;display:grid;gap:10px' },
+            h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' }, f.active, h('label', { for: 'ta1', style: 'font-weight:600' }, 'Active (used for tagging jobs)')),
+            h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap;align-items:flex-start' }, f.practice, h('label', { for: 'tpw1' }, h('strong', {}, 'Practice-wide'), h('span', { class: 'hint', style: 'display:block;margin:2px 0 0' }, 'Applies to all our work, not one project (documentation, QA, Claude Code). Left out of project matching; the writer says it as how we work.'))))),
         h('div', { class: 'field', style: 'margin-top:16px' }, h('label', { class: 'lbl', for: 'td1' }, 'What it means (shown to the model when it tags jobs)'), f.desc),
         h('div', { style: 'margin-top:16px' }, multiPick('Projects with this tag', projects.filter((p) => Number(p.active) || picked.has(p.id)), picked, 'Find a project'),
           h('div', { class: 'hint' }, 'Tick every project that did this kind of work. For an Industry tag, the project\'s industry follows on the Industries page.'))),
@@ -2429,7 +2381,7 @@ async function dictionaryView() {
         body: h('p', { class: 'muted' }, t.project_count ? `${t.project_count} project${t.project_count === 1 ? ' uses' : 's use'} this tag, so it cannot be deleted. Remove it from them, or disable it instead.` : 'This removes the tag. Past job results keep its name. It cannot be undone.'),
         onConfirm: async () => { await api('DELETE', '/admin/tags/' + t.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Tag deleted'); route(); } }) }, 'Delete') : null,
       onConfirm: async () => {
-        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, active: f.active.checked, project_ids: [...picked] };
+        const body = { category_id: Number(f.cat.value), name: f.name.value, weight: Number(f.score.value), description: f.desc.value.trim() || null, active: f.active.checked, practice: f.practice.checked, project_ids: [...picked] };
         await api(t ? 'PATCH' : 'POST', t ? '/admin/tags/' + t.id : '/admin/tags', body); toast(t ? 'Tag saved' : 'Tag added'); route();
       } });
   }
@@ -2456,11 +2408,12 @@ async function dictionaryView() {
   }
   const tagsList = () => listCard({ items: all, icon: 'tag', emptyTitle: 'No tags yet', emptyText: 'Add the tags jobs and projects are described with.',
     search: { placeholder: 'Search tags', text: (t) => t.name + ' ' + (t.description || '') },
-    filters: [{ key: 'cat', label: 'Any category', options: categories.map((c) => [c.id, c.name]), test: (t, v) => String(t.category_id) === v }, statusFilter((t) => t.active, 'Disabled')],
+    filters: [{ key: 'cat', label: 'Any category', options: categories.map((c) => [c.id, c.name]), test: (t, v) => String(t.category_id) === v }, statusFilter((t) => t.active, 'Disabled'),
+      { key: 'scope', label: 'Any scope', options: [['practice', 'Practice-wide'], ['project', 'Per project']], test: (t, v) => (v === 'practice' ? !!Number(t.practice) : !Number(t.practice)) }],
     render: (slice) => dataTable(['Tag', 'Category', 'Score', 'Projects', 'Status', ''], slice.map((t) => {
       const inp = h('input', { type: 'number', class: 'scoreinp', min: 0, max: 10, step: 1, value: t.weight, 'aria-label': 'Score for ' + t.name });
       inp.onchange = () => saveScore(t, inp);
-      return h('tr', {}, h('td', {}, h('strong', {}, t.name), t.description ? h('div', { class: 'meta' }, t.description.slice(0, 100)) : null), h('td', { class: 'muted' }, t.category), h('td', {}, inp),
+      return h('tr', {}, h('td', {}, h('strong', {}, t.name), Number(t.practice) ? h('span', { class: 'chip brand', style: 'margin-left:8px', title: 'Applies to all our work, not one project' }, 'Practice-wide') : null, t.description ? h('div', { class: 'meta' }, t.description.slice(0, 100)) : null), h('td', { class: 'muted' }, t.category), h('td', {}, inp),
         h('td', { class: 'muted' }, t.project_count), h('td', {}, activeSwitch(t.active, { name: t.name, url: '/admin/tags/' + t.id, no: 'Disabled', offText: 'It stays on its projects, but jobs are no longer tagged with it and it no longer counts in matching.' })),
         acts(h('button', { class: 'btn sm', onclick: () => tagDialog(t) }, 'Edit')));
     })) });
@@ -3191,51 +3144,94 @@ async function flagReviewView() {
 // ---------- writing guide: what the Claude plugin writes by (proposal types, rules, banned phrases, modules, screening answers, checklist) ----------
 const WG_KIND = { type: 'Proposal type', rules: 'Writing rules', banned: 'Banned phrases', modules: 'Modules', screening: 'Screening answers', checklist: 'Verification checklist', selection: 'Type selection', opening: 'Opening lines' };
 /** One opening template, to add or change (R88): what it does, its first words, and its two possible exceptions. */
-function openingEditor(o, after) {
-  const f = { name: h('input', { type: 'text', id: 'oname', maxlength: 80, value: o ? o.name : '' }),
-    ins: h('textarea', { id: 'oins', rows: 14, maxlength: 3000, style: 'min-height:300px', placeholder: 'Line one ... Line two ... Tone ... The line of thought: they read on because ...' }),
+/**
+ * R101 (Ahmad): an opening template on its own page, not a small window: what it does, the examples written for it, the openings
+ * learned from edits on proposals (each can be removed, or kept as a written example), how it is used, and exactly what the AI reads.
+ */
+async function openingView(idStr) {
+  const isNew = idStr === 'new';
+  const d = isNew ? { item: null, block: '', max_examples: 5 } : await api('GET', '/opening-templates/' + idStr);
+  const o = d.item, MAX = d.max_examples || 5, staff = me.role === 'admin' || me.role === 'manager';
+  const f = { name: h('input', { type: 'text', id: 'oname', maxlength: 80, value: o ? o.name : '', placeholder: 'For example: Problem first opening' }),
+    ins: h('textarea', { id: 'oins', maxlength: 3000, style: 'min-height:220px', placeholder: 'Line one ... Line two ... Tone ... Why the client reads on ...' }),
     starts: h('input', { type: 'text', id: 'ostarts', maxlength: 200, value: o && o.starts ? o.starts : '', placeholder: 'For example: Understood.' }),
     greet: h('input', { type: 'checkbox', id: 'ogreet', checked: !!(o && o.may_greet) }), us: h('input', { type: 'checkbox', id: 'ous', checked: !!(o && o.may_talk_about_us) }),
-    active: h('input', { type: 'checkbox', id: 'oact', checked: o ? !!o.active : true }),
     match: h('input', { type: 'checkbox', id: 'omatch', checked: !!(o && o.match_examples) }) };
   f.ins.value = o ? o.instructions : '';
-  // R91: up to five example openings; "match the examples" has the opening written 80 to 90 percent like them
-  const MAXEX = 5, exList = h('div', { class: 'stack', style: 'gap:10px' }), exAdd = h('button', { class: 'btn sm', type: 'button' }, icon('screen'), 'Add example');
-  const exBoxes = [];
-  const exDraw = () => {
-    exList.replaceChildren(...exBoxes.map((ta, i) => h('div', { class: 'exrow' }, h('div', { class: 'row spread' }, h('label', { class: 'lbl', for: 'oex' + i, style: 'margin:0' }, 'Example ' + (i + 1)),
-      h('button', { class: 'linkbtn small', type: 'button', onclick: () => { exBoxes.splice(i, 1); exDraw(); } }, 'Remove')), ta)));
-    exAdd.hidden = exBoxes.length >= MAXEX; f.match.disabled = !exBoxes.length; if (!exBoxes.length) f.match.checked = false;
+  // R101: every example kept, written or learned, each in use or not; at most MAX_ACTIVE in use across both
+  const examples = ((o && o.all_examples) || []).map((x) => ({ ...x })), learned = ((o && o.all_learned) || []).map((x) => ({ ...x }));
+  const MAXON = d.max_active || 10, onCount = () => examples.filter((x) => x.on && x.text.trim()).length + learned.filter((x) => x.on).length;
+  const dirtyChip = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
+  const dirty = () => { dirtyChip.hidden = false; drawCount(); };
+  for (const el of [f.name, f.ins, f.starts]) el.addEventListener('input', dirty);
+  for (const el of [f.greet, f.us, f.match]) el.addEventListener('change', dirty);
+  const exList = h('div', { class: 'stack', style: 'gap:10px' }), learnList = h('div', { class: 'stack', style: 'gap:8px' });
+  const exHead = h('span', {}), learnHead = h('span', {}), countEl = h('span', { class: 'chip' });
+  const drawCount = () => { const n = onCount(); countEl.textContent = `${n} of ${MAXON} in use`; countEl.className = 'chip' + (n >= MAXON ? ' warnchip' : ' brand'); };
+  const useBox = (x, redraw) => { const b = h('input', { type: 'checkbox', checked: !!x.on, 'aria-label': 'In use' });
+    b.onchange = () => { if (b.checked && onCount() >= MAXON) { b.checked = false; return toast(`At most ${MAXON} examples can be in use. Switch one off first.`, true); } x.on = b.checked; dirty(); redraw(); };
+    return h('label', { class: 'usebox' + (x.on ? ' on' : '') }, b, 'In use'); };
+  const exAdd = h('button', { class: 'btn sm', type: 'button', onclick: () => { examples.push({ text: '', on: onCount() < MAXON }); dirty(); drawEx(); const tas = exList.querySelectorAll('textarea'); tas[tas.length - 1]?.focus(); } }, icon('screen'), 'Add example');
+  function drawEx() {
+    exHead.textContent = `Examples you wrote (${examples.length})`;
+    f.match.disabled = !onCount();
+    exList.replaceChildren(...(examples.length ? examples.map((x, i) => {
+      const ta = h('textarea', { rows: 3, maxlength: 1500, placeholder: 'An opening that worked, as it was sent (no client names).' }); ta.value = x.text;
+      ta.oninput = () => { x.text = ta.value; dirty(); };
+      return h('div', { class: 'exrow' + (x.on ? '' : ' off') }, h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'Example ' + (i + 1)),
+        h('span', { class: 'row', style: 'gap:12px' }, useBox(x, drawEx), h('button', { class: 'linkbtn small', type: 'button', onclick: () => { examples.splice(i, 1); dirty(); drawEx(); } }, 'Remove'))), ta);
+    }) : [h('div', { class: 'faint small' }, 'None yet. Add openings that worked, to show the AI what this one sounds like.')]));
+  }
+  function drawLearned() {
+    learnHead.textContent = `Learned from your edits (${learned.length})`;
+    learnList.replaceChildren(...(learned.length ? learned.map((x, i) => h('div', { class: 'learnrow' + (x.on ? '' : ' off') }, h('div', { class: 'txt' }, x.text,
+      x.at ? h('div', { class: 'faint small', style: 'margin-top:4px' }, 'Edited ' + ago(x.at)) : null),
+      h('div', { class: 'row', style: 'gap:12px;flex:none' }, useBox(x, drawLearned),
+        h('button', { class: 'linkbtn small', type: 'button', title: 'Move it to the examples you wrote', onclick: () => { examples.push({ text: x.text, on: x.on }); learned.splice(i, 1); dirty(); drawEx(); drawLearned(); } }, 'Keep as an example'),
+        h('button', { class: 'linkbtn small', type: 'button', onclick: () => { learned.splice(i, 1); dirty(); drawLearned(); drawEx(); } }, 'Remove'))))
+      : [h('div', { class: 'faint small' }, 'None yet. When someone edits this opening on a proposal and uses it, their version is kept here, newest first.')]));
+  }
+  drawEx(); drawLearned(); drawCount();
+  const err = h('div', { class: 'err', hidden: true });
+  const save = h('button', { class: 'btn primary', type: 'button' }, isNew ? 'Add opening' : 'Save');
+  save.onclick = async () => {
+    err.hidden = true; btnBusy(save, 'Saving');
+    const ex = examples.map((x) => ({ text: x.text.trim(), on: !!x.on })).filter((x) => x.text);
+    const body = { name: f.name.value.trim(), instructions: f.ins.value.trim(), starts: f.starts.value.trim() || null, may_greet: f.greet.checked, may_talk_about_us: f.us.checked,
+      examples: ex, match_examples: onCount() > 0 && f.match.checked, ...(isNew ? {} : { learned }) };
+    try { const r = await api(isNew ? 'POST' : 'PATCH', isNew ? '/opening-templates' : '/opening-templates/' + o.id, body); toast(isNew ? 'Opening added' : 'Opening saved');
+      if (isNew) location.hash = '#/o/' + r.id; else route(); }
+    catch (x) { err.replaceChildren(icon('x'), x.message); err.hidden = false; save.disabled = false; save.replaceChildren(isNew ? 'Add opening' : 'Save'); }
   };
-  const exBox = (v) => { const ta = h('textarea', { rows: 3, maxlength: 1500, placeholder: 'An opening that worked, as it was sent (no client names).' }); ta.value = v || ''; ta.oninput = () => { f.match.disabled = false; }; return ta; };
-  for (const x of (o && o.examples) || []) exBoxes.push(exBox(x));
-  // R98: openings the team edited on proposals and used, kept here by themselves (the newest five); one can be taken out
-  const learned = [...((o && o.learned) || [])], learnedList = h('div', { class: 'stack', style: 'gap:8px' });
-  const drawLearned = () => learnedList.replaceChildren(...(learned.length ? learned.map((x, i) => h('div', { class: 'learnrow' }, h('div', { class: 'txt' }, x),
-    h('button', { class: 'linkbtn small', type: 'button', onclick: () => { learned.splice(i, 1); drawLearned(); } }, 'Remove'))) : [h('div', { class: 'faint small' }, 'None yet. When someone edits this opening on a proposal and uses it, their version is kept here.')]));
-  drawLearned();
-  exAdd.onclick = () => { if (exBoxes.length < MAXEX) { exBoxes.push(exBox('')); exDraw(); exBoxes[exBoxes.length - 1].focus(); } };
-  exDraw();
-  modal({ title: o ? 'Change ' + o.name : 'Add an opening template', confirm: o ? 'Save' : 'Add opening template', wide: true,
-    body: h('div', { class: 'stack', style: 'gap:14px' },
+  const used = o && o.used_by ? o.used_by.split(', ') : [];
+  const side = isNew ? null : h('div', { class: 'stack', style: 'gap:14px' },
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'How it is used'),
+      h('dl', { class: 'facts one' },
+        h('div', {}, h('dt', {}, 'Rank'), h('dd', {}, `#${o.position} of ${o.of}`)),
+        h('div', {}, h('dt', {}, 'Sent with it'), h('dd', {}, `${o.sent} proposal${o.sent === 1 ? '' : 's'}${o.boost ? ` + ${o.boost} points by hand` : ''}`)),
+        h('div', {}, h('dt', {}, 'Default of'), h('dd', {}, used.length ? used.join(', ') : 'No proposal type (it is written as an alternative)'))),
+      h('p', { class: 'hint', style: 'margin:10px 0 0' }, 'The ranking is changed on the Writing guide, Openings, Change ranking.')),
+    h('details', { class: 'card fold' }, h('summary', {}, 'What the AI reads for this opening'), h('div', { class: 'card-pad' }, h('pre', { class: 'aiblock' }, d.block || ''),
+      h('p', { class: 'hint', style: 'margin:8px 0 0' }, 'Saved changes show here. The rules for every opening are given before it.'))));
+  const main = h('div', { class: 'stack', style: 'gap:14px' },
+    h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'What this opening does'),
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'oname' }, 'Name'), f.name),
-      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'oins' }, 'What this opening does'), f.ins, h('div', { class: 'hint' }, 'What line one and line two do, the tone, and why the client reads on. The rules for every opening apply on top, except where the options below say otherwise.')),
-      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ostarts' }, 'First words (optional)'), f.starts, h('div', { class: 'hint' }, 'The opening must begin with this. For a choice, put | between them: For your platform,|For you,. A client\'s own required words come first.')),
-      h('label', { class: 'row', for: 'ogreet', style: 'gap:8px' }, f.greet, 'May open with a greeting by the client\'s name'),
-      h('label', { class: 'row', for: 'ous', style: 'gap:8px' }, f.us, 'May say how we would start (talk about us)'),
-      h('label', { class: 'row', for: 'oact', style: 'gap:8px' }, f.active, 'On: written as an alternative for every proposal'),
-      h('div', { class: 'exbox' },
-        h('div', { class: 'row spread' }, h('div', {}, h('strong', {}, `Examples (up to ${MAXEX})`), h('div', { class: 'hint', style: 'margin:2px 0 0' }, 'Openings that worked, to show the AI what this one sounds like. Each new opening gets a score out of 10 for how close it is to them.')), exAdd),
-        exList,
-        h('label', { class: 'row', for: 'omatch', style: 'gap:10px;align-items:flex-start;flex-wrap:nowrap' }, f.match, h('span', {}, h('strong', {}, 'Match the examples'), h('span', { class: 'hint', style: 'display:block;margin:2px 0 0' }, 'The opening is written 80 to 90 percent like the closest example: its structure, sentence order, length and wording, with only this job\'s facts changed.')))),
-      o ? h('div', { class: 'exbox' }, h('div', {}, h('strong', {}, `Learned from your edits (${learned.length})`), h('div', { class: 'hint', style: 'margin:2px 0 0' }, 'Openings someone edited on a proposal and used, newest first. The writer learns from them along with the examples above.')), learnedList) : null),
-    onConfirm: async () => {
-      const examples = exBoxes.map((ta) => ta.value.trim()).filter(Boolean);
-      const body = { name: f.name.value.trim(), instructions: f.ins.value.trim(), starts: f.starts.value.trim() || null, may_greet: f.greet.checked, may_talk_about_us: f.us.checked, active: f.active.checked,
-        examples, match_examples: !!examples.length && f.match.checked, ...(o ? { learned } : {}) };
-      if (o) await api('PATCH', '/opening-templates/' + o.id, body); else await api('POST', '/opening-templates', body);
-      toast(o ? 'Opening template saved' : 'Opening template added'); after();
-    } });
+      h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'oins' }, 'Instructions'), f.ins, h('div', { class: 'hint' }, 'What line one and line two do, the tone, and why the client reads on. The rules for every opening apply on top, except where the options below say otherwise.')),
+      h('div', { class: 'grid2', style: 'margin-top:14px' },
+        h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ostarts' }, 'First words (optional)'), f.starts, h('div', { class: 'hint' }, 'It must begin with this. For a choice, put | between them. A client’s own required words come first.')),
+        h('div', { class: 'field', style: 'display:grid;gap:10px;align-content:start;padding-top:24px' },
+          h('label', { class: 'row', for: 'ogreet', style: 'gap:8px;flex-wrap:nowrap' }, f.greet, 'May open with a greeting by the client’s name'),
+          h('label', { class: 'row', for: 'ous', style: 'gap:8px;flex-wrap:nowrap' }, f.us, 'May say how we would start (talk about us)')))),
+    h('div', { class: 'card card-pad' }, h('div', { class: 'row spread' }, h('h3', { class: 'section-title', style: 'margin:0' }, exHead), h('span', { class: 'row', style: 'gap:8px' }, countEl, exAdd)),
+      h('p', { class: 'hint', style: 'margin:6px 0 12px' }, `Openings that worked, to show the AI what this one sounds like. Keep as many as you like; the ones in use (at most ${MAXON}, counting the learned ones below) are what the writer reads and what each new opening is scored against.`),
+      exList,
+      h('label', { class: 'row matchrow', for: 'omatch' }, f.match, h('span', {}, h('strong', {}, 'Match the examples'), h('span', { class: 'hint', style: 'display:block;margin:2px 0 0' }, 'Write it 80 to 90 percent like the closest example: its structure, sentence order, length and wording, with only this job’s facts changed.')))),
+    isNew ? null : h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, learnHead),
+      h('p', { class: 'hint', style: 'margin:0 0 12px' }, 'Openings someone edited on a proposal and used, newest first. Every one is kept. A new one comes in use; past the limit, the oldest learned one in use is switched off.'), learnList),
+    err);
+  shell('writing', [pageHead(isNew ? 'New opening' : o.name, isNew ? 'An opening template: what the first paragraph of a proposal does.' : 'An opening template: what the first paragraph of a proposal does, with its examples.',
+    staff ? [dirtyChip, save] : null, { back: ['#/writing?tab=openings', 'Writing guide'], badges: isNew ? null : activeSwitch(o.active, { name: o.name, url: '/opening-templates/' + o.id, yes: 'On', no: 'Off', can: staff, offText: 'It is no longer written as an alternative. A proposal type that uses it as its default must get another default first.' }) }),
+    h('div', { class: side ? 'opgrid' : '' }, main, side)], true);
 }
 /**
  * Change the ranking by hand (R92): drag or move the openings into the order wanted. Each one's score is the proposals sent with
@@ -3309,7 +3305,7 @@ function shortcutsSection(items, staff) {
 }
 /** The Openings section of the Writing guide (R88): the rules for every opening, and the templates, with which type uses each by default. */
 function openingsSection(data, staff) {
-  const card = (o, i) => h(staff ? 'button' : 'div', { type: staff ? 'button' : null, class: 'card card-pad cardlink openingcard', onclick: staff ? () => openingEditor(o, route) : null },
+  const card = (o, i) => h('button', { type: 'button', class: 'card card-pad cardlink openingcard', onclick: () => { location.hash = '#/o/' + o.id; } },
     h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('strong', {}, o.name), o.active ? null : h('span', { class: 'pill wait' }, 'Off')),
     h('div', { class: 'small', title: 'Its score: the finished proposals sent with it, plus points added by hand. The alternatives on a proposal are written and shown in this order.' }, h('span', { class: 'rankn' }, '#' + (i + 1)),
       ` ${o.sent} sent${o.boost ? ` + ${o.boost} by hand` : ''}`),
@@ -3362,7 +3358,7 @@ async function writingView() {
       onclick: () => { if (x.key === tab) return; tab = x.key; setHashParams({ tab, q: '', page: '', ready: '', status: '' }); draw(); } }, x.label, h('span', { class: 'n' }, String(x.n)))));
     const action = !staff ? null : tab === 'openings'
       ? [openingData.items.length > 1 ? h('button', { class: 'btn', type: 'button', onclick: () => rankingEditor(openingData.items, route) }, 'Change ranking') : null,
-        h('button', { class: 'btn primary', type: 'button', disabled: openingData.items.length >= openingData.max || null, onclick: () => openingEditor(null, route) }, icon('screen'), `Add opening (${openingData.items.length} of ${openingData.max})`)].filter(Boolean)
+        h('button', { class: 'btn primary', type: 'button', disabled: openingData.items.length >= openingData.max || null, onclick: () => { location.hash = '#/o/new'; } }, icon('screen'), `Add opening (${openingData.items.length} of ${openingData.max})`)].filter(Boolean)
       : tab === 'types' ? h('a', { class: 'btn primary', href: '#/t/new' }, icon('screen'), 'Add proposal type')
         : tab === 'shortcuts' ? h('button', { class: 'btn primary', type: 'button', onclick: () => shortcutEditor(null, route) }, icon('screen'), 'Add shortcut') : null;
     head.replaceChildren(pageHead('Writing guide', 'How every proposal is written, by the app and by the Claude plugin alike. One copy, kept here: an edit applies to the next proposal everywhere.', action));
@@ -3570,6 +3566,7 @@ async function route() {
     if (a === 'reports') return await reportsView();
     if (a === 'templates') { location.hash = '#/writing?tab=types'; return; } // the proposal types live on the Writing guide now
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
+    if (a === 'o' && b) return await openingView(b); // R101: an opening template's own page
     if (a === 'signals' && me.role !== 'employee') return await signalsView();
     if (a === 'writing') return await writingView();
     if (a === 'wg' && b) return await writingDocView(Number(b));

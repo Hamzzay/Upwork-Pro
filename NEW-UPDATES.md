@@ -1003,6 +1003,33 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R102. Practice-wide tags; industries on the Projects step; a cleaner Experience panel (done, 16 October)
+
+- **Why** (Ahmad): Legal showed as a missing tag on legal projects; some tags (Claude Code, documentation, QA, consultation, server
+  setup) belong to how the whole company works, not to one project; and answering an experience question meant scrolling a long list.
+- **Industries**: matching compares the job's industry with the project's own industry (Industries page), never as a shared tag, so
+  the Projects step now counts a project of the same industry as having it. Adding an industry there also links the project to it.
+  (Legal was already on those projects; adding it again changed nothing, which is why nothing seemed to happen.)
+- **Practice-wide tags**: a tag can be marked **Practice-wide** in the Tag dictionary (with a filter for them). It is left out of
+  project matching and never shown as a project's missing tag, and the writer says it as part of how we work, without naming a
+  project. The plugin (0.21.0) gets the list as `practice_wide`.
+- **Experience questions**: after Yes, one of three choices: **In projects** (this proposal's projects as chips, any other found by
+  name), **All our work** (marks the tag practice-wide; the proposal says it as how we work) or **Just the profile**, then a short
+  note. While the proposal updates, the answers stay on screen with one line above them. Migration 058.
+
+### R101. An opening has its own page; plain loaders; examples kept without limit (done, 16 October)
+
+- **Why** (Ahmad): editing an opening in a small window got messy once it had instructions, examples and learned edits; the R99
+  loaders were too busy; and the examples, written or learned, should not be capped at five.
+- **An opening's own page** (Writing guide, Openings, click one): what it does (name, instructions, first words, may greet, may say how
+  we start), the examples you wrote, and the openings learned from edits on proposals (each can be kept as a written example or
+  removed). On the side: its rank, how many proposals went out with it, which types use it by default, and exactly what the AI reads.
+- **As many examples as you like**, written and learned. Each has an **In use** switch; at most 10 are in use at once across both
+  lists (the writer reads those, and each new opening is scored against them). A new learned edit comes in use; past 10, the oldest
+  learned one in use is switched off. Nothing is thrown away.
+- **One plain loader everywhere**: a title with the time on the right, a thin bar, and "Step 2 of 3: Checking the rules". The small
+  waits are one line: a spinner, what it is doing, the time, a thin bar. The moving lists and chips of R99 are gone.
+
 ### R100. The Projects step: tags while it updates, your picks kept, more projects (done, 16 October)
 
 - **Why** (Ahmad): while the order updated after adding a tag, Add tags disappeared from the other cards; when it finished, the

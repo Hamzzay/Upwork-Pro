@@ -234,8 +234,7 @@ function proposalSection(s, initial, matching) {
   function drawGaps() {
     drawChecks(); drawSideTabs();
     const g = data && data.gaps; if (!g || !g.items || !g.items.length) { gapsEl.replaceChildren(); return; }
-    if (g.status === 'queued' || g.status === 'running') {
-      gapsEl.replaceChildren(liveLine({ id: 'gaps-' + data.id, label: 'Updating the proposal with your experience', now: 'Adding: ', typical: 40, items: g.items.filter((x) => x.status !== 'open' && x.has !== false).map((x) => x.skill || x.tag_name).filter(Boolean), hint: 'Only those lines change' })); return; }
+    const updating = g.status === 'queued' || g.status === 'running'; // R102: the answered list stays; one line says it is updating
     const open = g.items.filter((x) => x.status === 'open'), done = g.items.filter((x) => x.status !== 'open');
     const state = new Map(); // id -> { has, projects: Set, note, tag_name, category }
     const send = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Update the proposal');
@@ -245,29 +244,40 @@ function proposalSection(s, initial, matching) {
     const row = (x) => {
       const st = { has: null, projects: new Set(), note: '', tag_name: x.skill, category: x.category || '' }; state.set(x.id, st);
       const more = h('div', { class: 'gapmore', hidden: true });
-      // where it was done: tick any number of projects; none ticked means the sender's own experience
-      const picked = h('div', { class: 'faint small' });
+      // R102: where it was done, in one of three plain choices; projects as chips, any other found by name (no long list to scroll)
+      st.mode = inProp.length ? 'projects' : 'own';
+      const modeSeg = h('div', { class: 'seg gapmode', role: 'radiogroup', 'aria-label': 'Where was it done?' });
+      const projBox = h('div', { class: 'gapproj' }), chips = h('div', { class: 'chips' });
       const tagLine = h('div', { class: 'gaptag', hidden: true });
-      const drawPicked = () => { const n = st.projects.size; picked.textContent = n ? `${n} project${n === 1 ? '' : 's'} picked` : 'None picked: said as your own experience'; tagLine.hidden = !n; };
-      const pick = (p) => { const cb = h('input', { type: 'checkbox', value: p.id }); cb.onchange = () => { if (cb.checked) st.projects.add(p.id); else st.projects.delete(p.id); drawPicked(); };
-        return h('label', { class: 'gappick', 'data-name': p.name.toLowerCase() }, cb, h('span', {}, p.name)); };
-      const list = h('div', { class: 'gaplist' },
-        inProp.length ? [h('div', { class: 'gapgroup' }, 'In this proposal'), ...inProp.map(pick)] : null,
-        others.length ? [h('div', { class: 'gapgroup' }, inProp.length ? 'Other projects' : 'Projects'), ...others.map(pick)] : null);
-      const find = g.projects.length > 8 ? h('input', { type: 'search', placeholder: 'Find a project', 'aria-label': 'Find a project' }) : null;
-      if (find) find.oninput = () => { const q = find.value.trim().toLowerCase(); list.querySelectorAll('.gappick').forEach((l) => { l.hidden = !!q && !l.dataset.name.includes(q); }); };
-      const note = h('textarea', { rows: 2, maxlength: 600, placeholder: 'For example: built the support bot on Grok, with function calls into the booking system.' });
+      const MODES = [['projects', 'In projects'], ['practice', 'All our work'], ['own', 'Just the profile']];
+      const drawMode = () => {
+        modeSeg.replaceChildren(...MODES.map(([k, l]) => h('button', { type: 'button', role: 'radio', 'aria-checked': st.mode === k ? 'true' : 'false', class: st.mode === k ? 'on' : '', onclick: () => { st.mode = k; drawMode(); } }, l)));
+        projBox.hidden = st.mode !== 'projects'; tagLine.hidden = st.mode !== 'projects' || !st.projects.size;
+        modeHint.textContent = st.mode === 'practice' ? 'Part of how the team works on every project (like documentation or QA). It is said that way, and the tag is left out of project matching.'
+          : st.mode === 'own' ? 'Said as the profile’s own experience, without a project.' : st.projects.size ? '' : 'Tick the projects it was done in.';
+      };
+      const modeHint = h('div', { class: 'faint small' });
+      const chip = (p) => { const on = st.projects.has(p.id);
+        return h('button', { type: 'button', class: 'tgadd' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', onclick: () => { if (on) st.projects.delete(p.id); else st.projects.add(p.id); drawChips(); drawMode(); } },
+          h('span', { class: 'pl', 'aria-hidden': 'true' }, on ? '✓' : '+'), p.name); };
+      const drawChips = () => { const extra = others.filter((p) => st.projects.has(p.id)); chips.replaceChildren(...[...inProp, ...extra].map(chip)); };
+      const find = h('input', { type: 'search', placeholder: 'Add another project', 'aria-label': 'Find another project' }), res = h('div', { class: 'findres', hidden: true });
+      find.oninput = () => { const q = find.value.trim().toLowerCase(); if (!q) { res.hidden = true; return; }
+        const hit = others.filter((p) => !st.projects.has(p.id) && p.name.toLowerCase().includes(q)).slice(0, 6); res.hidden = false;
+        res.replaceChildren(...(hit.length ? hit.map((p) => h('button', { type: 'button', class: 'findrow', onclick: () => { st.projects.add(p.id); find.value = ''; res.hidden = true; drawChips(); drawMode(); } }, h('strong', {}, p.name)))
+          : [h('div', { class: 'faint small', style: 'padding:6px 10px' }, 'No other project with that name.')])); };
+      projBox.append(inProp.length ? h('div', { class: 'jp-label' }, 'This proposal’s projects, or add another') : null, chips, others.length ? h('div', { class: 'findwrap', style: 'min-width:0' }, find, res) : null);
+      const note = h('textarea', { rows: 2, maxlength: 600, placeholder: 'How it was used (optional). For example: built the support bot on Grok, with function calls into the booking system.' });
       note.oninput = () => { st.note = note.value; };
-      // the tag the library gets: shown as one line, changed only when needed
+      // the tag the library gets: one line, changed only when needed
       const tagIn = h('input', { type: 'text', value: x.skill, maxlength: 120, 'aria-label': 'Tag name' });
       const catSel = h('select', { 'aria-label': 'Tag category' }, ...g.categories.map((c) => h('option', { value: c, selected: c === x.category }, c)));
       tagIn.oninput = () => { st.tag_name = tagIn.value; tagText.textContent = tagIn.value || x.skill; }; catSel.onchange = () => { st.category = catSel.value; catText.textContent = catSel.value; };
       const tagText = h('strong', {}, x.skill), catText = h('span', {}, x.category || g.categories[0] || '');
       const tagEdit = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:6px', hidden: true }, tagIn, catSel);
-      tagLine.append(h('div', {}, 'Tag for the library: ', tagText, ' in ', catText, ' ', h('button', { type: 'button', class: 'linkbtn', onclick: (e) => { tagEdit.hidden = !tagEdit.hidden; e.currentTarget.textContent = tagEdit.hidden ? 'Change' : 'Done'; } }, 'Change')),
-        tagEdit, h('div', { class: 'faint small' }, 'Made switched off: it does not count in matching until an admin switches it on.'));
-      more.append(h('div', { class: 'lbl' }, 'Where was it done?'), find, list, picked, h('label', { class: 'lbl', style: 'margin-top:10px' }, 'How it was used (optional)'), note, tagLine);
-      drawPicked();
+      tagLine.append(h('div', {}, 'Tag for the library: ', tagText, ' in ', catText, ' ', h('button', { type: 'button', class: 'linkbtn', onclick: (e) => { tagEdit.hidden = !tagEdit.hidden; e.currentTarget.textContent = tagEdit.hidden ? 'Change' : 'Done'; } }, 'Change')), tagEdit);
+      more.append(h('div', { class: 'lbl' }, 'Where was it done?'), modeSeg, modeHint, projBox, note, tagLine);
+      drawChips(); drawMode();
       const yes = h('button', { type: 'button', 'aria-pressed': 'false' }, 'Yes'), no = h('button', { type: 'button', 'aria-pressed': 'false' }, 'No');
       const card = h('div', { class: 'gapcard' });
       const choose = (v) => { st.has = st.has === v ? null : v; yes.classList.toggle('on', st.has === true); no.classList.toggle('on', st.has === false); yes.setAttribute('aria-pressed', String(st.has === true)); no.setAttribute('aria-pressed', String(st.has === false));
@@ -280,7 +290,9 @@ function proposalSection(s, initial, matching) {
     };
     const err = h('div', { class: 'err', hidden: true });
     send.onclick = async () => {
-      const answers = [...state.entries()].filter(([, v]) => v.has !== null).map(([id, v]) => ({ id, has: v.has, project_ids: v.has ? [...v.projects] : [], note: v.has ? v.note.trim() || undefined : undefined, tag_name: v.has ? v.tag_name.trim() || undefined : undefined, category: v.has ? v.category || undefined : undefined }));
+      const noProj = [...state.values()].find((v) => v.has === true && v.mode === 'projects' && !v.projects.size);
+      if (noProj) { err.replaceChildren(icon('x'), 'Tick a project for each Yes "In projects", or choose All our work or Just the profile.'); err.hidden = false; return; }
+      const answers = [...state.entries()].filter(([, v]) => v.has !== null).map(([id, v]) => ({ id, has: v.has, practice: v.has && v.mode === 'practice' ? true : undefined, project_ids: v.has && v.mode === 'projects' ? [...v.projects] : [], note: v.has ? v.note.trim() || undefined : undefined, tag_name: v.has ? v.tag_name.trim() || undefined : undefined, category: v.has ? v.category || undefined : undefined }));
       if (!answers.length) { err.replaceChildren(icon('x'), 'Answer Yes or No first.'); err.hidden = false; return; }
       if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Update the proposal?', 'You have unsaved changes. The update starts from the last saved version, so save yours first to keep them.', 'Update anyway'))) return;
       btnBusy(send, 'Saving');
@@ -289,14 +301,15 @@ function proposalSection(s, initial, matching) {
     };
     recount();
     gapsEl.replaceChildren(h('div', {},
-      open.length ? [h('p', { class: 'jp-label', style: 'margin:0 0 12px' }, 'The client asks for these and we have no record of them, so they were left out. Have you done them? A Yes puts them in, explained, and teaches the library.'),
+      updating ? liveLine({ id: 'gaps-' + data.id, label: 'Updating the proposal with your experience', typical: 40 }) : null,
+      !updating && open.length ? [h('p', { class: 'jp-label', style: 'margin:0 0 12px' }, 'The client asks for these and we have no record of them, so they were left out. Have you done them? A Yes puts them in, explained, and teaches the library.'),
         h('div', { class: 'stack', style: 'gap:10px' }, open.map(row)), err,
         owner ? h('div', { class: 'gapfoot' }, tally, send) : null] : null,
       done.length ? h('details', { class: 'reviewfold', style: open.length ? 'margin-top:14px' : '', open: !open.length || null }, h('summary', {}, `Answered (${done.length})`),
         h('div', { class: 'stack', style: 'gap:6px;margin-top:8px' }, done.map((x) => h('div', { class: 'gapdone' },
           h('div', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' }, h('span', { class: 'pill ' + (x.status === 'no' ? 'wait' : 'PASS') }, x.status === 'no' ? 'No' : 'Yes'), h('strong', {}, x.skill)),
           x.status === 'no' ? h('div', { class: 'faint small' }, 'Left out of the proposal.')
-            : h('div', { class: 'faint small' }, [x.project_name ? 'Done in ' + x.project_name : null, x.applied_version ? 'in version ' + x.applied_version : null, LIB[x.library] || null].filter(Boolean).join('. ') + '.'))))) : null,
+            : h('div', { class: 'faint small' }, [Number(x.practice) ? 'Across all our work' : x.project_name ? 'Done in ' + x.project_name : null, x.applied_version ? 'in version ' + x.applied_version : null, LIB[x.library] || null].filter(Boolean).join('. ') + '.'))))) : null,
       g.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The update failed' + (g.error ? ': ' + g.error : '.') + ' Answer again to try again.') : null));
   }
 
@@ -908,7 +921,7 @@ async function templateView(idStr) {
     const alt = opData.items.filter((x) => x.active && x.id !== openingId).length;
     preview.replaceChildren(h('div', { class: 'opreview' },
       h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('div', {}, h('div', { class: 'jp-label' }, o ? 'What this opening tells the AI' : 'No opening template'), h('strong', {}, o ? o.name : 'The rules for every opening only')),
-        o && canEditTemplates() ? h('button', { class: 'btn sm', type: 'button', onclick: () => openingEditor(o, route) }, 'Edit opening') : null),
+        o ? h('a', { class: 'btn sm', href: '#/o/' + o.id }, canEditTemplates() ? 'Edit opening' : 'Open') : null),
       o ? h('div', { class: 'txt' }, o.instructions) : null, o && flagChips(o).length ? h('div', { class: 'chips' }, ...flagChips(o)) : null,
       h('p', { class: 'hint', style: 'margin:0' }, alt ? `The other ${alt} active opening${alt === 1 ? ' is' : 's are'} written beside it, to pick from on the proposal page.` : 'No other opening is active, so there is nothing to pick from beside it.')));
   };

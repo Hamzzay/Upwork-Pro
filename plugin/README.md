@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.20.0)
+## Status (v0.21.0)
+
+v0.21.0: `practice_wide` in `get_writing_guide`: what the team does on every project, said as how we work. Tags can be marked
+`practice` (setup-admin, kind `tag`).
+
+## Earlier (v0.20.0)
 
 v0.20.0: opening templates carry `team_edits`, openings the team edited on proposals and sent, to learn from.
 

@@ -6,13 +6,14 @@ import { activeShortcuts, shortcutsBlock } from './shortcuts';
  * The shared part of the Writing guide (writing_docs): writing rules, banned phrases, modules, screening answers and the checklist.
  * The app's writer and the Claude plugin both follow it; the proposal types themselves are the templates.
  */
-export interface Guide { rules: string | null; banned: string | null; modules: string | null; screening: string | null; checklist: string | null; /** the default first two lines rules (R68) */ opening?: string | null; /** R92: the word shortcuts, as the writer's instruction */ shortcuts?: string | null }
+export interface Guide { rules: string | null; banned: string | null; modules: string | null; screening: string | null; checklist: string | null; /** the default first two lines rules (R68) */ opening?: string | null; /** R92: the word shortcuts, as the writer's instruction */ shortcuts?: string | null; /** R102: what we do on all our work (practice-wide tags) */ practice?: string | null }
 
 export const loadGuide = (): Promise<Guide> => cached('guide', readGuide);
 async function readGuide(): Promise<Guide> {
   const docs = await query<any>("SELECT kind, content FROM writing_docs WHERE active=1 AND kind<>'type' ORDER BY sort_order");
   const one = (k: string) => docs.filter((d) => d.kind === k).map((d) => d.content.trim()).join('\n\n') || null;
-  return { rules: one('rules'), banned: one('banned'), modules: one('modules'), screening: one('screening'), checklist: one('checklist'), opening: one('opening'), shortcuts: shortcutsBlock(await activeShortcuts()) || null };
+  return { rules: one('rules'), banned: one('banned'), modules: one('modules'), screening: one('screening'), checklist: one('checklist'), opening: one('opening'), shortcuts: shortcutsBlock(await activeShortcuts()) || null,
+    practice: (await query<any>('SELECT name FROM tags WHERE practice=1 AND active=1 ORDER BY name')).map((r) => r.name).join(', ') || null };
 }
 
 /** The quoted phrases of the banned list ("I'm excited to apply"), as patterns: "[project]" matches any short text. */
@@ -48,6 +49,7 @@ export function guideBlock(g: Guide): string {
     g.rules && `WRITING RULES\n${g.rules}`,
     g.banned && `BANNED PHRASES (never use them)\n${g.banned}`,
     g.shortcuts,
+    g.practice && `HOW WE WORK ON EVERY PROJECT (practice-wide: may be said as part of how the team works, without naming a project as the proof): ${g.practice}`,
     g.modules && `MODULES (add the ones the DETECTED SIGNALS call for, one or two sentences each, where they read naturally)\n${g.modules}`,
     g.screening && `SCREENING ANSWERS (when the post has screening questions, answer them apart from the cover letter, one answer per question in the client's order; never put the questions or their answers inside the cover letter)\n${g.screening}`,
     g.checklist && `CHECK BEFORE ANSWERING (anything that still fails goes in "warnings")\n${g.checklist}`,

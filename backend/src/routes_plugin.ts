@@ -593,6 +593,7 @@ plugin.get('/plugin/writing-guide', anyone, async (req, res) => {
     }),
     type_selection: one('selection'), opening_lines: one('opening'),
     word_shortcuts: (await activeShortcuts()).map((x) => ({ main_word: x.main_word, short_word: x.short_word })), // R92: always write the short word
+    practice_wide: (await query<any>('SELECT name FROM tags WHERE practice=1 AND active=1 ORDER BY name')).map((r: any) => r.name), // R102: how the team works on every project
     opening_templates: openings.map((o) => ({ name: o.name, instructions: o.instructions, must_start_with: o.starts ? o.starts.split('|').map((x) => x.trim()) : undefined, may_greet: o.may_greet || undefined, may_talk_about_us: o.may_talk_about_us || undefined,
       examples: o.examples.length ? o.examples : undefined, team_edits: o.learned?.length ? o.learned : undefined, // R98: openings the team edited on proposals and sent (learn from them) match_examples: o.examples.length && o.match_examples ? 'Write this opening 80 to 90 percent like the closest example: its structure, sentence order, length, rhythm and wording; change only the facts this job needs, never carrying a fact over from an example.' : undefined,
       times_sent: o.rank })), writing_rules: one('rules'), banned_phrases: one('banned'), modules: one('modules'), screening_answers: one('screening'), verification_checklist: one('checklist'),

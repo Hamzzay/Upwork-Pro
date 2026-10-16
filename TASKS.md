@@ -131,6 +131,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 83 | Edit an opening in place before using it; the edit is kept as a learned example on its template (R98) | done |
 | 84 | Every loading screen: steps, live detail from the setup, a moving bar and the time left (R99) | done |
 | 85 | Projects step: Add tags during an update, picks kept, Hide for more projects, Load more and project search (R100) | done |
+| 86 | An opening template's own page; examples without limit, 10 in use at most; one plain loader everywhere (R101) | done |
+| 87 | Industries counted from the project's industry; practice-wide tags; Experience answers in three choices (R102) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

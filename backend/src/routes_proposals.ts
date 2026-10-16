@@ -6,7 +6,7 @@ import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
 import { addVersion, applySendParts, latestVersion, loadTemplate, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
-import { allOpenings, MAX_EXAMPLES, MAX_OPENINGS, openingInUse } from './proposal/opening_templates';
+import { allOpenings, MAX_ACTIVE, MAX_EXAMPLES, MAX_OPENINGS, openingInUse, readList, templateBlock } from './proposal/opening_templates';
 import { editOpening, openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
 import { compareOf, queueCompare } from './proposal/compare';
 
@@ -177,17 +177,29 @@ export const openingBody = z.object({
   starts: z.string().trim().max(200).nullable().optional(), may_greet: z.boolean().optional(), may_talk_about_us: z.boolean().optional(),
   active: z.boolean().optional(), sort_order: z.number().int().min(0).max(10000).optional(),
   // R91: up to five example openings, and whether to write the opening very close to them
-  examples: z.array(z.string().trim().max(1500)).max(MAX_EXAMPLES, `At most ${MAX_EXAMPLES} examples`).optional(), match_examples: z.boolean().optional(),
+  // R101: as many examples as wanted (plain text, or { text, on } to say whether the writer uses it); at most 10 in use across both lists
+  examples: z.array(z.union([z.string().trim().max(1500), z.object({ text: z.string().trim().max(1500), on: z.boolean().optional() })])).max(200).optional(), match_examples: z.boolean().optional(),
   rank_boost: z.number().int().min(0).max(100000).optional(), // R92: points added by hand to its ranking
-  learned: z.array(z.string().trim().max(1500)).max(MAX_EXAMPLES).optional(), // R98: the learned examples (to remove one)
+  learned: z.array(z.union([z.string().trim().max(1500), z.object({ text: z.string().trim().max(1500), on: z.boolean().optional(), at: z.string().nullable().optional() })])).max(200).optional(), // R98/R101: the learned ones (to switch off or remove)
 });
-const examplesJson = (a: string[] | undefined) => { const l = (a ?? []).filter(Boolean); return l.length ? JSON.stringify(l) : null; };
+const toList = (a: any[] | undefined) => (a ?? []).map((x) => (typeof x === 'string' ? { text: x, on: true } : { text: x.text, on: x.on !== false, ...(x.at ? { at: x.at } : {}) })).filter((x) => x.text);
+const examplesJson = (a: any[] | undefined) => { const l = toList(a); return l.length ? JSON.stringify(l) : null; };
+/** R101: at most MAX_ACTIVE examples in use across the written and learned lists (null when fine). */
+const tooManyActive = (ex: any[] | undefined, le: any[] | undefined) => { const n = toList(ex).filter((x) => x.on).length + toList(le).filter((x) => x.on).length; return n > MAX_ACTIVE ? `At most ${MAX_ACTIVE} examples can be in use at once (${n} are). Switch some off.` : null; };
 proposals.get('/opening-templates', anyone, async (_req, res) => {
   const doc = (await query<any>("SELECT id FROM writing_docs WHERE kind='opening' ORDER BY sort_order LIMIT 1"))[0];
   res.json({ items: await allOpenings(), max: MAX_OPENINGS, rules_doc_id: doc?.id ?? null });
 });
+// R101: one opening template for its own page: everything about it, and exactly what the writer reads for it
+proposals.get('/opening-templates/:id', anyone, async (req, res) => {
+  const o = (await allOpenings()).find((x) => x.id === num(req.params.id));
+  if (!o) return void res.status(404).json({ error: 'Not found' });
+  const all = await allOpenings();
+  res.json({ item: { ...o, position: all.findIndex((x) => x.id === o.id) + 1, of: all.length }, block: templateBlock(o), max_active: MAX_ACTIVE });
+});
 proposals.post('/opening-templates', editor, async (req, res) => {
   const b = openingBody.safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  { const too = tooManyActive(b.data.examples, b.data.learned); if (too) return void res.status(400).json({ error: too }); }
   if (Number((await query<any>('SELECT COUNT(*) n FROM opening_templates'))[0].n) >= MAX_OPENINGS) return void res.status(409).json({ error: `There can be at most ${MAX_OPENINGS} opening templates. Change or switch off one instead.` });
   try {
     const r = await exec('INSERT INTO opening_templates (name, instructions, starts, may_greet, may_talk_about_us, active, sort_order, examples_json, match_examples) VALUES (?,?,?,?,?,?,?,?,?)',
@@ -200,6 +212,10 @@ proposals.post('/opening-templates', editor, async (req, res) => {
 proposals.patch('/opening-templates/:id', editor, async (req, res) => {
   const b = openingBody.partial().safeParse(req.body); if (!b.success) return void bad(res, b.error);
   const id = num(req.params.id), d: any = b.data;
+  if ('examples' in d || 'learned' in d) { // R101: the in-use limit counts both lists, so the one not sent is read
+    const cur = (await query<any>('SELECT examples_json, learned_json FROM opening_templates WHERE id=?', [id]))[0];
+    const too = tooManyActive('examples' in d ? d.examples : readList(cur?.examples_json), 'learned' in d ? d.learned : readList(cur?.learned_json)); if (too) return void res.status(400).json({ error: too });
+  }
   // a type's default cannot be switched off: the type would have no opening to be written with
   if (d.active === false) {
     const users = await query<any>('SELECT name FROM templates WHERE default_opening_id=? AND active=1', [id]);

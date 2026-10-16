@@ -82,7 +82,7 @@ library.delete('/profiles/:id', admin, async (req, res) => {
 library.get('/tags', anyone, async (_req, res) => {
   const cats = await query<any>('SELECT id, name, sort_order, is_compliance FROM tag_categories ORDER BY sort_order, name');
   const tags = await query<any>(
-    `SELECT t.id, t.category_id, t.name, t.weight, t.description, t.active, t.sort_order,
+    `SELECT t.id, t.category_id, t.name, t.weight, t.description, t.active, t.practice, t.sort_order,
        (SELECT COUNT(*) FROM project_tags pt WHERE pt.tag_id=t.id) AS project_count
      FROM tags t ORDER BY t.sort_order, t.name`);
   res.json({ categories: cats.map((c) => ({ ...c, is_compliance: !!c.is_compliance, tags: tags.filter((t) => t.category_id === c.id) })) });
@@ -135,6 +135,7 @@ export const tagBody = z.object({
   category_id: z.number().int().positive(), name: z.string().trim().min(1, 'Name is required').max(120),
   weight: z.number().int('The score must be a whole number').min(0, 'The score cannot be negative').max(10, 'The score can be at most 10'),
   description: optText(500), active: z.boolean().optional(),
+  practice: z.boolean().optional(), // R102: applies to all our work, not one project (left out of matching)
   project_ids: z.array(z.number().int().positive()).max(1000).optional(), // the projects that have this tag (replaces the list)
 });
 /** Sets the projects that have a tag. For an Industry tag the projects' industry follows, so the Industries page agrees. */
@@ -157,8 +158,8 @@ library.post('/admin/tags', admin, async (req, res) => {
   const b = tagBody.safeParse(req.body);
   if (!b.success) return void bad(res, b.error);
   try {
-    const r = await exec('INSERT INTO tags (category_id, name, weight, description, active, sort_order) VALUES (?,?,?,?,?, (SELECT COALESCE(MAX(t.sort_order),0)+1 FROM tags t))',
-      [b.data.category_id, b.data.name, b.data.weight, b.data.description, b.data.active === false ? 0 : 1]);
+    const r = await exec('INSERT INTO tags (category_id, name, weight, description, active, practice, sort_order) VALUES (?,?,?,?,?,?, (SELECT COALESCE(MAX(t.sort_order),0)+1 FROM tags t))',
+      [b.data.category_id, b.data.name, b.data.weight, b.data.description, b.data.active === false ? 0 : 1, b.data.practice ? 1 : 0]);
     if (b.data.project_ids) await setTagProjects(r.insertId, b.data.project_ids);
     { const after = await snapshot('tags', r.insertId); await audit(req.user!.id, 'tag_create', `${label(after) ?? ''} (id ${r.insertId})`, diff(null, after)); }
     res.status(201).json({ id: r.insertId });
@@ -175,6 +176,7 @@ library.patch('/admin/tags/:id', admin, async (req, res) => {
   const sets: string[] = []; const p: any[] = [];
   for (const k of ['category_id', 'name', 'weight', 'description'] as const) if (k in b.data) { sets.push(`${k}=?`); p.push((b.data as any)[k]); }
   if (b.data.active !== undefined) { sets.push('active=?'); p.push(b.data.active ? 1 : 0); }
+  if (b.data.practice !== undefined) { sets.push('practice=?'); p.push(b.data.practice ? 1 : 0); }
   if (!sets.length && !b.data.project_ids) return void res.status(400).json({ error: 'Nothing to change' });
   if (!before) return void res.status(404).json({ error: 'Not found' });
   try {

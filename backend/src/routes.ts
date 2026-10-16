@@ -535,7 +535,7 @@ async function matchingFor(id: number) {
     skip_tech_stack: !!s.skip_tech_stack, has_proposal: !!s.has_proposal };
   if (s.tagging_status !== 'done') return base;
   base.tags = await query(
-    `SELECT jt.tag_id AS id, jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
+    `SELECT jt.tag_id AS id, jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance, (SELECT practice FROM tags WHERE id=jt.tag_id) AS practice FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
      WHERE jt.screening_id=? ORDER BY COALESCE(c.sort_order, 999), jt.weight DESC, jt.tag_name`, [id]);
   const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits, added FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   base.matches = rows.map((r) => ({
@@ -1043,13 +1043,17 @@ api.post('/screenings/:id/projects/:pid/tags', requireRole(), async (req, res) =
   if (jobTags.length !== new Set(b.data.tag_ids).size) return void res.status(400).json({ error: 'Only this job\'s own tags can be added from here' });
   const before = await raw('project', pid); if (!before) return void res.status(404).json({ error: 'That project is no longer in the library' });
   await exec('INSERT IGNORE INTO project_tags (project_id, tag_id) VALUES ?', [jobTags.map((t) => [pid, t.tag_id])]);
+  // R102: an industry is the project's industry (the Industries page), which is what matching compares: link it too
+  const indNames = jobTags.filter((t) => t.category_name === 'Industry').map((t) => t.tag_name);
+  if (indNames.length) { const inds = await query<any>('SELECT id FROM industries WHERE name IN (?)', [indNames]); if (inds.length) await exec('INSERT IGNORE INTO project_industries (project_id, industry_id) VALUES ?', [inds.map((i) => [pid, i.id])]); }
   await recordChange({ userId: req.user!.id, source: 'app', kind: 'project', id: pid, before, after: await raw('project', pid), reason: `Tags added on the Projects step of job #${id}` });
   await audit(req.user!.id, 'project_tags_from_job', `screening=${id} project=${pid} tags=${jobTags.map((t) => t.tag_name).join(', ')}`);
   const hasProposal = (await query<any>('SELECT 1 FROM proposals WHERE screening_id=? LIMIT 1', [id])).length > 0;
   if (hasProposal) { // this card only: the shared tags, the score and the compliance gap
     const shared: any[] = JSON.parse(row.shared_tags || '[]'), have = new Set(shared.map((t) => t.id));
-    const added = jobTags.filter((t) => !have.has(t.tag_id));
+    const added = jobTags.filter((t) => !have.has(t.tag_id) && t.category_name !== 'Industry'); // an industry is the pool, not a shared tag (R102)
     shared.push(...added.map((t) => ({ id: t.tag_id, name: t.tag_name, category: t.category_name, weight: Number(t.weight), compliance: !!Number(t.compliance), core: t.core_rank })));
+    if (indNames.length) await exec("UPDATE job_matches SET pool='same' WHERE id=?", [row.id]); // R102
     await exec('UPDATE job_matches SET shared_tags=?, score=score+?, compliance_gap=GREATEST(0, compliance_gap-?) WHERE id=?',
       [JSON.stringify(shared), added.reduce((n, t) => n + Number(t.weight), 0), added.filter((t) => Number(t.compliance)).length, row.id]);
     return void res.json({ ok: true, rematch: false });

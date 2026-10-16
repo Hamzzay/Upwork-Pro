@@ -15,6 +15,7 @@ export const answersBody = z.object({ answers: z.array(z.object({
   note: z.string().trim().max(600).optional(),
   tag_name: z.string().trim().max(120).optional(),
   category: z.string().trim().max(120).optional(),
+  practice: z.boolean().optional(), // R102: done across all our work, not in one project
 })).min(1).max(20) });
 export type GapAnswer = z.infer<typeof answersBody>['answers'][number];
 type Lib = 'added' | 'waiting' | 'note' | 'to_add' | 'none';
@@ -64,6 +65,31 @@ async function teachLibrary(a: GapAnswer, gap: any, user: { id: number; role: st
   return result;
 }
 
+/**
+ * R102: an experience done across all our work (documentation, QA, Claude Code...). An admin's answer marks the tag practice-wide
+ * (made, switched on, when it does not exist yet): it is left out of matching and the writer may say it as how we work. Anyone
+ * else's answer is kept on the gap for an admin.
+ */
+async function teachPractice(a: GapAnswer, gap: any, user: { id: number; role: string }): Promise<Lib> {
+  if (user.role !== 'admin') return 'to_add';
+  const name = (a.tag_name || gap.skill).trim();
+  const reason = `Practice-wide experience confirmed on a proposal (job #${gap.screening_id}): ${gap.ask}`;
+  let tag = (await query<any>('SELECT id FROM tags WHERE LOWER(name)=LOWER(?) ORDER BY active DESC LIMIT 1', [name]))[0];
+  if (!tag) {
+    const cat = (await query<any>('SELECT id FROM tag_categories WHERE LOWER(name)=LOWER(?)', [a.category || gap.category || '']))[0]
+      ?? (await query<any>("SELECT id FROM tag_categories WHERE name='Tech stack'"))[0] ?? (await query<any>('SELECT id FROM tag_categories ORDER BY sort_order LIMIT 1'))[0];
+    if (!cat) return 'none';
+    const r = await exec('INSERT INTO tags (category_id, name, weight, description, active, practice, sort_order) VALUES (?,?,?,?,1,1, (SELECT n FROM (SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM tags) x))',
+      [cat.id, name, await usualWeight(cat.id), String(gap.ask).slice(0, 500)]);
+    await record({ userId: user.id, source: 'app', kind: 'tag', id: Number(r.insertId), before: null, after: await raw('tag', Number(r.insertId)), reason });
+    return 'added';
+  }
+  const before = await raw('tag', tag.id);
+  await exec('UPDATE tags SET practice=1 WHERE id=?', [tag.id]);
+  await record({ userId: user.id, source: 'app', kind: 'tag', id: tag.id, before, after: await raw('tag', tag.id), reason });
+  return 'added';
+}
+
 /** An admin adds a waiting tag (an existing tag that is on) to its project, from the Proposal feedback page. One project, or all of the gap's. */
 export async function linkWaiting(gapId: number, user: { id: number; role: string }, projectId?: number): Promise<string | null> {
   if (user.role !== 'admin') return 'Only an admin adds tags to projects from here';
@@ -98,6 +124,13 @@ export async function answerGaps(proposalId: number, answers: GapAnswer[], user:
     await exec('DELETE FROM proposal_gap_projects WHERE gap_id=?', [g.id]); // answered again: the new answer's projects only
     if (!a.has) { await exec(`UPDATE proposal_gaps SET status='no', project_id=NULL, note=NULL, library=NULL, answered_by=?, answered_at=NOW() WHERE id=?`, [user.id, g.id]); continue; }
     anyYes = true;
+    if (a.practice) { // R102: part of how we work on every project: the tag is marked practice-wide (an admin's answer), no project needed
+      const lib = await teachPractice(a, g, user); library[g.skill] = lib;
+      await exec(`UPDATE proposal_gaps SET status='yes', practice=1, project_id=NULL, note=?, tag_name=?, library=?, applied_version=NULL, answered_by=?, answered_at=NOW() WHERE id=?`,
+        [a.note || null, (a.tag_name || g.skill).slice(0, 120), lib, user.id, g.id]);
+      continue;
+    }
+    await exec('UPDATE proposal_gaps SET practice=0 WHERE id=?', [g.id]);
     const ids = projectsOf(a), libs: Lib[] = [];
     for (const pid of ids) {
       const lib = await teachLibrary(a, g, user, pid); libs.push(lib);

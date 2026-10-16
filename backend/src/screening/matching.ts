@@ -10,7 +10,7 @@ export interface MatchOptions { shown: number; recommended: number; minScore: nu
 export const DEFAULT_MATCH: MatchOptions = { shown: 5, recommended: 2, minScore: 1 };
 
 export type Platform = 'web' | 'mobile' | 'desktop';
-export interface JobTag { id: number; name: string; category: string; weight: number; compliance?: boolean; core?: number | null }
+export interface JobTag { id: number; name: string; category: string; weight: number; compliance?: boolean; core?: number | null; /** R102: applies to all our work: not scored */ practice?: boolean }
 export interface LibProject { id: number; name: string; tagIds: Set<number>; industries?: string[]; platforms?: Set<Platform> }
 export type Pool = 'same' | 'related' | 'other' | 'none';
 export interface Match {
@@ -74,7 +74,7 @@ export function rankProjects(jobTags: JobTag[], projects: LibProject[], o: Match
   const skip = new Set(o.skip ?? []);
   const unique = [...new Map(jobTags.filter((t) => !skip.has(t.category)).map((t) => [t.id, t])).values()];
   const industries = unique.filter((t) => t.category === 'Industry').map((t) => t.name.toLowerCase());
-  const scored = unique.filter((t) => t.category !== 'Industry');
+  const scored = unique.filter((t) => t.category !== 'Industry' && !t.practice); // R102: a practice-wide tag is on every project's side, so it tells them apart not at all
   const max = scored.reduce((n, t) => n + t.weight, 0);
   const compliance = scored.filter((t) => t.compliance);
   const core = coreWork(scored);

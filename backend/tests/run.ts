@@ -21,7 +21,7 @@ import { applyJudgement } from '../src/screening/judge';
 import { diff as changeDiff, lineDiff } from '../src/changes';
 import { bannedPatterns, guideBlock, typeFacts, wordRange } from '../src/proposal/guide';
 import { firstParagraph, replaceFirstHtmlParagraph, replaceFirstParagraph } from '../src/proposal/openings';
-import { checkFlags, examplesBlock, openingRules, templateBlock } from '../src/proposal/opening_templates';
+import { checkFlags, examplesBlock, openingRules, readList, templateBlock } from '../src/proposal/opening_templates';
 import { shortcutsBlock, shortenHtml, shortenText } from '../src/proposal/shortcuts';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -106,6 +106,10 @@ const ctx = { rules, projects };
   let m = rankProjects([wf1, ind, tool, ai], [P(10, 'A', 1, 2), P(11, 'B', 1, 3, 4), P(12, 'C', 4), P(13, 'D')]);
   assert.deepEqual(m.map((x) => [x.project_name, x.score]), [['B', 4], ['A', 3]], 'C scores 0 (only AI powered) and D shares nothing: both dropped');
   assert.equal(m[0].max_score, 4); assert.deepEqual(m.map((x) => x.recommended), [true, true]);
+  // R102: a practice-wide tag (documentation, QA...) is on every project's side: it counts for nothing and is not shared
+  { const docs: JobTag = { ...T(6, 'Documentation', 'Project stage', 2), practice: true };
+    const r = rankProjects([wf1, docs], [P(30, 'Docs only', 6), P(31, 'Work', 1, 6)]);
+    assert.deepEqual(r.map((x) => [x.project_name, x.score, x.shared.map((t) => t.name).join(',')]), [['Work', 3, 'Lead generation']], 'the practice tag neither scores nor shows as shared'); }
   // ties: more shared tags first, then name
   m = rankProjects([wf1, ind, tool], [P(20, 'Zed', 1, 3), P(21, 'Alpha', 1, 3), P(22, 'Many', 2, 3)]);
   assert.deepEqual(m.map((x) => x.project_name), ['Alpha', 'Zed', 'Many'], 'Alpha and Zed tie on score and tags, name decides');
@@ -688,6 +692,8 @@ const ctx = { rules, projects };
     const strict = examplesBlock({ ...ex, match_examples: true });
     assert.ok(strict.startsWith('MATCH THE EXAMPLES') && strict.includes('80 to 90 percent') && strict.includes('Example 2:'), 'matched closely, every example listed');
     assert.ok(templateBlock({ ...ex, match_examples: true }).includes('MATCH THE EXAMPLES'), 'the template carries its examples to the writer');
+    // R101: examples are kept with whether they are in use; older ones (plain text) are in use
+    assert.deepEqual(readList(JSON.stringify(['One.', { text: 'Two.', on: false }, { text: ' ' }])), [{ text: 'One.', on: true }, { text: 'Two.', on: false, at: null }], 'old text in use, the flag kept, empty dropped');
     // R98: openings the team edited on proposals are examples too, marked as theirs; none written by hand is enough
     const learnedOnly = examplesBlock({ ...tpl, learned: ['Understood. Four clinics, one missed call each night.'] });
     assert.ok(learnedOnly.includes('Edited by the team 1:') && learnedOnly.includes('rewrote on a real proposal'), 'a learned example alone is given, as the team\'s');

@@ -55,6 +55,8 @@ Score every type with the type selection rules (`references/type-selection.md`) 
    highest `times_sent` first, each by its own instructions; offer three more while any are left.
    **Team edits:** a template's `team_edits` are openings a person rewrote on a real proposal and sent. Treat them as the best
    examples of what the team wants and learn from what they changed.
+   **Practice-wide:** `practice_wide` lists what the team does on every project (documentation, QA, Claude Code...). Say those as how
+   we work, never as proof from one project.
    **Word shortcuts:** `get_writing_guide` lists `word_shortcuts` (main word, short word). Always write the short word, in the letter
    and the answers (WhatsApp becomes WA), never inside a link.
 3. Add every module the signals call for, from `references/modules.md`.
