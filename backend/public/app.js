@@ -2075,21 +2075,36 @@ async function jobPage(id, want) {
   }
 
   /** R106 (Hamza): a client we have seen before: the other jobs from the same Upwork client, who had them and how each went. */
+  /** R106, R112: the client, for the column beside the overview: who they are, their other jobs with us and how each went, why matched. */
   function clientCard() {
     if (!client) return null;
-    const who = client.name || client.company || client.contact_name;
-    if (!client.jobs || !client.jobs.length) return who || client.notes ? h('div', { class: 'card card-pad clientcard row spread', style: 'gap:8px' }, h('div', {}, h('div', { class: 'jp-sec' }, icon('users'), ' Client: ' + (who || 'notes saved'), h('span', { class: 'cidchip' }, clientId(client.id))), client.notes ? h('div', { class: 'small', style: 'margin-top:4px' }, client.notes) : null), h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')) : null;
-    const how = (j) => j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened, not continued');
-    const n = client.jobs.length;
-    return h('div', { class: 'card card-pad clientcard' },
-      h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('div', { class: 'jp-sec' }, icon('users'), ` Returning client${who ? ': ' + who : ''}`, h('span', { class: 'cidchip ret' }, clientId(client.id))),
-        h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')),
-      h('div', { class: 'jp-label' }, `We have seen this client before: ${n} other job${n === 1 ? '' : 's'}${client.country ? ' · ' + client.country : ''}${client.member_since ? ' · member since ' + client.member_since : ''}.`),
-      h('ul', { class: 'plain clientjobs' }, client.jobs.slice(0, 6).map((j) => h('li', {},
-        j.can_open ? h('a', { href: '#/s/' + j.id }, `#${j.id} ${j.title || 'Untitled'}`) : h('span', {}, `#${j.id} ${j.title || 'Untitled'}`),
-        h('span', { class: 'muted' }, ` · ${dayText(j.created_at)} · ${j.user_name}${j.profile_name ? ' (' + j.profile_name + ')' : ''} · `), h('strong', {}, how(j)),
-        j.why && j.why.length ? h('div', { class: 'faint small' }, 'Matched because ' + j.why.join('; ')) : null))),
-      client.notes ? h('div', { class: 'small', style: 'margin-top:6px' }, h('strong', {}, 'Notes: '), client.notes) : null);
+    const who = client.name || client.company || client.contact_name, n = (client.jobs || []).length;
+    if (!n && !who && !client.notes) return null;
+    const how = (j) => j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened');
+    const reasons = [...new Set(client.jobs.flatMap((j) => j.why || []))];
+    return h('div', { class: 'card card-pad ovside clientcard' },
+      h('div', { class: 'row spread', style: 'gap:8px' }, h('h3', { class: 'section-title', style: 'margin:0' }, n ? 'Returning client' : 'Client'), h('span', { class: 'cidchip' + (n ? ' ret' : '') }, clientId(client.id))),
+      h('div', { class: 'small muted', style: 'margin-top:4px' }, [who, client.country, client.member_since ? 'member since ' + client.member_since : null].filter(Boolean).join(' \u00b7 ') || ''),
+      n ? h('div', { class: 'ovjobs' }, client.jobs.slice(0, 5).map((j) => h(j.can_open ? 'a' : 'div', { class: 'ovjob', href: j.can_open ? '#/s/' + j.id : null, title: j.title || '' },
+        h('div', { class: 'clclip', style: 'color:var(--text);font-weight:500' }, j.title || 'Untitled'),
+        h('div', { class: 'small muted' }, `#${j.id} \u00b7 ${dayText(j.created_at)} \u00b7 ${j.profile_name || j.user_name} \u00b7 `, h('span', { class: 'ovhow' }, how(j)))))) : null,
+      n > 5 ? h('div', { class: 'small muted' }, `and ${n - 5} more`) : null,
+      reasons.length ? h('div', { class: 'small faint', style: 'margin-top:8px' }, 'Joined because ' + reasons.join('; ') + '.') : null,
+      client.notes ? h('div', { class: 'small ovnote' }, client.notes) : null,
+      h('a', { class: 'btn sm', style: 'margin-top:10px;align-self:flex-start', href: '#/clients/' + client.id }, 'Client profile'));
+  }
+  /** R112: why the gate said what it said, beside the decision, so the overview shows the flags themselves, not only their codes. */
+  function gateCard() {
+    const j = s.report && s.report.jobs && s.report.jobs[0];
+    if (!j || !s.verdict) return null;
+    const items = [...(j.fails || []).map((x) => ({ ...x, kind: 'FAIL' })), ...(j.flags || []).map((x) => ({ ...x, kind: 'FLAG' }))];
+    const decision = override ? `Continued past the ${vword(override.verdict_at_time)}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped: ' + skipWhy(s) : 'No decision yet';
+    return h('div', { class: 'card card-pad' },
+      h('div', { class: 'row spread', style: 'gap:10px;flex-wrap:wrap' }, h('div', { class: 'row', style: 'gap:10px' }, verdictBadge(s.verdict), h('strong', {}, decision)),
+        h('button', { class: 'linkbtn small', type: 'button', onclick: () => setTab('screening') }, 'Open the screening')),
+      override && override.reason ? h('p', { class: 'small muted', style: 'margin:6px 0 0' }, override.reason) : null,
+      items.length ? h('div', { class: 'ovflags' }, items.slice(0, 8).map((x) => h('div', { class: 'ovflag' }, h('span', { class: 'pill ' + x.kind }, x.code || x.kind), h('div', {}, h('span', { class: 'ovrule' }, x.rule || ''), x.value ? h('span', { class: 'muted' }, ': ' + x.value) : null)))) : null,
+      items.length > 8 ? h('div', { class: 'small muted', style: 'margin-top:6px' }, `and ${items.length - 8} more on the screening`) : null);
   }
 
   // ---- Overview: where it stands, what is next (its button is in the tab row), and the facts that have a value
@@ -2121,27 +2136,25 @@ async function jobPage(id, want) {
     const toProposal = proposal && proposal.finished_at && s.source !== 'claude_plugin' ? Math.round((toDate(proposal.finished_at) - toDate(s.created_at)) / 1000) : null;
     const status = s.outcome && s.outcome !== 'Pending' ? s.outcome : s.interviewed === 'yes' ? 'Interview' : s.client_replied === 'yes' ? 'Chat opened' : s.client_viewed === 'yes' ? 'Viewed' : s.proposal_sent_at || s.proposal_sent_date ? 'Sent' : null;
     const facts = [
-      ['Verdict', s.verdict ? `${VERDICT_WORD[s.verdict]}${s.rule_codes ? ' · ' + s.rule_codes : ''}` : null],
-      ['Decision', override ? `Continued past the ${vword(override.verdict_at_time)}` : matching && matching.continued ? 'Continued' : s.proceeded === 'no' ? 'Skipped: ' + skipWhy(s) : null],
       ['Projects', chosen.length ? chosen.map((x) => x.project_name).join(', ') : null],
       ['Profile', matching && matching.proposal_profile ? matching.proposal_profile.name : null],
       ['Proposal type', proposal && proposal.template ? proposal.template.name : null],
       ['Proposal', proposal ? (proposal.finalized_at ? 'Finished ' + agoIn(proposal.finalized_at) : proposal.status === 'done' ? 'Written, not finished' : null) : null],
-      ['Status', status], ['Invite', s.invite ? 'Yes, the client invited us' : null], ['Client', client && client.jobs && client.jobs.length ? `${clientId(client.id)}, returning: ${client.jobs.length + 1} jobs` : null], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) + (proposal && proposal.sent_version_no ? ` · version ${proposal.sent_version_no}` : '') : null],
+      ['Status', status], ['Invite', s.invite ? 'Yes, the client invited us' : null], ['Sent', s.proposal_sent_date ? dayText(s.proposal_sent_date) + (proposal && proposal.sent_version_no ? ` · version ${proposal.sent_version_no}` : '') : null],
       // R104: the opening the proposal went out with (the one picked, else its type's default)
       ['Opening', proposal && proposal.openings && (proposal.openings.used != null || proposal.openings.default) ? (proposal.openings.used != null && proposal.openings.items[proposal.openings.used] ? proposal.openings.items[proposal.openings.used].style : proposal.openings.default) : null],
       ['Connects', s.connects_spent != null ? `${s.connects_spent}${s.boost_connects ? ' + ' + s.boost_connects + ' boost' : ''}` : null],
       ['Paste to proposal', toProposal != null && toProposal >= 0 ? mins(toProposal) : null],
-      ['Client', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
+      ['Client location', s.client_country], ['Budget', s.budget], ['Hire rate', s.hire_rate], ['Avg hourly paid', s.avg_hourly_paid],
     ].filter(([, v]) => v);
+    const nextEl = next[0] && !(Number(s.auto_mode) && s.auto_state === 'running') ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null;
+    const factsEl = facts.length ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'The job so far'), h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null;
+    const side = clientCard();
+    const main = h('div', { class: 'stack' }, Number(s.auto_mode) && s.auto_state ? autoCard() : null, gateCard(), factsEl, ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
     return h('div', { class: 'stack' },
-      Number(s.auto_mode) && s.auto_state ? autoCard() : null,
       s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
         h('div', { style: 'margin-top:4px' }, `It is hidden from every list, count, report and export, and from Claude. Discarded ${full(s.discarded_at)}${s.discarded_by_name ? ' by ' + s.discarded_by_name : ''}${s.discard_reason ? ': ' + s.discard_reason : '.'}`)) : null,
-      clientCard(),
-      next[0] && !(Number(s.auto_mode) && s.auto_state === 'running') ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null,
-      facts.length ? h('div', { class: 'card card-pad' }, h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null,
-      ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
+      nextEl, side ? h('div', { class: 'opgrid ovgrid' }, main, h('div', { class: 'stack', style: 'gap:14px' }, side)) : main);
   }
 
   // ---- auto mode (R75): each step as it is done for you; the proposal opens by itself when it is written

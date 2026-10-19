@@ -352,14 +352,17 @@ function proposalSection(s, initial, matching) {
   }
 
   // ----- the side panel: one tool at a time, so the proposal stays the main thing on screen. The tab you used last is kept.
-  const SIDE = [['chat', 'Chat'], ['review', 'Review'], ['gaps', 'Experience'], ['feedback', 'Feedback']];
+  // R112: 'opening' is the chat that edits the opening with the AI; it is there only while that edit is open
+  const SIDE = [['opening', 'Opening'], ['chat', 'Chat'], ['review', 'Review'], ['gaps', 'Experience'], ['feedback', 'Feedback']];
   let sideTab = 'chat', gapsShown = false, mainTab = 'letter'; // mainTab: the cover letter or the screening answers
   try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { /* storage blocked */ }
   const hasGaps = () => !!(data && data.gaps && data.gaps.items && data.gaps.items.length);
   const openGaps = () => (hasGaps() ? data.gaps.items.filter((x) => x.status === 'open').length : 0);
-  function showSide(k) { sideTab = k; try { localStorage.setItem('prop.side', k); } catch { /* storage blocked */ } drawSideTabs(); }
+  const aiEditing = () => { try { return !!(editing && editing.ai); } catch { return false; } }; // editing is declared further down
+  function showSide(k) { sideTab = k; if (k !== 'opening') try { localStorage.setItem('prop.side', k); } catch { /* storage blocked */ } drawSideTabs(); }
   function drawSideTabs() {
     const bar = box.querySelector('.sidetabs'); if (!bar) return;
+    if (sideTab === 'opening' && !aiEditing()) { try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { sideTab = 'chat'; } }
     if (!SIDE.some(([k]) => k === sideTab) || (sideTab === 'gaps' && !hasGaps())) sideTab = 'chat';
     const rv = data.review, n = openGaps();
     const badge = {
@@ -367,7 +370,7 @@ function proposalSection(s, initial, matching) {
       review: reviewBusy() ? h('span', { class: 'spin' }) : rv && rv.score ? h('span', { class: 'n ' + (rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL') }, String(rv.score)) : null,
       gaps: gapsBusy() ? h('span', { class: 'spin' }) : n ? h('span', { class: 'n FLAG' }, String(n)) : null,
     };
-    bar.replaceChildren(...SIDE.filter(([k]) => k !== 'gaps' || hasGaps()).map(([k, label]) => h('button', { type: 'button', role: 'tab', class: 'tab' + (k === sideTab ? ' on' : ''), 'aria-selected': k === sideTab, onclick: () => showSide(k) }, label, badge[k] || null)));
+    bar.replaceChildren(...SIDE.filter(([k]) => (k !== 'gaps' || hasGaps()) && (k !== 'opening' || aiEditing())).map(([k, label]) => h('button', { type: 'button', role: 'tab', class: 'tab' + (k === sideTab ? ' on' : ''), 'aria-selected': k === sideTab, onclick: () => showSide(k) }, label, badge[k] || null)));
     SIDE.forEach(([k]) => { const el = box.querySelector('.side-' + k); if (el) el.hidden = k !== sideTab; });
   }
   // ----- above the editor, one line: what to check before sending, and the questions about our experience
@@ -403,7 +406,7 @@ function proposalSection(s, initial, matching) {
    * person keeps asking, edits by hand, or saves. A turn is about the words in the box when it is sent.
    */
   function openingChat(ed, ta, show) {
-    const q = ed.index == null ? 'in_use' : ed.index, list = h('div', { class: 'chatlist', style: 'max-height:260px' });
+    const q = ed.index == null ? 'in_use' : ed.index, list = h('div', { class: 'chatlist openchat-list' });
     const input = h('textarea', { rows: 2, maxlength: 2000, placeholder: 'What should change? For example: shorter; lead with their deadline; less formal; use their word "dispatch"', 'aria-label': 'Ask the AI' });
     const send = h('button', { class: 'btn sm primary', type: 'button' }, 'Send');
     let msgs = [], seen = null, timer = null, gone = false;
@@ -413,7 +416,7 @@ function proposalSection(s, initial, matching) {
         h('div', { class: 'bubble' }, m.content, m.draft ? h('div', { class: 'faint small', style: 'margin-top:6px' }, '\u201c' + m.draft + '\u201d') : null),
         m.role === 'assistant' && m.draft && m.draft !== ta.value.trim() ? h('button', { class: 'btn sm', type: 'button', style: 'justify-self:start', onclick: () => { ta.value = m.draft; show(); draw(); } }, 'Put this one in the box') : null,
         m.status === 'error' ? h('span', { class: 'err small' }, icon('x'), 'The AI could not answer: ' + (m.error_message || 'try again')) : null))
-        : [h('p', { class: 'jp-label', style: 'margin:0' }, 'Say what to change. The AI gives the whole opening back with only that changed, and it comes into the box above. Keep asking until it reads right, then Save and use.')]),
+        : [h('p', { class: 'jp-label', style: 'margin:0' }, 'Say what to change. The AI gives the whole opening back with only that changed, and it comes into the box on the left. Keep asking until it reads right, then Save and use.')]),
         pending() ? h('div', { class: 'msg ai' }, h('div', { class: 'bubble faint' }, 'Rewriting the opening\u2026')) : '');
       send.disabled = pending(); list.scrollTop = list.scrollHeight;
     };
@@ -435,10 +438,12 @@ function proposalSection(s, initial, matching) {
     send.onclick = go;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } });
     load();
-    return { el: h('div', { class: 'chatpanel', style: 'margin-top:12px;padding-top:12px' }, list, h('div', { class: 'row', style: 'gap:8px;margin-top:8px;align-items:flex-end' }, h('div', { style: 'flex:1' }, input), send)),
+    return { el: h('div', { class: 'openchat' }, h('div', { class: 'openchat-head' }, h('strong', {}, ed.label ? `Opening: ${ed.label}` : 'The opening'), h('span', { class: 'faint small' }, 'Each answer goes into the box on the left. Save and use there when it reads right.')),
+      list, h('div', { class: 'openchat-send' }, input, h('div', { class: 'row spread', style: 'gap:8px' }, h('span', { class: 'faint small' }, 'Enter to send'), send))),
       focus: () => input.focus() };
   }
   function drawOpenings() {
+    if (!aiEditing()) { const pane = box.querySelector('.side-opening'); if (pane && pane.childNodes.length) { pane.replaceChildren(); drawSideTabs(); } }
     const o = data && data.openings;
     if (!o || !data.current || !editor || viewingOther) { openEl.replaceChildren(); return; }
     // R91: written three at a time, the most sent first; "more" adds the next three beside the ones there
@@ -463,10 +468,12 @@ function proposalSection(s, initial, matching) {
         catch (x) { toast(x.message, true); save.disabled = false; save.replaceChildren('Save and use'); } };
       const cancel = h('button', { class: 'btn sm', type: 'button', onclick: () => { editing = null; if (editor && !editor.isDirty()) editor.setHtml(previewIdx > 0 && slides[previewIdx] ? withOpening(data.current.html, slides[previewIdx].text) : data.current.html); drawOpenings(); } }, 'Cancel');
       const chat = ed.ai ? openingChat(ed, ta, show) : null;
+      const pane = box.querySelector('.side-opening');
+      if (chat && pane) { pane.replaceChildren(chat.el); sideTab = 'opening'; drawSideTabs(); } // R112: the chat sits in the panel on the right
       if (!ed.ai) cancel.after(h('button', { class: 'btn sm', type: 'button', title: 'Tell the AI what to change; its version comes into the box above', onclick: () => { editing = { ...ed, ai: true, text: ta.value }; drawOpenings(); } }, icon('message'), 'Ask the AI'));
       shell(h('div', { class: 'row spread', style: 'gap:8px;flex-wrap:wrap' }, h('strong', {}, `${ed.ai ? 'Edit the opening with the AI' : 'Edit the opening'}${ed.label ? ': ' + ed.label : ''}`), h('span', { class: 'row', style: 'gap:6px' }, cancel, save)), ta,
-        h('div', { class: 'faint small', style: 'margin-top:6px' }, ed.label ? `Your version goes into the proposal and is kept as an example for ${ed.label}, so later openings learn from it.` : 'Your version goes into the proposal.'), chat ? chat.el : null);
-      requestAnimationFrame(() => { if (chat) chat.focus(); else { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } show(); });
+        h('div', { class: 'faint small', style: 'margin-top:6px' }, ed.ai ? 'Tell the AI what to change in the Opening panel on the right; each answer comes into this box. ' : '', ed.label ? `Your version goes into the proposal and is kept as an example for ${ed.label}, so later openings learn from it.` : 'Your version goes into the proposal.'));
+      requestAnimationFrame(() => { if (chat && window.innerWidth >= 1100) chat.focus(); else { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } show(); });
       return;
     }
     if (norm(curFirst) !== norm(o.first)) return shell(h('div', { class: 'row spread' }, h('span', { class: 'jp-label' }, 'The openings were written for an earlier first paragraph.'), writeBtn('Write new ones')));
@@ -894,7 +901,7 @@ function proposalSection(s, initial, matching) {
     const grid = h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' }, checksEl, doc),
       h('div', { class: 'propside' }, h('div', { class: 'card sidecard' }, h('div', { class: 'tabs sidetabs', role: 'tablist', 'aria-label': 'Proposal tools' }),
-        h('div', { class: 'sidebody' }, h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
+        h('div', { class: 'sidebody' }, h('div', { class: 'side-opening' }), h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
     return grid;
   }
 

@@ -1003,6 +1003,19 @@ screen.
 - Not retaken: the pictures of screens that did not change (they show the sidebar without Guide and Changes), and there are still
   no pictures of Claude itself.
 
+### R112. A clearer job overview; the opening's AI chat in the panel beside the proposal (done, 17 October)
+
+- **Why** (Hamza): the overview (flags, client and the rest) and the proposal's side panel needed UI work, and the opening's AI chat
+  belonged on the right.
+- **Overview**: what's next on top; then the gate with its flags spelled out (each code with its rule and the value behind it, and the
+  decision with its reason) instead of only the codes; then "The job so far". Auto mode's four steps sit side by side. The client is in
+  a column on the right: returning or not, its ID, its other jobs with who had them and how each went, why they were joined (once), the
+  notes, and Client profile. "Client" no longer appears twice (the post's place is "Client location").
+- **Edit with AI**: the chat now opens as an **Opening** tab in the panel on the right, beside the edit box, and closes when the edit is
+  saved or cancelled; the box on the left takes each answer as before.
+- **The panel's tabs** (Opening, Chat, Review, Experience, Feedback) fit side by side; a review's suggestion reads first with its
+  button under it; the Experience headings are quieter.
+
 ### R110. Client IDs in the Jobs list; stricter matching so new clients are never joined (done, 17 October)
 
 - **Why** (Hamza): see in the Jobs list that a job is from a returning client and which other jobs share it; refine the Clients list;

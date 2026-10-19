@@ -141,6 +141,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 93 | A clearer client page: name and chips, jobs as a list, notes and Upwork facts beside them (R108) | done |
 | 94 | The opening (and the writer) read only the job description, never the terms box such as hours per week (R109) | done |
 | 95 | Client IDs and a client filter in the Jobs list; a clearer Clients list; new clients never joined by their join date alone (R110) | done |
+| 96 | A clearer job overview (flags spelled out, client beside it); the opening's AI chat in the side panel (R112) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

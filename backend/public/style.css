@@ -1244,3 +1244,40 @@ td > .cidchip:first-child, .chips > .cidchip:first-child { margin-left: 0; }
 .clclip { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
 .clcell .chips { gap: 4px; }
 .clclip.strong { color: var(--text); font-weight: 600; font-size: 14px; }
+/* R112: the chat that edits the opening, in the panel on the right */
+.openchat { display: flex; flex-direction: column; gap: 10px; min-height: 0; height: 100%; }
+.openchat-head { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.openchat-list { flex: 1; min-height: 120px; max-height: none; overflow: auto; }
+.openchat-send { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.openchat-send textarea { min-height: 64px; resize: vertical; }
+.openchat .msg .bubble .faint { color: var(--muted); }
+/* R112: the panel beside the proposal, tidied: a suggestion reads first, then its button; quieter section headings */
+.sidebody .suggestion { flex-direction: column; gap: 8px; padding: 12px 14px; }
+.sidebody .suggestion strong { font-size: 14px; line-height: 1.35; }
+.sidebody .suggestion .jp-label { font-size: 13px; line-height: 1.5; margin-top: 3px; }
+.sidebody .suggestion .btn { align-self: flex-end; }
+.side-gaps details > summary { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: none; padding: 4px 0; }
+.side-gaps details + details { margin-top: 10px; }
+@media (min-width: 1200px) { .propside .openchat-list { max-height: 52vh; } }
+/* R112: the job overview: what's next, then the gate with its flags and the facts, the client beside them */
+.ovside { display: flex; flex-direction: column; }
+.ovjobs { display: grid; margin-top: 10px; border-top: 1px solid var(--line); }
+.ovjob { display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; min-width: 0; }
+a.ovjob:hover .clclip { color: var(--brand) !important; }
+.ovnote { margin-top: 8px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-sm); white-space: pre-wrap; }
+.ovflags { margin: 14px 0 0; display: grid; gap: 10px; }
+.ovflag { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 14px; line-height: 1.5; }
+.ovflag > .pill { justify-content: center; margin-top: 1px; }
+.ovrule { font-weight: 600; }
+.ovhow { color: var(--text); font-weight: 600; }
+.pill.FLAG { color: var(--flag); background: var(--flag-bg); border-color: var(--flag-line); }
+/* auto mode, once done: the four steps side by side, not four rows */
+.ovgrid .autocard .autosteps, .jobtab > .stack > .stack > .autocard .autosteps { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.autocard .autostep > div { min-width: 0; }
+.autocard .autostep .jp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .ovgrid .autocard .autosteps, .jobtab > .stack > .stack > .autocard .autosteps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* five tabs in the panel beside the proposal: they fit, and scroll sideways on a narrow screen */
+.sidetabs { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; } .sidetabs::-webkit-scrollbar { display: none; }
+.sidetabs .tab { padding-left: 8px; padding-right: 8px; white-space: nowrap; flex: none; }
+.sidetabs .tab { font-size: 14px; padding-left: 7px; padding-right: 7px; gap: 5px; }
+.sidetabs .tab { padding-left: 5px; padding-right: 5px; } .sidetabs { padding: 0 10px; }
