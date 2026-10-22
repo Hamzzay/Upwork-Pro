@@ -45,6 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.26.0)
+
+v0.26.0: Claude can read everything Upwork Pro keeps about a job: the chats with the AI, the project shortlist with the AI's reasons,
+the proposal types ranked, what the gate wrote, the AI's work per step, every hand change and every review (new `include` options of
+`analyze_jobs`, and all of it in `get_proposal_record`), plus a "Why skipped" report in `get_trends`.
+
 ## Status (v0.25.0)
 
 v0.25.0: updates count the team's working day (US Eastern by default, an admin setting), so "today" and "yesterday" never split one

@@ -14,7 +14,7 @@ Answers "what is working?" from the jobs in Upwork Pro. Uses the `upwork-pro` MC
 * **Reading the jobs themselves** (why something worked, comparing proposal texts, anything `get_trends` does not group by): call `analyze_jobs`.
 * **The Dashboard** (how the team is doing in a period, what is waiting, speed, proposal quality): call `get_dashboard`.
 * **What people said is wrong in proposals** ("what feedback are we getting?", "where do proposals go wrong?"): call `list_feedback` and group it by category, then read the excerpts for the biggest group. It also lists the experience people confirmed.
-* **One job in full** (every version and how it was made, the review, the openings, the experience answers, the feedback, the comparisons, the client's documents): call `get_proposal_record`.
+* **One job in full** (everything in one call: every version and how it was made, the chats with the AI, the shortlist with reasons, the types ranked, the gate's notes, every review, every hand change, the review, the openings, the experience answers, the feedback, the comparisons, the client's documents): call `get_proposal_record`.
 * **What the AI and the team did** (AI calls and failures by step and model, actions by person; managers and admins): call `get_activity`.
 
 ## Days: the team's working day
@@ -37,7 +37,11 @@ Both take the same filters: `from` and `to` (date screened), `sent_from` and `se
 
 1. Call `analyze_jobs` with the filters. Each row is one job as a list of cells; `columns` names them.
 2. When `more` is true, call again with `after` set to `next_after` and the same filters. Repeat until `more` is false. **Never analyse a part of the jobs as if it were all of them**: say how many you read against `total`.
-3. Ask for heavy fields only when the question needs them, with `include`: `client`, `tags`, `signals`, `flags`, `history`, `description`, `proposal`, `review`, `feedback`, `experience`, `documents`, `openings`. Each makes the pages smaller. 500 jobs take about 3 calls without them and about 17 with all of them.
+3. Ask for heavy fields only when the question needs them, with `include`: `client`, `tags`, `signals`, `flags`, `history`, `description`, `proposal`, `review`, `feedback`, `experience`, `documents`, `openings`,
+   and (R114) `gate` (what the gate wrote), `shortlist` (every project shown with the AI's reason, picked or not), `types` (every proposal type
+   ranked, with why), `chats` (what people asked the AI and what it answered), `ai` (the AI's work per step), `changes` (every hand change, old
+   and new), `reviews` (every review of every version). Every row already has `skip_reason`, `job_needs`, `core_work`, `type_suggested` (compare
+   with `proposal_type` and `type_chosen` to see when people override the suggestion), `version_sent`, `ai_calls` and `ai_seconds`. Each makes the pages smaller. 500 jobs take about 3 calls without them and about 17 with all of them.
 4. For proposal texts, read `proposal` for the groups being compared (for example viewed against not viewed), not for everything, when the set is large.
 
 ## From a trend to a fix

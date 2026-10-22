@@ -2091,3 +2091,21 @@ Why (Hamza): the team works on US Eastern time, Upwork Pro keeps Pakistan time, 
   a time on the team clock stored as Pakistan time); on this data a proposal sent 00:14 on 14 October Pakistan time counts as sent on
   13 October for the team and on the 14th in Pakistan time and on the app's pages; a person switched to US Eastern and back, a made up
   zone refused; a status at 10:00 team time stored as 19:00 Pakistan time (test undone); both settings on screen.
+
+### R114. Claude can read everything Upwork Pro keeps about a job (done, 22 October)
+Why (Hamza): deep analysis from Claude needs every detail. Checked against the live server, these were kept but out of Claude's reach.
+- **On every row of `analyze_jobs`**: `skip_reason` (reason and note), `job_needs`, `core_work`, `type_suggested` (compare with the type
+  used and how it was chosen), `version_sent`, `ai_calls`, `ai_seconds`.
+- **New `include` options**: `gate` (the gate's fit and notes for the proposal), `shortlist` (every project shown, picked or not, with the
+  AI's reason, score and fit), `types` (every proposal type ranked with why, and what ruled each out), `chats` (what people asked the AI in
+  the proposal chat and the opening chat, and its answers), `ai` (the AI's work per step: calls, seconds, model, failures), `changes` (every
+  hand change to a job with old and new value, who and when), `reviews` (every review of every version).
+- **`get_proposal_record`** returns all of it for one job, under `more`.
+- **Every review is now kept** (`proposal_reviews`, migration `063_review_history.sql`), not only the latest; the latest review of every
+  proposal so far is copied in as its first.
+- **`get_trends`**: a "Why skipped" report (`skip_reason`). The "Time sent" report now says it follows the counting time zone.
+- Not kept, so not readable: the AI's cost or tokens per call (only time and model are recorded).
+- Plugin v0.26.0: the trends skill knows the new fields. Rebuild the MCP and reconnect Claude to see them.
+- Checked on this data: a page of jobs with every new option (job #88: 16 shortlisted projects with reasons, the types ranked, the opening
+  chat, 12 AI steps, its review; job #51: the proposal chat and the gate's notes; job #61: three hand changes with old and new values); the
+  record of #88; the "Why skipped" report; tests.

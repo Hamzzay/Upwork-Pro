@@ -11,6 +11,7 @@ export interface ReportJob {
   source: string | null; verdict: string | null; rule_codes: string | null; overridden: any; override_verdict: string | null;
   continued: any; written: any; template_name: string | null; template_choice: string | null;
   sent: any; sent_at: string | null; viewed: any; chat: any; interview: any; outcome: string | null; outcome_reason: string | null; outcome_at: string | null;
+  skip_reason?: string | null; proceeded?: string | null;
   viewed_at: string | null; chat_at: string | null;
   connects_spent: number | null; boost_connects: number | null; created_at: string;
   client_country: string | null; job_type: string | null; experience_level: string | null;
@@ -79,7 +80,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
   const total = C();
   const d: Record<string, Counter> = {};
   for (const k of ['profile', 'person', 'type', 'type_choice', 'project', 'project_count', 'industry', 'tag', 'signal', 'rule', 'verdict', 'decision', 'source', 'loom', 'loom_video',
-    'country', 'job_type', 'experience', 'boost', 'connects', 'length', 'speed', 'week', 'sent_weekday', 'sent_time', 'loss_reason', 'outcome',
+    'country', 'job_type', 'experience', 'boost', 'connects', 'length', 'speed', 'week', 'sent_weekday', 'sent_time', 'loss_reason', 'skip_reason', 'outcome',
     'mode', 'opening', 'invite', 'review', 'versions', 'documents', 'gaps', 'feedback']) d[k] = C();
   const byJob = <T extends { screening_id: number }>(rows: T[]) => { const m = new Map<number, T[]>(); for (const r of rows) { const a = m.get(r.screening_id); if (a) a.push(r); else m.set(r.screening_id, [r]); } return m; };
   const tags = byJob(extra.tags), projects = byJob(extra.projects), signals = byJob(extra.signals);
@@ -124,6 +125,7 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
     }
     if (j.words) d.length.add(bucket(j.words, [[120, '1'], [180, '2'], [240, '3'], [320, '4']], '5'), bucket(j.words, [[120, 'Up to 120 words'], [180, '121 to 180 words'], [240, '181 to 240 words'], [320, '241 to 320 words']], 'Over 320 words'), j);
     const created = zday(j.created_at);
+    if (j.proceeded === 'no') d.skip_reason.add(j.skip_reason || 'none', j.skip_reason || 'No reason recorded', j); // R114: why jobs were skipped (they are never sent)
     if (created) { const ws = weekStart(created); const end = new Date(ws + 'T00:00:00'); end.setDate(end.getDate() + 6); d.week.add(ws, 'Week of ' + new Date(ws + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: ws.slice(0, 4) === String(new Date().getFullYear()) ? undefined : 'numeric' }), j, { from: ws, to: ymd(end) }); } // R93: "Week of 5 Oct", short enough to read on a card
     if (on(j.sent)) {
       d.loom.add(j.loom_video_id || j.loom_video_title ? 'yes' : 'no', j.loom_video_id || j.loom_video_title ? 'With a Loom video' : 'No Loom video', j, { loom: j.loom_video_id || j.loom_video_title ? 'yes' : 'no' });
@@ -169,12 +171,13 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
     dim('length', 'Proposal length', 'Words in the finished proposal.', 'jobs', 'key'),
     dim('speed', 'Speed to proposal', 'Time from pasting the job to the proposal being ready (Upwork Pro only).', 'jobs', 'key'),
     dim('sent_weekday', 'Day sent', 'The weekday the proposal was sent.', 'sent', 'key'),
-    dim('sent_time', 'Time sent', 'The time of day the proposal was sent (server time). Only proposals with a recorded time.', 'sent', 'key'),
+    dim('sent_time', 'Time sent', 'The time of day the proposal was sent, on the clock of the time zone the days are counted in. Only proposals with a recorded time.', 'sent', 'key'),
     dim('country', 'Client country', 'Where the client is.'),
     dim('job_type', 'Job type', 'Hourly or fixed price, as the post states it.'),
     dim('experience', 'Experience level', 'The level the client asked for.'),
     dim('outcome', 'Outcome', 'How sent proposals ended.', 'sent'),
     dim('loss_reason', 'Why lost', 'The reason recorded for each lost proposal.', 'sent'),
+    dim('skip_reason', 'Why skipped', 'The quick reason given when a job was skipped after screening (the note is on each job).'),
     dim('mode', 'Auto mode', 'Jobs screened and written in auto mode against those done step by step.', 'jobs', 'key'),
     dim('opening', 'Opening sent', 'Sent proposals by the opening template they went out with (the one picked, else the type\'s default), and whether it was edited first.', 'sent'),
     dim('invite', 'Proposal or invite', 'Proposals we submitted against invites. An invite opens the chat itself, so its view and chat rates say nothing; compare interviews and hires. Set Proposals and invites above to see both.', 'sent', 'key'),

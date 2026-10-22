@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { attachZone, teamZone } from './zone';
+import { cheapFacts, DEEP_INCLUDES, deepDetails, deepText } from './deepdata';
 import { convertWall, fromDb, wallClock, DB_ZONE, dayBounds, isZone, shiftMinutes, todayIn, ZONES, zoneLabel } from './tz';
 import { attachUser, checkPassword, currentSessionHash, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
 import { detectInput, InputError, jobIdFromUrl } from './screening/jobsource';
@@ -439,7 +440,12 @@ api.get('/plugin/proposal-record/:id', requireRole(), async (req, res) => {
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const p = (await query<any>('SELECT id, status, template_name, template_choice, review_json, review_version, openings_json, finished_at, finalized_at FROM proposals WHERE screening_id=?', [id]))[0];
   const docs = await query<any>(`SELECT file_name, kind, status, read_by, text_content FROM job_attachments WHERE screening_id=? ORDER BY id`, [id]);
-  if (!p) return void res.json({ job: { id: s.id, title: s.title, auto_mode: !!Number(s.auto_mode) }, proposal: null, documents: docs });
+  // R114: everything else kept about the job (deepdata.ts): what the gate wrote, the shortlist with reasons, the types ranked, the chats with
+  // the AI, the AI's work per step, every hand change, every review, and why it was skipped
+  const zw: (v: any) => string | null = (v) => (!v ? null : String(v).length <= 10 ? String(v) : fromDb(String(v), (req as any).zone ?? DB_ZONE).slice(0, 16));
+  const fact = (await cheapFacts([id])).get(id) ?? null;
+  const more = { ...(fact ?? {}), ...((await deepDetails([id], new Set(DEEP_INCLUDES), zw)).get(id) ?? {}), times: `Times are in ${zoneLabel((req as any).zone ?? DB_ZONE)}` };
+  if (!p) return void res.json({ job: { id: s.id, title: s.title, auto_mode: !!Number(s.auto_mode) }, proposal: null, documents: docs, more });
   const versions = (await query<any>(`SELECT v.version_no, v.source, v.note, v.created_at, v.content_html, v.answers_json, u.name AS by_name FROM proposal_versions v LEFT JOIN users u ON u.id=v.created_by
     WHERE v.proposal_id=? ORDER BY v.version_no`, [p.id])).map((v) => { const sp = separate(v.content_html, v.answers_json);
     return { version: v.version_no, made_by: v.source, by: v.by_name, note: v.note, at: v.created_at, text: htmlToPlain(sp.html), screening_answers: sp.answers }; });
@@ -449,7 +455,7 @@ api.get('/plugin/proposal-record/:id', requireRole(), async (req, res) => {
   const feedback = await query<any>('SELECT f.version_no, f.category, f.feedback, f.excerpt, f.created_at, u.name AS by_name FROM proposal_feedback f LEFT JOIN users u ON u.id=f.user_id WHERE f.screening_id=? ORDER BY f.id', [id]);
   const comparisons = (await query<any>(`SELECT version_a, version_b, result_json FROM proposal_comparisons WHERE proposal_id=? AND status='done' ORDER BY id`, [p.id])).map((c) => ({ left: c.version_a, right: c.version_b, ...parse(c.result_json) }));
   await audit(req.user!.id, 'analysis_read', `proposal record of job #${id}`);
-  res.json({ job: { id: s.id, title: s.title, auto_mode: !!Number(s.auto_mode), auto_state: s.auto_state, auto_note: s.auto_note },
+  res.json({ more, job: { id: s.id, title: s.title, auto_mode: !!Number(s.auto_mode), auto_state: s.auto_state, auto_note: s.auto_note },
     proposal: { status: p.status, type: p.template_name, type_chosen: p.template_choice, written_at: p.finished_at, finished_at: p.finalized_at, versions,
       review: p.review_json ? { of_version: p.review_version, ...parse(p.review_json) } : null, openings: parse(p.openings_json), experience: gaps, feedback, comparisons },
     documents: docs.map((d) => ({ file: d.file_name, kind: d.kind, status: d.status, read_by: d.read_by, text: d.text_content })) });
@@ -483,7 +489,7 @@ export async function reportFor(req: any, f: ListFilters) {
   const jobs = await query<any>(`SELECT s.id, s.user_id, u.name AS user_name, s.upwork_profile_id AS profile_id, pr.name AS profile_name, s.source, s.verdict, s.rule_codes,
       o.id IS NOT NULL AS overridden, o.verdict_at_time AS override_verdict, s.continued_at IS NOT NULL AS continued, p.finished_at IS NOT NULL AS written, p.template_name, p.template_choice,
       ${sentSql} AS sent, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at, s.client_viewed='yes' AS viewed, s.client_replied='yes' AS chat, s.interviewed='yes' AS interview,
-      s.outcome, s.outcome_reason, s.outcome_at, s.client_viewed_at AS viewed_at, s.client_replied_at AS chat_at, s.connects_spent, s.boost_connects, s.created_at,
+      s.outcome, s.outcome_reason, s.outcome_at, s.client_viewed_at AS viewed_at, s.client_replied_at AS chat_at, s.connects_spent, s.boost_connects, s.created_at, s.skip_reason, s.proceeded,
       s.client_country, s.job_type, s.experience_level, s.loom_video_id, s.loom_video_title,
       TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at) AS secs_to_proposal,
       (SELECT pv.content_html FROM proposal_versions pv WHERE pv.proposal_id=p.id ORDER BY pv.version_no DESC LIMIT 1) AS html,
@@ -936,7 +942,7 @@ async function analysisWhere(req: any, f: z.infer<typeof analysisFilters>) {
   }
   return f;
 }
-const INCLUDES = ['tags', 'signals', 'flags', 'description', 'proposal', 'history', 'client', 'review', 'feedback', 'experience', 'documents', 'openings'] as const;
+const INCLUDES = ['tags', 'signals', 'flags', 'description', 'proposal', 'history', 'client', 'review', 'feedback', 'experience', 'documents', 'openings', ...DEEP_INCLUDES] as const;
 /**
  * Many jobs in one call, for comparing what worked. One row per job as a list of cells (the column names come once, in
  * `columns`), newest first. The answer is cut at a character budget and says whether more are left: ask again with
@@ -982,6 +988,10 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   const fbs = group(ids.length && inc.has('feedback') ? await query<any>('SELECT screening_id, category, feedback, excerpt, version_no FROM proposal_feedback WHERE screening_id IN (?) ORDER BY id', [ids]) : []);
   const gapRows = group(ids.length && inc.has('experience') ? await query<any>(`SELECT g.screening_id, g.skill, g.ask, g.status, g.note, (SELECT GROUP_CONCAT(pr.name SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS projects
     FROM proposal_gaps g WHERE g.screening_id IN (?) ORDER BY g.id`, [ids]) : []);
+  // R114: the rest of what Upwork Pro keeps (deepdata.ts): small facts on every row, the heavier details when asked for
+  const facts = await cheapFacts(ids);
+  const deepWhen: (v: any) => string | null = (v) => (!v ? null : String(v).length <= 10 ? String(v) : fromDb(String(v), (req as any).zone ?? DB_ZONE).slice(0, 16));
+  const deep = await deepDetails(ids, inc, deepWhen);
   const docRows = group(ids.length && inc.has('documents') ? await query<any>(`SELECT screening_id, file_name, kind, text_content FROM job_attachments WHERE status='done' AND screening_id IN (?) ORDER BY id`, [ids]) : []);
   const review = (r: any) => { try { const v = JSON.parse(r.review_json || 'null'); return v ? `${v.score}/10: ${v.verdict ?? ''}${(v.suggestions ?? []).length ? ' | Suggestions: ' + v.suggestions.map((x: any) => x.title).join('; ') : ''}${(v.problems ?? []).length ? ' | Hurts it: ' + v.problems.join('; ') : ''}` : null; } catch { return null; } };
   const openingsOf = (r: any) => { try { const o = JSON.parse(r.openings_json || 'null'); return o?.items?.length ? o.items.map((x: any, i: number) => `${x.style || 'Opening ' + (i + 1)}${o.used === i ? ' (used)' : ''}: ${x.text}`).join(' || ') : null; } catch { return null; } };
@@ -992,10 +1002,12 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
     'proposal_words', 'loom_video', 'connects', 'boost', 'invite', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
     'client_country', 'budget', 'job_type', 'experience_level', 'secs_to_proposal',
     'mode', 'review_score', 'opening_sent', 'versions', 'documents', 'experience_confirmed', 'experience_waiting', 'feedback_count',
+    'skip_reason', 'job_needs', 'core_work', 'type_suggested', 'version_sent', 'ai_calls', 'ai_seconds',
     ...(inc.has('client') ? ['hire_rate', 'total_spent', 'payment_verified', 'client_rating', 'avg_hourly_paid', 'proposals_on_job', 'posted'] : []),
     ...(inc.has('tags') ? ['tags'] : []), ...(inc.has('signals') ? ['signals'] : []), ...(inc.has('flags') ? ['flags'] : []), ...(inc.has('history') ? ['status_history', 'continue_reason', 'outcome_note', 'notes'] : []),
     ...(inc.has('description') ? ['description'] : []), ...(inc.has('proposal') ? ['proposal'] : []),
-    ...(inc.has('review') ? ['review'] : []), ...(inc.has('feedback') ? ['feedback'] : []), ...(inc.has('experience') ? ['experience'] : []), ...(inc.has('documents') ? ['documents'] : []), ...(inc.has('openings') ? ['openings'] : [])];
+    ...(inc.has('review') ? ['review'] : []), ...(inc.has('feedback') ? ['feedback'] : []), ...(inc.has('experience') ? ['experience'] : []), ...(inc.has('documents') ? ['documents'] : []), ...(inc.has('openings') ? ['openings'] : []),
+    ...DEEP_INCLUDES.filter((k) => inc.has(k)).map((k) => ({ gate: 'gate_notes', shortlist: 'project_shortlist', types: 'type_ranking', chats: 'ai_chats', ai: 'ai_steps', changes: 'field_changes', reviews: 'all_reviews' } as Record<string, string>)[k])];
   const rows = list.map((r) => {
     const t = tags.get(r.id) ?? [], prop = proposals.get(r.id) ?? '';
     let rep: any = null, post: any = null;
@@ -1006,6 +1018,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       yes(r.interviewed), when(r.interviewed_at), r.outcome, when(r.outcome_at), r.outcome_reason, r.client_country, r.budget, r.job_type, r.experience_level, r.secs_to_proposal,
       Number(r.auto_mode) ? 'auto' + (r.auto_state === 'stopped' ? ' (stopped)' : '') : 'steps', r.review_score == null ? null : Number(r.review_score), openingUsed(r.openings_json, r.final_opening_name),
       Number(r.versions) || null, Number(r.docs) || 0, Number(r.gaps_yes) || 0, Number(r.gaps_open) || 0, Number(r.feedback_n) || 0,
+      ...(() => { const x = facts.get(r.id); return [x?.skip ?? null, x?.job_needs ?? null, x?.core_work ?? null, x?.suggested_type ?? null, x?.sent_version ?? null, x?.ai_calls ?? 0, x?.ai_seconds ?? 0]; })(),
       ...(inc.has('client') ? [r.hire_rate, r.total_spent, r.payment_verified, r.client_rating, r.avg_hourly_paid, r.proposals_on_job, r.posted] : []),
       ...(inc.has('tags') ? [t.filter((x) => !/^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null] : []),
       ...(inc.has('signals') ? [(signals.get(r.id) ?? []).map((x) => `${x.signal_name}: ${x.value_name}`).join('; ') || null] : []),
@@ -1016,7 +1029,8 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
       ...(inc.has('feedback') ? [(fbs.get(r.id) ?? []).map((x) => `[${x.category}, v${x.version_no ?? '-'}] ${x.feedback} (on: "${String(x.excerpt).slice(0, 160)}")`).join(' || ') || null] : []),
       ...(inc.has('experience') ? [(gapRows.get(r.id) ?? []).map((x) => `${x.skill}: ${x.status}${x.projects ? ' in ' + x.projects : ''}${x.note ? ' (' + x.note + ')' : ''}`).join('; ') || null] : []),
       ...(inc.has('documents') ? [cut((docRows.get(r.id) ?? []).map((x) => `[${x.file_name}] ${x.text_content}`).join('\n')) || null] : []),
-      ...(inc.has('openings') ? [cut(openingsOf(r)) || null] : [])];
+      ...(inc.has('openings') ? [cut(openingsOf(r)) || null] : []),
+      ...DEEP_INCLUDES.filter((k) => inc.has(k)).map((k) => { const t = deepText(k, deep.get(r.id)?.[k]); return k === 'chats' || k === 'reviews' ? (t ? cut(t) : null) : t; })];
   });
   const packed = packRows(rows, q.data.budget);
   const last = packed.rows.length ? (packed.rows[packed.rows.length - 1][0] as number) : null;

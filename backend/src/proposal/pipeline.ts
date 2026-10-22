@@ -698,6 +698,9 @@ export async function reviewWith(proposalId: number, sections: ReviewerSections)
 export async function runReview(proposalId: number) {
   const rv = await activeReviewer();
   const { review, version_no } = await reviewWith(proposalId, rv.sections);
+  // every review is kept (R114), not only the latest
+  await exec('INSERT INTO proposal_reviews (proposal_id, version_no, reviewer_version, score, review_json) VALUES (?,?,?,?,?)',
+    [proposalId, version_no, rv.version, Number.isFinite(Number((review as any).score)) ? Number((review as any).score) : null, JSON.stringify({ ...review, reviewer_version: rv.version })]);
   await exec(`UPDATE proposals SET review_status='done', review_json=?, review_version=?, review_reviewer_version=?, review_error=NULL, reviewed_at=NOW() WHERE id=?`, [JSON.stringify({ ...review, reviewer_version: rv.version }), version_no, rv.version, proposalId]);
 }
 
