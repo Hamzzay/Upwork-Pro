@@ -2109,3 +2109,28 @@ Why (Hamza): deep analysis from Claude needs every detail. Checked against the l
 - Checked on this data: a page of jobs with every new option (job #88: 16 shortlisted projects with reasons, the types ranked, the opening
   chat, 12 AI steps, its review; job #51: the proposal chat and the gate's notes; job #61: three hand changes with old and new values); the
   record of #88; the "Why skipped" report; tests.
+
+### R115. The independent reviewer is fully editable, and the app works out the score (done, 23 October)
+Why (Hamza): the reviewer was one generic guide, so it gave 4 or 5 to every job (live since 1 October: 88 reviews, none at 7 or more).
+Waqar tunes it as an admin; Hamza approves. No minimum score is enforced; the team is told the expected score.
+- **Why it scored low**: true claims were called invented because it never saw the confirmed experience, the client's documents or the
+  type's samples; one block was judged at once; and the AI picked the number itself.
+- **New parts of a reviewer version** (Reviewer page, every part editable, each saved version logged with what changed):
+  - **Criteria with weights** (up to 10, each with what to look for, what high and low look like). The AI scores each 1 to 10 and the
+    app works out the weighted score. What the AI said overall is kept beside it.
+  - **Caps**: rules that limit the score (for example an invented fact, at most 4). The lowest cap hit wins.
+  - **Key points**, and **key points per proposal type** (matched by the type's name).
+  - **Examples**: a library of scored proposals with why (add by hand, or "Use as reviewer example" on any review). The reviewer is shown
+    up to six, same type first, high and low mixed.
+  - **Parts**: the opening, the body and the answers are each judged.
+  - **More facts**: confirmed experience, the client's documents, samples of the type, the opening.
+- **Load the full built-in reviewer**: a ready version with five criteria (opening 30, answers 25, proof 20, plan and fit 15, format and
+  close 10), five caps, key points for each of the eight types, examples on. Saved and activated like any version.
+- **Test bench**: runs the reviewer being edited on up to 12 recent proposals and shows its score beside the live one, before saving.
+- On every review, "How the score was made" shows the criteria scores, the parts and any cap.
+- Claude's records (`reviews` in `analyze_jobs`, `get_proposal_record`) carry the criteria, weighted score, parts and caps.
+- Version 1 and older versions behave as before (no criteria: the AI's own score).
+- Migration `064_reviewer_examples.sql`.
+- Checked: tests (the weighted score, caps, the full reviewer is valid and sums to 100, older versions ask for what they always did),
+  type check, scripts. **Not checked live**: the local database (XAMPP) no longer starts on this Mac, so the screens, the bench and
+  migration 064 were not run. Check on the server after deploying.

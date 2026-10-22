@@ -2886,10 +2886,21 @@ async function skillView() {
 }
 
 // ---------- Reviewer: full control of the independent proposal reviewer (R61); admins edit, everyone reads ----------
-const RV_CONTEXT = { signals: 'What the post signals', writing_rules: 'The writing rules', banned_phrases: 'The banned phrases', checklist: 'The verification checklist', automatic_checks: 'What the automatic checks found' };
+const RV_CONTEXT = { signals: 'What the post signals', writing_rules: 'The writing rules', banned_phrases: 'The banned phrases', checklist: 'The verification checklist', automatic_checks: 'What the automatic checks found',
+  experience: 'The experience the sender confirmed for the job', documents: 'The client\'s documents', type_samples: 'Sample proposals of the same type' };
+/** A review's detail since R115: each criterion's score, the opening, body and answers apart, and the caps that held the score down. */
+function reviewDetail(rv) {
+  if (!rv) return null;
+  const crit = rv.criteria_scores && rv.criteria_scores.length ? h('div', {}, h('div', { class: 'jp-label' }, 'By criterion' + (rv.weighted != null ? ` (weighted ${rv.weighted})` : '')),
+    h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, rv.criteria_scores.map((c) => h('li', {}, h('strong', {}, `${c.criterion}: ${c.score}/10`), c.why ? ' ' + c.why : '')))) : null;
+  const pt = rv.parts ? h('div', {}, h('div', { class: 'jp-label' }, 'By part'), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' },
+    [['Opening', rv.parts.opening], ['Body', rv.parts.body], ['Screening answers', rv.parts.answers]].filter(([, x]) => x).map(([l, x]) => h('li', {}, h('strong', {}, `${l}: ${x.score}/10`), x.note ? ' ' + x.note : '')))) : null;
+  const caps = rv.capped_by && rv.capped_by.length ? h('div', { class: 'warnline' }, icon('warn'), ` Capped at ${Math.min(...rv.capped_by.map((c) => c.max))}: ` + rv.capped_by.map((c) => c.rule).join(' ')) : null;
+  return [caps, crit, pt].filter(Boolean);
+}
 async function reviewerView() {
   const edit = me.role === 'admin';
-  const { versions, active } = await api('GET', '/reviewer');
+  const { versions, active, full, types } = await api('GET', '/reviewer');
   let base = active.sections; // what the editor was loaded from, to tell unsaved changes
   const lines = (xs) => (xs || []).join('\n');
   const toList = (t) => t.split('\n').map((x) => x.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim()).filter(Boolean);
@@ -2901,7 +2912,37 @@ async function reviewerView() {
   const num = (id, min, max) => h('input', { type: 'number', id, min, max, step: 1, readOnly: !edit, style: 'width:90px' });
   const n = { strengths: num('rv-ns', 0, 5), problems: num('rv-np', 1, 6), suggestions: num('rv-ng', 0, 5) };
   const ctx = Object.fromEntries(Object.keys(RV_CONTEXT).map((k) => [k, h('input', { type: 'checkbox', id: 'rv-c-' + k, disabled: !edit })]));
+  // R115: criteria with weights, caps, key points (general and per type), examples, parts
+  const crit = h('div', { class: 'stack', style: 'gap:10px' }), capsEl = h('div', { class: 'stack', style: 'gap:8px' });
+  const keyPoints = area('rv-keys', 'Key points', 6);
+  const typeAreas = Object.fromEntries((types || []).map((t) => [t, area('rv-type-' + t.replace(/\W+/g, '-'), 'Key points for ' + t, 4)]));
+  const exUse = h('input', { type: 'checkbox', id: 'rv-exuse', disabled: !edit }), exN = num('rv-exn', 0, 6), partsCb = h('input', { type: 'checkbox', id: 'rv-parts', disabled: !edit });
+  const weightSum = h('span', { class: 'jp-label' });
+  const sumWeights = () => { const t = [...crit.querySelectorAll('.rv-w')].reduce((x, el) => x + (Number(el.value) || 0), 0); weightSum.textContent = crit.children.length ? `Weights add up to ${t}${t === 100 ? '' : ' (they are scaled, so they need not add up to 100)'}` : 'No criteria: the reviewer gives one overall score, as before.'; };
+  const critRow = (c = { name: '', weight: 10, look_for: '', high: '', low: '' }) => {
+    const ta = (v, ph) => { const el = h('textarea', { rows: 2, readOnly: !edit, placeholder: ph }); el.value = v || ''; return el; };
+    const name = h('input', { type: 'text', class: 'rv-n', value: c.name, readOnly: !edit, placeholder: 'For example: Opening', maxlength: 80 });
+    const w = h('input', { type: 'number', class: 'rv-w', min: 0, max: 100, step: 1, value: c.weight, readOnly: !edit, style: 'width:80px' });
+    const look = ta(c.look_for, 'What it looks at'), hi = ta(c.high, 'What a high score looks like'), lo = ta(c.low, 'What a low score looks like');
+    look.classList.add('rv-look'); hi.classList.add('rv-hi'); lo.classList.add('rv-lo');
+    const row = h('div', { class: 'card card-pad stack', style: 'gap:6px' }, h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' }, name, h('label', { class: 'row', style: 'gap:6px' }, h('span', { class: 'jp-label' }, 'Weight'), w),
+      edit ? h('button', { type: 'button', class: 'btn sm', onclick: () => { row.remove(); sumWeights(); check(); } }, 'Remove') : null), look, h('div', { class: 'two' }, hi, lo));
+    [name, w, look, hi, lo].forEach((el) => el.addEventListener('input', () => { sumWeights(); check(); }));
+    return row;
+  };
+  const capRow = (c = { rule: '', max: 5 }) => {
+    const rule = h('input', { type: 'text', class: 'rv-cr', value: c.rule, readOnly: !edit, placeholder: 'For example: It invents a fact that is not in the facts given.' });
+    const mx = h('input', { type: 'number', class: 'rv-cm', min: 1, max: 10, step: 1, value: c.max, readOnly: !edit, style: 'width:70px' });
+    const row = h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' }, rule, h('span', { class: 'jp-label nowrap' }, 'no higher than'), mx, edit ? h('button', { type: 'button', class: 'btn sm', onclick: () => { row.remove(); check(); } }, 'Remove') : null);
+    [rule, mx].forEach((el) => el.addEventListener('input', check));
+    return row;
+  };
   const fill = (sec) => {
+    crit.replaceChildren(...(sec.criteria || []).map(critRow)); sumWeights();
+    capsEl.replaceChildren(...(sec.caps || []).map(capRow));
+    keyPoints.value = lines(sec.key_points);
+    for (const t of Object.keys(typeAreas)) typeAreas[t].value = lines(((sec.per_type || []).find((x) => x.type === t) || {}).key_points);
+    exUse.checked = !!(sec.examples && sec.examples.use); exN.value = (sec.examples && sec.examples.per_review) || 0; partsCb.checked = !!sec.parts;
     f.method.value = sec.method; f.concerns.value = lines(sec.concerns); f.dos.value = lines(sec.dos); f.donts.value = lines(sec.donts);
     f.score_guide.value = sec.score_guide; f.score_limits.value = lines(sec.score_limits); f.writing.value = sec.writing || '';
     for (const k of Object.keys(n)) n[k].value = sec.limits[k];
@@ -2912,12 +2953,19 @@ async function reviewerView() {
     score_guide: f.score_guide.value.trim(), score_limits: toList(f.score_limits.value), writing: f.writing.value.trim(),
     limits: { strengths: Number(n.strengths.value), problems: Number(n.problems.value), suggestions: Number(n.suggestions.value) },
     context: Object.fromEntries(Object.keys(ctx).map((k) => [k, ctx[k].checked])),
+    criteria: [...crit.children].map((row) => ({ name: row.querySelector('.rv-n').value.trim(), weight: Number(row.querySelector('.rv-w').value) || 0, look_for: row.querySelector('.rv-look').value.trim(),
+      high: row.querySelector('.rv-hi').value.trim(), low: row.querySelector('.rv-lo').value.trim() })).filter((c) => c.name),
+    caps: [...capsEl.children].map((row) => ({ rule: row.querySelector('.rv-cr').value.trim(), max: Number(row.querySelector('.rv-cm').value) || 5 })).filter((c) => c.rule),
+    key_points: toList(keyPoints.value),
+    per_type: Object.entries(typeAreas).map(([type, el]) => ({ type, key_points: toList(el.value) })).filter((t) => t.key_points.length),
+    examples: { use: exUse.checked, per_review: Number(exN.value) || 0 }, parts: partsCb.checked,
   });
   const dirty = h('span', { class: 'chip', hidden: true }, 'Unsaved changes');
   fill(base);
   const baseJson = () => { const keep = read(); fill(base); const b = JSON.stringify(read()); fill(keep); return b; };
   const check = () => { dirty.hidden = JSON.stringify(read()) === baseJson(); };
-  [...Object.values(f), ...Object.values(n)].forEach((el) => el.addEventListener('input', check));
+  [...Object.values(f), ...Object.values(n), keyPoints, exN, ...Object.values(typeAreas)].forEach((el) => el.addEventListener('input', check));
+  [exUse, partsCb].forEach((el) => el.addEventListener('change', check));
   Object.values(ctx).forEach((el) => el.addEventListener('change', check));
   const loadedFrom = h('span', {}, ` Editing from version ${active.version}`);
 
@@ -2925,6 +2973,16 @@ async function reviewerView() {
   const editor = h('div', { class: 'stack' },
     sec('How to review', 'Who the reviewer is, who it reads for, and how it should think about a proposal. It comes first in its instructions.', f.method),
     sec('Key concerns', 'What matters most, one per line, most important first. The reviewer judges the proposal on these, in this order.', f.concerns),
+    sec('Criteria and weights', 'What the reviewer scores, each from 1 to 10, with its weight. The app works out the final score from these (a weighted average), so the same judgements always give the same score. No criteria: one overall score, as before.',
+      h('div', { class: 'stack', style: 'gap:8px' }, crit, weightSum, edit ? h('div', {}, h('button', { type: 'button', class: 'btn sm', onclick: () => { crit.append(critRow()); sumWeights(); check(); } }, 'Add a criterion')) : null)),
+    sec('Caps', 'Rules that always hold: when one applies, the score can be no higher than its number. The reviewer says which apply; the app caps the score.',
+      h('div', { class: 'stack', style: 'gap:8px' }, capsEl, edit ? h('div', {}, h('button', { type: 'button', class: 'btn sm', onclick: () => { capsEl.append(capRow()); check(); } }, 'Add a cap')) : null)),
+    sec('Key points', 'What Stackup expects in every proposal, one per line. The reviewer holds every proposal to these.', keyPoints),
+    sec('Key points by proposal type', 'Added to the general key points when a proposal of that type is reviewed. One per line; leave a type empty to use only the general ones.',
+      h('div', { class: 'stack', style: 'gap:10px' }, Object.entries(typeAreas).map(([t, el]) => h('details', { class: 'fold' }, h('summary', {}, t + (el.value.trim() ? '' : ' (none yet)')), el)))),
+    sec('Examples and parts', 'Examples: proposals from the library below, with the score Stackup says they deserve, shown to the reviewer so it scores on the same standard (the same type first). Parts: the opening, the body and the screening answers each get their own score too.',
+      h('div', { class: 'stack', style: 'gap:8px' }, h('label', { class: 'row', style: 'gap:8px' }, exUse, h('span', {}, 'Show the reviewer examples from the library'), h('span', { class: 'jp-label' }, 'how many per review'), exN),
+        h('label', { class: 'row', style: 'gap:8px' }, partsCb, h('span', {}, 'Score the opening, the body and the screening answers apart')))),
     h('div', { class: 'two' }, sec('Dos', 'One per line.', f.dos), sec("Don'ts", 'One per line.', f.donts)),
     sec('Score guide', 'What each score means, one line per band. Scores are whole numbers from 1 to 10.', f.score_guide),
     sec('Score limits', 'Rules that always hold, one per line, for example "A proposal with an invented fact cannot score above 6."', f.score_limits),
@@ -2944,7 +3002,7 @@ async function reviewerView() {
     const ul = (t, xs) => (xs && xs.length ? h('div', {}, h('div', { class: 'jp-label' }, t), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, xs.map((x) => h('li', {}, x)))) : null);
     return h('div', { class: 'card card-pad stack', style: 'gap:10px' }, h('div', { class: 'jp-sec' }, title), sub ? h('div', { class: 'jp-label' }, sub) : null,
       h('div', { class: 'reviewscore ' + tone }, h('span', { class: 'num' }, String(rv.score)), h('span', { class: 'of' }, 'out of 10')),
-      h('p', { class: 'jp-body', style: 'margin:0' }, rv.verdict), ul('What hurts it', rv.problems), ul('What works', rv.strengths),
+      h('p', { class: 'jp-body', style: 'margin:0' }, rv.verdict), ...(reviewDetail(rv) || []), ul('What hurts it', rv.problems), ul('What works', rv.strengths),
       rv.suggestions && rv.suggestions.length ? h('div', {}, h('div', { class: 'jp-label' }, 'Suggestions'), h('ul', { class: 'jp-list', style: 'margin:4px 0 0' }, rv.suggestions.map((sg) => h('li', {}, h('strong', {}, sg.title), ': ', sg.instruction)))) : null);
   };
   const testBtn = h('button', { class: 'btn', type: 'button', disabled: !jobs.length || null }, 'Try the draft');
@@ -2973,9 +3031,63 @@ async function reviewerView() {
     try { const r = await api('POST', '/admin/reviewer', { sections: read(), change_note: note.value || undefined }); toast(`Saved as version ${r.version}. Try it, then activate it to use it.`); route(); }
     catch (x) { toast(x.message, true); saveBtn.disabled = false; saveBtn.replaceChildren('Save as new version'); }
   };
+  const fullBtn = h('button', { class: 'btn', type: 'button' }, 'Load the full built-in reviewer');
+  fullBtn.onclick = () => { fill(full); check(); toast('The full built-in reviewer is in the editor: criteria, caps, key points and examples. Try it, then save it as a new version.'); };
   const resetBtn = h('button', { class: 'btn', type: 'button' }, 'Load the built-in reviewer');
   resetBtn.onclick = async () => { const { defaults } = await api('GET', '/reviewer'); fill(defaults); check(); toast('The built-in reviewer is in the editor. Save it as a new version to keep it.'); };
 
+  // ---- the test bench: the draft on several past proposals at once, beside the score each has now and what the client did
+  function benchCard() {
+    const count = h('input', { type: 'number', min: 1, max: 12, value: 6, style: 'width:80px', 'aria-label': 'How many proposals' });
+    const res = h('div', { style: 'margin-top:12px' });
+    const go = h('button', { class: 'btn', type: 'button' }, 'Run the draft on them');
+    go.onclick = async () => {
+      btnBusy(go, 'Reviewing'); res.replaceChildren(h('div', { class: 'row muted small' }, h('span', { class: 'spin' }), `Reviewing ${count.value} proposals with the draft, three at a time. About a minute each.`));
+      try {
+        const r = await api('POST', '/admin/reviewer/bench', { sections: read(), count: Number(count.value) || 6 });
+        res.replaceChildren(h('p', { class: 'jp-body', style: 'margin:0 0 8px' }, `Average with the draft: ${r.average ?? '-'} · with the reviews they have now: ${r.live_average ?? '-'}`),
+          dataTable(['Job', 'Type', 'Draft', 'Now', 'What happened', 'Why'], r.rows.map((x) => h('tr', {},
+            h('td', {}, h('a', { href: '#/s/' + x.id + '/proposal' }, '#' + x.id), ' ', (x.title || '').slice(0, 50)), h('td', { class: 'muted' }, x.type || '-'),
+            h('td', {}, x.error ? h('span', { class: 'err' }, x.error) : h('strong', {}, String(x.score)), x.capped_by && x.capped_by.length ? h('span', { class: 'jp-label' }, ' capped') : null),
+            h('td', { class: 'muted' }, x.live_score == null ? '-' : String(x.live_score)), h('td', {}, x.result || '-'),
+            h('td', { class: 'small', style: 'white-space:normal;min-width:260px' }, x.verdict || '', x.criteria && x.criteria.length ? h('div', { class: 'jp-label' }, x.criteria.map((c) => `${c.criterion} ${c.score}`).join(' · ')) : null)))));
+      } catch (x) { res.replaceChildren(); toast(x.message, true); }
+      go.disabled = false; go.replaceChildren('Run the draft on them');
+    };
+    return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Test bench')), h('div', { class: 'card-pad' },
+      h('p', { class: 'jp-label', style: 'margin:0 0 8px' }, 'Runs the draft above on the most recent proposals (those a client viewed first), beside the score each has now and what the client did. Nothing is saved. Use it to check the draft scores good proposals 7 or 8 and weak ones lower.'),
+      h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'jp-label' }, 'Proposals'), count, go), res));
+  }
+  // ---- the examples library: proposals with the score Stackup says they deserve, and why (not part of a version; used when a version says so)
+  function examplesCard() {
+    const box = h('div', { class: 'stack', style: 'gap:8px' });
+    const form = (x) => {
+      const typ = h('select', { 'aria-label': 'Proposal type' }, h('option', { value: '' }, 'Any type'), (types || []).map((t) => h('option', { value: t, selected: !!(x && x.template_name === t) || null }, t)));
+      const title = h('input', { type: 'text', maxlength: 200, value: x ? x.title : '', placeholder: 'For example: Strong opening on a HIPAA build' });
+      const score = h('input', { type: 'number', min: 1, max: 10, step: 1, value: x ? x.score : 8, style: 'width:80px' });
+      const why = h('textarea', { rows: 4, placeholder: 'Why it deserves that score: what works, what does not' }); why.value = x ? x.why : '';
+      const text = h('textarea', { rows: 10, placeholder: 'The proposal, as sent' }); text.value = x ? x.proposal_text : '';
+      modal({ title: x ? 'Edit example' : 'Add an example', confirm: 'Save example', wide: true, body: h('div', { class: 'stack' },
+        h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Proposal type'), typ), h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Score it deserves (1 to 10)'), score)),
+        h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Title'), title), h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Why'), why), h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'The proposal'), text),
+        h('div', { class: 'hint' }, 'Tip: on any job, an admin can add its proposal from the review there (Use as reviewer example).')),
+        onConfirm: async () => {
+          const body = { template_name: typ.value || null, title: title.value, score: Number(score.value), why: why.value, proposal_text: text.value };
+          await api(x ? 'PATCH' : 'POST', x ? '/admin/reviewer/examples/' + x.id : '/admin/reviewer/examples', body); toast('Example saved'); load();
+        } });
+    };
+    async function load() {
+      const { examples } = await api('GET', '/reviewer/examples');
+      box.replaceChildren(examples.length ? dataTable(['Example', 'Type', 'Score', 'Status', ''], examples.map((x) => h('tr', {},
+        h('td', { style: 'white-space:normal' }, h('strong', {}, x.title), h('div', { class: 'meta' }, x.why.slice(0, 160))), h('td', { class: 'muted' }, x.template_name || 'Any type'), h('td', {}, h('strong', {}, x.score + '/10')),
+        h('td', {}, activeSwitch(x.active, { name: x.title, url: '/admin/reviewer/examples/' + x.id, no: 'Off', can: edit, after: load, offText: 'The reviewer no longer sees it.' })),
+        edit ? acts(h('button', { class: 'btn sm', onclick: () => form(x) }, 'Edit')) : h('td', {}))))
+        : h('p', { class: 'jp-label' }, 'No examples yet. Add proposals the team sent, good and weak, with the score each deserves and why.'));
+    }
+    load();
+    return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Examples library'), edit ? h('button', { class: 'btn sm primary', type: 'button', onclick: () => form(null) }, 'Add an example') : null),
+      h('div', { class: 'card-pad' }, h('p', { class: 'jp-label', style: 'margin:0 0 8px' }, 'Real proposals with the score Stackup says they deserve, and why. A reviewer version that uses examples shows the reviewer the most relevant few (the same type first, a spread of scores), so it scores on Stackup\'s standard.'), box));
+  }
   const vitem = (v) => h('div', { class: 'vitem' }, h('div', { class: 'top' }, h('strong', {}, 'Version ' + v.version), v.is_active ? h('span', { class: 'pill PASS' }, 'Active') : null),
     h('div', { class: 'small muted' }, (v.change_note || 'No note') + (v.created_by_name ? ' · ' + v.created_by_name : '') + ' · ' + ago(v.created_at)),
     h('div', { class: 'row', style: 'gap:6px' },
@@ -2988,12 +3100,13 @@ async function reviewerView() {
     h('div', { class: 'notice' }, icon('info'), h('span', {}, edit ? 'Change any part, try the draft on a past proposal, save it as a new version, then activate it. The facts the reviewer reads and the shape of its answer (score, verdict, problems, strengths, suggestions) are fixed by the app.'
       : 'Only an admin changes the reviewer. This is the active version.')),
     h('div', { class: 'two' }, h('div', { class: 'stack' },
-      h('div', { class: 'row spread' }, h('span', { class: 'sub' }, dirty, loadedFrom), edit ? resetBtn : null),
+      h('div', { class: 'row spread' }, h('span', { class: 'sub' }, dirty, loadedFrom), edit ? h('div', { class: 'row', style: 'gap:6px' }, fullBtn, resetBtn) : null),
       editor,
       edit ? h('div', { class: 'card card-pad' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'rv-note' }, 'Change note'), note), h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, saveBtn)) : null,
       edit ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Try the draft')), h('div', { class: 'card-pad' },
         h('p', { class: 'jp-label', style: 'margin:0 0 8px' }, 'Reviews the newest version of a past proposal with the sections above, beside the review it has now. Nothing is saved.'),
-        jobSel, h('div', { class: 'row', style: 'margin-top:12px;gap:8px' }, testBtn, previewBtn), out)) : null),
+        jobSel, h('div', { class: 'row', style: 'margin-top:12px;gap:8px' }, testBtn, previewBtn), out)) : null,
+      edit ? benchCard() : null, examplesCard()),
       versionsCard(versions, vitem, (v) => `version ${v.version} ${v.change_note || ''}`))], true);
 }
 

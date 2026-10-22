@@ -10,8 +10,9 @@ import { audit, exec, query } from './db';
 import { requireRole } from './auth';
 import { diff } from './changes';
 import { withCallContext } from './llm/context';
+import { htmlToPlain } from './html';
 import { reviewInput, reviewWith } from './proposal/pipeline';
-import { reviewerSections, DEFAULT_REVIEWER, type ReviewerSections } from './proposal/reviewer';
+import { reviewerSections, DEFAULT_REVIEWER, REVIEWER_FULL, type ReviewerSections } from './proposal/reviewer';
 import { activeReviewer, ensureReviewer, reviewerVersion, reviewerVersions, saveReviewerVersion } from './proposal/reviewer_store';
 
 export const reviewer = Router();
@@ -25,13 +26,18 @@ export function sectionsText(s: ReviewerSections | null): Record<string, string 
   const l = (xs: string[]) => xs.map((x, i) => `${i + 1}. ${x}`).join('\n') || null;
   return { 'how to review': s.method, 'key concerns': l(s.concerns), dos: l(s.dos), "don'ts": l(s.donts), 'score guide': s.score_guide, 'score limits': l(s.score_limits),
     'how to write the review': s.writing || null, 'how many': `strengths ${s.limits.strengths}, problems ${s.limits.problems}, suggestions ${s.limits.suggestions}`,
-    'facts it reads': Object.entries(s.context).filter(([, on]) => on).map(([k]) => k.replace(/_/g, ' ')).join(', ') || 'none of the optional ones' };
+    'facts it reads': Object.entries(s.context).filter(([, on]) => on).map(([k]) => k.replace(/_/g, ' ')).join(', ') || 'none of the optional ones',
+    criteria: s.criteria.map((c, i) => `${i + 1}. ${c.name} (weight ${c.weight})${c.look_for ? ': ' + c.look_for : ''}${c.high ? ' | high: ' + c.high : ''}${c.low ? ' | low: ' + c.low : ''}`).join('\n') || null,
+    caps: s.caps.map((c, i) => `${i + 1}. ${c.rule} (max ${c.max})`).join('\n') || null, 'key points': l(s.key_points),
+    'key points by type': s.per_type.filter((t) => t.key_points.length).map((t) => `${t.type}:\n${t.key_points.map((x) => '  - ' + x).join('\n')}`).join('\n') || null,
+    examples: s.examples.use ? `used, ${s.examples.per_review} per review` : 'not used', parts: s.parts ? 'opening, body and answers scored apart' : 'one score' };
 }
 const sameSections = (a: ReviewerSections, b: ReviewerSections) => JSON.stringify(reviewerSections.parse(a)) === JSON.stringify(reviewerSections.parse(b));
 
 reviewer.get('/reviewer', anyone, async (_req, res) => {
   const active = await activeReviewer();
-  res.json({ versions: await reviewerVersions(), active, defaults: DEFAULT_REVIEWER });
+  const types = (await query<any>('SELECT name FROM templates WHERE active=1 ORDER BY priority, name')).map((t) => t.name as string);
+  res.json({ versions: await reviewerVersions(), active, defaults: DEFAULT_REVIEWER, full: REVIEWER_FULL, types });
 });
 reviewer.get('/reviewer/:id', anyone, async (req, res) => {
   const v = await reviewerVersion(Number(req.params.id));
@@ -93,4 +99,76 @@ reviewer.post('/admin/reviewer/test', admin, async (req, res) => {
   } catch {
     res.status(502).json({ error: 'The test review failed. Check the AI settings, then try again.' });
   }
+});
+
+// ---------- the examples library (R115): proposals with the score Stackup says they deserve, and why ----------
+const exampleBody = z.object({ title: z.string().trim().min(3, 'Give the example a title').max(200), score: z.number().int().min(1).max(10),
+  why: z.string().trim().min(10, 'Say why it deserves that score').max(4000), template_name: z.string().trim().max(160).nullish().transform((v) => v || null),
+  proposal_text: z.string().trim().min(40, 'Paste the proposal').max(30000), job_text: z.string().trim().max(30000).nullish().transform((v) => v || null), active: z.boolean().optional() });
+reviewer.get('/reviewer/examples', anyone, async (_req, res) => {
+  res.json({ examples: await query<any>(`SELECT x.id, x.template_name, x.title, x.score, x.why, x.proposal_text, x.job_text, x.screening_id, x.active, x.created_at, u.name AS created_by_name
+    FROM reviewer_examples x LEFT JOIN users u ON u.id=x.created_by ORDER BY x.active DESC, x.template_name IS NULL, x.template_name, x.score DESC, x.id DESC`) });
+});
+reviewer.post('/admin/reviewer/examples', admin, async (req, res) => {
+  const b = exampleBody.safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  const r = await exec('INSERT INTO reviewer_examples (template_name, title, score, why, proposal_text, job_text, created_by) VALUES (?,?,?,?,?,?,?)',
+    [b.data.template_name, b.data.title, b.data.score, b.data.why, b.data.proposal_text, b.data.job_text, req.user!.id]);
+  await audit(req.user!.id, 'reviewer_example_add', `${b.data.title}: ${b.data.score}/10${b.data.template_name ? ' (' + b.data.template_name + ')' : ''}`);
+  res.status(201).json({ id: Number(r.insertId) });
+});
+/** From a job: its newest proposal (or a chosen version) becomes an example, with the job post beside it. */
+reviewer.post('/admin/reviewer/examples/from-job', admin, async (req, res) => {
+  const b = z.object({ screening_id: z.number().int().positive(), version_no: z.number().int().positive().optional(), score: z.number().int().min(1).max(10),
+    why: z.string().trim().min(10, 'Say why it deserves that score').max(4000), title: z.string().trim().max(200).optional() }).safeParse(req.body);
+  if (!b.success) return void bad(res, b.error);
+  const p = (await query<any>(`SELECT p.id, p.template_name, s.title, s.job_text, s.raw_input FROM proposals p JOIN screenings s ON s.id=p.screening_id WHERE p.screening_id=?`, [b.data.screening_id]))[0];
+  if (!p) return void res.status(404).json({ error: 'That job has no proposal' });
+  const v = (await query<any>(`SELECT version_no, content_html FROM proposal_versions WHERE proposal_id=? ${b.data.version_no ? 'AND version_no=?' : ''} ORDER BY version_no DESC LIMIT 1`,
+    b.data.version_no ? [p.id, b.data.version_no] : [p.id]))[0];
+  if (!v) return void res.status(404).json({ error: 'That version does not exist' });
+  const title = b.data.title || `#${b.data.screening_id} ${p.title || 'Untitled'} (v${v.version_no})`;
+  const r = await exec('INSERT INTO reviewer_examples (template_name, title, score, why, proposal_text, job_text, screening_id, created_by) VALUES (?,?,?,?,?,?,?,?)',
+    [p.template_name, title.slice(0, 200), b.data.score, b.data.why, htmlToPlain(v.content_html), String(p.job_text ?? p.raw_input ?? '').slice(0, 30000), b.data.screening_id, req.user!.id]);
+  await audit(req.user!.id, 'reviewer_example_add', `${title}: ${b.data.score}/10`);
+  res.status(201).json({ id: Number(r.insertId) });
+});
+reviewer.patch('/admin/reviewer/examples/:id', admin, async (req, res) => {
+  const b = exampleBody.partial().safeParse(req.body); if (!b.success) return void bad(res, b.error);
+  const id = Number(req.params.id);
+  const before = (await query<any>('SELECT title, score, why, template_name, active FROM reviewer_examples WHERE id=?', [id]))[0];
+  if (!before) return void res.status(404).json({ error: 'Not found' });
+  const keys = (['title', 'score', 'why', 'template_name', 'proposal_text', 'job_text'] as const).filter((k) => k in b.data);
+  const sets = keys.map((k) => `${k}=?`), p: any[] = keys.map((k) => (b.data as any)[k]);
+  if (b.data.active !== undefined) { sets.push('active=?'); p.push(b.data.active ? 1 : 0); }
+  if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
+  await exec(`UPDATE reviewer_examples SET ${sets.join(',')} WHERE id=?`, [...p, id]);
+  const after = (await query<any>('SELECT title, score, why, template_name, active FROM reviewer_examples WHERE id=?', [id]))[0];
+  const str = (o: any) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v == null ? null : String(v)]));
+  await audit(req.user!.id, 'reviewer_example_change', before.title, diff(str(before), str(after)));
+  res.json({ ok: true });
+});
+
+// ---------- the test bench (R115): a draft on several past proposals at once, beside their live score and what the client did ----------
+reviewer.post('/admin/reviewer/bench', admin, async (req, res) => {
+  const b = z.object({ sections: reviewerSections, screening_ids: z.array(z.number().int().positive()).max(12).optional(), count: z.number().int().min(1).max(12).default(6) }).safeParse(req.body);
+  if (!b.success) return void bad(res, b.error);
+  const rows = await query<any>(`SELECT s.id, s.title, p.id AS proposal_id, p.template_name, JSON_EXTRACT(p.review_json, '$.score') AS live_score,
+      s.proposal_sent_at IS NOT NULL OR s.proposal_sent_date IS NOT NULL AS sent, s.client_viewed='yes' AS viewed, s.client_replied='yes' AS chat, s.interviewed='yes' AS interview, s.outcome
+    FROM proposals p JOIN screenings s ON s.id=p.screening_id WHERE p.status='done' AND s.discarded_at IS NULL AND EXISTS (SELECT 1 FROM proposal_versions v WHERE v.proposal_id=p.id)
+      ${b.data.screening_ids?.length ? 'AND s.id IN (?)' : ''} ORDER BY (s.client_viewed='yes') DESC, p.id DESC LIMIT ?`, b.data.screening_ids?.length ? [b.data.screening_ids, 12] : [b.data.count]);
+  const out: any[] = [];
+  const queue = [...rows];
+  const worker = async () => { for (let j = queue.shift(); j; j = queue.shift()) {
+    try {
+      const r = await withCallContext({ kind: 'reviewer_test', screeningId: j.id }, () => reviewWith(j.proposal_id, b.data.sections));
+      out.push({ id: j.id, title: j.title, type: j.template_name, score: r.review.score, weighted: (r.review as any).weighted ?? null, capped_by: (r.review as any).capped_by ?? [], verdict: r.review.verdict,
+        criteria: (r.review as any).criteria_scores ?? [], parts: (r.review as any).parts ?? null, live_score: j.live_score == null ? null : Number(j.live_score),
+        result: j.outcome ? j.outcome : Number(j.interview) ? 'Interview' : Number(j.chat) ? 'Chat' : Number(j.viewed) ? 'Viewed' : Number(j.sent) ? 'Sent, no view' : 'Not sent' });
+    } catch { out.push({ id: j.id, title: j.title, type: j.template_name, error: 'The review failed' }); }
+  } };
+  await Promise.all([worker(), worker(), worker()]); // three at a time
+  out.sort((a, b) => rows.findIndex((x) => x.id === a.id) - rows.findIndex((x) => x.id === b.id));
+  const scored = out.filter((x) => x.score != null);
+  res.json({ rows: out, average: scored.length ? Math.round((scored.reduce((n, x) => n + x.score, 0) / scored.length) * 10) / 10 : null,
+    live_average: scored.filter((x) => x.live_score != null).length ? Math.round((scored.filter((x) => x.live_score != null).reduce((n, x) => n + x.live_score, 0) / scored.filter((x) => x.live_score != null).length) * 10) / 10 : null });
 });

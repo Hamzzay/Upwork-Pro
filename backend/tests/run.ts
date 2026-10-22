@@ -37,6 +37,7 @@ import { postingSchema } from '../src/screening/posting';
 import { writerSchema, chatSchema } from '../src/proposal/writer';
 import { buildReport, packRows, weekStart, type ReportJob } from '../src/reports';
 import { convertWall, dayBounds, dayIn, fromDb, shiftMinutes, todayIn } from '../src/tz';
+import { finalScore, REVIEWER_FULL, reviewSchemaFor, reviewerSections, DEFAULT_REVIEWER } from '../src/proposal/reviewer';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
 const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string; details?: string }[];
@@ -242,6 +243,19 @@ const ctx = { rules, projects };
   assert.equal(ord[0].ai_reason, 'Qualifies leads'); assert.equal(ord[4].ai_fits, false); assert.equal(ord[3].ai_fits, null);
   // core work is only real work: a project stage named as core work does not count
   assert.deepEqual(coreWork([{ ...T(20, 'Prototype / proof of concept', 'Project stage', 2), core: 1 }, { ...T(21, 'Lead generation / enrichment', 'Workflow type', 3), core: 2 }]).map((t) => t.name), ['Lead generation / enrichment']);
+  // the reviewer (R115): the full built-in reviewer is valid; the app works out the score from the criteria, then the caps
+  assert.ok(reviewerSections.safeParse(REVIEWER_FULL).success, 'the full reviewer is a valid version');
+  assert.equal(REVIEWER_FULL.criteria.reduce((n, c) => n + c.weight, 0), 100);
+  const R = (cs: number[], extra: any = {}) => ({ score: 5, verdict: 'v', strengths: [], problems: [], suggestions: [], criteria_scores: REVIEWER_FULL.criteria.map((c, i) => ({ criterion: c.name, score: cs[i], why: '' })), ...extra });
+  assert.equal(finalScore(R([8, 7, 8, 6, 9]), REVIEWER_FULL).score, 8, 'weighted 7.6 rounds to 8, whatever the AI said overall');
+  assert.equal(finalScore(R([8, 7, 8, 6, 9]), REVIEWER_FULL).ai_score, 5, 'what the AI said is kept');
+  assert.equal(finalScore(R([9, 9, 9, 9, 9], { caps_hit: [1] }), REVIEWER_FULL).score, 4, 'an invented fact caps it at 4');
+  assert.equal(finalScore(R([9, 9, 9, 9, 9], { caps_hit: [4, 5] }), REVIEWER_FULL).score, 6, 'the lowest cap that applies wins');
+  assert.equal(finalScore({ score: 6, verdict: 'v', strengths: [], problems: [], suggestions: [] }, DEFAULT_REVIEWER).score, 6, 'no criteria: the reviewer\'s own score, as before');
+  const sch: any = reviewSchemaFor(REVIEWER_FULL.limits, REVIEWER_FULL);
+  assert.ok(sch.required.includes('criteria_scores') && sch.required.includes('parts') && sch.required.includes('caps_hit'));
+  assert.equal(sch.properties.criteria_scores.minItems, 5);
+  assert.ok(!(reviewSchemaFor(DEFAULT_REVIEWER.limits, DEFAULT_REVIEWER) as any).required.includes('criteria_scores'), 'version 1 asks for what it always did');
   // days in a time zone (the team's working day): stored Pakistan time, counted on the zone's own clock, daylight saving followed
   assert.deepEqual(dayBounds('2026-10-21', '2026-10-21', 'America/New_York'), { start: '2026-10-21 09:00:00', end: '2026-10-22 09:00:00' }, 'US Eastern in summer: 9 am to 9 am Pakistan time');
   assert.deepEqual(dayBounds('2026-12-01', '2026-12-02', 'America/New_York'), { start: '2026-12-01 10:00:00', end: '2026-12-03 10:00:00' }, 'in winter: 10 am');

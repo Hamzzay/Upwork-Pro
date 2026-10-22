@@ -9,7 +9,7 @@ import { lastUsed } from '../llm/context';
 import { checkOpening, checkProposal } from './checks';
 import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
-import { reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerSections } from './reviewer';
+import { finalScore, reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerExample, type ReviewerSections } from './reviewer';
 import { activeReviewer } from './reviewer_store';
 import { pickLoom } from '../screening/matching';
 import { docsBlock, postOnly } from '../screening/attachments';
@@ -672,6 +672,13 @@ export async function sendPartsNow(screeningId: number) {
 }
 
 /** What the reviewer gets for a job's newest proposal version, with the given reviewer sections: the instructions and the facts. */
+/** The library's examples for a review: the same proposal type first, then any type; a spread of scores (highest and lowest alternately). */
+export async function reviewerExamplesFor(typeName: string | null, n: number): Promise<ReviewerExample[]> {
+  const rows = await query<any>('SELECT title, template_name, score, why, proposal_text FROM reviewer_examples WHERE active=1 AND (template_name IS NULL OR template_name=?) ORDER BY template_name IS NULL, id DESC', [typeName ?? '']);
+  const same = rows.filter((x) => x.template_name), any = rows.filter((x) => !x.template_name);
+  const spread = (xs: any[]) => { const s = [...xs].sort((a, b) => b.score - a.score), out: any[] = []; while (s.length) { out.push(s.shift()); if (s.length) out.push(s.pop()); } return out; };
+  return [...spread(same), ...spread(any)].slice(0, n).map((x) => ({ title: x.title, type: x.template_name, score: Number(x.score), why: x.why, text: x.proposal_text }));
+}
 export async function reviewInput(proposalId: number, sections: ReviewerSections) {
   const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
   const cur = await latestVersion(proposalId);
@@ -681,18 +688,27 @@ export async function reviewInput(proposalId: number, sections: ReviewerSections
   if (template) template.opening = await openingInUse(p.id, template.opening); // the opening template in use now (R88)
   const detected = await storedSignals(p.screening_id);
   let warns: string[] = []; try { warns = (JSON.parse(p.warnings || '[]') as { source: string; text: string }[]).filter((w) => w.source === 'check').map((w) => w.text); } catch { /* none */ }
+  // R115: what else the writer had (confirmed experience, the client's documents, the type's samples), the library's examples, the opening
+  const sid = p.screening_id;
+  const experience = sections.context.experience ? (await query<any>(`SELECT g.skill, g.note, (SELECT GROUP_CONCAT(pr.name SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS projects
+      FROM proposal_gaps g WHERE g.screening_id=? AND g.status='yes' ORDER BY g.id`, [sid])).map((g) => `${g.skill}${g.projects ? ' (in ' + g.projects + ')' : ''}${g.note ? ': ' + g.note : ''}`) : [];
+  const documents = sections.context.documents ? (await query<any>(`SELECT file_name, text_content FROM job_attachments WHERE screening_id=? AND status='done' ORDER BY id`, [sid])).map((d) => `[${d.file_name}]\n${d.text_content ?? ''}`).join('\n\n') || null : null;
+  const samples = sections.context.type_samples && p.template_id ? await query<any>('SELECT title, content FROM template_samples WHERE template_id=? AND active=1 ORDER BY id LIMIT 2', [p.template_id]) : [];
+  const examples = sections.examples.use && sections.examples.per_review > 0 ? await reviewerExamplesFor(template?.name ?? null, sections.examples.per_review) : [];
+  const letter = htmlToPlain(cur.html).trim();
   const system = reviewerSystem({ template, signals: detected.filter((d) => !d.is_fallback).map((d) => `${d.signal_name}: ${d.value_name}`), sender: f.sender, projects: f.projects,
-    clientRequirements: f.requirements, guide: await loadGuide(), checkWarnings: warns }, sections);
+    clientRequirements: f.requirements, guide: await loadGuide(), checkWarnings: warns, experience, documents, samples, examples, opening: letter.split(/\n\s*\n/)[0]?.trim() || null }, sections);
   const prompt = `<job_page>\n${f.jobText}\n</job_page>\n\n<proposal>\n${htmlToPlain(cur.html)}\n</proposal>\n\n${cur.answers.length ? `<screening_answers>\n${answersText(cur.answers)}\n</screening_answers>\n\n` : ''}Review the proposal now.`;
   return { system, prompt, version_no: cur.version_no };
 }
 /** Run the reviewer with these sections on a proposal's newest version and return the review. Saves nothing. */
 export async function reviewWith(proposalId: number, sections: ReviewerSections) {
   const input = await reviewInput(proposalId, sections);
-  const r = await run({ label: 'review', system: input.system, prompt: input.prompt, schema: reviewSchemaFor(sections.limits), timeoutMs: config.llm.timeoutMs });
+  const r = await run({ label: 'review', system: input.system, prompt: input.prompt, schema: reviewSchemaFor(sections.limits, sections), timeoutMs: config.llm.timeoutMs });
   const parsed = reviewOut.safeParse(r.data);
   if (!parsed.success) throw new Error('invalid_output');
-  return { review: { ...parsed.data, model: lastUsed()?.model ?? config.llm.model }, version_no: input.version_no };
+  // the app works out the score from the criteria and the caps (R115), so the same judgements always give the same score
+  return { review: { ...finalScore(parsed.data, sections), model: lastUsed()?.model ?? config.llm.model }, version_no: input.version_no };
 }
 /** The independent review of the newest version, by the active reviewer version (the Reviewer page). Stored with the proposal. */
 export async function runReview(proposalId: number) {

@@ -760,8 +760,21 @@ function proposalSection(s, initial, matching) {
       rv.suggestions && rv.suggestions.length ? h('div', {}, h('div', { class: 'jp-label', style: 'margin-bottom:6px' }, owner ? 'Suggestions. Apply the ones you agree with; each is sent to the AI and saved as a new version.' : 'Suggestions'),
         h('div', { class: 'stack', style: 'gap:8px' }, rv.suggestions.map((sg) => h('div', { class: 'suggestion' }, h('div', {}, h('strong', {}, sg.title), h('div', { class: 'jp-label' }, sg.instruction)), owner ? apply(sg) : null)))) : null,
       listOf('What hurts it', rv.problems), listOf('What works', rv.strengths),
+      // R115: each criterion, the opening, body and answers apart, and any cap, folded
+      (() => { const d = typeof reviewDetail === 'function' ? reviewDetail(rv) : null; return d && d.length ? h('details', { class: 'reviewfold' }, h('summary', {}, 'How the score was made'), h('div', { class: 'stack', style: 'gap:8px;margin-top:6px' }, d)) : null; })(),
+      me.role === 'admin' ? h('div', {}, h('button', { class: 'linkbtn', type: 'button', onclick: () => asExample(rv) }, 'Use as reviewer example')) : null,
       rv.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The newest review could not be made' + (rv.error ? ': ' + rv.error : '.')) : null,
     ].filter(Boolean));
+  }
+  // an admin keeps this proposal in the reviewer's examples library, with the score it deserves and why (R115)
+  function asExample(rv) {
+    const score = h('input', { type: 'number', min: 1, max: 10, step: 1, value: rv.score || 7, style: 'width:80px' });
+    const why = h('textarea', { rows: 5, placeholder: 'Why it deserves that score: what works, what does not' }); why.value = rv.verdict || '';
+    modal({ title: 'Use as reviewer example', confirm: 'Add to the examples', body: h('div', { class: 'stack' },
+      h('p', { class: 'jp-label', style: 'margin:0' }, `Version ${rv.version || 'newest'} of this proposal goes into the reviewer's examples library, with the job post. A reviewer version that uses examples shows it to the reviewer when it reviews proposals of the same type.`),
+      h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'The score it deserves (1 to 10)'), score, h('div', { class: 'hint' }, `The reviewer gave it ${rv.score}. Put the score Stackup says it deserves.`)),
+      h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Why'), why)),
+      onConfirm: async () => { await api('POST', '/admin/reviewer/examples/from-job', { screening_id: s.id, version_no: rv.version || undefined, score: Number(score.value), why: why.value }); toast('Added to the reviewer examples'); } });
   }
   const ask2 = (title, text, confirm) => (typeof ask === 'function' ? ask(title, text, confirm) : Promise.resolve(true));
 

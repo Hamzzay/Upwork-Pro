@@ -74,7 +74,8 @@ export async function deepDetails(ids: number[], keys: Set<string>, when: When) 
   if (keys.has('reviews') && pids.length) for (const r of await query<any>('SELECT proposal_id, version_no, reviewer_version, score, review_json, created_at FROM proposal_reviews WHERE proposal_id IN (?) ORDER BY id', [pids])) {
     const v = parse(r.review_json) ?? {}; const id = pid.get(r.proposal_id)!;
     const list = out.get(id)!.reviews ?? []; list.push({ at: when(r.created_at), of_version: r.version_no, reviewer_version: r.reviewer_version, score: r.score == null ? null : Number(r.score), verdict: v.verdict ?? null,
-      strengths: v.strengths ?? [], problems: v.problems ?? [], suggestions: (v.suggestions ?? []).map((x: any) => x.title ?? x) });
+      strengths: v.strengths ?? [], problems: v.problems ?? [], suggestions: (v.suggestions ?? []).map((x: any) => x.title ?? x),
+      criteria: v.criteria_scores ?? null, weighted: v.weighted ?? null, parts: v.parts ?? null, capped_by: v.capped_by ?? null, reviewer_said: v.ai_score ?? null });
     set(id, 'reviews', list);
   }
   return out;
