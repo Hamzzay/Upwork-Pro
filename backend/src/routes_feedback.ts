@@ -1,3 +1,4 @@
+import { DB_ZONE, dayBounds } from './tz';
 /**
  * R67: experience gaps (answered on the proposal page) and feedback on proposals (kept with what the proposal was at that moment,
  * read later on the Proposal feedback page and from Claude to find what keeps going wrong).
@@ -52,15 +53,14 @@ feedback.get('/screenings/:id/feedback', anyone, async (req, res) => {
 });
 
 /** Every feedback entry, newest first, with filters (the Proposal feedback page and Claude). Employees see their own jobs'. */
-export async function feedbackList(user: { id: number; role: string }, q: Record<string, any>) {
+export async function feedbackList(user: { id: number; role: string }, q: Record<string, any>, zone = DB_ZONE) {
   const where: string[] = ['s.discarded_at IS NULL'], p: any[] = [];
   if (!canSeeAll(user.role)) { where.push('s.user_id=?'); p.push(user.id); }
   if (q.category) { where.push('f.category=?'); p.push(q.category); }
   if (q.profile) { where.push('f.profile_name=?'); p.push(q.profile); }
   if (q.type) { where.push('f.template_name=?'); p.push(q.type); }
   if (q.person) { where.push('u.name=?'); p.push(q.person); }
-  if (q.from) { where.push('f.created_at >= ?'); p.push(q.from); }
-  if (q.to) { where.push('f.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(q.to); }
+  { const b = dayBounds(q.from, q.to, zone); if (b.start) { where.push('f.created_at >= ?'); p.push(b.start); } if (b.end) { where.push('f.created_at < ?'); p.push(b.end); } }
   if (q.q) { where.push('(f.excerpt LIKE ? OR f.feedback LIKE ? OR s.title LIKE ?)'); p.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`); }
   const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
   const items = await query<any>(`SELECT f.id, f.screening_id, s.title AS job_title, f.version_no, f.profile_name, f.template_name, f.projects, f.excerpt, f.category, f.feedback, f.created_at, u.name AS user_name
@@ -69,7 +69,7 @@ export async function feedbackList(user: { id: number; role: string }, q: Record
   return { items, counts, categories: FEEDBACK_CATEGORIES };
 }
 feedback.get('/feedback', anyone, async (req, res) => {
-  const out: any = await feedbackList(req.user!, req.query as any);
+  const out: any = await feedbackList(req.user!, req.query as any, (req as any).zone);
   // the experience people confirmed that still waits for the library (an admin adds it with one click)
   if (canSeeAll(req.user!.role)) out.waiting = await query<any>(`SELECT g.id, gp.project_id, g.screening_id, g.skill, g.tag_name, g.note, gp.library, g.answered_at, pr.name AS project_name, u.name AS user_name
     FROM proposal_gap_projects gp JOIN proposal_gaps g ON g.id=gp.gap_id JOIN projects pr ON pr.id=gp.project_id LEFT JOIN users u ON u.id=g.answered_by
@@ -78,7 +78,7 @@ feedback.get('/feedback', anyone, async (req, res) => {
 });
 // The same list for Claude (list_feedback): to review with the person what keeps going wrong. With the confirmed experience too.
 feedback.get('/plugin/feedback', anyone, async (req, res) => {
-  const out: any = await feedbackList(req.user!, req.query as any);
+  const out: any = await feedbackList(req.user!, req.query as any, (req as any).zone);
   out.experience_confirmed = await query<any>(`SELECT g.skill, g.ask, g.note, g.library, (SELECT GROUP_CONCAT(pr.name ORDER BY gp.id SEPARATOR ', ') FROM proposal_gap_projects gp JOIN projects pr ON pr.id=gp.project_id WHERE gp.gap_id=g.id) AS project_name, g.screening_id, g.answered_at FROM proposal_gaps g JOIN screenings s ON s.id=g.screening_id
     WHERE g.status='yes' ${canSeeAll(req.user!.role) ? '' : 'AND s.user_id=?'} ORDER BY g.id DESC LIMIT 200`, canSeeAll(req.user!.role) ? [] : [req.user!.id]);
   out.how_to_use = 'Read the feedback by category and find the patterns (the same problem in several proposals). For each pattern say what in the setup causes it and what to change: a project or profile field for a wrong fact, tags for a wrong project, the proposal type, the writing guide or the banned phrases for tone, length and openings, the reviewer for what the review missed. Changing the setup is the setup-admin skill, after a yes.';

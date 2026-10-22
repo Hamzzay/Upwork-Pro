@@ -38,3 +38,8 @@ Confirm in one line: "Job #N: Viewed, today 14:05."
 ## What is waiting on the client
 
 When asked what is still open, call `find_jobs` with `phase: "submitted"` and list number, title, profile, status and how long since the last update.
+
+## Times
+
+`update_status` takes now when no time is given. A time the person gives ("sent at 10 am") is read on the team's working day clock (US
+Eastern) unless you pass `time_zone`: pass "mine" when they give it on their own clock (for example Pakistan time), and say which you used.

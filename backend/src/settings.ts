@@ -34,6 +34,8 @@ export const SETTINGS = {
     schema: z.array(z.string().trim().min(1).max(160)).min(1).max(20), def: ['Invited by the client', 'Strong client history', 'Strong fit with our past projects', 'The flag does not apply to this job', 'Low workload, worth the Connects'] },
   'skip.reasons': { label: 'Quick reasons to skip a job', help: 'Offered when someone skips a job after its screening. A note can be written as well, or instead.',
     schema: z.array(z.string().trim().min(1).max(120)).min(1).max(20), def: ['Budget or rate too low', 'Client history or hire rate', 'Outside our services', 'Scope unclear', 'Too much competition'] },
+  'time.team_zone': { label: 'The team\'s working day', help: 'The time zone Claude\'s updates count days in (today, yesterday, a date range), so a day\'s proposals are never split across two dates. The app shows each person their own time zone (Your time zone).',
+    schema: z.string().trim().refine((v) => { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return true; } catch { return false; } }, 'Not a time zone'), def: 'America/New_York' },
   'tracking.quiet_days': { label: 'Days before a submitted proposal counts as "gone quiet"', help: 'A submitted proposal with no status update for this many days shows under Submitted, Gone quiet.',
     schema: z.number().int().min(1).max(90), def: 5 },
   'writer.requirement_rules': { label: 'Rules passed to the proposal writer', help: 'When one of these flags fires, its text is given to the writer as a client requirement (e.g. screening questions, required words, location rules).',

@@ -1,3 +1,4 @@
+import { DB_ZONE, fromDb } from './tz';
 /**
  * Reports: the same jobs counted along every dimension we record (profile, person, proposal type, project, industry, tag,
  * signal, rule, verdict, source, Loom video, week and more), each with the funnel from screened to hired.
@@ -71,7 +72,9 @@ export function weekStart(d: Date): string { const x = new Date(d.getFullYear(),
 const bucket = (n: number, steps: [number, string][], rest: string) => { for (const [max, label] of steps) if (n <= max) return label; return rest; };
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
-export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes: string[]) {
+export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes: string[], zone: string = DB_ZONE) {
+  // the calendar (week, weekday, time of day) in the person's time zone: a Date whose own clock shows that zone's wall time
+  const zday = (s: string | null) => (s ? new Date(fromDb(String(s), zone).replace(' ', 'T')) : null);
   const C = () => new Counter(lossOutcomes);
   const total = C();
   const d: Record<string, Counter> = {};
@@ -120,18 +123,18 @@ export function buildReport(jobs: ReportJob[], extra: ReportExtras, lossOutcomes
       d.feedback.add(Number(j.feedback_n) > 0 ? 'yes' : 'no', Number(j.feedback_n) > 0 ? 'Feedback left on it' : 'No feedback', j);
     }
     if (j.words) d.length.add(bucket(j.words, [[120, '1'], [180, '2'], [240, '3'], [320, '4']], '5'), bucket(j.words, [[120, 'Up to 120 words'], [180, '121 to 180 words'], [240, '181 to 240 words'], [320, '241 to 320 words']], 'Over 320 words'), j);
-    const created = day(j.created_at);
+    const created = zday(j.created_at);
     if (created) { const ws = weekStart(created); const end = new Date(ws + 'T00:00:00'); end.setDate(end.getDate() + 6); d.week.add(ws, 'Week of ' + new Date(ws + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: ws.slice(0, 4) === String(new Date().getFullYear()) ? undefined : 'numeric' }), j, { from: ws, to: ymd(end) }); } // R93: "Week of 5 Oct", short enough to read on a card
     if (on(j.sent)) {
       d.loom.add(j.loom_video_id || j.loom_video_title ? 'yes' : 'no', j.loom_video_id || j.loom_video_title ? 'With a Loom video' : 'No Loom video', j, { loom: j.loom_video_id || j.loom_video_title ? 'yes' : 'no' });
       if (j.loom_video_title) d.loom_video.add(j.loom_video_title, j.loom_video_title, j);
       d.boost.add(Number(j.boost_connects) > 0 ? 'yes' : 'no', Number(j.boost_connects) > 0 ? 'Boosted' : 'Not boosted', j);
       if (j.connects_spent != null) d.connects.add(bucket(Number(j.connects_spent), [[8, '1'], [16, '2'], [24, '3']], '4'), bucket(Number(j.connects_spent), [[8, 'Up to 8 Connects'], [16, '9 to 16 Connects'], [24, '17 to 24 Connects']], '25 or more Connects'), j);
-      const sent = day(j.sent_at);
-      if (sent) {
-        d.sent_weekday.add(String((sent.getDay() + 6) % 7), WEEKDAYS[sent.getDay()], j);
-        // a sent date without a time (midnight) says nothing about the time of day
-        if (sent.getHours() || sent.getMinutes()) { const hr = sent.getHours(); d.sent_time.add(hr < 6 ? '4' : hr < 12 ? '1' : hr < 18 ? '2' : '3', hr < 6 ? 'Night (before 6:00)' : hr < 12 ? 'Morning (6:00 to 12:00)' : hr < 18 ? 'Afternoon (12:00 to 18:00)' : 'Evening (after 18:00)', j); }
+      const sent = day(j.sent_at), sentZ = zday(j.sent_at);
+      if (sent && sentZ) {
+        d.sent_weekday.add(String((sentZ.getDay() + 6) % 7), WEEKDAYS[sentZ.getDay()], j);
+        // a sent date without a time (stored as midnight) says nothing about the time of day
+        if (!/ 00:00(:00)?$/.test(String(j.sent_at))) { const hr = sentZ.getHours(); d.sent_time.add(hr < 6 ? '4' : hr < 12 ? '1' : hr < 18 ? '2' : '3', hr < 6 ? 'Night (before 6:00)' : hr < 12 ? 'Morning (6:00 to 12:00)' : hr < 18 ? 'Afternoon (12:00 to 18:00)' : 'Evening (after 18:00)', j); }
         const v = day(j.viewed_at), c = day(j.chat_at), o = day(j.outcome_at);
         if (v && v >= sent) toView.push((v.getTime() - sent.getTime()) / 3_600_000);
         if (c && c >= sent) toChat.push((c.getTime() - sent.getTime()) / 3_600_000);

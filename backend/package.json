@@ -13,7 +13,7 @@
     "seed:prod": "node dist/scripts/seed.js",
     "seed": "ts-node scripts/seed.ts",
     "probe": "ts-node -r dotenv/config scripts/probe-llm.ts",
-    "test": "ts-node tests/run.ts",
+    "test": "node --stack-size=8000 node_modules/ts-node/dist/bin.js tests/run.ts",
     "seed:library": "ts-node scripts/seed-library.ts",
     "seed:library:prod": "node dist/scripts/seed-library.js",
     "sync:library": "ts-node scripts/sync-library.ts",

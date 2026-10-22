@@ -17,6 +17,20 @@ Answers "what is working?" from the jobs in Upwork Pro. Uses the `upwork-pro` MC
 * **One job in full** (every version and how it was made, the review, the openings, the experience answers, the feedback, the comparisons, the client's documents): call `get_proposal_record`.
 * **What the AI and the team did** (AI calls and failures by step and model, actions by person; managers and admins): call `get_activity`.
 
+## Days: the team's working day
+
+The team works on US Eastern time while Upwork Pro stores Pakistan time. **Count every day on the team's working day**: the update tools
+do this by default (`time_zone` "team"), so "today", "yesterday", "last week" and any `from`/`to` mean the team's days, and one shift's
+proposals are never split across two dates.
+* Turn "today" and "yesterday" into dates on the team's clock: `get_dashboard` answers `period.today_there` (today in that zone); use it
+  rather than your own clock. Then pass those dates as `from`/`to` (or `sent_from`/`sent_to` for what was sent).
+* For a daily update use **what happened in the period**: `get_dashboard`'s `happened` (screened, continued, written, finished, sent,
+  invites sent, viewed, chats, interviews, hired, Connects, each counted by when it happened). Its `counts` are the jobs screened in the
+  period and what became of them, a different question.
+* Always say the zone and the days counted, for example "Monday 21 October, US Eastern". Times in `analyze_jobs` rows are on that
+  same clock (`times_note`).
+* Only when the person asks for their own clock ("in Pakistan time"), pass `time_zone` "mine" (or a zone name), and say so.
+
 Both take the same filters: `from` and `to` (date screened), `sent_from` and `sent_to` (date sent), `profile_name`, `person`, `phase`, `outcome`, `verdict`, `rule`, `source`, `ptype`, `tag`, `project`, `loom`, `q`. Dates are `YYYY-MM-DD`. When the person names a period ("last month"), turn it into dates and say which dates you used.
 
 ## Reading many jobs

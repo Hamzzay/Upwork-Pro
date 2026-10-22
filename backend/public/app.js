@@ -83,8 +83,10 @@ async function api(method, path, body) {
 }
 /** First letter up: model-written values often start lower case ("not shown"). */
 const cap = (v) => (typeof v === 'string' && v ? v[0].toUpperCase() + v.slice(1) : v);
-// Every time from the server is Pakistan time (UTC+5) and is shown in Pakistan time, whatever the device's own zone.
-const TZ = 'Asia/Karachi';
+// Every time from the server is Pakistan time (UTC+5); it is shown in your own zone (TZ below), whatever the device's own zone.
+// the zone you see times in: Pakistan time unless you chose another (Your account, Your time zone). Set once you are signed in.
+let TZ = 'Asia/Karachi';
+const ZONE_NAMES = { 'Asia/Karachi': 'Pakistan time', 'America/New_York': 'US Eastern', 'America/Chicago': 'US Central', 'America/Denver': 'US Mountain', 'America/Los_Angeles': 'US Pacific', 'Europe/London': 'UK', 'Asia/Dubai': 'UAE', UTC: 'UTC' };
 const toDate = (s) => { if (!s) return null; const t = String(s).replace(' ', 'T'); return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? t : (t.length <= 10 ? t + 'T00:00:00' : t) + '+05:00'); };
 function ago(s) {
   const d = toDate(s); if (!d) return '';
@@ -195,6 +197,13 @@ function accountDialog() {
   modal({ title: 'Your account', noConfirm: true, body: h('div', { class: 'stack', style: 'gap:18px' },
     h('div', { class: 'row', style: 'gap:16px;align-items:center' }, pic, h('div', { class: 'stack', style: 'gap:6px' }, h('div', { class: 'row', style: 'gap:6px' }, up, rm), h('span', { class: 'hint', style: 'margin:0' }, 'A square is cut from the middle of the picture.')), file),
     h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'acname' }, 'Your name'), h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' }, name, saveName)),
+    (() => { // your time zone: how the app shows you times and counts your days
+      const sel = h('select', { id: 'actz', 'aria-label': 'Your time zone' }, Object.entries(ZONE_NAMES).map(([id, label]) => h('option', { value: id, selected: id === TZ }, label + (id === 'Asia/Karachi' ? ' (the app\'s own)' : ''))));
+      const save = h('button', { type: 'button', class: 'btn sm primary' }, 'Save time zone');
+      save.onclick = async () => { btnBusy(save, 'Saving'); try { await api('PUT', '/me/time-zone', { time_zone: sel.value }); TZ = sel.value; me.prefs = { ...(me.prefs || {}), time_zone: sel.value }; toast('Time zone saved'); route(); } catch (x) { toast(x.message, true); } save.disabled = false; save.replaceChildren('Save time zone'); };
+      return h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'actz' }, 'Your time zone'), h('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap' }, sel, save),
+        h('div', { class: 'hint' }, 'The app shows you times, and counts your days (Today, the dates you filter by), in this zone. Only for you; everyone else keeps their own.'));
+    })(),
     h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Email'), h('div', {}, me.email), h('div', { class: 'hint' }, 'You sign in with it. An admin can change it on the Users page.')),
     h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Password'), h('div', {}, h('button', { type: 'button', class: 'btn sm', onclick: (e) => { e.currentTarget.closest('dialog').close(); changePassword(); } }, 'Change your password')))) });
 }
@@ -791,7 +800,7 @@ async function newView() {
 
 // ---------- dashboard ----------
 const PERIODS = [['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['all', 'All time']];
-const ymd = (d) => d.toLocaleDateString('sv', { timeZone: TZ }); // YYYY-MM-DD in Pakistan time
+const ymd = (d) => d.toLocaleDateString('sv', { timeZone: TZ }); // YYYY-MM-DD in your time zone
 function periodRange(key) {
   const now = new Date(), t = ymd(now);
   if (key === 'today') return { from: t, to: t };
@@ -1051,7 +1060,7 @@ async function reportsView() {
 
 // ---------- status: what happened on Upwork after the proposal ----------
 /** Now, as the value a datetime-local input takes (local time, to the minute). */
-const nowLocal = () => new Date(Date.now() + 5 * 3600000).toISOString().slice(0, 16); // Pakistan time (UTC+5, no daylight saving)
+const nowLocal = () => new Date().toLocaleString('sv', { timeZone: TZ }).replace(' ', 'T').slice(0, 16); // now in your time zone; the server stores it as Pakistan time
 const NEXT_STATUS = { '': 'Sent', Sent: 'Viewed', Viewed: 'Chat opened', 'Chat opened': 'Interview' };
 const canTrack = (userId) => userId === me.id || me.role === 'admin' || me.role === 'manager';
 /** One click to record a status and when it happened (now, unless changed). Every change is kept in the history. */
@@ -1128,7 +1137,7 @@ async function sentDialog(s, onDone) {
   draw();
   modal({ title: 'Mark as sent', confirm: 'Save', wide: true, body: h('div', { class: 'stack' },
     h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Status'), grid, h('div', { class: 'hint' }, 'Sent, unless more has happened already.')), lossBox,
-    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, h('div', { class: 'hint' }, 'Set to now, in Pakistan time. Change it only if it happened earlier.')),
+    h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, h('div', { class: 'hint' }, 'Set to now, in your time zone. Change it only if it happened earlier.')),
     f.body),
     onConfirm: async () => {
       const lost = d.loss_outcomes.includes(pick);
@@ -3644,7 +3653,12 @@ async function settingsView() {
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
   shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
-    (() => { const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' }); return group('Company', [row('company.name', el, () => el.value.trim())]); })(),
+    (() => {
+      const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' });
+      // the team's working day: the zone Claude's updates count days in (the app shows each person their own zone)
+      const tz = h('select', { 'aria-label': 'The team\'s working day' }, Object.entries(ZONE_NAMES).map(([id, label]) => h('option', { value: id, selected: id === settings['time.team_zone'] }, label)));
+      return group('Company', [row('company.name', el, () => el.value.trim()), row('time.team_zone', tz, () => tz.value)]);
+    })(),
     group('Independent reviewer', [onoff('review.auto')]),
     group('Project matching and auto mode', [num('matching.auto_max_flags'), list('auto.stop_rules', 'G15, G18'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
@@ -3726,7 +3740,7 @@ async function connectView() {
 // ---------- router ----------
 async function route() {
   try {
-    if (!me) me = (await api('GET', '/me')).user;
+    if (!me) { me = (await api('GET', '/me')).user; if (me) TZ = (me.prefs && me.prefs.time_zone) || 'Asia/Karachi'; }
     if (!me) return loginView();
     if (!CFG) CFG = (await api('GET', '/settings')).settings;
     loaderFacts(); // R99: what the loading screens name, fetched once in the background

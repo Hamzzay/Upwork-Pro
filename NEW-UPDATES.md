@@ -2068,3 +2068,26 @@ points (a dental calling bot beat the lead qualification platform). Tags cannot 
   Seller Genius AI, Apex, Rock County, Breesy), no healthcare or dental project; the order differs a little between two runs of the
   same job, as an AI judgement does; a fresh screening of #60 no longer names projects; both pages show the same list.
 - Later on 14 October: "AI orders the matched projects" is on the Settings page, first under Project matching, as an on / off switch that saves when flipped.
+
+### R113. Claude's updates count the team's working day; each person can choose their time zone (done, 22 October)
+Why (Hamza): the team works on US Eastern time, Upwork Pro keeps Pakistan time, so one shift's proposals fell on two dates and Claude's
+"sent today / yesterday" updates were off. The app must stay in Pakistan time for Hamza.
+- **The team's working day** (Settings, Company; US Eastern by default): the days Claude's update tools count in. `get_dashboard`,
+  `get_activity`, `analyze_jobs`, `get_trends` and `list_feedback` count "today", "yesterday" and any from/to on that clock, daylight
+  saving followed (a US Eastern day is 9 am to 9 am Pakistan time in summer, 10 am to 10 am in winter). Each answer says the zone and days.
+  They take `time_zone`: "team" (default), "mine", or a zone name.
+- **What happened in the period**: `get_dashboard` (and the Dashboard's data) now also answers `happened`: screened, continued, written,
+  finished, sent, invites sent, viewed, chats, interviews, hired and Connects, each counted by when it happened, and `period` (the days,
+  the zone, today there, the bounds in Pakistan time). A daily update reads this, not the counts of jobs screened in the period.
+- **Your time zone** (Your account): each person can choose the zone the app shows them times and counts their days in. Pakistan time
+  unless they choose another, so nothing changes for anyone who does not. Stored times stay Pakistan time.
+- **Times given to Claude**: `update_status` takes now when no time is given (it used to send the clock of the computer running
+  Claude); a given time is read on the team's clock unless `time_zone` says "mine". Times in `analyze_jobs` rows are on the counting clock.
+- The app's own pages follow the person's zone: Dashboard (per day too), Jobs filters, Reports (week, sent weekday, sent time), Logs,
+  AI calls, Changes, feedback, and the status form's "now".
+- `npm test` now runs with a larger stack (the type checker ran out of stack on the test file, before this change too).
+- Plugin v0.25.0: the trends and status skills count on the team's working day and say so.
+- Checked: tests (US Eastern day bounds in summer, winter and the 25 hour day; a 2:30 am Pakistan send is the day before in New York;
+  a time on the team clock stored as Pakistan time); on this data a proposal sent 00:14 on 14 October Pakistan time counts as sent on
+  13 October for the team and on the 14th in Pakistan time and on the app's pages; a person switched to US Eastern and back, a made up
+  zone refused; a status at 10:00 team time stored as 19:00 Pakistan time (test undone); both settings on screen.

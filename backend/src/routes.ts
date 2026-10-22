@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
+import { attachZone, teamZone } from './zone';
+import { convertWall, fromDb, wallClock, DB_ZONE, dayBounds, isZone, shiftMinutes, todayIn, ZONES, zoneLabel } from './tz';
 import { attachUser, checkPassword, currentSessionHash, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
 import { detectInput, InputError, jobIdFromUrl } from './screening/jobsource';
 import { loadContext } from './screening/context';
@@ -38,6 +40,7 @@ import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, t
 
 export const api = Router();
 api.use(attachUser);
+api.use(attachZone); // which time zone this request counts days in (zone.ts)
 api.use(recordSetupChanges); // every change to the setup is kept as a change set (changesets.ts)
 api.use(library);
 api.use(proposals);
@@ -108,6 +111,18 @@ api.get('/users/:id/avatar', requireRole(), async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.end(u.avatar);
 });
+// Your time zone: the app shows you times and counts your days in it (Pakistan time unless you choose another). Stored times stay Pakistan time.
+api.put('/me/time-zone', requireRole(), async (req, res) => {
+  const b = z.object({ time_zone: z.string().trim().max(64) }).safeParse(req.body);
+  if (!b.success || !isZone(b.data.time_zone)) return void res.status(400).json({ error: 'Choose a time zone' });
+  const row = (await query<any>('SELECT prefs_json FROM users WHERE id=?', [req.user!.id]))[0];
+  let prefs: Record<string, unknown> = {}; try { prefs = JSON.parse(row?.prefs_json || '{}') || {}; } catch { prefs = {}; }
+  if (b.data.time_zone === DB_ZONE) delete prefs.time_zone; else prefs.time_zone = b.data.time_zone;
+  await exec('UPDATE users SET prefs_json=? WHERE id=?', [JSON.stringify(prefs), req.user!.id]);
+  await audit(req.user!.id, 'time_zone_change', zoneLabel(b.data.time_zone));
+  res.json({ ok: true, time_zone: b.data.time_zone });
+});
+api.get('/time-zones', requireRole(), async (_req, res) => { res.json({ zones: ZONES.map(([id, name]) => ({ id, name })), default: DB_ZONE, team: await teamZone() }); });
 // One view setting of the person's own (R85): the Jobs list's columns of one tab, shown and in order. null puts the tab's own back.
 const PREF_KEY = /^jobs_cols\.(all|in_progress|submitted|closed|not_pursued)$/;
 api.put('/me/prefs', requireRole(), async (req, res) => {
@@ -265,8 +280,10 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
     where.push(`(s.title LIKE ? OR u.name LIKE ? OR pr.name LIKE ? OR s.rule_codes LIKE ? OR s.source_url LIKE ? OR s.client_country LIKE ?)`);
     p.push(like, like, like, like, like, like);
   }
-  if (f.from) { where.push('s.created_at >= ?'); p.push(f.from + ' 00:00:00'); }
-  if (f.to) { where.push('s.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(f.to); }
+  // days are the person's (or, for Claude's updates, the team's) days, turned into stored Pakistan times
+  const zone = req.zone ?? DB_ZONE, cr = dayBounds(f.from, f.to, zone), sr = dayBounds(f.sent_from, f.sent_to, zone);
+  if (cr.start) { where.push('s.created_at >= ?'); p.push(cr.start); }
+  if (cr.end) { where.push('s.created_at < ?'); p.push(cr.end); }
   if (f.rule) { where.push(`CONCAT(', ', s.rule_codes, ',') LIKE ?`); p.push(`%, ${f.rule},%`); } // whole codes only: G1 never matches G14
   if (f.profile) { where.push('s.upwork_profile_id=?'); p.push(f.profile); }
   if (f.user && canSeeAll(req.user.role)) { where.push('s.user_id=?'); p.push(f.user); }
@@ -279,8 +296,8 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
   if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
   if (f.client) { where.push('s.client_id=?'); p.push(f.client); }
-  if (f.sent_from) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(f.sent_from + ' 00:00:00'); }
-  if (f.sent_to) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(f.sent_to); }
+  if (sr.start) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(sr.start); }
+  if (sr.end) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < ?'); p.push(sr.end); }
   if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
   else if (f.stage === 'quiet') { where.push(`(${stageSql})='submitted' AND COALESCE(${statusAtSql}, s.created_at) < NOW() - INTERVAL ? DAY`); p.push(quietDays); }
   else if (f.stage) { where.push(`(${stageSql})=?`); p.push(f.stage); }
@@ -359,8 +376,22 @@ const dashboard = async (req: any, res: any) => {
   const stages = await query<any>(`SELECT (${stageSql}) AS stage, COUNT(*) AS n ${listFrom} ${w.sql} GROUP BY 1`, w.p);
   const waiting = await query<any>(`SELECT s.id, s.title, s.user_id, u.name AS user_name, s.created_at, (${stageSql}) AS stage ${listFrom} ${w.sql ? w.sql + ' AND' : 'WHERE'} (${stageSql}) IN (?)
     ORDER BY s.created_at LIMIT 8`, [...w.p, NEEDS_ACTION]);
-  const daily = await query<any>(`SELECT DATE(s.created_at) AS d, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued, SUM(p.finished_at IS NOT NULL) AS proposals
-    ${listFrom} ${w.sql} GROUP BY DATE(s.created_at) ORDER BY d DESC LIMIT 31`, w.p);
+  // per day in the request's time zone (the stored time moved to that zone's clock)
+  const shift = shiftMinutes(req.zone ?? DB_ZONE);
+  const daily = await query<any>(`SELECT DATE(DATE_ADD(s.created_at, INTERVAL ? MINUTE)) AS d, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued, SUM(p.finished_at IS NOT NULL) AS proposals
+    ${listFrom} ${w.sql} GROUP BY 1 ORDER BY d DESC LIMIT 31`, [shift, ...w.p]);
+  // what happened in the period, by when it happened (not by when the job was screened): what a daily update needs
+  const zone = req.zone ?? DB_ZONE, b = dayBounds(f.from, f.to, zone);
+  const inP = (col: string) => `(${col} IS NOT NULL${b.start ? ` AND ${col} >= ?` : ''}${b.end ? ` AND ${col} < ?` : ''})`;
+  const bp = [b.start, b.end].filter(Boolean);
+  const wAll = listWhere(req, { ...f, from: undefined, to: undefined });
+  const happenedRow = (await query<any>(`SELECT SUM(${inP('s.created_at')}) AS screened, SUM(${inP('s.continued_at')}) AS continued, SUM(${inP('p.finished_at')}) AS written,
+      SUM(${inP('p.finalized_at')}) AS finished, SUM(${inP('COALESCE(s.proposal_sent_at, s.proposal_sent_date)')} AND NOT ${inviteSql}) AS sent,
+      SUM(${inP('COALESCE(s.proposal_sent_at, s.proposal_sent_date)')} AND ${inviteSql}) AS invites_sent,
+      SUM(${inP('s.client_viewed_at')}) AS viewed, SUM(${inP('s.client_replied_at')}) AS chats, SUM(${inP('s.interviewed_at')}) AS interviews,
+      SUM(${inP('s.outcome_at')} AND s.outcome='Hired') AS hired,
+      SUM(IF(${inP('COALESCE(s.proposal_sent_at, s.proposal_sent_date)')}, COALESCE(s.connects_spent, 0) + COALESCE(s.boost_connects, 0), 0)) AS connects
+    ${listFrom} ${wAll.sql}`, [...bp, ...bp, ...bp, ...bp, ...bp, ...bp, ...bp, ...bp, ...bp, ...bp, ...bp, ...wAll.p]))[0] ?? {};
   const by = (col: string, name: string) => query<any>(`SELECT ${col} AS id, ${name} AS name, COUNT(*) AS screened, SUM(s.continued_at IS NOT NULL) AS continued,
       SUM(p.finished_at IS NOT NULL) AS proposals, SUM(s.proposal_sent_date IS NOT NULL) AS sent, SUM(s.outcome='Hired') AS hired,
       AVG(IF(s.source='claude_plugin', NULL, TIMESTAMPDIFF(SECOND, s.created_at, p.finished_at))) AS avg_to_proposal
@@ -384,6 +415,10 @@ const dashboard = async (req: any, res: any) => {
     // R82: how proposals are made now, and how good the review judged them
     quality: { auto: n(c.auto_n), auto_written: n(c.auto_written), auto_stopped: n(c.auto_stopped), avg_review: c.avg_review == null ? null : Math.round(Number(c.avg_review) * 10) / 10,
       reviewed: n(c.reviewed), opening_used: n(c.opening_used), with_docs: n(c.with_docs), feedback: n(c.feedback_n), gaps_open: n(c.gaps_open), gaps_yes: n(c.gaps_yes) },
+    // the days counted, said plainly, so a "today" or "yesterday" can never be read in the wrong time zone
+    period: { from: f.from ?? null, to: f.to ?? null, time_zone: zone, time_zone_name: zoneLabel(zone), today_there: todayIn(zone),
+      starts_pakistan_time: b.start, ends_pakistan_time: b.end },
+    happened: Object.fromEntries(Object.entries(happenedRow).map(([k, v]) => [k, n(v)])),
     stages: Object.fromEntries(stages.map((r) => [r.stage, n(r.n)])), needs_action: NEEDS_ACTION, waiting,
     daily: daily.reverse().map((r) => ({ day: String(r.d instanceof Date ? r.d.toLocaleDateString('sv') : r.d).slice(0, 10), screened: n(r.screened), continued: n(r.continued), proposals: n(r.proposals) })),
     by_user: canSeeAll(req.user!.role) ? await by('s.user_id', 'u.name') : [], by_profile: await by('s.upwork_profile_id', 'pr.name'),
@@ -427,12 +462,14 @@ api.get('/plugin/proposal-record/:id', requireRole(), async (req, res) => {
 api.get('/plugin/activity', requireRole('admin', 'manager'), async (req, res) => {
   const q = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).safeParse(req.query);
   if (!q.success) return void res.status(400).json({ error: 'from and to are YYYY-MM-DD' });
-  const from = q.data.from ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10), to = q.data.to ?? new Date().toISOString().slice(0, 10);
-  const range = (t: string) => `${t}.created_at >= ? AND ${t}.created_at < DATE_ADD(?, INTERVAL 1 DAY)`;
-  const calls = await query<any>(`SELECT kind, step, model, COUNT(*) AS calls, SUM(ok=0) AS failed, ROUND(AVG(ms)) AS avg_ms FROM llm_calls c WHERE ${range('c')} GROUP BY kind, step, model ORDER BY calls DESC LIMIT 200`, [from, to]);
-  const failures = await query<any>(`SELECT c.created_at, c.kind, c.step, c.model, c.error, c.screening_id FROM llm_calls c WHERE c.ok=0 AND ${range('c')} ORDER BY c.id DESC LIMIT 50`, [from, to]);
-  const actions = await query<any>(`SELECT a.action, u.name AS person, COUNT(*) AS times FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE ${range('a')} GROUP BY a.action, u.name ORDER BY times DESC LIMIT 300`, [from, to]);
-  res.json({ from, to, ai_calls: calls.map((r) => ({ ...r, calls: Number(r.calls), failed: Number(r.failed), avg_ms: Number(r.avg_ms) })), latest_failures: failures, actions: actions.map((r) => ({ ...r, times: Number(r.times) })) });
+  const zone = (req as any).zone ?? DB_ZONE, today = todayIn(zone);
+  const from = q.data.from ?? new Date(Date.parse(today + 'T00:00:00Z') - 29 * 86400000).toISOString().slice(0, 10), to = q.data.to ?? today;
+  const bd = dayBounds(from, to, zone);
+  const range = (t: string) => `${t}.created_at >= ? AND ${t}.created_at < ?`;
+  const calls = await query<any>(`SELECT kind, step, model, COUNT(*) AS calls, SUM(ok=0) AS failed, ROUND(AVG(ms)) AS avg_ms FROM llm_calls c WHERE ${range('c')} GROUP BY kind, step, model ORDER BY calls DESC LIMIT 200`, [bd.start, bd.end]);
+  const failures = await query<any>(`SELECT c.created_at, c.kind, c.step, c.model, c.error, c.screening_id FROM llm_calls c WHERE c.ok=0 AND ${range('c')} ORDER BY c.id DESC LIMIT 50`, [bd.start, bd.end]);
+  const actions = await query<any>(`SELECT a.action, u.name AS person, COUNT(*) AS times FROM audit_log a LEFT JOIN users u ON u.id=a.user_id WHERE ${range('a')} GROUP BY a.action, u.name ORDER BY times DESC LIMIT 300`, [bd.start, bd.end]);
+  res.json({ from, to, time_zone: zone, time_zone_name: zoneLabel(zone), ai_calls: calls.map((r) => ({ ...r, calls: Number(r.calls), failed: Number(r.failed), avg_ms: Number(r.avg_ms) })), latest_failures: failures, actions: actions.map((r) => ({ ...r, times: Number(r.times) })) });
 });
 
 /** Which opening a proposal went out with (R73): the style of the one used, "As written" when openings were offered and none used. */
@@ -441,6 +478,7 @@ export const openingUsed = openingLabel;
 /** The jobs the filters match, as the reports read them, with their tags, projects and signals. Shared by the Reports page and the plugin. */
 export const REPORT_LIMIT = 10000;
 export async function reportFor(req: any, f: ListFilters) {
+  const zone = String(req.zone ?? DB_ZONE);
   const w = listWhere(req, f);
   const jobs = await query<any>(`SELECT s.id, s.user_id, u.name AS user_name, s.upwork_profile_id AS profile_id, pr.name AS profile_name, s.source, s.verdict, s.rule_codes,
       o.id IS NOT NULL AS overridden, o.verdict_at_time AS override_verdict, s.continued_at IS NOT NULL AS continued, p.finished_at IS NOT NULL AS written, p.template_name, p.template_choice,
@@ -463,7 +501,7 @@ export async function reportFor(req: any, f: ListFilters) {
     projects: await query<any>('SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?)', [ids]),
     signals: await query<any>('SELECT screening_id, signal_number, signal_name, value_name, is_fallback FROM job_signals WHERE screening_id IN (?)', [ids]),
   } : { tags: [], projects: [], signals: [] };
-  return { ...buildReport(jobs, extra, (await getSettings())['tracking.loss_outcomes']), capped, limit: REPORT_LIMIT };
+  return { ...buildReport(jobs, extra, (await getSettings())['tracking.loss_outcomes'], zone), capped, limit: REPORT_LIMIT, time_zone: zone, time_zone_name: zoneLabel(zone) };
 }
 // Reports: every trend we can count, for the jobs the filters match. Every row carries the Jobs list link that shows its jobs.
 // Flag review (R63): per gate rule, what people did when it fired and how those jobs went (flagreview.ts). Managers and admins.
@@ -947,7 +985,9 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   const docRows = group(ids.length && inc.has('documents') ? await query<any>(`SELECT screening_id, file_name, kind, text_content FROM job_attachments WHERE status='done' AND screening_id IN (?) ORDER BY id`, [ids]) : []);
   const review = (r: any) => { try { const v = JSON.parse(r.review_json || 'null'); return v ? `${v.score}/10: ${v.verdict ?? ''}${(v.suggestions ?? []).length ? ' | Suggestions: ' + v.suggestions.map((x: any) => x.title).join('; ') : ''}${(v.problems ?? []).length ? ' | Hurts it: ' + v.problems.join('; ') : ''}` : null; } catch { return null; } };
   const openingsOf = (r: any) => { try { const o = JSON.parse(r.openings_json || 'null'); return o?.items?.length ? o.items.map((x: any, i: number) => `${x.style || 'Opening ' + (i + 1)}${o.used === i ? ' (used)' : ''}: ${x.text}`).join(' || ') : null; } catch { return null; } };
-  const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (v ? String(v).slice(0, 16) : null);
+  // every time in the rows is on the clock of the zone the days are counted in (said in the answer); a date without a time stays a date
+  const tzone: string = (req as any).zone ?? DB_ZONE;
+  const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (!v ? null : String(v).length <= 10 ? String(v) : fromDb(String(v), tzone).slice(0, 16));
   const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',
     'proposal_words', 'loom_video', 'connects', 'boost', 'invite', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
     'client_country', 'budget', 'job_type', 'experience_level', 'secs_to_proposal',
@@ -982,7 +1022,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   const last = packed.rows.length ? (packed.rows[packed.rows.length - 1][0] as number) : null;
   const more = packed.more || (list.length === q.data.limit && total > list.length && packed.rows.length === rows.length && rows.length > 0 && (await query<any>(`SELECT 1 ${listFrom} ${and('s.id < ?')} LIMIT 1`, [...w.p, last])).length > 0);
   await audit(req.user!.id, 'analysis_read', `jobs=${packed.rows.length} of ${total} include=${[...inc].join('+') || 'none'}`);
-  res.json({ total, returned: packed.rows.length, more, next_after: more ? last : null, columns, rows: packed.rows,
+  res.json({ time_zone: tzone, time_zone_name: zoneLabel(tzone), times_note: `Days and times are in ${zoneLabel(tzone)}`, total, returned: packed.rows.length, more, next_after: more ? last : null, columns, rows: packed.rows,
     note: more ? `There are more jobs. Call again with after=${last} and the same filters, and keep going until more is false. Do not analyse until you have them all.` : 'That is every job these filters match.' });
 });
 /** The trend numbers themselves (the Reports page), so Claude does not have to count: the funnel for every group of every report. */
@@ -1023,12 +1063,14 @@ api.post('/screenings/:id/posting', requireRole(), async (req, res) => {
 // One click from the Jobs list: what happened on Upwork, and when (now unless the person changes it). Every change is kept.
 const postStatus = async (req: any, res: any) => {
   const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
-  const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time'),
+  const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time').nullish(),
     reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish(),
     connects: z.number().int().min(0).max(1000).nullish(), boost: z.number().int().min(0).max(1000).nullish(), notes: z.string().trim().max(4000).nullish(),
     invited: z.boolean().nullish() }).safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
-  const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status, at = b.data.at.replace('T', ' ').slice(0, 16) + ':00';
+  const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status;
+  // the time as the person said it (in their zone; for Claude, the team's working day unless it says otherwise), stored as Pakistan time; none: now
+  const at = b.data.at ? convertWall(b.data.at.replace('T', ' ').slice(0, 16) + ':00', req.zone ?? DB_ZONE, DB_ZONE) : wallClock(new Date(), DB_ZONE).slice(0, 16) + ':00';
   const lost = cfg['tracking.loss_outcomes'].includes(st);
   if (lost && !b.data.reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
   if (lost && !cfg['tracking.loss_reasons'].includes(b.data.reason!)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
@@ -1320,7 +1362,7 @@ api.get('/admin/changes', admin, async (req, res) => {
   if (d.kind) { where.push('c.entity=?'); p.push(d.kind); } if (d.entity_id) { where.push('c.entity_id=?'); p.push(d.entity_id); }
   if (d.user) { where.push('c.user_id=?'); p.push(d.user); } if (d.source) { where.push('c.source=?'); p.push(d.source); }
   if (d.status === 'review') where.push(`c.needs_review=1 AND c.status='applied'`); else if (d.status) { where.push('c.status=?'); p.push(d.status); }
-  if (d.from) { where.push('c.created_at >= ?'); p.push(d.from + ' 00:00:00'); } if (d.to) { where.push('c.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); p.push(d.to); }
+  { const b = dayBounds(d.from, d.to, (req as any).zone ?? DB_ZONE); if (b.start) { where.push('c.created_at >= ?'); p.push(b.start); } if (b.end) { where.push('c.created_at < ?'); p.push(b.end); } }
   if (d.q) { where.push('(c.entity_name LIKE ? OR c.reason LIKE ?)'); p.push(`%${likeEsc(d.q)}%`, `%${likeEsc(d.q)}%`); }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets c ${w}`, p))[0].n);
@@ -1415,9 +1457,10 @@ api.post('/admin/skill/test', admin, async (req, res) => {
 });
 
 // ---------- logs: who did what (audit), and every model call (llm_calls) ----------
-const logDates = (col: string, f: { from?: string; to?: string }, where: string[], p: any[]) => {
-  if (f.from) { where.push(`${col} >= ?`); p.push(f.from + ' 00:00:00'); }
-  if (f.to) { where.push(`${col} < DATE_ADD(?, INTERVAL 1 DAY)`); p.push(f.to); }
+const logDates = (col: string, f: { from?: string; to?: string }, where: string[], p: any[], zone = DB_ZONE) => {
+  const b = dayBounds(f.from, f.to, zone); // the person's days
+  if (b.start) { where.push(`${col} >= ?`); p.push(b.start); }
+  if (b.end) { where.push(`${col} < ?`); p.push(b.end); }
 };
 api.get('/admin/audit', admin, async (req, res) => {
   const f = z.object({ page: z.coerce.number().int().min(1).default(1), action: z.string().max(40).optional(), user: z.coerce.number().int().positive().optional(),
@@ -1426,7 +1469,7 @@ api.get('/admin/audit', admin, async (req, res) => {
   if (f.action) { where.push('a.action=?'); p.push(f.action); }
   if (f.user) { where.push('a.user_id=?'); p.push(f.user); }
   if (f.q) { where.push('a.detail LIKE ?'); p.push(`%${likeEsc(f.q)}%`); }
-  logDates('a.created_at', f, where, p);
+  logDates('a.created_at', f, where, p, (req as any).zone);
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM audit_log a ${w}`, p))[0].n);
   const pages = Math.max(1, Math.ceil(total / ps(req)));
@@ -1445,7 +1488,7 @@ api.get('/admin/calls', admin, async (req, res) => {
   if (f.ok) { where.push('c.ok=?'); p.push(Number(f.ok)); }
   if (f.model) { where.push('c.model=?'); p.push(f.model); }
   if (f.job) { where.push('c.screening_id=?'); p.push(f.job); }
-  logDates('c.created_at', f, where, p);
+  logDates('c.created_at', f, where, p, (req as any).zone);
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
   const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM llm_calls c ${w}`, p))[0].n);
   const pages = Math.max(1, Math.ceil(total / ps(req)));

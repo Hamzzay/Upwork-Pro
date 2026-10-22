@@ -45,6 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
+## Status (v0.25.0)
+
+v0.25.0: updates count the team's working day (US Eastern by default, an admin setting), so "today" and "yesterday" never split one
+shift across two dates. `get_dashboard` answers the days it counted and what happened in them; the update tools take `time_zone`
+("team", "mine" or a zone name); `update_status` reads a given time on the team's clock unless told otherwise.
+
 ## Status (v0.24.0)
 
 v0.24.0: the opening uses only the words of the job description, never the job's terms (hours per week, budget, length),

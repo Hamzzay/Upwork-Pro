@@ -22,6 +22,8 @@ const RULES = `RULES FOR USING THESE TOOLS
 6. Order for a full set: rules, tag_dictionary, projects, profiles (projects need their tags to exist first).`;
 
 export function registerTools(server: McpServer, api: Api, opts: { importDir?: string }) {
+  /** The days an update counts in (zone.ts on the server): the team's working day unless asked otherwise. */
+  const zoneParam = { time_zone: z.string().optional().describe('Which days to count in: "team" (the team\'s working day, US Eastern unless an admin changed it; the default), "mine" (the person\'s own zone), or a zone name such as Asia/Karachi. Every answer says the zone and days it counted.') };
   const T = (name: string, description: string, inputSchema: any, annotations: any, fn: (a: any) => Promise<unknown>) =>
     server.registerTool(name, { description, inputSchema, annotations }, wrap(fn) as any);
 
@@ -77,6 +79,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
 
   // ---------- analysis: many jobs at once, and the trend numbers ----------
   const jobFilters = {
+    ...zoneParam,
     from: z.string().optional().describe('Screened on or after this day, YYYY-MM-DD'), to: z.string().optional().describe('Screened on or before this day, YYYY-MM-DD'),
     sent_from: z.string().optional().describe('Sent on or after this day, YYYY-MM-DD'), sent_to: z.string().optional().describe('Sent on or before this day, YYYY-MM-DD'),
     phase: z.enum(['in_progress', 'submitted', 'closed', 'not_pursued']).optional(), profile_name: z.string().optional().describe('Upwork profile name, see plugin_options'),
@@ -122,18 +125,18 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
     { readOnlyHint: false, destructiveHint: false }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/decision`, { continue: a.continue, reason: a.reason, picks: a.picks }));
 
   T('list_feedback', `The feedback people left on proposals in Upwork Pro, newest first: the part of the proposal, the category (Wrong fact, Wrong project, Tone, Too long, Opening, Banned phrase, Other), what was wrong, and the job, profile, proposal type, projects and version it was about; with the counts per category, and the experience people confirmed on proposals. Use it to review what keeps going wrong and propose fixes to the setup. Filters: category, profile, type, person, from, to (YYYY-MM-DD), q (search), limit.`,
-    { category: z.string().optional(), profile: z.string().optional(), type: z.string().optional(), person: z.string().optional(), from: z.string().optional(), to: z.string().optional(), q: z.string().optional(), limit: z.number().int().min(1).max(500).optional() },
+    { category: z.string().optional(), profile: z.string().optional(), type: z.string().optional(), person: z.string().optional(), from: z.string().optional(), to: z.string().optional(), q: z.string().optional(), limit: z.number().int().min(1).max(500).optional(), ...zoneParam },
     { readOnlyHint: true, openWorldHint: false }, async (a) => { const q = new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString(); return api.call('GET', '/plugin/feedback' + (q ? '?' + q : '')); });
 
   T('get_dashboard', `The Dashboard of Upwork Pro, already counted for a period: screened (pass, flag, fail), continued, proposals written and finished, sent, viewed, chats, interviews, hired, Connects; the speed of each step; what is waiting on whom; jobs per day; the rules that fire most and how often people continue past them; numbers by person and by profile; and "quality": the average review score, jobs in auto mode (written, stopped), openings picked, experience confirmed and still waiting, feedback left, jobs with documents. Filters: from, to (YYYY-MM-DD), profile (id), user (id), mine.`,
-    { from: z.string().optional(), to: z.string().optional(), profile: z.string().optional(), user: z.string().optional(), mine: z.boolean().optional() },
+    { from: z.string().optional(), to: z.string().optional(), profile: z.string().optional(), user: z.string().optional(), mine: z.boolean().optional(), ...zoneParam },
     { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/dashboard?' + qs({ ...a, mine: a.mine ? '1' : undefined })));
 
   T('get_proposal_record', `Everything about one job's proposal, to see how it came to be and why: every version with its full text, who or what made it (AI, chat, hand edit, restore, an opening) and its note; the screening answers; the independent review in full; the openings offered and the one used; the experience questions with the answers and projects; the feedback left on it; the comparisons made between versions (better, weaker, worth bringing over, which to send); and the client's documents with what the AI read from them. Also whether it was made in auto mode. Use find_jobs or analyze_jobs to get the job id.`,
     { job_id: z.number().int().positive().describe('The job id in Upwork Pro') }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/proposal-record/' + a.job_id));
 
   T('get_activity', `What happened in Upwork Pro in a period (managers and admins): the AI calls by step and model (how many, how many failed, the average time), the latest failed calls with their error and job, and what people did, counted by action and person (screened, continued, wrote, saved versions, changed the setup, read reports and so on). Default: the last 30 days. Filters: from, to (YYYY-MM-DD).`,
-    { from: z.string().optional(), to: z.string().optional() }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/activity?' + qs(a)));
+    { from: z.string().optional(), to: z.string().optional(), ...zoneParam }, { readOnlyHint: true, openWorldHint: false }, async (a) => api.call('GET', '/plugin/activity?' + qs(a)));
 
   T('review_flags', `The Flag review from Upwork Pro, for deciding which gate rules to relax and which to keep (managers and admins). For every rule: the jobs it fired on, how many were continued past it or skipped, the quick reasons picked each way, how the continued jobs did once sent (viewed, chat, interview, hired) against clean passes, the same counts when it was the only rule that fired, and a hint (relax, keep, doing its job, mixed, too few jobs yet). Also how many jobs are screened against the target of 200. Present it as a short table, most fired first, and say plainly that a hint is a starting point: a rule is changed only by an admin, through setup (kind rule), after reading the reasons.`,
     {}, { readOnlyHint: true, openWorldHint: false }, async () => api.call('GET', '/reports/flag-review'));
@@ -235,15 +238,15 @@ Never send the person's raw text: write every text field yourself in the format 
       tags: z.array(z.string()).optional().describe('Tag names marked x for this project, Industry tags included') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/projects', a));
 
-  T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now.',
+  T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now; it is read in the team\'s working day time zone (US Eastern) unless time_zone says otherwise: pass "mine" when the person gives a time on their own clock.',
     { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
       reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional().describe('A note about this status, e.g. what the client said'),
       connects: z.number().int().optional().describe('Connects the proposal cost (with Sent)'), boost: z.number().int().optional().describe('Extra Connects spent on a boost'), notes: z.string().optional().describe('The job\'s own notes (replaces them)'),
-      invited: z.boolean().optional().describe('With Sent: true when the client invited us to this job, false when we found it ourselves') },
+      invited: z.boolean().optional().describe('With Sent: true when the client invited us to this job, false when we found it ourselves'), ...zoneParam },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async (a) => {
-      const now = new Date(); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      return api.call('POST', `/plugin/jobs/${a.id}/status`, { status: a.status, at: a.at || local, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes, invited: a.invited });
+      // no "at": the server takes now; an "at" is read in the time_zone asked for (the team's working day by default)
+      return api.call('POST', `/plugin/jobs/${a.id}/status` + (a.time_zone ? '?' + qs({ time_zone: a.time_zone }) : ''), { status: a.status, at: a.at, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes, invited: a.invited });
     });
 
   if (opts.importDir) {

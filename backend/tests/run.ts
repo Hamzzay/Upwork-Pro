@@ -36,6 +36,7 @@ import { runOpenAI, strictSchema } from '../src/llm/openai';
 import { postingSchema } from '../src/screening/posting';
 import { writerSchema, chatSchema } from '../src/proposal/writer';
 import { buildReport, packRows, weekStart, type ReportJob } from '../src/reports';
+import { convertWall, dayBounds, dayIn, fromDb, shiftMinutes, todayIn } from '../src/tz';
 
 const lib = JSON.parse(readFileSync(join(__dirname, '..', 'seed', 'library.json'), 'utf8'));
 const rules = lib.rules as { code: string; type: 'fail' | 'flag'; rule: string; details?: string }[];
@@ -241,6 +242,16 @@ const ctx = { rules, projects };
   assert.equal(ord[0].ai_reason, 'Qualifies leads'); assert.equal(ord[4].ai_fits, false); assert.equal(ord[3].ai_fits, null);
   // core work is only real work: a project stage named as core work does not count
   assert.deepEqual(coreWork([{ ...T(20, 'Prototype / proof of concept', 'Project stage', 2), core: 1 }, { ...T(21, 'Lead generation / enrichment', 'Workflow type', 3), core: 2 }]).map((t) => t.name), ['Lead generation / enrichment']);
+  // days in a time zone (the team's working day): stored Pakistan time, counted on the zone's own clock, daylight saving followed
+  assert.deepEqual(dayBounds('2026-10-21', '2026-10-21', 'America/New_York'), { start: '2026-10-21 09:00:00', end: '2026-10-22 09:00:00' }, 'US Eastern in summer: 9 am to 9 am Pakistan time');
+  assert.deepEqual(dayBounds('2026-12-01', '2026-12-02', 'America/New_York'), { start: '2026-12-01 10:00:00', end: '2026-12-03 10:00:00' }, 'in winter: 10 am');
+  assert.deepEqual(dayBounds('2026-11-01', '2026-11-01', 'America/New_York'), { start: '2026-11-01 09:00:00', end: '2026-11-02 10:00:00' }, 'the day the clocks go back has 25 hours');
+  assert.deepEqual(dayBounds('2026-10-21', null, 'Asia/Karachi'), { start: '2026-10-21 00:00:00', end: null }, 'Pakistan time is the stored time');
+  assert.equal(dayIn('2026-10-22 02:30:00', 'America/New_York'), '2026-10-21', 'sent at 2:30 am Pakistan time is still Monday in New York');
+  assert.equal(fromDb('2026-10-22 02:30:00', 'America/New_York'), '2026-10-21 17:30:00');
+  assert.equal(convertWall('2026-10-21 10:00:00', 'America/New_York', 'Asia/Karachi'), '2026-10-21 19:00:00', 'a time given on the team clock, stored as Pakistan time');
+  assert.equal(shiftMinutes('America/New_York', new Date('2026-07-01T12:00:00Z')), -540); assert.equal(shiftMinutes('Asia/Karachi'), 0);
+  assert.equal(todayIn('America/New_York', new Date('2026-10-22T02:00:00Z')), '2026-10-21', '7 am on the 22nd in Pakistan is still the 21st in New York');
   // the Logs page: what changed
   assert.deepEqual(changeDiff({ name: 'A', weight: '2' }, { name: 'A', weight: '3' }), [{ field: 'weight', from: '2', to: '3' }]);
   const L = (x: string[]) => '\u0000list\u0000' + JSON.stringify(x);
