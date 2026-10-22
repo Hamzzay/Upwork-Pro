@@ -3031,10 +3031,9 @@ async function reviewerView() {
     try { const r = await api('POST', '/admin/reviewer', { sections: read(), change_note: note.value || undefined }); toast(`Saved as version ${r.version}. Try it, then activate it to use it.`); route(); }
     catch (x) { toast(x.message, true); saveBtn.disabled = false; saveBtn.replaceChildren('Save as new version'); }
   };
-  const fullBtn = h('button', { class: 'btn', type: 'button' }, 'Load the full built-in reviewer');
-  fullBtn.onclick = () => { fill(full); check(); toast('The full built-in reviewer is in the editor: criteria, caps, key points and examples. Try it, then save it as a new version.'); };
-  const resetBtn = h('button', { class: 'btn', type: 'button' }, 'Load the built-in reviewer');
-  resetBtn.onclick = async () => { const { defaults } = await api('GET', '/reviewer'); fill(defaults); check(); toast('The built-in reviewer is in the editor. Save it as a new version to keep it.'); };
+  // R115: one starting point. The old simple reviewer is version 1 in the list below (Load).
+  const fullBtn = h('button', { class: 'btn', type: 'button', title: 'Criteria with weights, caps, key points for each proposal type and examples. Nothing changes until you save and activate it.' }, 'Load the recommended reviewer');
+  fullBtn.onclick = () => { fill(full); check(); loadedFrom.textContent = ' Editing from the recommended reviewer'; toast('The recommended reviewer is in the editor. Try it on the test bench, then save it as a new version.'); };
 
   // ---- the test bench: the draft on several past proposals at once, beside the score each has now and what the client did
   function benchCard() {
@@ -3100,7 +3099,7 @@ async function reviewerView() {
     h('div', { class: 'notice' }, icon('info'), h('span', {}, edit ? 'Change any part, try the draft on a past proposal, save it as a new version, then activate it. The facts the reviewer reads and the shape of its answer (score, verdict, problems, strengths, suggestions) are fixed by the app.'
       : 'Only an admin changes the reviewer. This is the active version.')),
     h('div', { class: 'two' }, h('div', { class: 'stack' },
-      h('div', { class: 'row spread' }, h('span', { class: 'sub' }, dirty, loadedFrom), edit ? h('div', { class: 'row', style: 'gap:6px' }, fullBtn, resetBtn) : null),
+      h('div', { class: 'row spread' }, h('span', { class: 'sub' }, dirty, loadedFrom), edit ? fullBtn : null),
       editor,
       edit ? h('div', { class: 'card card-pad' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'rv-note' }, 'Change note'), note), h('div', { class: 'row', style: 'margin-top:14px;gap:8px' }, saveBtn)) : null,
       edit ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Try the draft')), h('div', { class: 'card-pad' },

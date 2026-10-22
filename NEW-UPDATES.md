@@ -2124,7 +2124,7 @@ Waqar tunes it as an admin; Hamza approves. No minimum score is enforced; the te
     up to six, same type first, high and low mixed.
   - **Parts**: the opening, the body and the answers are each judged.
   - **More facts**: confirmed experience, the client's documents, samples of the type, the opening.
-- **Load the full built-in reviewer**: a ready version with five criteria (opening 30, answers 25, proof 20, plan and fit 15, format and
+- **Load the recommended reviewer** (one button; the old simple reviewer is version 1 in the list): a ready version with five criteria (opening 30, answers 25, proof 20, plan and fit 15, format and
   close 10), five caps, key points for each of the eight types, examples on. Saved and activated like any version.
 - **Test bench**: runs the reviewer being edited on up to 12 recent proposals and shows its score beside the live one, before saving.
 - On every review, "How the score was made" shows the criteria scores, the parts and any cap.
