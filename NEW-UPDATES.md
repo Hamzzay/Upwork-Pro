@@ -2162,3 +2162,18 @@ Why (Hamza): files attached to a job did not seem to be used, and mobile app job
 - Local: XAMPP's database does not run on macOS 27 (no Rosetta). The app runs on MariaDB 13 (Homebrew) with a copy of the XAMPP data;
   migration 064 (R115) is now applied locally too.
 
+### R117. Every number in Reports and on the Dashboard opens its jobs (done, 23 October)
+Why (Hamza): a line such as "Hamza Yaseen: 20 proposals" should open the Jobs list with exactly those jobs, the filter already applied.
+- **How**: a report line now carries which report and which group it is. Opened from it, the Jobs list works the report out again with the
+  same period and filters and shows exactly the jobs that line counted, so the number and the list always agree, for every report
+  (signal, review score, speed, day sent, opening... not only those the Jobs list has a filter for). Before, about half had no link, and
+  the funnel's Viewed, Chat and Interview opened every job.
+- **Reports**: every line of every report opens its jobs; each number in it opens its own (Jobs, Sent, and the view, chat, interview and
+  hire rates open the viewed, chatted, interviewed and hired ones). The small report cards open their lines too (the title opens the
+  report in full). The funnel steps, the numbers at the top, the weeks and "What is working" open theirs.
+- **Dashboard**: the funnel steps, the numbers at the top, and each person's and profile's line and numbers.
+- **Flag review**: a rule's continued, skipped, sent and hired numbers.
+- **The Jobs list** says where it came from ("Showing the 12 jobs counted under Profile: Wasif Ibrahim, only those sent. Same period and
+  filters.") with **Back** and **Show every job**; the tabs, the counters and the export follow the same jobs.
+- Checked: 112 report lines and numbers against the Jobs list total, all equal; clicked through Reports and the Dashboard; tests.
+

@@ -834,9 +834,11 @@ async function dashboardView() {
     const r = periodRange(st.period); const q = new URLSearchParams();
     if (r.from) q.set('from', r.from); if (r.to) q.set('to', r.to);
     for (const k of ['profile', 'user']) if (st[k]) q.set(k, st[k]); if (st.mine) q.set('mine', '1');
-    for (const [k, v] of Object.entries(extra)) q.set(k, v);
+    for (const [k, v] of Object.entries(extra)) if (v !== '' && v != null) q.set(k, v);
     return '#/history?' + q;
   };
+  /** R117: the jobs behind a number here, exactly (a report line: the totals, a person or a profile; the part: sent, hired...). */
+  const exact = (part, extra = {}, rdim = 'funnel', rkey = 'all', label = 'the Dashboard') => jobsLink({ rdim, rkey, rpart: part === 'all' ? '' : part, rlabel: label, ...extra });
   const kpi = (label, value, sub, link, cls) => h(link ? 'a' : 'div', { class: 'stat kpi ' + (cls || ''), href: link || null }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), sub ? h('span', { class: 'sub small muted' }, sub) : null);
   const panel = (title, sub, content, wide, after) => h('div', { class: 'card dpanel' + (wide ? ' wide' : '') }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), h('div', { class: 'card-pad' }, content, after || null));
   const hbar = (label, value, max, extra, link, shown) => h(link ? 'a' : 'div', { class: 'hbar', href: link || null }, h('span', { class: 'lbl', title: label }, label),
@@ -846,20 +848,23 @@ async function dashboardView() {
     const c = d.counts, t = d.timings;
     // R105: from Sent on, proposals only; an invite opens the chat itself, so invites are counted under the funnel
     const inv = c.invites || { sent: 0, interviewed: 0, hired: 0 }, P = { invite: 'no' };
-    const funnel = [['Screened', c.screened, {}], ['Continued', c.continued, {}], ['Proposal written', c.proposals, {}], ['Proposal sent', c.sent, P],
-      ['Client viewed', c.viewed, P], ['Chat opened', c.replied, P], ['Interview', c.interviewed, P], ['Hired', c.hired, { ...P, outcome: 'Hired' }]];
+    const funnel = [['Screened', c.screened, exact('all')], ['Continued', c.continued, exact('continued')], ['Proposal written', c.proposals, exact('written')], ['Proposal sent', c.sent, exact('sent', P)],
+      ['Client viewed', c.viewed, exact('viewed', P)], ['Chat opened', c.replied, exact('chat', P)], ['Interview', c.interviewed, exact('interview', P)], ['Hired', c.hired, exact('hired', P)]];
     const needs = d.needs_action.reduce((a, k) => a + (d.stages[k] || 0), 0);
     const maxDay = Math.max(1, ...d.daily.map((x) => x.screened));
+    // R117: a person's or a profile's line opens their jobs, and each number its own jobs (the Reports lines by person and by profile)
     const people = (rows, key) => rows.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['', 'Screened', 'Continued', 'Proposals', 'Sent', 'Hired', 'Avg to proposal'].map((x) => h('th', {}, x)))),
-      h('tbody', {}, rows.map((r) => h('tr', { class: r.id ? 'click' : '', onclick: r.id ? () => (location.hash = jobsLink({ [key]: r.id })) : null },
-        h('td', {}, r.name || h('span', { class: 'faint' }, 'No profile yet')), h('td', {}, r.screened), h('td', {}, r.continued), h('td', {}, r.proposals), h('td', {}, r.sent), h('td', {}, r.hired), h('td', {}, mins(r.avg_to_proposal) || h('span', { class: 'faint' }, '-'))))))) : h('p', { class: 'muted' }, 'Nothing in this period.');
+      h('tbody', {}, rows.map((r) => { const dim = key === 'user' ? 'person' : 'profile', rk = r.id == null ? 'none' : String(r.id), lbl = `${key === 'user' ? 'Person' : 'Profile'}: ${r.name || 'No profile yet'}`;
+        const go = (part) => exact(part, {}, dim, rk, lbl), n = (part, v) => (v ? h('a', { class: 'cellink', href: go(part), onclick: (e) => e.stopPropagation(), title: 'Open these jobs' }, String(v)) : '0');
+        return h('tr', { class: 'click', onclick: () => (location.hash = go('all')) },
+        h('td', {}, r.name || h('span', { class: 'faint' }, 'No profile yet')), h('td', {}, n('all', r.screened)), h('td', {}, n('continued', r.continued)), h('td', {}, n('written', r.proposals)), h('td', {}, n('sent', r.sent)), h('td', {}, n('hired', r.hired)), h('td', {}, mins(r.avg_to_proposal) || h('span', { class: 'faint' }, '-'))); })))) : h('p', { class: 'muted' }, 'Nothing in this period.');
     body.replaceChildren(
       h('div', { class: 'stats six' },
-        kpi('Screened', c.screened, `${c.PASS} pass · ${c.FLAG} flag · ${c.FAIL} fail`, jobsLink()),
-        kpi('Continued', c.continued, `${pct(c.continued, c.screened)} of screened · ${c.overridden} past a flag/fail`, jobsLink()),
-        kpi('Proposals', c.proposals, `${c.finalized} finished`, jobsLink()),
-        kpi('Sent', c.sent + inv.sent, (inv.sent ? `${c.sent} proposals · ${inv.sent} invite${inv.sent === 1 ? '' : 's'}` : c.connects ? `${c.connects} Connects` : 'Connects not recorded'), jobsLink()),
-        kpi('Hired', c.hired + inv.hired, inv.hired ? `${pct(c.hired, c.sent)} of proposals · ${inv.hired} from invites` : `${pct(c.hired, c.sent)} of ${inv.sent ? 'proposals ' : ''}sent`, jobsLink({ outcome: 'Hired' }), 'PASS'),
+        kpi('Screened', c.screened, `${c.PASS} pass · ${c.FLAG} flag · ${c.FAIL} fail`, exact('all')),
+        kpi('Continued', c.continued, `${pct(c.continued, c.screened)} of screened · ${c.overridden} past a flag/fail`, exact('continued')),
+        kpi('Proposals', c.proposals, `${c.finalized} finished`, exact('written')),
+        kpi('Sent', c.sent + inv.sent, (inv.sent ? `${c.sent} proposals · ${inv.sent} invite${inv.sent === 1 ? '' : 's'}` : c.connects ? `${c.connects} Connects` : 'Connects not recorded'), exact('sent')),
+        kpi('Hired', c.hired + inv.hired, inv.hired ? `${pct(c.hired, c.sent)} of proposals · ${inv.hired} from invites` : `${pct(c.hired, c.sent)} of ${inv.sent ? 'proposals ' : ''}sent`, exact('hired'), 'PASS'),
         kpi('Needs action', needs, 'Waiting on someone', jobsLink({ stage: 'needs_action' }), 'NEED')),
       // R82: how proposals are made now, and how good the review judged them (each opens its report or page)
       d.quality ? h('div', { class: 'qrow' }, h('div', { class: 'qhead' }, h('h2', {}, 'Proposal quality'), h('span', { class: 'faint small' }, 'For the jobs in this period')),
@@ -871,8 +876,8 @@ async function dashboardView() {
           kpi('Feedback', d.quality.feedback, 'notes on proposals, to fix the setup', '#/feedback'),
           kpi('Documents', d.quality.with_docs, 'jobs with the client\'s files attached', '#/reports?dim=documents'))) : null,
       h('div', { class: 'dgrid' },
-        panel('Funnel', 'From screening to hire', h('div', { class: 'hbars' }, funnel.map(([l, v, ex]) => hbar(l, v, c.screened, pct(v, c.screened), jobsLink(ex)))), false,
-          inv.sent ? h('a', { class: 'small muted', style: 'display:block;margin-top:10px', href: jobsLink({ invite: 'yes' }) }, `Invites, counted apart: ${inv.sent} sent · ${inv.interviewed} interview${inv.interviewed === 1 ? '' : 's'} · ${inv.hired} hired`) : null),
+        panel('Funnel', 'From screening to hire', h('div', { class: 'hbars' }, funnel.map(([l, v, link]) => hbar(l, v, c.screened, pct(v, c.screened), link))), false,
+          inv.sent ? h('a', { class: 'small muted', style: 'display:block;margin-top:10px', href: exact('sent', { invite: 'yes' }, 'funnel', 'all', 'the Dashboard\u2019s invites') }, `Invites, counted apart: ${inv.sent} sent · ${inv.interviewed} interview${inv.interviewed === 1 ? '' : 's'} · ${inv.hired} hired`) : null),
         panel('Speed', 'Paste to proposal ready', h('div', {},
           h('div', { class: 'bigtime' }, mins(t.avg_to_proposal) || '-', h('span', { class: 'small muted', style: 'font-weight:400;letter-spacing:0' }, ' average')),
           h('p', { class: 'small muted', style: 'margin:2px 0 14px' }, t.min_to_proposal != null ? `fastest ${mins(t.min_to_proposal)} · slowest ${mins(t.max_to_proposal)}` : 'No proposals in this period'),
@@ -934,7 +939,7 @@ async function reportsView() {
     if (r.from) q.set(pre + 'from', r.from); if (r.to) q.set(pre + 'to', r.to);
     for (const k of ['profile', 'user', 'source', 'v']) if (st[k]) q.set(k, st[k]);
     if (st.invite !== 'all') q.set('invite', st.invite);
-    for (const [k, v] of Object.entries(extra || {})) q.set(k, v);
+    for (const [k, v] of Object.entries(extra || {})) if (v !== '' && v != null) q.set(k, v);
     return '#/history?' + q;
   };
   const fromIn = dateField('From', st.from, (v) => { st.from = v; load(); }), toIn = dateField('To', st.to, (v) => { st.to = v; load(); });
@@ -956,7 +961,13 @@ async function reportsView() {
     onClear: () => { Object.assign(st, { profile: '', user: '', source: '', v: '' }); for (const x of [profSel, userSel, srcSel, vSel]) if (x) x.value = ''; load(); } });
   syncDates();
 
-  const rateCell = (r, f) => { const [a, b] = f(r), v = share(a, b); return h('td', { class: 'num', title: b ? `${a} of ${b} sent` : 'Nothing sent yet' }, v == null ? h('span', { class: 'faint' }, 'No data') : [h('span', { class: 'ratebar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round(v * 100)}%` })), pctText(v)]); };
+  /** R117: the jobs behind a report line, or one of its numbers (part), in the Jobs list with the same filters. */
+  const rowLink = (dimKey, label, row, part = 'all') => jobsLink({ rdim: dimKey, rkey: row.key, rpart: part === 'all' ? '' : part, rlabel: label, tab: '' });
+  const PART_OF = { view: 'viewed', chat: 'chat', interview: 'interview', hire: 'hired' };
+  /** A number in a report line that opens its own jobs (it never opens the line's jobs instead). */
+  const numLink = (href, text, title) => h('a', { class: 'cellink', href, title, onclick: (e) => e.stopPropagation() }, text);
+  const rateCell = (r, f, href) => { const [a, b] = f(r), v = share(a, b); return h('td', { class: 'num', title: b ? `${a} of ${b} sent` : 'Nothing sent yet' }, v == null ? h('span', { class: 'faint' }, 'No data')
+    : (href && a ? numLink(href, [h('span', { class: 'ratebar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round(v * 100)}%` })), pctText(v)], `Open the ${a} job${a === 1 ? '' : 's'}`) : [h('span', { class: 'ratebar', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round(v * 100)}%` })), pctText(v)])); };
   const sortVal = { name: (r) => r.name.toLowerCase(), jobs: (r) => r.jobs, sent: (r) => r.sent, view: (r) => share(r.viewed, r.sent) ?? -1, chat: (r) => share(r.chat, r.sent) ?? -1, interview: (r) => share(r.interview, r.sent) ?? -1, hire: (r) => share(r.hired, r.sent) ?? -1, cost: (r) => (r.sent ? r.connects / r.sent : -1) };
   function breakdown(d) {
     const rows = d.rows.filter((r) => (d.basis === 'sent' ? r.sent : Math.max(r.sent, st.min === 1 ? r.jobs : 0)) >= st.min && (st.min === 1 || r.sent >= st.min));
@@ -965,9 +976,11 @@ async function reportsView() {
     const th = (label, key, num) => { const on = st.sort === key; const b = h('button', { type: 'button', class: 'sortbtn' + (on ? ' on' : '') }, label, on ? (st.dir === 'asc' ? ' ▲' : ' ▼') : '');
       b.onclick = () => { if (on) st.dir = st.dir === 'asc' ? 'desc' : 'asc'; else { st.sort = key; st.dir = key === 'name' ? 'asc' : 'desc'; } draw(); }; return h('th', { class: num ? 'num' : null, 'aria-sort': on ? (st.dir === 'asc' ? 'ascending' : 'descending') : null }, b); };
     return rows.length ? h('div', { class: 'tablewrap' }, h('table', { class: 'report' }, h('thead', {}, h('tr', {}, th(d.label, 'name'), th('Jobs', 'jobs', true), th('Sent', 'sent', true), ...(st.invite === 'yes' ? [] : [th('View rate', 'view', true), th('Chat rate', 'chat', true)]), th('Interview rate', 'interview', true), th('Hire rate', 'hire', true), th('Connects per proposal', 'cost', true))),
-      h('tbody', {}, rows.map((r) => h('tr', { class: r.link ? 'click' : '', tabindex: r.link ? 0 : null, title: r.link ? 'Open these jobs' : null, onclick: r.link ? () => (location.hash = jobsLink(r.link)) : null, onkeydown: r.link ? (e) => { if (e.key === 'Enter') location.hash = jobsLink(r.link); } : null },
-        h('td', {}, h('strong', {}, r.name)), h('td', { class: 'num' }, r.jobs), h('td', { class: 'num' }, r.sent), RATES.filter(([k]) => st.invite !== 'yes' || (k !== 'view' && k !== 'chat')).map(([, , f]) => rateCell(r, f)),
-        h('td', { class: 'num' }, r.sent && r.connects ? (r.connects / r.sent).toFixed(1) : h('span', { class: 'faint' }, 'No data')))))))
+      h('tbody', {}, rows.map((r) => { const lbl = `${d.label}: ${r.name}`, all = rowLink(d.key, lbl, r); // R117: every line opens its jobs; each number, its own
+        return h('tr', { class: 'click', tabindex: 0, title: 'Open these jobs', onclick: () => (location.hash = all), onkeydown: (e) => { if (e.key === 'Enter') location.hash = all; } },
+        h('td', {}, h('strong', {}, r.name)), h('td', { class: 'num' }, numLink(all, String(r.jobs), 'Open these jobs')), h('td', { class: 'num' }, r.sent ? numLink(rowLink(d.key, lbl, r, 'sent'), String(r.sent), 'Open the sent ones') : '0'),
+        RATES.filter(([k]) => st.invite !== 'yes' || (k !== 'view' && k !== 'chat')).map(([k, , f]) => rateCell(r, f, rowLink(d.key, lbl, r, PART_OF[k]))),
+        h('td', { class: 'num' }, r.sent && r.connects ? (r.connects / r.sent).toFixed(1) : h('span', { class: 'faint' }, 'No data'))); }))))
       : emptyState('chart', 'Nothing to compare yet', st.min > 1 ? `No group has ${st.min} sent proposals in this period. Lower "At least" or widen the dates.` : d.basis === 'sent' ? 'This report counts sent proposals, and none is recorded for these filters.' : 'No jobs match these filters.');
   }
   /** What is working: for the dimensions that matter most, the group with the best rate, among groups with enough sent proposals to mean something. */
@@ -980,7 +993,7 @@ async function reportsView() {
       const best = [...ok].sort((a, b) => share(...f(b)) - share(...f(a)))[0], [a, b] = f(best), rest = ok.filter((r) => r !== best), ra = rest.reduce((n, r) => n + f(r)[0], 0), rb = rest.reduce((n, r) => n + f(r)[1], 0);
       if (!a || share(a, b) <= share(ra, rb)) continue;
       out.push(h('li', {}, h('button', { type: 'button', class: 'linkbtn', onclick: () => { st.dim = key; dimSel.value = key; draw(); document.getElementById('breakdown').scrollIntoView({ behavior: 'smooth' }); } }, d.label),
-        h('span', {}, ': ', h('strong', {}, best.name), ` has the best ${label.toLowerCase()}, ${pctText(share(a, b))} (${a} of ${b} sent). The others together: ${pctText(share(ra, rb))}.`)));
+        h('span', {}, ': ', h('a', { href: rowLink(key, `${d.label}: ${best.name}`, best, 'sent'), title: 'Open its sent proposals' }, h('strong', {}, best.name)), ` has the best ${label.toLowerCase()}, ${pctText(share(a, b))} (${a} of ${b} sent). The others together: ${pctText(share(ra, rb))}.`)));
     }
     return out.length ? h('ul', { class: 'jp-list', style: 'margin:0' }, out) : h('p', { class: 'jp-label', style: 'margin:0' }, `Not enough sent proposals to compare yet. A group needs at least ${need} sent proposals, and there must be two such groups. Keep recording Sent, Viewed, Chat opened, Interview and the outcome on each job.`);
   }
@@ -1001,36 +1014,39 @@ async function reportsView() {
     const kpi = (label, value, sub, link) => h(link ? 'a' : 'div', { class: 'stat kpi', href: link || null, style: link ? null : 'cursor:default' }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), h('span', { class: 'sub muted' }, sub));
     const rate = (a, b) => (b ? pctText(a / b) : 'No data');
     const inv = st.invite === 'yes'; // invites only: no view or chat step, the client opened the chat
-    const funnel = [['Screened', t.jobs, {}], ['Continued', t.continued, {}], ['Proposal written', t.written, {}], ['Sent', t.sent, {}], ...(inv ? [] : [['Viewed', t.viewed, {}], ['Chat opened', t.chat, {}]]), ['Interview', t.interview, {}], ['Hired', t.hired, { outcome: 'Hired' }]];
+    const tot = (part) => rowLink('funnel', 'Reports', { key: 'all' }, part); // R117: the totals line
+    const funnel = [['Screened', t.jobs, 'all'], ['Continued', t.continued, 'continued'], ['Proposal written', t.written, 'written'], ['Sent', t.sent, 'sent'], ...(inv ? [] : [['Viewed', t.viewed, 'viewed'], ['Chat opened', t.chat, 'chat']]), ['Interview', t.interview, 'interview'], ['Hired', t.hired, 'hired']];
     const hours = (v) => (v == null ? 'No data' : v < 1 ? Math.round(v * 60) + ' min' : v < 48 ? v + ' h' : Math.round(v / 24) + ' days');
     const weeks = data.dims.find((x) => x.key === 'week').rows, maxW = Math.max(1, ...weeks.map((w) => w.jobs));
     // a small card per report, so every trend is on the page at once; its top groups by sent, with the chat rate
     const mini = (x) => { const top = x.rows.filter((r) => r.sent || x.basis === 'jobs').slice(0, 4);
-      return h('button', { type: 'button', class: 'card card-pad cardlink minirep' + (x.key === st.dim ? ' on' : ''), onclick: () => { st.dim = x.key; draw(); document.getElementById('breakdown').scrollIntoView({ behavior: 'smooth' }); } },
-        h('strong', {}, x.label), top.length ? h('div', { class: 'minirows' }, top.map((r) => h('div', {}, h('span', { class: 'clip' }, r.name), h('span', { class: 'muted' }, r.sent ? `${r.sent} sent · ${rate(r.viewed, r.sent)} viewed` : `${r.jobs} job${r.jobs === 1 ? '' : 's'}`))))
+      const open = () => { st.dim = x.key; draw(); document.getElementById('breakdown').scrollIntoView({ behavior: 'smooth' }); };
+      return h('div', { class: 'card card-pad minirep' + (x.key === st.dim ? ' on' : '') },
+        h('button', { type: 'button', class: 'minihead', title: 'See this report in full', onclick: open }, h('strong', {}, x.label), h('span', { class: 'small muted' }, 'In full ›')),
+        top.length ? h('div', { class: 'minirows' }, top.map((r) => h('a', { class: 'minirow', href: rowLink(x.key, `${x.label}: ${r.name}`, r), title: 'Open these jobs' }, h('span', { class: 'clip' }, r.name), h('span', { class: 'muted' }, r.sent ? `${r.sent} sent · ${rate(r.viewed, r.sent)} viewed` : `${r.jobs} job${r.jobs === 1 ? '' : 's'}`))))
           : h('div', { class: 'jp-label' }, 'Nothing recorded yet')); };
     body.replaceChildren(...[
       data.capped ? h('div', { class: 'notice' }, icon('info'), `Showing the newest ${data.limit.toLocaleString()} jobs these filters match. Narrow the dates to count them all.`) : null,
       inv ? h('div', { class: 'stats' },
-        kpi('Invites sent', t.sent, `${t.jobs > t.sent ? `of ${t.jobs} invites · ` : ''}${t.connects} Connects`, jobsLink({ tab: 'submitted' })),
-        kpi('Interview rate', rate(t.interview, t.sent), `${t.interview} interviews`),
-        kpi('Hire rate', rate(t.hired, t.sent), `${t.hired} hired`, jobsLink({ outcome: 'Hired' })),
-        kpi('Lost', t.lost, `${rate(t.lost, t.sent)} of invites sent`),
+        kpi('Invites sent', t.sent, `${t.jobs > t.sent ? `of ${t.jobs} invites · ` : ''}${t.connects} Connects`, tot('sent')),
+        kpi('Interview rate', rate(t.interview, t.sent), `${t.interview} interviews`, tot('interview')),
+        kpi('Hire rate', rate(t.hired, t.sent), `${t.hired} hired`, tot('hired')),
+        kpi('Lost', t.lost, `${rate(t.lost, t.sent)} of invites sent`, tot('lost')),
         kpi('Connects per hire', t.hired && t.connects ? Math.round(t.connects / t.hired) : 'No data', 'An invite opens the chat itself: no view or chat rate'))
       : h('div', { class: 'stats six' },
-        kpi('Sent', t.sent, `of ${t.jobs} screened · ${t.connects} Connects`, jobsLink({ tab: 'submitted' })),
-        kpi('View rate', rate(t.viewed, t.sent), `${t.viewed} viewed`),
-        kpi('Chat rate', rate(t.chat, t.sent), `${t.chat} chats opened`),
-        kpi('Interview rate', rate(t.interview, t.sent), `${t.interview} interviews`),
-        kpi('Hire rate', rate(t.hired, t.sent), `${t.hired} hired · ${t.lost} lost`, jobsLink({ outcome: 'Hired' })),
+        kpi('Sent', t.sent, `of ${t.jobs} screened · ${t.connects} Connects`, tot('sent')),
+        kpi('View rate', rate(t.viewed, t.sent), `${t.viewed} viewed`, tot('viewed')),
+        kpi('Chat rate', rate(t.chat, t.sent), `${t.chat} chats opened`, tot('chat')),
+        kpi('Interview rate', rate(t.interview, t.sent), `${t.interview} interviews`, tot('interview')),
+        kpi('Hire rate', rate(t.hired, t.sent), `${t.hired} hired · ${t.lost} lost`, tot('hired')),
         kpi('Connects per hire', t.hired && t.connects ? Math.round(t.connects / t.hired) : 'No data', t.sent && t.connects ? `${(t.connects / t.sent).toFixed(1)} per proposal` : 'Record Connects on each job')),
       h('div', { class: 'dgrid' },
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Funnel'), h('span', { class: 'sub' }, 'Each step as a share of the one before')),
-          h('div', { class: 'card-pad hbars' }, funnel.map(([l, v, ex], i) => h('a', { class: 'hbar', href: jobsLink(ex) }, h('span', { class: 'lbl' }, l), h('span', { class: 'track' }, h('i', { style: `width:${t.jobs ? Math.max(v ? 2 : 0, (v / t.jobs) * 100) : 0}%` })),
+          h('div', { class: 'card-pad hbars' }, funnel.map(([l, v, part], i) => h('a', { class: 'hbar', href: tot(part), title: `Open the ${v} job${v === 1 ? '' : 's'}` }, h('span', { class: 'lbl' }, l), h('span', { class: 'track' }, h('i', { style: `width:${t.jobs ? Math.max(v ? 2 : 0, (v / t.jobs) * 100) : 0}%` })),
             h('span', { class: 'num' }, v), h('span', { class: 'ext muted' }, i ? rate(v, funnel[i - 1][1]) : ''))))),
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'What is working'), h('span', { class: 'sub' }, 'The best group in each report')), h('div', { class: 'card-pad' }, highlights())),
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Over time'), h('span', { class: 'sub' }, 'Jobs screened and proposals sent, by week')),
-          h('div', { class: 'card-pad' }, weeks.length ? [h('div', { class: 'daybars' }, weeks.map((w) => h('a', { class: 'day', href: jobsLink(w.link), title: `${w.name}: ${w.jobs} screened, ${w.sent} sent, ${w.viewed} viewed, ${w.chat} chats, ${w.hired} hired` },
+          h('div', { class: 'card-pad' }, weeks.length ? [h('div', { class: 'daybars' }, weeks.map((w) => h('a', { class: 'day', href: rowLink('week', w.name, w), title: `${w.name}: ${w.jobs} screened, ${w.sent} sent, ${w.viewed} viewed, ${w.chat} chats, ${w.hired} hired` },
             h('div', { class: 'col' }, h('i', { class: 's', style: `height:${(w.jobs / maxW) * 100}%` }), h('i', { class: 'p', style: `height:${(w.sent / maxW) * 100}%` })),
             h('span', { class: 'small muted nowrap' }, toDate(w.key + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: TZ }))))),
             h('div', { class: 'legend' }, h('span', {}, h('i', { class: 's' }), 'Screened'), h('span', {}, h('i', {}), 'Sent'))] : h('p', { class: 'muted' }, 'No jobs in this period.'))),
@@ -1311,11 +1327,13 @@ const NEXT_ACTION = { decide: 'Decide', projects: 'Pick projects', profile: 'Pic
 const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, type: 4, review: 4 };
 /** Where a job link goes: a job waiting on you opens the workflow at its step, anything else the job page. Same rule everywhere. */
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'discarded'];
+/** R117: the part of a report line a number stands for. */
+const RPART = { continued: 'continued', written: 'with a proposal written', sent: 'sent', viewed: 'viewed', chat: 'with a chat opened', interview: 'interviewed', hired: 'hired', lost: 'lost' };
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'rdim', 'rkey', 'rpart', 'rlabel', 'discarded'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', discarded: 'discarded' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', rdim: 'rdim', rkey: 'rkey', rpart: 'rpart', discarded: 'discarded' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
@@ -1508,11 +1526,16 @@ async function historyView() {
           // the row's action stays pinned to the right edge, visible however far the table scrolls
           h('td', { class: 'pin' }, rowAction(r, load)))))));
     if (!rows.length && filtered) table.querySelector('button')?.addEventListener('click', () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); });
+    // R117: opened from a number in Reports or the Dashboard: say which, and how to get back or see every job
+    const fromReport = st.rdim ? h('div', { class: 'notice fromrep' }, icon('chart'), h('span', {}, `Showing the ${total} job${total === 1 ? '' : 's'} counted under `, h('strong', {}, st.rlabel || 'a report line'),
+      st.rpart && st.rpart !== 'all' ? `, only those ${RPART[st.rpart] || st.rpart}` : '', '. Same period and filters.'),
+      h('span', { class: 'row', style: 'gap:8px;margin-left:auto' }, h('button', { type: 'button', class: 'btn sm', onclick: () => history.back() }, icon('back'), 'Back'),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => { for (const k of ['rdim', 'rkey', 'rpart', 'rlabel']) st[k] = ''; st.page = 1; load(); } }, 'Show every job'))) : null;
     const EXTRA = { tag: 'Tag', project: 'Project shown', loom: 'Loom video', sent_from: 'Sent from', sent_to: 'Sent to' };
     const extras = Object.keys(EXTRA).filter((k) => st[k]);
     const note = extras.length ? h('div', { class: 'toolbar', style: 'gap:6px' }, h('span', { class: 'jp-label' }, 'Also filtered by'), extras.map((k) => h('button', { type: 'button', class: 'chip', title: 'Remove this filter', onclick: () => { st[k] = ''; st.page = 1; load(); } },
       `${EXTRA[k]}: ${k === 'loom' ? (st[k] === 'yes' ? 'with a video' : 'without a video') : k.startsWith('sent_') ? dayText(st[k]) : st[k]}`, h('span', { 'aria-hidden': 'true' }, ' ×')))) : null;
-    bodyEl.replaceChildren(...[pickBar, note, table, pager(total, st.page, (n) => { st.page = n; load(); })].filter(Boolean));
+    bodyEl.replaceChildren(...[fromReport, pickBar, note, table, pager(total, st.page, (n) => { st.page = n; load(); })].filter(Boolean));
   }
   let seq = 0;
   async function load() {
@@ -3393,6 +3416,8 @@ async function mergeDialog(c) {
 
 // ---------- Flag review (R63): per rule, what people did when it fired and how those jobs went; for relaxing rules with evidence ----------
 const FR_HINT = { relax: ['Candidate to relax', 'PASS'], keep: ['Keep it', 'FAIL'], working: ['Doing its job', ''], mixed: ['Mixed', 'FLAG'], too_few: ['Too few jobs yet', 'wait'] };
+/** R117: a number on the Flag review opens its jobs: the jobs the rule fired on that were continued, sent or hired (the Reports line for the rule). */
+const frLink = (x, part, text, n) => (n ? h('a', { class: 'cellink', href: '#/history?' + new URLSearchParams({ rdim: 'rule', rkey: x.code, rpart: part, rlabel: `Rule fired: ${x.code}` }), title: 'Open these jobs' }, text) : text);
 async function flagReviewView() {
   const r = await api('GET', '/reports/flag-review');
   const pct = (n, d) => (d ? Math.round((n / d) * 100) + '%' : '-');
@@ -3417,9 +3442,9 @@ async function flagReviewView() {
             h('div', {}, h('div', { class: 'jp-label' }, 'When it was the only rule that fired'),
               h('div', { class: 'small' }, `${x.alone.fired} jobs: ${x.alone.continued} continued, ${x.alone.skipped} skipped; of the continued, ${x.alone.funnel.sent} sent, ${pct(x.alone.funnel.chat, x.alone.funnel.sent)} got a chat, ${x.alone.funnel.hired} hired.`))))),
       h('td', { class: 'nowrap' }, x.fired ? h('a', { href: `#/history?rule=${x.code}` }, `${x.fired} job${x.fired === 1 ? '' : 's'}`) : h('span', { class: 'faint' }, 'None')),
-      h('td', { style: 'white-space:normal;min-width:140px;max-width:170px' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, `${x.continued} on, ${x.skipped} skipped${x.undecided ? ', ' + x.undecided + ' open' : ''}`) : null),
+      h('td', { style: 'white-space:normal;min-width:140px;max-width:170px' }, decided ? `${pct(x.continued, decided)} continued` : '-', decided ? h('div', { class: 'small muted' }, frLink(x, 'continued', `${x.continued} on`, x.continued), ', ', x.skipped ? h('a', { class: 'cellink', href: `#/history?rule=${x.code}&stage=skipped` }, `${x.skipped} skipped`) : '0 skipped', x.undecided ? ', ' + x.undecided + ' open' : '') : null),
       h('td', { style: 'white-space:normal;min-width:160px;max-width:220px' }, x.continue_reasons.length ? x.continue_reasons.slice(0, 2).map((c) => h('div', { class: 'small' }, `${c.reason} (${c.jobs})`)) : h('span', { class: 'faint small' }, 'None yet')),
-      h('td', { style: 'white-space:normal;min-width:150px;max-width:190px' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, `${f.sent} sent, ${f.hired} hired · passes ${pct(b.chat, b.sent)}`) : null),
+      h('td', { style: 'white-space:normal;min-width:150px;max-width:190px' }, f.sent ? `${pct(f.chat, f.sent)} chat` : '-', f.sent ? h('div', { class: 'small muted' }, frLink(x, 'sent', `${f.sent} sent`, f.sent), ', ', frLink(x, 'hired', `${f.hired} hired`, f.hired), ` · passes ${pct(b.chat, b.sent)}`) : null),
       h('td', { style: 'white-space:normal;min-width:200px;max-width:280px' }, h('span', { class: 'pill ' + ht }, hl), h('div', { class: 'small muted', style: 'margin-top:4px' }, x.hint.text)));
   };
   shell('flagreview', [pageHead('Flag review', 'For every gate rule: what people did when it fired and how those jobs went. Use it to relax a rule with evidence, without losing the ones that protect you.',

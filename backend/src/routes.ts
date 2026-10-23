@@ -30,7 +30,7 @@ import { htmlToPlain } from './html';
 import { separate, splitText } from './proposal/answers';
 import { buildFlagReview, picksOf } from './flagreview';
 import { applySendParts, queueEarlyDraft, queueParts, sendPartsNow } from './proposal/pipeline';
-import { buildReport, packRows } from './reports';
+import { buildReport, membersOf, packRows } from './reports';
 import { ChangedSince, KINDS, raw, record as recordChange, recordSetupChanges, revert } from './changesets';
 import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
@@ -263,10 +263,26 @@ export const listFilters = z.object({
   project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
   invite: z.enum(['yes', 'no']).optional(), // R105: invites only, or proposals only (the Reports default)
   client: z.coerce.number().int().positive().optional(), // R110: one client's jobs
+  // R117: the jobs behind one line of a report (and one of its numbers): the report, the line and the part (sent, viewed...)
+  rdim: z.string().trim().max(40).optional(), rkey: z.string().max(300).optional(),
+  rpart: z.enum(['all', 'continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired', 'lost']).optional(),
+  idlist: z.array(z.number().int()).optional(), // worked out from the three above, never sent by a page
   discarded: z.enum(['1']).optional(), // admins only: the discarded jobs instead of the live ones
 });
 export type ListFilters = z.infer<typeof listFilters>;
 
+/**
+ * R117 (Hamza): a line of a report opens exactly its jobs. The report is worked out again with the same filters (the period, the
+ * profile, the person...), and the jobs it counted on that line (all of them, or only those sent, viewed, hired...) become the list.
+ * "funnel" is the totals line, for the funnel and the summary numbers.
+ */
+export async function withReportRow<F extends ListFilters>(req: any, f: F): Promise<F> {
+  if (!f.rdim || f.rkey == null) return f;
+  const { rdim, rkey, rpart, ...base } = f;
+  const rep = await reportFor(req, { ...base, phase: undefined, stage: undefined, q: undefined, idlist: undefined } as ListFilters);
+  const row = rdim === 'funnel' ? rep.totals : rep.dims.find((d) => d.key === rdim)?.rows.find((r) => r.key === rkey);
+  return { ...f, idlist: row ? membersOf(row, rpart ?? 'all') : [] };
+}
 /** Shared by the list, the counters and the export: which jobs this person may see, and the filters. */
 export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   const where: string[] = []; const p: any[] = [];
@@ -297,6 +313,7 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
   if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
   if (f.client) { where.push('s.client_id=?'); p.push(f.client); }
+  if (f.idlist) where.push(f.idlist.length ? `s.id IN (${f.idlist.map((n) => Number(n)).join(',')})` : '1=0');
   if (sr.start) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(sr.start); }
   if (sr.end) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < ?'); p.push(sr.end); }
   if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
@@ -318,7 +335,7 @@ export const orderBy = (sort?: string, dir?: string) => {
 };
 
 api.get('/screenings', requireRole(), async (req, res) => {
-  const f = listFilters.extend({ page: z.coerce.number().int().min(1).default(1), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
+  const f = await withReportRow(req, listFilters.extend({ page: z.coerce.number().int().min(1).default(1), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query));
   const w = listWhere(req, f, (await getSettings())['tracking.quiet_days']);
   const total = Number((await query<any>(`SELECT COUNT(*) AS n ${listFrom} ${w.sql}`, w.p))[0].n);
   const pages = Math.max(1, Math.ceil(total / ps(req)));
@@ -329,7 +346,7 @@ api.get('/screenings', requireRole(), async (req, res) => {
 
 // Counts for the summary tiles: every filter applies except the verdict, so the tiles can switch between verdicts.
 api.get('/screenings/stats', requireRole(), async (req, res) => {
-  const f = listFilters.parse(req.query);
+  const f = await withReportRow(req, listFilters.parse(req.query));
   const quiet = (await getSettings())['tracking.quiet_days'];
   const w = listWhere(req, { ...f, verdict: undefined }, quiet);
   const r = (await query<any>(
@@ -529,7 +546,7 @@ api.get('/reports', requireRole(), async (req, res) => {
 
 // Everything about every job the filters match, as CSV or Excel. Same filters and order as the Jobs list.
 api.get('/screenings/export', requireRole(), async (req, res) => {
-  const f = listFilters.extend({ format: z.enum(['csv', 'xlsx']).default('csv'), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query);
+  const f = await withReportRow(req, listFilters.extend({ format: z.enum(['csv', 'xlsx']).default('csv'), sort: z.string().max(20).optional(), dir: z.enum(['asc', 'desc']).optional() }).parse(req.query));
   const w = listWhere(req, f, (await getSettings())['tracking.quiet_days']);
   const list = await query<any>(`${listSelect} ${w.sql} ${orderBy(f.sort, f.dir)} LIMIT ?`, [...w.p, EXPORT_LIMIT]);
   const { headers, rows } = await exportRows(list.map((r) => r.id), new Map(list.map((r) => [r.id, r.stage])));

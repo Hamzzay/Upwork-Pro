@@ -31,6 +31,12 @@ export interface ReportRow {
   key: string; name: string; jobs: number; continued: number; written: number; sent: number; viewed: number; chat: number; interview: number; hired: number; lost: number;
   connects: number; /** Query for the Jobs list that shows the jobs behind this row (null when the list cannot filter by it). */ link: Record<string, string> | null;
 }
+/** R117: one job counted in a row, with where it got to: so a row (or one of its numbers) opens exactly its jobs in the Jobs list. */
+export interface RowMember { id: number; continued: boolean; written: boolean; sent: boolean; viewed: boolean; chat: boolean; interview: boolean; hired: boolean; lost: boolean }
+export type RowPart = 'all' | 'continued' | 'written' | 'sent' | 'viewed' | 'chat' | 'interview' | 'hired' | 'lost';
+/** The jobs behind a row (kept off the JSON: a property that is not enumerable), for the part asked for. */
+export const membersOf = (r: ReportRow, part: RowPart = 'all'): number[] =>
+  (((r as any).members ?? []) as RowMember[]).filter((m) => part === 'all' || m[part]).map((m) => m.id);
 export interface ReportDim { key: string; label: string; help: string; /** 'sent' when the dimension only means something for sent proposals. */ basis: 'jobs' | 'sent'; rows: ReportRow[] }
 
 const on = (v: any) => v === true || Number(v) === 1;
@@ -47,7 +53,10 @@ class Counter {
     if (key === null || key === undefined || key === '' || !name) return;
     const k = String(key);
     let r = this.rows.get(k);
-    if (!r) { r = { key: k, name, jobs: 0, continued: 0, written: 0, sent: 0, viewed: 0, chat: 0, interview: 0, hired: 0, lost: 0, connects: 0, link }; this.rows.set(k, r); }
+    if (!r) { r = { key: k, name, jobs: 0, continued: 0, written: 0, sent: 0, viewed: 0, chat: 0, interview: 0, hired: 0, lost: 0, connects: 0, link }; Object.defineProperty(r, 'members', { value: [], enumerable: false }); Object.defineProperty(r, 'seen', { value: new Set<number>(), enumerable: false }); this.rows.set(k, r); }
+    const sent = on(j.sent);
+    if (!(r as any).seen.has(j.id) && (r as any).seen.add(j.id)) (r as any).members.push({ id: j.id, continued: on(j.continued), written: on(j.written), sent, viewed: sent && on(j.viewed), chat: sent && on(j.chat),
+      interview: sent && on(j.interview), hired: sent && j.outcome === 'Hired', lost: sent && !!j.outcome && this.loss.includes(j.outcome) });
     r.jobs++;
     if (on(j.continued)) r.continued++;
     if (on(j.written)) r.written++;

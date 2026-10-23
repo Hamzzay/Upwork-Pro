@@ -35,7 +35,7 @@ import { createServer } from 'node:http';
 import { runOpenAI, strictSchema } from '../src/llm/openai';
 import { postingSchema } from '../src/screening/posting';
 import { writerSchema, chatSchema } from '../src/proposal/writer';
-import { buildReport, packRows, weekStart, type ReportJob } from '../src/reports';
+import { buildReport, membersOf, packRows, weekStart, type ReportJob } from '../src/reports';
 import { convertWall, dayBounds, dayIn, fromDb, shiftMinutes, todayIn } from '../src/tz';
 import { finalScore, REVIEWER_FULL, reviewSchemaFor, reviewerSections, DEFAULT_REVIEWER } from '../src/proposal/reviewer';
 
@@ -554,6 +554,11 @@ const ctx = { rules, projects };
     assert.equal(weekStart(new Date('2026-10-07T10:00:00')), '2026-10-05', 'weeks start on Monday'); assert.deepEqual(dim('week').map((x) => x.key), ['2026-10-05'], 'weeks by the date screened');
     assert.deepEqual([r.timing.hours_to_view, r.timing.hours_to_chat, r.timing.days_to_close], [2, 4, 2]);
     assert.equal(buildReport([], { tags: [], projects: [], signals: [] }, []).totals.jobs, 0, 'no jobs is not an error');
+    // R117: a line knows its jobs, so a number opens exactly them; they are not in what the page receives
+    const p1 = row('profile', 'P1');
+    assert.deepEqual([membersOf(p1).sort(), membersOf(p1, 'sent').sort(), membersOf(p1, 'hired')], [[1, 2], [1, 2], [1]], 'all, sent, hired');
+    assert.deepEqual(membersOf(r.totals, 'viewed').sort(), [1, 2], 'job 4 was viewed but never sent: not counted, not listed');
+    assert.ok(!JSON.stringify(r).includes('members'), 'the job lists stay on the server');
     // R105: invites are their own group of sent proposals
     const ri = buildReport([job({ id: 5, sent: 1, chat: 1, invite: 1 }), job({ id: 6, sent: 1 }), job({ id: 7, sent: 0, invite: 1 })], { tags: [], projects: [], signals: [] }, []);
     const inv = ri.dims.find((d) => d.key === 'invite')!.rows;
