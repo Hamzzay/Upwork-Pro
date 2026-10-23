@@ -2426,3 +2426,26 @@ Why (Hamza): all dropdowns should be multi-select, not only the Jobs list's.
   - on the server: Reports, Dashboard, the list and the export with several values each, and an unknown value refused;
   - unit tests for the two-way and ladder filters.
 
+### R132. A changed project goes in place of the old one, not at the end (done, 24 October)
+Why (Hamza): change a project after the proposal was written, come back, and the changed part is offered at the top. "Put it in" added
+it at the end of the proposal; it should replace the project that was changed on the project selection screen.
+- **This is the proposal you edited by hand** (a proposal made from parts is updated by itself). Your text is never rewritten, so the
+  changes are offered at the top as before.
+- **Each offer now knows where it goes**:
+  - **Swap it in**: a new project goes in place of the one it replaces, its name line and its link lines (or link paragraph) together.
+    Which replaces which: the projects your text still names that are no longer chosen, in the order your text has them.
+  - **Take it out**: a project removed with nothing in its place is offered for removal.
+  - **Links:** a project's missing links go under its link line.
+  - **Video:** the Loom line goes before the sign off.
+  - **Sign off:** goes at the end.
+  - A new project with nothing to replace goes after the other projects.
+- The server puts it into your text as it is now, unsaved edits included. The editor shows the result as an unsaved change, and a
+  toast says where it went ("Put it in place of Kruzee"). Look it over and save.
+- A line that also names a project still chosen ("I built Apex and Kruzee") is never removed with the old project.
+- Checked:
+  - unit tests: the swap with the link inline and on its own paragraph, take out, a shared line kept, links under the project, the
+    video before the sign off, the pairing in text order;
+  - live, on a proposal edited by hand with Chairboss and Kruzee: Kruzee swapped for CaboAirportShuttle on the selection screen.
+    The offer read "Project: CaboAirportShuttle (in place of Kruzee)", Swap it in put it exactly where Kruzee was, with its links,
+    and Chairboss's missing links went under its web link.
+

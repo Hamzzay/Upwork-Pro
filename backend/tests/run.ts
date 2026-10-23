@@ -29,6 +29,7 @@ import { jobPostOnly } from '../src/screening/posting';
 import { codeDigest, detectKind, extractInCode, squeeze } from '../src/screening/attachments';
 import { assemble, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
 import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes';
+import { applyOffer, pairReplacements } from '../src/proposal/offers';
 import { clientPost, sameClient, sameTitle } from '../src/clients';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -632,6 +633,27 @@ const ctx = { rules, projects };
       const w2 = jobWhere({ user: { id: 1, role: 'admin' } }, jobFilters.parse({ job_type: 'hourly|fixed', reached: 'viewed|hired', source: 'app' }));
       assert.ok(w2.sql.includes(`(s.job_type LIKE 'hour%' OR s.job_type LIKE 'fixed%')`) && w2.sql.includes(`s.client_viewed='yes') OR (`) && w2.sql.includes(`(s.source IS NULL OR s.source<>'claude_plugin')`), 'two-way and ladder filters take several');
       assert.ok(!jobFilters.safeParse({ reached: 'sent|maybe' }).success, 'a step that does not exist is refused'); }
+    // R132: an offered part goes where it belongs in a proposal edited by hand: a new project in place of the one it replaces
+    { const html = '<p>Hi Sam,</p><p>Some work like yours:</p><p>Apex: a member portal with subscriptions.<br><a href="https://apex.example.com">https://apex.example.com</a></p><p>Kruzee: lessons booked in the app.<br>https://kruzee.example.com</p><p>Shall we talk this week?</p><p>Best regards,<br>Ahmad</p>';
+      const swap = applyOffer(html, { kind: 'project', label: 'Project: Chairboss', text: 'Chairboss: salon booking with Stripe.\nWeb link: https://chairboss.example.com\niOS link: https://apps.apple.com/x', project: 'Chairboss', replaces: 'Apex', old_links: ['https://apex.example.com'] }, ['Chairboss', 'Kruzee']);
+      assert.ok(!swap.html.includes('Apex') && !swap.html.includes('apex.example.com'), 'the old project and its link are gone');
+      assert.ok(swap.html.indexOf('Chairboss: salon booking') < swap.html.indexOf('Kruzee:') && swap.html.indexOf('Some work like yours') < swap.html.indexOf('Chairboss'), 'the new one is where the old one was');
+      assert.ok(swap.html.includes('Web link: <a href="https://chairboss.example.com">https://chairboss.example.com</a><br>iOS link:') && swap.where === 'Put it in place of Apex', 'with its links, clickable');
+      // the old project's link on a paragraph of its own goes with it
+      const two = applyOffer('<p>Apex: a portal.</p><p>https://apex.example.com</p><p>Thanks</p>', { kind: 'project', label: '', text: 'Chairboss: booking.', project: 'Chairboss', replaces: 'Apex', old_links: ['https://apex.example.com'] }, ['Chairboss']);
+      assert.equal(two.html, '<p>Chairboss: booking.</p><p>Thanks</p>');
+      // a project taken out with no replacement, and one line that also names a chosen project is never taken
+      assert.ok(!applyOffer(html, { kind: 'remove', label: '', text: '', project: 'Apex', old_links: ['https://apex.example.com'] }, ['Kruzee']).html.includes('Apex'), 'taken out');
+      const shared = applyOffer('<p>I built Apex and Kruzee.</p><p>Thanks</p>', { kind: 'project', label: '', text: 'Chairboss: booking.', project: 'Chairboss', replaces: 'Apex' }, ['Chairboss', 'Kruzee']);
+      assert.ok(shared.html.includes('I built Apex and Kruzee.') && shared.html.indexOf('Chairboss') > shared.html.indexOf('Kruzee.'), 'a shared line stays; the new block follows the projects');
+      // missing links under their project; the video line before the sign off
+      const links = applyOffer(html, { kind: 'links', label: 'Links: Kruzee', text: 'Android link: https://play.example.com/kruzee', project: 'Kruzee' }, ['Kruzee']);
+      assert.ok(links.html.includes('https://kruzee.example.com<br>Android link:'), 'links under the project');
+      const vid = applyOffer(html, { kind: 'video', label: '', text: 'A short video: https://loom.example.com/v' }, []);
+      assert.ok(vid.html.indexOf('loom.example.com') < vid.html.indexOf('Best regards') && vid.where === 'Put it before the sign off', 'the video before the sign off');
+      // which new project replaces which: in the order the text has the old ones
+      const pr = pairReplacements('Kruzee first, then Apex, then MiDoc.', ['Chairboss', 'Doctoria'], ['Apex', 'Kruzee', 'MiDoc', 'Chairboss', 'Doctoria'], ['Chairboss', 'Doctoria']);
+      assert.deepEqual([...pr.pairs.entries()], [['Chairboss', 'Kruzee'], ['Doctoria', 'Apex']]); assert.deepEqual(pr.leftover, ['MiDoc'], 'the old one left over is offered to take out'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

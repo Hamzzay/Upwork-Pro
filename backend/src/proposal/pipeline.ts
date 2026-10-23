@@ -19,6 +19,7 @@ import { activeShortcuts, shortenHtml, shortenText } from './shortcuts';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
+import { pairReplacements, type Offer } from './offers';
 import { assemble, cleanLetter, linkLines, loomLine, partsOut, partsSchema, projectLinkSet, proofFor, proofOut, proofSchema, restoreLinks, signoff, type Parts, type ProofBlock } from './parts';
 
 
@@ -695,15 +696,21 @@ export async function runPartsRefresh(proposalId: number) {
   if (fit.changed) await addVersion(p.id, cur.html, 'ai', null, 'Updated the screening answers for the chosen projects', cur.version_no, fit.answers, null);
   await keepStaleWarning(p, fit.stale);
   const text = htmlToPlain(cur.html).toLowerCase();
-  const offer: { kind: string; label: string; text: string }[] = [];
+  const offer: Offer[] = [];
   // a project is already in the text when its name (with or without a part in brackets, "Open Dental AI Calling (Chloe)") or its link is
   const inText = (proj: ProjectFact) => [proj.name, proj.name.replace(/\s*\([^)]*\)\s*/g, ' ').trim(), ...linksFor(proj).map((l) => l.url)].some((x) => x && text.includes(x.toLowerCase().replace(/\/+$/, '')));
-  for (const proj of f.projects) if (!inText(proj)) {
-    const t = template ? await writeProof(f, template, proj) : proj.name;
-    offer.push({ kind: 'project', label: `Project: ${proj.name}`, text: [t, ...linkLines(linksFor(proj), t)].join('\n') });
+  // R132: a new project takes the place of the one it replaces (a project the text names that is no longer chosen), so Put it in swaps them
+  const lib = await query<any>('SELECT name, live_link, landing_link, system_link, mobile_link, staging_link, case_study_link, android_link, ios_link FROM projects');
+  const linksOfOld = (n: string) => { const r = lib.find((x) => x.name === n); return r ? [r.live_link, r.landing_link, r.system_link, r.mobile_link, r.staging_link, r.case_study_link, r.android_link, r.ios_link].filter(Boolean) : []; };
+  const newOnes = f.projects.filter((x) => !inText(x));
+  const { pairs, leftover } = pairReplacements(htmlToPlain(cur.html), newOnes.map((x) => x.name), lib.map((x) => String(x.name)), f.projects.map((x) => x.name));
+  for (const proj of newOnes) {
+    const t = template ? await writeProof(f, template, proj) : proj.name, old = pairs.get(proj.name);
+    offer.push({ kind: 'project', label: old ? `Project: ${proj.name} (in place of ${old})` : `Project: ${proj.name}`, text: [t, ...linkLines(linksFor(proj), t)].join('\n'), project: proj.name, ...(old ? { replaces: old, old_links: linksOfOld(old) } : {}) });
   }
+  for (const old of leftover) offer.push({ kind: 'remove', label: `Take out: ${old}`, text: `${old} is no longer one of the chosen projects.`, project: old, old_links: linksOfOld(old) });
   // R126: a project that is in the text with only some of its links: the rest are offered, to go under it
-  for (const proj of f.projects) { const ls = linksFor(proj), missing = linkLines(ls, text); if (inText(proj) && ls.length > 1 && missing.length) offer.push({ kind: 'project', label: `Links: ${proj.name}`, text: missing.join('\n') }); }
+  for (const proj of f.projects) { const ls = linksFor(proj), missing = linkLines(ls, text); if (inText(proj) && ls.length > 1 && missing.length) offer.push({ kind: 'links', label: `Links: ${proj.name}`, text: missing.join('\n'), project: proj.name }); }
   if (f.sender.loom && !text.includes(f.sender.loom.url.toLowerCase())) offer.push({ kind: 'video', label: `Loom video: ${f.sender.loom.title}`, text: loomLine(cfg['writer.loom_line'], f.sender.loom) });
   const so = signoff(f.sender);
   if (f.sender.name && (!text.includes(f.sender.name.toLowerCase()) || (f.sender.gitlab_link && !text.includes(f.sender.gitlab_link.toLowerCase())))) offer.push({ kind: 'signoff', label: `Sign off: ${f.sender.name}`, text: so });

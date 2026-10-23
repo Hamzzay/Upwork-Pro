@@ -66,6 +66,7 @@ function richEditor(html, opts = {}) {
   return {
     el, getHtml: () => area.innerHTML, setHtml: (x) => { area.innerHTML = x; clean = area.innerHTML; notify(); },
     appendHtml: (x) => { area.insertAdjacentHTML('beforeend', x); notify(); }, // an unsaved change: the person saves it
+    replaceHtml: (x) => { area.innerHTML = x; notify(); }, // R132: the whole text changed in one go, as an unsaved change (setHtml loads a saved one)
     isDirty: dirty, markClean: () => { clean = area.innerHTML; notify(); },
     focus: () => area.focus(), area,
   };
@@ -575,16 +576,20 @@ function proposalSection(s, initial, matching) {
       partsEl.replaceChildren(h('div', { style: 'margin:8px 0' }, liveLine({ id: 'parts-' + data.id, label: 'Updating the parts that changed', now: '', typical: 30, items: ['The projects and their proof', 'The Loom video line', 'The sign off', 'Keeping your own words as they are'] }))); return; }
     const offer = pt.offer || [];
     if (!offer.length) { partsEl.replaceChildren(pt.status === 'error' ? h('p', { class: 'err' }, icon('x'), 'The parts could not be updated' + (pt.error ? ': ' + pt.error : '.')) : ''); return; }
-    const put = (o) => { const para = o.text.split(/\n{2,}/).map((x) => '<p>' + x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</p>').join('');
-      editor.appendHtml(para); toast('Put in at the end. Move it where it belongs, then save.'); };
+    // R132: put in where it belongs (a new project in place of the one it replaces), by the server, on the text as it is now
+    const put = async (o, i, btn) => {
+      btnBusy(btn, 'Putting it in');
+      try { const r = await api('POST', `/proposals/${data.id}/parts-offer/${i}/apply`, { html: editor.getHtml() });
+        editor.replaceHtml(r.html); data.parts.offer = r.offer; drawParts(); toast(`${r.where}. Look it over, then save.`); }
+      catch (x) { toast(x.message, true); drawParts(); } };
     partsEl.replaceChildren(h('div', { class: 'card card-pad', style: 'margin:12px 0' },
       h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, 'New parts for your edited text'),
         owner ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { try { await api('POST', `/proposals/${data.id}/parts-offer/dismiss`, {}); data.parts.offer = []; drawParts(); } catch (x) { toast(x.message, true); } } }, 'Dismiss') : null),
-      h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'You edited this proposal, so these were not put in for you. Put one in, or copy it.'),
-      h('div', { class: 'stack', style: 'gap:10px' }, offer.map((o) => h('div', { class: 'qa' },
+      h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'You edited this proposal, so these were not put in for you. Each goes where it belongs: a new project in place of the one it replaces. Look it over and save.'),
+      h('div', { class: 'stack', style: 'gap:10px' }, offer.map((o, i) => h('div', { class: 'qa' },
         h('div', { class: 'row spread', style: 'flex-wrap:nowrap;gap:10px' }, h('div', { class: 'jp-label' }, o.label),
-          h('div', { class: 'row', style: 'gap:6px' }, owner ? h('button', { class: 'btn sm', type: 'button', onclick: () => put(o) }, 'Put it in') : null,
-            h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(o.text); toast(ok ? 'Copied' : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy'))),
+          h('div', { class: 'row', style: 'gap:6px' }, owner ? h('button', { class: 'btn sm' + (o.kind === 'remove' ? '' : ' primary'), type: 'button', onclick: (e) => put(o, i, e.currentTarget) }, o.kind === 'remove' ? 'Take it out' : o.replaces ? 'Swap it in' : 'Put it in') : null,
+            o.kind === 'remove' ? null : h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(o.text); toast(ok ? 'Copied' : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy'))),
         h('p', { class: 'jp-body', style: 'margin:4px 0 0;white-space:pre-wrap' }, o.text))))));
   }
   function drawBanner() {

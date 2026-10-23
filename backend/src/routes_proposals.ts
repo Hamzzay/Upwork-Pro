@@ -9,6 +9,7 @@ import { qaList, separate } from './proposal/answers';
 import { allOpenings, MAX_ACTIVE, MAX_EXAMPLES, MAX_OPENINGS, openingInUse, readList, templateBlock } from './proposal/opening_templates';
 import { editOpening, openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
 import { saveAnswer } from './proposal/answer_edit';
+import { applyOffer, type Offer } from './proposal/offers';
 import { compareOf, queueCompare } from './proposal/compare';
 
 export const proposals = Router();
@@ -506,6 +507,21 @@ proposals.put('/screenings/:id/loom', anyone, async (req, res) => {
   res.json({ ok: true, updated: r });
 });
 // A part offered beside an edited proposal is dismissed.
+// R132 (Hamza): one offered part put into the person's text where it belongs (a new project in place of the one it replaces), not at
+// the end. The page sends the editor's text as it is now (unsaved edits too) and gets it back changed, to look at and save.
+proposals.post('/proposals/:id/parts-offer/:i/apply', anyone, async (req, res) => {
+  const b = z.object({ html: z.string().max(200_000) }).safeParse(req.body ?? {});
+  if (!b.success) return void bad(res, b.error);
+  const p = await ownedProposal(req, res); if (!p) return;
+  const row = (await query<any>('SELECT parts_offer_json FROM proposals WHERE id=?', [p.id]))[0];
+  let offer: Offer[] = []; try { offer = JSON.parse(row?.parts_offer_json || '[]'); } catch { offer = []; }
+  const i = num(req.params.i), o = offer[i]; if (!o) return void res.status(404).json({ error: 'That part is no longer offered. Reload the page.' });
+  const chosen = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1', [p.screening_id])).map((r) => String(r.project_name));
+  const r = applyOffer(sanitizeRich(b.data.html), { ...o, kind: o.kind === 'project' && o.label.startsWith('Links:') ? 'links' : o.kind }, chosen);
+  offer.splice(i, 1); // put in: it is in the editor now, saved with the next version
+  await exec('UPDATE proposals SET parts_offer_json=? WHERE id=?', [offer.length ? JSON.stringify(offer) : null, p.id]);
+  res.json({ html: r.html, where: r.where, offer });
+});
 proposals.post('/proposals/:id/parts-offer/dismiss', anyone, async (req, res) => {
   const p = await ownedProposal(req, res); if (!p) return;
   await exec('UPDATE proposals SET parts_offer_json=NULL WHERE id=?', [p.id]);
