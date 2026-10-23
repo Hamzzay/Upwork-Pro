@@ -1318,3 +1318,9 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 @media (max-width: 700px) { .fb-row > .ss { flex: 1 1 45%; } }
 .fb-row .search { flex: 1 1 220px; max-width: 360px; }
 .fb-row > .ss { flex: 0 1 160px; min-width: 130px; max-width: 200px; }
+/* R120: the Reports filters fit on one row: every dropdown the same width */
+.fb-row > select.fsel, .fb-row > .ss { flex: 1 1 130px; min-width: 120px; max-width: 190px; }
+.fb-row .fb-dates:empty, .fb-row .fb-dates:not(:has(label:not([hidden]))) { display: none; }
+/* R120: a dropdown keeps the width of its label; the row wraps instead of cutting labels */
+.fb-row > select.fsel, .fb-row > .ss { flex: 0 0 auto; min-width: 140px; max-width: 240px; width: auto; }
+.fb-row > .ss .ss-btn { width: auto; min-width: 140px; max-width: 240px; }

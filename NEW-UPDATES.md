@@ -2204,3 +2204,12 @@ Why (Hamza): coming from Reports the list was right, but the dropdowns did not s
 - The date list has **Last 90 days**, the Reports default.
 - Checked: 400 report numbers against the Jobs list through these filters, with and without invites: all equal.
 
+### R120. A cleaner Reports filter bar (done, 23 October)
+Why (Hamza): the Reports filters wrapped onto two rows with Export alone on a third.
+- One row, like the Jobs list: the period (its two dates beside it when custom), what the dates count (Date screened or Date sent),
+  Proposals only / Invites only / Both, profile, person, tool (Upwork Pro or the Claude plugin) and verdict. Shorter labels, so
+  none is cut; a dropdown keeps the width of its label and the row wraps instead of squeezing.
+- **Export** moved up beside the page title.
+- The filters in use are chips under the bar, each with its own x, and **Clear all**.
+- The Jobs list's dropdowns keep their labels the same way, so its search, date, profile, person, outcome and More filters fit one row.
+

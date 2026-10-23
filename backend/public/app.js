@@ -948,18 +948,30 @@ async function reportsView() {
   const sel = (key, label, options, keep) => { const el = fSelect(label, options, st[key], (v) => { st[key] = v || (keep ?? ''); if (key === 'period') syncDates(); load(); }); return el; };
   const periodSel = h('select', { 'aria-label': 'Period', class: 'fsel', 'data-plain': true }, REPORT_PERIODS.map(([k, l]) => h('option', { value: k, selected: st.period === k }, l)));
   periodSel.onchange = () => { st.period = periodSel.value; syncDates(); load(); };
-  const basisSel = h('select', { 'aria-label': 'Dates by', class: 'fsel', 'data-plain': true }, [['screened', 'By date screened'], ['sent', 'By date sent']].map(([k, l]) => h('option', { value: k, selected: st.basis === k }, l)));
+  const basisSel = h('select', { 'aria-label': 'Dates by', class: 'fsel', 'data-plain': true }, [['screened', 'Date screened'], ['sent', 'Date sent']].map(([k, l]) => h('option', { value: k, selected: st.basis === k }, l)));
   basisSel.onchange = () => { st.basis = basisSel.value; load(); };
   // R105: an invite opens the chat itself, so its view and chat would blur the proposals' rates: proposals only by default
-  const inviteSel = h('select', { 'aria-label': 'Proposals or invites', class: 'fsel', 'data-plain': true }, [['no', 'Proposals only'], ['yes', 'Invites only'], ['all', 'Proposals and invites']].map(([k, l]) => h('option', { value: k, selected: st.invite === k }, l)));
+  const inviteSel = h('select', { 'aria-label': 'Proposals or invites', class: 'fsel', 'data-plain': true }, [['no', 'Proposals only'], ['yes', 'Invites only'], ['all', 'Both']].map(([k, l]) => h('option', { value: k, selected: st.invite === k }, l)));
   inviteSel.onchange = () => { st.invite = inviteSel.value; load(); };
   const profSel = sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])), userSel = opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null;
-  const srcSel = sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]), vSel = sel('v', 'Any gate result', [['PASS', 'Pass'], ['FLAG', 'Flag'], ['FAIL', 'Fail']]);
+  const srcSel = sel('source', 'Any tool', [['app', 'Upwork Pro'], ['claude_plugin', 'Claude plugin']]), vSel = sel('v', 'Any verdict', [['PASS', 'Pass'], ['FLAG', 'Flag'], ['FAIL', 'Fail']]);
   const exportBtn = h('button', { class: 'btn', type: 'button', onclick: () => { if (!data) return;
     downloadCsv(`upwork-pro-report-${ymd(new Date())}.csv`, ['Report', 'Group', 'Jobs', 'Continued', 'Proposals written', 'Sent', 'Viewed', 'Chat opened', 'Interview', 'Hired', 'Lost', 'Connects', 'View rate', 'Chat rate', 'Interview rate', 'Hire rate'],
       [{ label: 'Everything', rows: [data.totals] }, ...data.dims].flatMap((d) => d.rows.map((r) => [d.label, r.name, r.jobs, r.continued, r.written, r.sent, r.viewed, r.chat, r.interview, r.hired, r.lost, r.connects, ...RATES.map(([, , f]) => pctText(share(...f(r))))]))); toast('Report saved as a CSV file'); } }, icon('doc'), 'Export');
-  const fbar = filterBar([periodSel, fromIn, toIn, basisSel, inviteSel, profSel, userSel, srcSel, vSel], { actions: exportBtn,
-    onClear: () => { Object.assign(st, { profile: '', user: '', source: '', v: '' }); for (const x of [profSel, userSel, srcSel, vSel]) if (x) x.value = ''; load(); } });
+  // R120 (Hamza): one row, as on the Jobs list: the period (and its two dates), what the dates count, proposals or invites, profile,
+  // person, written in, gate result, and Export at the end; the filters in use as chips under it, each with its own x
+  const clearAll = () => { Object.assign(st, { profile: '', user: '', source: '', v: '' }); for (const x of [profSel, userSel, srcSel, vSel]) if (x) x.value = ''; load(); };
+  const chipsEl = h('div', { class: 'fb-chips' });
+  const drawChips = () => {
+    const name = (sel) => (sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : '');
+    const chips = [['profile', 'Profile', profSel], ['user', 'Person', userSel], ['source', 'Written in', srcSel], ['v', 'Gate result', vSel]].filter(([k, , el]) => st[k] && el)
+      .map(([k, label, el]) => h('button', { type: 'button', class: 'chip fb-chip', title: 'Remove this filter', onclick: () => { st[k] = ''; el.value = ''; load(); } }, `${label}: ${name(el)}`, h('span', { 'aria-hidden': 'true' }, ' \u00d7')));
+    chipsEl.hidden = !chips.length;
+    chipsEl.replaceChildren(...(chips.length ? [h('span', { class: 'jp-label' }, 'Filtered by'), ...chips, h('button', { type: 'button', class: 'linkbtn small', onclick: clearAll }, 'Clear all')] : []));
+  };
+  const fbar = h('div', { class: 'jobfilters' }, h('div', { class: 'fb-row' }, periodSel, h('span', { class: 'fb-dates' }, fromIn, toIn), basisSel, inviteSel, profSel, userSel, srcSel, vSel,
+    ), chipsEl);
+  fbar.setActive = drawChips;
   syncDates();
 
   /** R117: the jobs behind a report line, or one of its numbers (part), in the Jobs list with the same filters. */
@@ -1070,7 +1082,7 @@ async function reportsView() {
     if (st.invite !== 'all') q.set('invite', st.invite);
     data = await api('GET', '/reports?' + q); draw();
   }
-  shell('reports', [pageHead('Reports', 'What is working and what is not: the same jobs counted by profile, person, proposal type, project, industry, tag, signal, rule, Loom video and more. Every row opens the jobs behind it.'),
+  shell('reports', [pageHead('Reports', 'What is working and what is not: the same jobs counted by profile, person, proposal type, project, industry, tag, signal, rule, Loom video and more. Every row and number opens the jobs behind it.', exportBtn),
     h('div', { class: 'card' }, fbar), body]);
   body.append(h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:60%' })));
   await load();
