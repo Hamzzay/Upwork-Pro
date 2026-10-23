@@ -149,6 +149,11 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 101 | From Reports and the Dashboard, the Jobs list opens with real filters in the dropdowns; Got as far as covers every step (R119) | done |
 | 102 | A cleaner Reports filter bar: one row, short labels, Export beside the title, chips for the filters in use (R120) | done |
 | 103 | Claude can correct Connects, boost, Loom, invite and add notes without a status (update_job_details), and admins can discard (discard_job) (R121) | done |
+| 104 | Attached files on the server: nginx limit raised to 50m (guide), a plain message when files are too big, Check file reading in Settings (R122) | done (nginx 50m now optional, see R123) |
+| 105 | Attached files always read: chunked uploads, any file type, layered readers in code and by the AI, retries over a day, big documents kept whole and digested (R123) | done |
+| 106 | A status set by mistake can be undone: back to any earlier step, or Not sent (R124) | done |
+| 107 | Screening answers follow the chosen projects, after an early draft or a project change, plus Match the chosen projects (R125) | done |
+| 108 | Proposals show every project link (web, Android, iOS) made in code, kept through chat revisions; unsent proposals rebuilt on deploy (R126) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

@@ -78,7 +78,9 @@ async function api(method, path, body) {
   const json = method !== 'GET';
   const r = await fetch('/api' + path, { method, headers: json ? { 'Content-Type': 'application/json' } : {}, body: json ? JSON.stringify(body || {}) : undefined });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || 'Something went wrong. Try again.'); e.status = r.status; e.data = data; throw e; }
+  // R122: the web server in front of the app refuses a request bigger than its limit before the app sees it (attached files, mostly)
+  if (r.status === 413) { const e = new Error('The files are too big for the server to accept. Attach fewer or smaller files at a time, or ask an admin to raise the upload limit (Settings, Check file reading).'); e.status = 413; throw e; }
+  if (!r.ok) { const e = new Error(data.error || (r.status >= 502 ? 'The server did not answer. Try again in a minute.' : 'Something went wrong. Try again.')); e.status = r.status; e.data = data; throw e; }
   return data;
 }
 /** First letter up: model-written values often start lower case ("not shown"). */
@@ -628,20 +630,53 @@ function loginView() {
 }
 
 // ---------- documents attached to a job (R74) ----------
-const FILE_ACCEPT = '.pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.gif', FILE_MAX = 10 * 1024 * 1024, FILES_MAX = 8;
+// R123: any file the client sent is taken (a brief, a spec, a sheet, slides, screenshots...); it travels in pieces, so size is no problem
+const FILE_MAX = 100 * 1024 * 1024, FILES_MAX = 12;
 const fileSize = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
-/** Read chosen files for upload: { name, data } with the content in base64. */
-const readFiles = (files) => Promise.all(files.map((f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok({ name: f.name, data: String(r.result).split(',')[1] || '' }); r.onerror = () => no(new Error('Could not read ' + f.name)); r.readAsDataURL(f); })));
+const toB64 = (blob, name) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no(new Error('Could not read ' + name)); r.readAsDataURL(blob); });
+/** A request tried again when the network or the server failed for a moment: up to five times, waiting longer each time. */
+async function apiTry(method, path, body, tries = 5) {
+  let wait = 800;
+  for (let i = 1; ; i++) {
+    try { return await api(method, path, body); }
+    catch (x) { const again = !x.status || x.status >= 500 || x.status === 408 || x.status === 429; if (!again || i >= tries) throw x; await new Promise((r) => setTimeout(r, wait)); wait *= 2; }
+  }
+}
+/**
+ * R123 (Hamza): files go up in pieces of about half a MB, so no limit in front of the app (nginx, a proxy) can refuse them. A piece
+ * refused as too big is sent in smaller pieces; a piece lost to the network is sent again (it lands in the same place). On an older
+ * server without pieces, the whole file goes in the request, as before. Returns what the job names: { upload } (or { name, data }).
+ */
+async function uploadOne(f, onBytes) {
+  const start = await apiTry('POST', '/uploads', { name: f.name, size: f.size });
+  let size = start.chunk || 512 * 1024, off = 0;
+  while (off < f.size) {
+    const piece = f.slice(off, off + size);
+    try { await apiTry('POST', `/uploads/${start.id}/chunk`, { offset: off, data: await toB64(piece, f.name) }); off += piece.size; onBytes(piece.size); }
+    catch (x) { if (x.status === 413 && size > 16 * 1024) { size = Math.floor(size / 2); continue; } throw x; }
+  }
+  await apiTry('POST', `/uploads/${start.id}/finish`, {});
+  return { upload: start.id };
+}
+async function uploadFiles(files, onProgress) {
+  const total = files.reduce((n, f) => n + f.size, 0) || 1, out = []; let done = 0;
+  for (const f of files) {
+    try { out.push(await uploadOne(f, (n) => { done += n; if (onProgress) onProgress(Math.min(1, done / total)); })); }
+    catch (x) { if (x.status === 404 || x.status === 405) out.push({ name: f.name, data: await toB64(f, f.name) }); else throw x; } // a server without pieces
+  }
+  return out;
+}
+/** The button shows how far the upload is. */
+const uploadProgress = (b) => (p) => b.replaceChildren(h('span', { class: 'spin' }), `Uploading ${Math.round(p * 100)}%`);
 /** Choose files (button, or drop them on `dropOn`): kept in a list with a remove button each, checked for kind and size. */
 function filePicker(dropOn, max = FILES_MAX) {
   let chosen = [];
-  const input = h('input', { type: 'file', multiple: true, accept: FILE_ACCEPT, hidden: true });
+  const input = h('input', { type: 'file', multiple: true, hidden: true });
   const list = h('div', { class: 'chips filechips' });
   const add = (files) => {
     for (const f of files) {
-      const ext = '.' + (f.name.split('.').pop() || '').toLowerCase();
-      if (!FILE_ACCEPT.split(',').includes(ext)) { toast(`${f.name}: PDF, Word, text, CSV, Markdown or an image only`, true); continue; }
-      if (f.size > FILE_MAX) { toast(`${f.name} is larger than 10 MB`, true); continue; }
+      if (!f.size) { toast(`${f.name} is empty`, true); continue; }
+      if (f.size > FILE_MAX) { toast(`${f.name} is larger than ${FILE_MAX / 1048576} MB`, true); continue; }
       if (chosen.length >= max) { toast(`At most ${max} files`, true); break; }
       if (!chosen.some((x) => x.name === f.name && x.size === f.size)) chosen.push(f);
     }
@@ -699,6 +734,8 @@ function docViewer(files, start = 0) {
   dlg.addEventListener('close', () => { gen++; dlg.remove(); });
   document.body.append(dlg); dlg.showModal(); draw();
 }
+/** R123: the kinds of file, as a person says them. */
+const FILE_KIND = { pdf: 'PDF', docx: 'Word', doc: 'Word (old)', odt: 'OpenOffice', rtf: 'RTF', pptx: 'PowerPoint', sheet: 'Spreadsheet', text: 'Text', image: 'Image', other: 'File' };
 /** The Job post tab's documents: what the client attached, what the AI reads from each, and adding more. */
 function attachmentsCard(s) {
   const owner = s.user_id === me.id, canEdit = owner || me.role === 'admin';
@@ -710,7 +747,7 @@ function attachmentsCard(s) {
   if (upload) upload.onclick = async () => {
     const files = picker.files(); if (!files.length) return toast('Choose files first', true);
     btnBusy(upload, 'Uploading');
-    try { const r = await api('POST', `/screenings/${s.id}/attachments`, { files: await readFiles(files) }); picker.clear();
+    try { const r = await apiTry('POST', `/screenings/${s.id}/attachments`, { files: await uploadFiles(files, uploadProgress(upload)) }); picker.clear();
       if (r.errors.length) toast(r.errors.join(' · '), true); else toast(`${r.saved} file${r.saved === 1 ? '' : 's'} added`); draw(r.items); }
     catch (x) { toast(x.message, true); }
     upload.disabled = false; upload.replaceChildren('Upload');
@@ -722,12 +759,15 @@ function attachmentsCard(s) {
       onConfirm: async () => { await api('PUT', `/attachments/${a.id}/text`, { text: ta.value }); load(); } }); };
   const row = (a) => {
     const busy = a.status === 'queued' || a.status === 'running';
-    const state = busy ? h('span', { class: 'row small muted', style: 'gap:6px' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), 'The AI is reading it') : a.status === 'error' ? h('span', { class: 'pill FAIL' }, 'Not read')
+    const retrying = busy && Number(a.attempts) > 0; // R123: the AI could not read it yet: it is tried again by itself, later each time
+    const state = busy ? h('span', { class: 'row small muted', style: 'gap:6px' }, h('span', { class: 'lldots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), retrying ? `Reading again${a.next_try_at ? ' at ' + full(a.next_try_at) : ''}` : 'The AI is reading it') : a.status === 'error' ? h('span', { class: 'pill FAIL' }, 'Not read yet')
       : h('span', { class: 'pill PASS' }, READ_WORD[a.read_by] || 'Read');
     const btn = (label, fn, danger) => h('button', { class: 'btn sm' + (danger ? ' danger' : ''), type: 'button', onclick: fn }, label);
     return h('div', { class: 'filerow' },
       h('div', { style: 'min-width:0' }, h('a', { href: `/api/attachments/${a.id}/file`, class: 'filename', onclick: (e) => { e.preventDefault(); docViewer(current, current.findIndex((x) => x.id === a.id)); } }, a.file_name),
-        h('div', { class: 'faint small' }, [a.kind === 'docx' ? 'Word' : a.kind === 'text' ? 'Text' : a.kind === 'image' ? 'Image' : 'PDF', fileSize(a.size_bytes), a.status === 'done' ? `${Number(a.chars).toLocaleString()} characters for the AI` : null, a.user_name, ago(a.created_at)].filter(Boolean).join(' · ')),
+        h('div', { class: 'faint small' }, [FILE_KIND[a.kind] || 'File', fileSize(a.size_bytes), a.status === 'done' ? `${Number(a.chars).toLocaleString()} characters for the AI` : null, a.status === 'done' && a.method ? `read by ${a.method}` : null,
+          a.digest_status === 'done' ? 'long: digested section by section' : null, a.user_name, ago(a.created_at)].filter(Boolean).join(' · ')),
+        retrying ? h('div', { class: 'faint small' }, a.error || 'The AI could not read it yet; it tries again by itself.') : null,
         a.status === 'error' ? h('div', { class: 'err small' }, a.error || 'The AI could not read it.') : null,
         a.added_after_screening ? h('div', { class: 'faint small' }, 'Added after the screening: the matching, the proposal, the chat and the review read it from now on.') : null),
       h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;justify-content:flex-end' }, state,
@@ -773,7 +813,8 @@ async function newView() {
     const b = auto ? autoBtn : btn, label = b.textContent;
     err.hidden = true; btnBusy(b, 'Sending');
     try {
-      const files = picker.files().length ? await readFiles(picker.files()) : undefined;
+      const files = picker.files().length ? await uploadFiles(picker.files(), uploadProgress(b)) : undefined;
+      if (files) b.replaceChildren(h('span', { class: 'spin' }), 'Sending');
       const r = await api('POST', '/screenings', { input: box.value, job_url: urlIn.value.trim() || null, files, auto: !!auto });
       if (r.files && r.files.errors.length) toast('Not attached: ' + r.files.errors.join(' · '), true);
       location.hash = '#/s/' + r.id + (auto ? '/overview' : '/screening'); // a new job opens on its Screening tab; in auto mode on its progress
@@ -1103,7 +1144,21 @@ async function statusDialog(id, onDone, invite) {
   const reason = h('select', { id: 'srs', style: 'width:100%' }, h('option', { value: '' }, 'Choose a reason'), d.loss_reasons.map((r) => h('option', { value: r }, r)));
   const note = h('textarea', { id: 'snt', style: 'min-height:64px', maxlength: 2000, placeholder: 'Anything the client said, or what we could do differently (optional)' });
   const lossBox = h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'srs' }, 'Why didn\u2019t the client go ahead? (required)'), reason, h('div', { style: 'height:8px' }), note);
-  const syncLoss = () => { lossBox.hidden = !d.loss_outcomes.includes(pick); };
+  // R124: going back to a step that already happened keeps its time; going back takes back the steps after it (said here first)
+  const asInput = (v) => { const t = toDate(v); return t ? t.toLocaleString('sv', { timeZone: TZ }).replace(' ', 'T').slice(0, 16) : nowLocal(); };
+  const order = ['Sent', 'Viewed', 'Chat opened', 'Interview'], rank = (c) => (c === d.not_sent ? -1 : order.includes(c) ? order.indexOf(c) : order.length);
+  const undoNote = h('div', { class: 'hint', style: 'margin-top:10px' });
+  const syncLoss = () => {
+    lossBox.hidden = !d.loss_outcomes.includes(pick);
+    when.value = d.times?.[pick] ? asInput(d.times[pick]) : nowLocal(); whenBox.hidden = pick === d.not_sent;
+    whenHint.textContent = d.times?.[pick] ? `When ${pick} was recorded. Change it only if that was wrong.` : 'Set to now. Change it only if it happened earlier.';
+    const back = d.current && pick !== d.current && rank(pick) < rank(d.current);
+    undoNote.textContent = pick === d.not_sent ? `This takes the job back to not sent: ${d.current} and everything before it are undone. The history keeps what was recorded.`
+      : back ? `This goes back from ${d.current} to ${pick}: the steps after ${pick} are undone. The history keeps what was recorded.` : '';
+    undoNote.hidden = !undoNote.textContent;
+  };
+  const whenHint = h('div', { class: 'hint' });
+  const whenBox = h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, whenHint);
   const grid = h('div', { class: 'statuspick', role: 'radiogroup', 'aria-label': 'Status' });
   draw = () => grid.replaceChildren(...d.choices.map((c) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === c, class: 'chip' + (pick === c ? ' brand' : '') + (c === d.current ? ' cur' : '') + (d.loss_outcomes.includes(c) ? ' loss' : ''), onclick: () => { pick = c; draw(); } }, c)));
   const draw0 = draw; draw = () => { draw0(); syncLoss(); };
@@ -1111,8 +1166,9 @@ async function statusDialog(id, onDone, invite) {
   modal({ title: 'Update status', confirm: 'Save status', body: h('div', {},
     d.current ? h('p', { class: 'small muted', style: 'margin-top:0' }, 'Now: ', h('strong', {}, d.current)) : null,
     grid,
+    undoNote,
     lossBox,
-    h('div', { class: 'field', style: 'margin-top:14px' }, h('label', { class: 'lbl', for: 'sat' }, 'When it happened'), when, h('div', { class: 'hint' }, 'Set to now. Change it only if it happened earlier.')),
+    whenBox,
     inv ? h('div', { style: 'margin-top:14px' }, inv.el) : null,
     d.events.length ? h('details', { class: 'desc', style: 'margin-top:12px' }, h('summary', {}, `History (${d.events.length})`),
       h('ul', { class: 'plain' }, d.events.map((e) => h('li', {}, h('strong', {}, e.status), h('span', { class: 'muted' }, ` · ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}${e.reason ? ' · ' + e.reason : ''}`))))) : null),
@@ -3811,6 +3867,41 @@ async function writingDocView(id) {
 }
 
 // ---------- settings (admin) ----------
+/**
+ * R122 (Hamza): Check file reading. Files attached on the server were not read while the same files worked locally: this tests each part
+ * on the server, in plain words. The upload size is tested from this page, through the web server in front of the app, the way a real
+ * upload goes: growing test uploads until one is refused.
+ */
+function fileCheckCard() {
+  const out = h('div', { class: 'stack', style: 'gap:6px;margin-top:10px' });
+  const line = (ok, label, detail) => h('div', { class: 'row', style: 'gap:8px;align-items:baseline' }, h('span', { class: 'pill ' + (ok === true ? 'PASS' : ok === false ? 'FAIL' : 'wait') }, ok === true ? 'OK' : ok === false ? 'Problem' : '\u2026'), h('strong', {}, label), detail ? h('span', { class: 'small muted' }, detail) : null);
+  const go = async (e, ai) => {
+    const b = e.currentTarget; btnBusy(b, 'Checking'); out.replaceChildren(line(null, 'Checking\u2026'));
+    try {
+      const r = await api('GET', '/admin/check-files' + (ai ? '?ai=1' : ''));
+      const rows = [line(r.pdf_in_code.ok, 'PDF read in code', r.pdf_in_code.ok ? `${r.pdf_in_code.chars} characters in ${r.pdf_in_code.ms} ms` : r.pdf_in_code.error + ' (PDFs then go to the AI, slower)'),
+        line(r.pdf_module.ok, 'PDF reader module', r.pdf_module.ok ? 'installed' : r.pdf_module.error + ' (run npm ci in backend on the server)'),
+        line(r.word_in_code.ok, 'Word file read in code', r.word_in_code.ok ? `${r.word_in_code.chars} characters` : r.word_in_code.error),
+        line(true, 'Server', `Node ${r.node}, ${r.platform}`)];
+      if (r.picture_by_ai) rows.push(line(r.picture_by_ai.ok, 'Picture read by the AI', r.picture_by_ai.ok ? `read "${r.picture_by_ai.read}" in ${Math.round(r.picture_by_ai.ms / 1000)} s` : (r.picture_by_ai.error || `read "${r.picture_by_ai.read}"`) + ' (check the AI in Settings)'));
+      out.replaceChildren(...rows, line(null, 'Largest upload the server accepts', 'testing\u2026'));
+      // the upload size, through the web server: 1, 3, 6, 12, 25 MB until one is refused
+      let okMb = 0, failMb = 0;
+      for (const mb of [1, 3, 6, 12, 25]) {
+        try { await api('POST', '/admin/check-upload', { data: 'a'.repeat(mb * 1024 * 1024) }); okMb = mb; } catch (x) { if (x.status === 413) { failMb = mb; break; } throw x; }
+      }
+      const files = (mb) => Math.floor((mb / 1.37) * 10) / 10; // files travel about 37% bigger than they are
+      out.lastChild.replaceWith(failMb
+        ? line(false, 'Largest upload the server accepts', `between ${okMb} and ${failMb} MB, so files of about ${files(okMb)} MB in all. The app allows 10 MB a file: raise client_max_body_size in the server's nginx to 50m (see Server setup).`)
+        : line(true, 'Largest upload the server accepts', `${okMb} MB or more: files of ${files(okMb)} MB in all go through`));
+    } catch (x) { out.replaceChildren(line(false, 'The check did not finish', x.message)); }
+    finally { b.disabled = false; b.replaceChildren(ai ? 'Check, with the AI too' : 'Check file reading'); }
+  };
+  return h('div', { class: 'card card-pad' }, h('div', { class: 'row spread', style: 'gap:10px;flex-wrap:wrap' }, h('div', {}, h('h2', { class: 'section-title', style: 'margin:0' }, 'Check file reading'),
+      h('div', { class: 'jp-label' }, 'When the client\u2019s attached files are not read, this shows which part fails on this server.')),
+    h('div', { class: 'row', style: 'gap:8px' }, h('button', { class: 'btn', type: 'button', onclick: (e) => go(e, false) }, 'Check file reading'),
+      h('button', { class: 'btn', type: 'button', title: 'Also reads a picture with the AI (one AI call)', onclick: (e) => go(e, true) }, 'Check, with the AI too'))), out);
+}
 async function settingsView() {
   const { settings, meta } = await api('GET', '/settings');
   const save = async (key, value, btn) => {
@@ -3887,7 +3978,7 @@ async function settingsView() {
   const sigNum = h('input', { type: 'number', min: 1, value: sig.signal, style: 'width:90px', 'aria-label': 'Signal number' });
   const sigVal = h('input', { type: 'text', value: sig.value, style: 'width:140px', 'aria-label': 'Value' });
   const group = (title, rows) => h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, title)), h('div', { class: 'setlist', style: 'padding-left:20px;padding-right:20px' }, rows));
-  shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard,
+  shell('settings', [pageHead('Settings', 'The AI that does the work, and the numbers and lists the app runs on. A change applies to the next job, with no restart.'), aiCard, fileCheckCard(),
     (() => {
       const el = h('input', { type: 'text', value: settings['company.name'], style: 'min-width:280px', 'aria-label': 'Company name' });
       // the team's working day: the zone Claude's updates count days in (the app shows each person their own zone)

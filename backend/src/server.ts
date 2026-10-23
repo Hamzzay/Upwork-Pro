@@ -13,6 +13,8 @@ app.disable('x-powered-by');
 app.use('/api/import', express.json({ limit: '3mb' })); // a piece of a sheet with long job descriptions is bigger than the normal limit
 app.use('/api/plugin', express.json({ limit: '1mb' })); // a full job page plus its posting fields
 app.use(/^\/api\/screenings(\/\d+\/attachments)?$/, express.json({ limit: '40mb' })); // a job with its attached documents (R74)
+app.use('/api/admin/check-upload', express.json({ limit: '40mb' })); // R122: the upload size test of Check file reading
+app.use(/^\/api\/uploads(\/[a-f0-9]+\/(chunk|finish))?$/, express.json({ limit: '4mb' })); // R123: a file in pieces of about half a MB
 app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 app.use((_req, res, next) => {

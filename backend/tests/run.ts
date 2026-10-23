@@ -26,6 +26,8 @@ import { shortcutsBlock, shortenHtml, shortenText } from '../src/proposal/shortc
 import { openingLabel } from '../src/proposal/openings';
 import { looksInvited } from '../src/invite';
 import { jobPostOnly } from '../src/screening/posting';
+import { codeDigest, detectKind, extractInCode, squeeze } from '../src/screening/attachments';
+import { assemble, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
 import { clientPost, sameClient, sameTitle } from '../src/clients';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -567,6 +569,49 @@ const ctx = { rules, projects };
     assert.ok(looksInvited('Invitation to interview\nHi, I saw your profile'), 'an invitation page is an invite');
     assert.ok(looksInvited('', 'https://www.upwork.com/ab/proposals/interview/uid/123'), 'an invitation link is an invite');
     assert.ok(!looksInvited('Activity on this job\nInvites sent: 4\nUnanswered invites: 2'), 'the activity box is not an invite');
+    // R123: any file is taken, read as what it really is, by the first way that gives text
+    { const { readFileSync } = await import('node:fs'); const { join } = await import('node:path');
+      const dir = join(__dirname, '..', 'assets', 'selftest'), pdf = readFileSync(join(dir, 'sample.pdf')), docx = readFileSync(join(dir, 'sample.docx'));
+      assert.equal(detectKind('brief.pdf', pdf).kind, 'pdf'); assert.equal(detectKind('brief.docx', pdf).kind, 'pdf', 'a PDF named .docx is read as a PDF');
+      assert.equal(detectKind('spec.bin', docx).kind, 'docx', 'a Word file with no proper name is found from its contents');
+      assert.equal(detectKind('notes.weird', Buffer.from('plain words here')).kind, 'text', 'an unknown name with text in it is text');
+      assert.equal(detectKind('x.png', readFileSync(join(dir, 'sample.png'))).kind, 'image');
+      const p = await extractInCode('pdf', pdf), w = await extractInCode('docx', docx);
+      assert.ok(p.text.includes('PINEAPPLE-42') && p.method === 'pdf reader', 'a PDF is read in code'); assert.ok(w.text.includes('PINEAPPLE-42'), 'a Word file is read in code');
+      const rtf = await extractInCode('rtf', Buffer.from('{\\rtf1\\ansi {\\b Brief:} the app needs Stripe and push notifications for 3 clinics\\par Deadline 14 days}'));
+      assert.ok(rtf.text.includes('Stripe and push notifications') && rtf.text.includes('Deadline 14 days'), 'RTF is read in code');
+      const JSZip = require('jszip'); const z = new JSZip(); z.file('ppt/slides/slide1.xml', '<p:sld><a:p><a:t>Slide one: the booking flow for dog walkers with GPS tracking</a:t></a:p></p:sld>');
+      const pptx = await extractInCode('pptx', await z.generateAsync({ type: 'nodebuffer' }));
+      assert.ok(pptx.text.includes('booking flow for dog walkers'), 'slides are read in code');
+      const broken = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from('stream\nBT (We need a Flutter app for 120 drivers with offline mode) Tj ET\nendstream\n')]);
+      const b = await extractInCode('pdf', broken);
+      assert.ok(b.text.includes('Flutter app for 120 drivers') && b.method === 'pdf streams', 'a PDF the reader cannot open is read from its own streams');
+      const old = await extractInCode('doc', Buffer.concat([Buffer.alloc(64), Buffer.from('The client wants a booking portal with Twilio reminders and a weekly report', 'utf16le'), Buffer.alloc(64)]));
+      assert.ok(old.text.includes('booking portal with Twilio'), 'an old Word file gives its text runs');
+      assert.equal((await extractInCode('image', readFileSync(join(dir, 'sample.png')))).text, '', 'a picture goes to the AI'); }
+    // a huge document: repeats folded, and the one line that matters is kept wherever it sits
+    { const big = Array.from({ length: 50000 }, (_, i) => `Row ${i}: pallet ${i * 7} scanned in bay ${i % 40}`); big.splice(31000, 0, 'KEY REQUIREMENT: the app must sync with NetSuite every 15 minutes (code MANGO-77).');
+      const q = squeeze(big.join('\n'));
+      assert.ok(q.length < 300 && q.includes('MANGO-77') && q.includes('49999 more like it'), 'repeated rows are kept once, with a count');
+      const prose = Array.from({ length: 4000 }, (_, i) => `Paragraph ${String.fromCharCode(97 + (i % 26))}${i} talks about the history of the company and its values in general terms.`.replace(/\d/g, 'x') + ' '.repeat(i % 3)).map((l, i) => l + ' word'.repeat(i % 50));
+      prose.splice(2500, 0, 'The admin must export a weekly report to Xero.');
+      const d = codeDigest(prose.join('\n'), 5000);
+      assert.ok(d.length <= 5100 && d.includes('export a weekly report to Xero'), 'the code digest keeps the lines that state a need'); }
+    // R126: every link of a project, in code: web, Android, iOS, labelled when there is more than one; one link stays bare
+    { const web = 'https://chairboss.example.com', and = 'https://play.google.com/store/apps/details?id=com.chairboss', ios = 'https://apps.apple.com/us/app/chairboss/id1';
+      const three = projectLinkSet({ web, android: and, ios });
+      assert.deepEqual(three.map((l) => l.label), ['Web link', 'Android link', 'iOS link'], 'web, Android, iOS in that order');
+      const block = proofText([{ project_id: 1, name: 'Chairboss', link: ios, links: three, text: 'Chairboss: booking with Stripe on web and mobile.' }]);
+      assert.equal(block, `Chairboss: booking with Stripe on web and mobile.\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}`);
+      assert.equal(proofText([{ project_id: 2, name: 'Site', link: web, links: projectLinkSet({ web }), text: 'Site: a portal.' }]), `Site: a portal.\n${web}`, 'one link stays bare');
+      assert.equal(proofText([{ project_id: 2, name: 'Old', link: web, text: 'Old: a block saved before R126.' }]), `Old: a block saved before R126.\n${web}`, 'an older block keeps its one link');
+      assert.equal(projectLinkSet({ web, android: web + '/', ios: null }).length, 1, 'the same link twice is shown once');
+      const letter = assemble({ letter: 'Hi,\n\n[[PROOF]]\n\nShall we talk?', proof: [{ project_id: 1, name: 'Chairboss', link: ios, links: three, text: 'Chairboss: booking.' }], loomLine: '', signoff: 'Best regards,\nHamza' });
+      assert.ok(letter.includes(`Android link: ${and}\niOS link: ${ios}`), 'the assembled proposal has every link');
+      // a chat rewrite that dropped two of them: they come back, in order, after the one still there
+      const back = restoreLinks(`Hi,\n\nChairboss: booking.\n${web}\n\nShall we talk?`, [{ links: three }]);
+      assert.ok(back.includes(`Chairboss: booking.\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}\n\nShall we talk?`), 'dropped links come back');
+      assert.equal(restoreLinks('Hi, no projects here.', [{ links: three }]), 'Hi, no projects here.', 'a project taken out stays out'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

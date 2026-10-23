@@ -24,6 +24,7 @@ import { setup } from './routes_setup';
 import { reviewer } from './routes_reviewer';
 import { feedback } from './routes_feedback';
 import { attachments, attachmentList } from './routes_attachments';
+import { uploads } from './screening/uploads';
 import { dropPrepared, prepareFiles, recordFiles, uploadBody } from './screening/attachments';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
@@ -52,6 +53,7 @@ api.use(setup);
 api.use(reviewer); // the Reviewer page (R61)
 api.use(feedback); // experience gaps and proposal feedback (R67)
 api.use(attachments); // documents attached to jobs (R74)
+api.use(uploads); // R123: files in pieces, so no size limit in front of the app stops them
 api.use(oauthApi);
 
 const wrap = (e: unknown) => (e instanceof z.ZodError ? { error: 'Invalid input', issues: e.issues.map((i) => i.message) } : null);
@@ -178,7 +180,7 @@ api.post('/screenings', requireRole(), async (req, res) => {
     sourceUrl = b.data.job_url;
   }
   // the files are read first; the job and its files are then saved together, so the worker never screens it without them
-  const { ready, errors } = b.data.files?.length ? await prepareFiles(b.data.files, 0) : { ready: [], errors: [] };
+  const { ready, errors } = b.data.files?.length ? await prepareFiles(b.data.files, 0, req.user!.id) : { ready: [], errors: [] };
   const conn = await pool.getConnection();
   let id: number;
   try {
@@ -1111,6 +1113,10 @@ api.post('/screenings/:id/posting', requireRole(), async (req, res) => {
   res.json({ ok: true });
 });
 
+/** The Upwork steps in order (an outcome comes after all of them), and the column that records each one after Sent. */
+const STEPS = ['Sent', 'Viewed', 'Chat opened', 'Interview'] as const;
+const STEP_COLS = ['', 'client_viewed', 'client_replied', 'interviewed'];
+const NOT_SENT = 'Not sent';
 // One click from the Jobs list: what happened on Upwork, and when (now unless the person changes it). Every change is kept.
 const postStatus = async (req: any, res: any) => {
   const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
@@ -1121,7 +1127,7 @@ const postStatus = async (req: any, res: any) => {
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status;
   // the time as the person said it (in their zone; for Claude, the team's working day unless it says otherwise), stored as Pakistan time; none: now
-  const at = b.data.at ? convertWall(b.data.at.replace('T', ' ').slice(0, 16) + ':00', req.zone ?? DB_ZONE, DB_ZONE) : wallClock(new Date(), DB_ZONE).slice(0, 16) + ':00';
+  let at = b.data.at ? convertWall(b.data.at.replace('T', ' ').slice(0, 16) + ':00', req.zone ?? DB_ZONE, DB_ZONE) : wallClock(new Date(), DB_ZONE).slice(0, 16) + ':00';
   const lost = cfg['tracking.loss_outcomes'].includes(st);
   if (lost && !b.data.reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
   if (lost && !cfg['tracking.loss_reasons'].includes(b.data.reason!)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
@@ -1134,13 +1140,29 @@ const postStatus = async (req: any, res: any) => {
     Sent: `proceeded='yes', proposal_sent_date=DATE(?), proposal_sent_at=?`,
     Viewed: `client_viewed='yes', client_viewed_at=?`, 'Chat opened': `client_replied='yes', client_replied_at=?`, Interview: `interviewed='yes', interviewed_at=?`,
   };
-  if (!sets[st] && !outcomes.includes(st)) return void res.status(400).json({ error: 'Unknown status' });
+  if (st !== NOT_SENT && !sets[st] && !outcomes.includes(st)) return void res.status(400).json({ error: 'Unknown status' });
   // the Upwork statuses follow the proposal: it must be finished before it is sent, and sent before anything else
   const ph = (await query<any>(`SELECT (${stageSql}) AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0]?.stage;
-  if (st === 'Sent' && !['ready', 'submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Finish the proposal before marking it as sent' });
+  // R124: a send that was taken back ("Not sent") can be recorded again, wherever the job's own steps stand
+  const wasSent = st === 'Sent' && !['ready', 'submitted', 'closed'].includes(ph) && (await query<any>(`SELECT 1 FROM status_events WHERE screening_id=? AND status='Sent' LIMIT 1`, [id])).length > 0;
+  if (st === 'Sent' && !wasSent && !['ready', 'submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Finish the proposal before marking it as sent' });
   if (st !== 'Sent' && !['submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Mark the proposal as sent first' });
   const before = await trackSnapshot(id);
-  if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
+  // R124 (Hamza): a status picked by mistake can be undone. Picking an earlier step takes back the steps after it (and any outcome);
+  // "Not sent" takes back the send itself. Nothing is lost: the old values stay in the job's history and the status history.
+  const later = st === NOT_SENT ? 0 : STEPS.indexOf(st as any) >= 0 ? STEPS.indexOf(st as any) + 1 : -1;
+  if (later >= 0) {
+    if (!b.data.at && st !== NOT_SENT) { // back to a step that already happened, with no time given: it keeps the time it had
+      const col = st === 'Sent' ? 'COALESCE(proposal_sent_at, proposal_sent_date)' : `IF(${STEP_COLS[later - 1]}='yes', ${STEP_COLS[later - 1]}_at, NULL)`;
+      const had = (await query<any>(`SELECT ${col} AS t FROM screenings WHERE id=?`, [id]))[0]?.t; if (had) at = String(had).slice(0, 19);
+    }
+    const undo = [`outcome=NULL, outcome_at=NULL, outcome_reason=NULL, outcome_note=NULL`, ...STEP_COLS.slice(Math.max(later, 1)).map((c) => `${c}='no', ${c}_at=NULL`),
+      ...(st === NOT_SENT ? [`proposal_sent_date=NULL, proposal_sent_at=NULL`] : [])];
+    await exec(`UPDATE screenings SET ${undo.join(', ')}, tracking_updated_at=NOW() WHERE id=?`, [id]);
+    if (st === NOT_SENT) await exec('UPDATE proposals SET sent_version_no=NULL WHERE screening_id=?', [id]); // sent again later: that version is recorded
+  }
+  if (st === NOT_SENT) { /* taken back above */ }
+  else if (sets[st]) await exec(`UPDATE screenings SET ${sets[st]}, tracking_updated_at=NOW() WHERE id=?`, [...(st === 'Sent' ? [at, at] : [at]), id]);
   else await exec('UPDATE screenings SET outcome=?, outcome_at=?, outcome_reason=?, outcome_note=?, tracking_updated_at=NOW() WHERE id=?', [st, at, lost ? b.data.reason : null, b.data.note || null, id]);
   // what it cost and any note, when sent along (the plugin records them with the status)
   const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes], ['invited', b.data.invited == null ? null : b.data.invited ? 'yes' : 'no']].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
@@ -1187,7 +1209,11 @@ const getStatus = async (req: any, res: any) => {
   if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
   const events = await query('SELECT e.status, e.happened_at, e.created_at, e.reason, e.note, u.name AS user_name FROM status_events e LEFT JOIN users u ON u.id=e.user_id WHERE e.screening_id=? ORDER BY e.happened_at DESC, e.id DESC', [id]);
   const cfg = await getSettings();
-  res.json({ current: s.current_status, stage: s.stage, events, choices: s.stage === 'ready' ? ['Sent'] : ['Sent', 'Viewed', 'Chat opened', 'Interview', ...cfg['tracking.outcomes']], loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'] });
+  // when each step that already happened was recorded, so going back to one keeps its time
+  const t = (await query<any>(`SELECT COALESCE(proposal_sent_at, proposal_sent_date) AS sent, IF(client_viewed='yes', client_viewed_at, NULL) AS viewed, IF(client_replied='yes', client_replied_at, NULL) AS chat,
+    IF(interviewed='yes', interviewed_at, NULL) AS interview, outcome, outcome_at FROM screenings WHERE id=?`, [id]))[0] ?? {};
+  const times: Record<string, string> = {}; for (const [k, v] of [['Sent', t.sent], ['Viewed', t.viewed], ['Chat opened', t.chat], ['Interview', t.interview], [t.outcome, t.outcome_at]]) if (k && v) times[k] = v;
+  res.json({ current: s.current_status, stage: s.stage, events, times, choices: s.stage === 'ready' ? ['Sent'] : ['Sent', 'Viewed', 'Chat opened', 'Interview', ...cfg['tracking.outcomes'], ...(s.current_status ? [NOT_SENT] : [])], not_sent: NOT_SENT, loss_outcomes: cfg['tracking.loss_outcomes'], loss_reasons: cfg['tracking.loss_reasons'] });
 };
 api.get('/screenings/:id/status', requireRole(), getStatus);
 api.get('/plugin/jobs/:id/status', requireRole(), getStatus); // the same rules for the Claude plugin

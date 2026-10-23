@@ -21,7 +21,8 @@ import { queueFitReasons, runFitReasons } from './screening/fit_reasons';
 import { addMatches } from './screening/more_matches';
 import { autoAfterMatching, autoAfterProposal, autoAfterScreening } from './autopilot';
 import { runCompare } from './proposal/compare';
-import { docsBlock, runAttachmentRead } from './screening/attachments';
+import { digestFailed, docsBlock, readFailed, runAttachmentRead, runDigest, WAIT_FOR_FILES_MINUTES } from './screening/attachments';
+import { sweepUploads } from './screening/uploads';
 import { sheetValues } from './screening/persist';
 import { screenJobText } from './screening/service';
 import { getUpworkClient, renderJobText, UpworkError } from './upwork/client';
@@ -258,12 +259,13 @@ async function processChat(id: number) {
  * screening questions), the review. Background work comes last: matching started by itself after a PASS, then early drafts.
  * Background work may never take the last free slot, so a person who presses a button never waits behind it.
  */
-const NOT_READING = (col: string) => `NOT EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=${col} AND ja.status IN ('queued','running'))`;
+// R123: a job waits for its files to be read, but never more than a few minutes: their text is used when it arrives (docsChanged)
+const NOT_READING = (col: string) => `NOT EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=${col} AND ja.status IN ('queued','running') AND ja.created_at > NOW() - INTERVAL ${WAIT_FOR_FILES_MINUTES} MINUTE)`;
 type Job = { kind: string; claim: () => Promise<boolean>; run: () => Promise<unknown>; background?: boolean };
 let bgInFlight = 0;
 async function nextJob(allowBackground: boolean): Promise<Job | null> {
   // a file attached to a job is read first (R74): its screening, matching and proposal wait for it
-  const at = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM job_attachments WHERE status='queued' ORDER BY id LIMIT 1`);
+  const at = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM job_attachments WHERE status='queued' AND (next_try_at IS NULL OR next_try_at <= NOW()) ORDER BY id LIMIT 1`);
   if (at.length) return { kind: 'attachment', claim: async () => !!(await exec(`UPDATE job_attachments SET status='running' WHERE id=? AND status='queued'`, [at[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'screening', screeningId: at[0].screening_id }, () => processAttachment(at[0].id)) };
   const pr = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM proposals WHERE status='queued' AND ${NOT_READING('proposals.screening_id')} ORDER BY id LIMIT 1`);
@@ -312,6 +314,10 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   if (!allowBackground) return null;
   const ta = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NULL AND ${NOT_READING('screenings.id')} ORDER BY id LIMIT 1`);
   if (ta.length) return tagging(ta[0].id, true);
+  // R123: the digest of a long document (background: the document is already used, cut, until it is ready)
+  const dg = await query<{ id: number; screening_id: number }>(`SELECT id, screening_id FROM job_attachments WHERE digest_status='queued' AND status='done' AND (next_try_at IS NULL OR next_try_at<=NOW()) ORDER BY id LIMIT 1`);
+  if (dg.length) return { kind: 'digest', background: true, claim: async () => !!(await exec(`UPDATE job_attachments SET digest_status='running' WHERE id=? AND digest_status='queued'`, [dg[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'screening', screeningId: dg[0].screening_id }, () => processDigest(dg[0].id)) };
   const ed = await query<{ screening_id: number }>(`SELECT screening_id FROM early_drafts WHERE status='queued' ORDER BY created_at, screening_id LIMIT 1`);
   if (ed.length) return { kind: 'early_draft', background: true, claim: async () => !!(await exec(`UPDATE early_drafts SET status='running' WHERE screening_id=? AND status='queued'`, [ed[0].screening_id])).affectedRows,
     run: () => withCallContext({ kind: 'early_draft', screeningId: ed[0].screening_id }, () => processEarlyDraft(ed[0].screening_id)) };
@@ -369,9 +375,15 @@ async function processReview(id: number) {
 async function processAttachment(id: number) {
   try { await runAttachmentRead(id); }
   catch (e) {
-    console.error('attachment failed', (e as Error).message);
-    await exec(`UPDATE job_attachments SET status=?, error=? WHERE id=?`, [stopping ? 'queued' : 'error', stopping ? null : 'The AI could not read this file. Type what it shows, or remove it.', id]).catch(() => undefined);
+    console.error('attachment failed, it is tried again later:', (e as Error).message);
+    if (stopping) { await exec(`UPDATE job_attachments SET status='queued' WHERE id=?`, [id]).catch(() => undefined); return; }
+    await readFailed(id, (e as Error).message).catch(() => undefined); // R123: tried again later, longer waits each time
   }
+}
+/** R123: the digest of a document too long to give the AI whole; when it fails, the document is still used, cut. */
+async function processDigest(id: number) {
+  try { await runDigest(id); }
+  catch (e) { console.error('digest failed', (e as Error).message); await (stopping ? exec(`UPDATE job_attachments SET digest_status='queued' WHERE id=?`, [id]) : digestFailed(id)).catch(() => undefined); }
 }
 
 /** Two versions compared (R76). */
@@ -416,6 +428,7 @@ async function shutdown() {
   await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`).catch(() => undefined);
   await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE job_attachments SET digest_status='queued' WHERE digest_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
@@ -439,6 +452,8 @@ async function main() {
   await exec(`UPDATE proposals SET gaps_status='queued' WHERE gaps_status='running'`);
   await exec(`UPDATE proposals SET openings_status='queued' WHERE openings_status='running'`);
   await exec(`UPDATE job_attachments SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE job_attachments SET digest_status='queued' WHERE digest_status='running'`);
+  sweepUploads(); // R123: uploads started and never used
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);

@@ -11,7 +11,51 @@ import { z } from 'zod';
 export const PROOF = '[[PROOF]]';
 export const VIDEO = '[[VIDEO]]';
 
-export interface ProofBlock { project_id: number | null; name: string; text: string; link: string | null }
+export interface ProofBlock { project_id: number | null; name: string; text: string; link: string | null; /** R126: every link it shows, in order */ links?: ProjectLink[] }
+export interface ProjectLink { label: string; url: string }
+
+/**
+ * R126 (Hamza): a project's links as a proposal shows them: its web (proposal) link, Google Play, App Store, in that order. Made in
+ * code, never by the model. One link stays bare on its own line, as before; two or more each get their label. Staging, landing,
+ * system and case study links are never shown.
+ */
+export function projectLinkSet(p: { web?: string | null; android?: string | null; ios?: string | null }): ProjectLink[] {
+  const out: ProjectLink[] = [], seen = new Set<string>();
+  for (const [label, url] of [['Web link', p.web], ['Android link', p.android], ['iOS link', p.ios]] as const) {
+    const u = url?.trim(); if (!u || seen.has(u.replace(/\/+$/, '').toLowerCase())) continue;
+    seen.add(u.replace(/\/+$/, '').toLowerCase()); out.push({ label, url: u });
+  }
+  return out;
+}
+/** The link lines for a block, leaving out any link its text already has. */
+export function linkLines(links: ProjectLink[], text = ''): string[] {
+  const has = (u: string) => text.toLowerCase().includes(u.replace(/\/+$/, '').toLowerCase());
+  return links.filter((l) => !has(l.url)).map((l) => (links.length > 1 ? `${l.label}: ${l.url}` : l.url));
+}
+/**
+ * After a chat revision (the model rewrites the whole text): a project whose link is still there gets back any of its other links
+ * the rewrite dropped, on the lines after it. A project taken out entirely stays out.
+ */
+export function restoreLinks(text: string, projects: { links: ProjectLink[] }[]): string {
+  let t = text;
+  for (const p of projects) {
+    if (p.links.length < 2) continue;
+    const lines = t.split('\n'), norm = (u: string) => u.replace(/\/+$/, '').toLowerCase();
+    const at = lines.findIndex((l) => p.links.some((k) => l.toLowerCase().includes(norm(k.url))));
+    if (at < 0) continue;
+    const missing = p.links.filter((k) => !t.toLowerCase().includes(norm(k.url)));
+    if (!missing.length) continue;
+    // a bare link line gets its label, so the block reads the same as one made in code
+    const bare = p.links.find((k) => lines[at].trim().replace(/\/+$/, '').toLowerCase() === norm(k.url));
+    if (bare) lines[at] = `${bare.label}: ${bare.url}`;
+    // the block's lines in order: the ones it has, with the missing ones in their place
+    let end = at; while (end + 1 < lines.length && p.links.some((k) => lines[end + 1].toLowerCase().includes(norm(k.url)))) end++;
+    const block = p.links.map((k) => lines.slice(at, end + 1).find((l) => l.toLowerCase().includes(norm(k.url))) ?? `${k.label}: ${k.url}`);
+    lines.splice(at, end - at + 1, ...block);
+    t = lines.join('\n');
+  }
+  return t;
+}
 /** Stored with every version made from parts. A version without it was edited by hand (or by the chat): its text is the person's. */
 export interface Parts { letter: string; proof: ProofBlock[]; loom: { id: number | null; title: string; url: string } | null; profile_id: number | null; signoff: string }
 
@@ -22,7 +66,7 @@ export const PARTS_RULES = `WRITE IN PARTS (the app puts the proposal together, 
   a link, and never write a sign off or the sender's name in the letter. You may say "the projects below" or "similar builds".
 - "proof": one item per project in PROJECTS, in the order given. "project" is its exact name. "text" is how this proposal shows it,
   in the type's format: the project's name, then one or two sentences on what it proves for THIS job, from its facts only. No link:
-  the app adds the project's link on the next line.
+  the app adds the project's links (web, Android, iOS) on the next lines.
 - These rules replace rule 4 (the sign off) and the LOOM VIDEO instruction: the app adds both.
 - Never mention the parts, the markers or the app in "warnings": the person never sees them.`;
 
@@ -62,7 +106,10 @@ export function loomLine(template: string, loom: { title: string; url: string } 
   return t.includes(loom.url) ? t : `${t}\n${loom.url}`;
 }
 /** The proof as it reads in the proposal: each block, then its link on its own line. */
-export const proofText = (proof: ProofBlock[]) => proof.map((p) => (p.link && !p.text.includes(p.link) ? `${p.text.trim()}\n${p.link}` : p.text.trim())).join('\n\n');
+export const proofText = (proof: ProofBlock[]) => proof.map((p) => {
+  const links = p.links?.length ? p.links : p.link ? [{ label: 'Web link', url: p.link }] : [];
+  return [p.text.trim(), ...linkLines(links, p.text)].join('\n');
+}).join('\n\n');
 
 /** A letter that came back with a name, link or sign off in it anyway is still usable: the markers are what matter. */
 export function cleanLetter(letter: string): string {

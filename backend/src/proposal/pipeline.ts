@@ -19,7 +19,7 @@ import { activeShortcuts, shortenHtml, shortenText } from './shortcuts';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
-import { assemble, cleanLetter, loomLine, partsOut, partsSchema, proofFor, proofOut, proofSchema, signoff, type Parts, type ProofBlock } from './parts';
+import { assemble, cleanLetter, linkLines, loomLine, partsOut, partsSchema, projectLinkSet, proofFor, proofOut, proofSchema, restoreLinks, signoff, type Parts, type ProofBlock } from './parts';
 
 
 export const loadSignalDefs = () => cached('signals', readSignalDefs);
@@ -44,6 +44,8 @@ const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',')
 
 /** R116: every link a project may show: its proposal link, its site, its store links. */
 const projectLinks = (p: ProjectFact) => [p.live_link, p.site_link, p.app_links?.ios, p.app_links?.android].filter((x): x is string => !!x);
+/** R126: the links a proposal shows for a project: web, Android, iOS (a project with no web link shows its first store link as before). */
+const linksFor = (p: ProjectFact) => projectLinkSet({ web: p.site_link ?? (p.app_links ? null : p.live_link), android: p.app_links?.android, ios: p.app_links?.ios });
 
 export async function loadFacts(screeningId: number, basis?: Basis) {
   const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id, s.posting_json FROM screenings s WHERE s.id=?', [screeningId]))[0];
@@ -323,7 +325,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
     const proof: ProofBlock[] = [];
     for (const [i, p] of f.projects.entries()) {
       const t = written.get(p.name.toLowerCase()) ?? po.data.proof[i]?.text ?? null;
-      proof.push({ project_id: p.id ?? null, name: p.name, link: p.live_link, text: t ?? (await writeProof(f, template, p)) });
+      proof.push({ project_id: p.id ?? null, name: p.name, link: p.live_link, links: linksFor(p), text: t ?? (await writeProof(f, template, p)) });
     }
     parts = { letter: cleanLetter(po.data.letter), proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender) };
     text = assembleParts(parts, cfg['writer.loom_line']);
@@ -407,14 +409,55 @@ export async function refitParts(f: Facts, parts: Parts, template: TemplateFact 
   const wrote: string[] = [];
   const proof: ProofBlock[] = await Promise.all(f.projects.map(async (p) => {
     const k = keep.find((x) => x.name === p.name);
-    if (k) return k;
+    if (k) return { ...k, links: linksFor(p) }; // the links as the library has them now
     wrote.push(p.name);
     const t = template ? await writeProof(f, template, p) : p.name;
-    return { project_id: p.id ?? null, name: p.name, link: p.live_link, text: t };
+    return { project_id: p.id ?? null, name: p.name, link: p.live_link, links: linksFor(p), text: t };
   }));
   const next: Parts = { ...parts, proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender) };
   return { parts: next, text: assembleParts(next, cfg['writer.loom_line']), wrote };
 }
+
+/** Projects from the library, not chosen for this proposal, that the answers name (by their name, or the name without a part in brackets). */
+async function staleProjectsIn(answers: QA[], f: Facts, also: string[] = []): Promise<string[]> {
+  if (!answers.length) return [];
+  const chosen = new Set(f.projects.map((p) => p.name.toLowerCase()));
+  const lib = [...new Set([...(await query<any>('SELECT name FROM projects')).map((r) => String(r.name)), ...also])].filter((n) => n && !chosen.has(n.toLowerCase()));
+  const text = answers.map((a) => a.answer).join('\n').toLowerCase();
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const named = (n: string) => [n, n.replace(/\s*\([^)]*\)\s*/g, ' ').trim()].filter((x) => x.length > 2).some((x) => new RegExp(`(^|[^\\p{L}\\p{N}])${esc(x.toLowerCase())}($|[^\\p{L}\\p{N}])`, 'u').test(text));
+  return lib.filter((n) => named(n) && ![...chosen].some((c) => c.includes(n.toLowerCase()))); // "Kruzee" inside a chosen "Kruzee Instructor" is not stale
+}
+
+/**
+ * R125 (Hamza): the screening answers follow the projects chosen. When an answer names a project that is no longer chosen (the early
+ * draft was written with the recommended ones, or the projects were changed after writing), the answers are written again with the
+ * chosen projects; an answer that names no project stays word for word. Tried twice; when both fail the answers stay and a warning says so.
+ */
+export async function refitAnswers(f: Facts, answers: QA[], dropped: string[] = []): Promise<{ answers: QA[]; changed: boolean; stale: string[] }> {
+  const stale = await staleProjectsIn(answers, f, dropped);
+  if (!stale.length) return { answers, changed: false, stale: [] };
+  const guide = await loadGuide();
+  const projects = f.projects.map((p) => `- ${p.name}${p.live_link ? ' (' + p.live_link + ')' : ''}\n  Tags: ${p.tags.join(', ') || '(none)'}${p.industries.length ? '\n  Industries: ' + p.industries.join(', ') : ''}${p.overview ? '\n  Overview: ' + p.overview : ''}${p.case_study ? '\n  Case study: ' + p.case_study : ''}${p.notes ? '\n  Notes: ' + p.notes : ''}`).join('\n');
+  const system = [GUARDRAILS, '', `SENDER: ${f.sender.name}${f.sender.voice ? '. Voice: ' + f.sender.voice : ''}`, '', `PROJECTS (the only ones the answers may name)\n${projects}`,
+    guide.screening ? `\nSCREENING ANSWER RULES\n${guide.screening}` : ''].join('\n');
+  const schema = { type: 'object', properties: { answers: { type: 'array', items: { type: 'string' }, minItems: answers.length, maxItems: answers.length } }, required: ['answers'], additionalProperties: false };
+  let issue = '';
+  for (let tryNo = 0; tryNo < 2; tryNo++) {
+    try {
+      const r = await run({ label: 'writing: answers', system, schema, timeoutMs: config.llm.timeoutMs,
+        prompt: `<job_page>\n${f.jobOnly || f.jobText}\n</job_page>\n\nTHE SCREENING ANSWERS\n${answersText(answers)}\n\nThese answers name projects that are no longer in this proposal: ${stale.join(', ')}. Write each answer again so it uses the PROJECTS given instead, from their facts only, answering the same question just as directly; keep the length and tone. An answer that names none of them stays word for word. Never name ${stale.join(', ')}.${issue} Return one answer per question, in the same order, in "answers".` });
+      const out = (r.data as any)?.answers;
+      if (!Array.isArray(out) || out.length !== answers.length) throw new Error('invalid_output');
+      const next = answers.map((a, i) => ({ question: a.question, answer: String(out[i] ?? '').trim() || a.answer }));
+      const still = await staleProjectsIn(next, f, stale);
+      if (still.length && tryNo === 0) { issue = ` Your last try still named ${still.join(', ')}.`; continue; }
+      return { answers: next, changed: true, stale: still };
+    } catch (e) { if (tryNo === 1) console.warn('answers could not be updated for the chosen projects:', (e as Error).message); }
+  }
+  return { answers, changed: false, stale };
+}
+const staleWarning = (stale: string[]) => ({ source: 'check', text: `The screening answers still name ${stale.join(', ')}, which ${stale.length > 1 ? 'are' : 'is'} not among the chosen projects. Update the answers.` });
 
 // ---------- early drafts ----------
 // Once projects are matched, a draft is written with the recommended projects and the likely profile, before the person
@@ -507,7 +550,9 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
     const guide = await loadGuide();
     const writer = early.warnings.filter((w) => w.source === 'writer');
     const open = early.warnings.filter((w) => w.source === 'check' && w.text.startsWith('First two lines'));
-    early = { ...early, text: r.text, parts: r.parts, warnings: [...open, ...writer, ...(await checksFor(r.text, f, template, guide))] };
+    // R125: answers written for the recommended projects are written again for the confirmed ones
+    const fit = early.answers?.length ? await refitAnswers(f, early.answers, early.parts.proof.map((x) => x.name)) : null;
+    early = { ...early, text: r.text, parts: r.parts, answers: fit ? fit.answers : early.answers, warnings: [...open, ...writer, ...(await checksFor(r.text, f, template, guide)), ...(fit?.stale.length ? [staleWarning(fit.stale)] : [])] };
   }
   const saveTemplate = (t: Draft['template']) => exec('UPDATE proposals SET template_id=?, template_name=?, template_score=?, template_choice=?, template_ranking=? WHERE id=?',
     [t.id, t.name, t.score, t.choice, t.ranking, proposalId]).then(() => undefined);
@@ -576,11 +621,12 @@ export async function runGapUpdate(proposalId: number) {
   if (inParts) {
     const o = partsOut.safeParse(r.data); if (!o.success) throw new Error('invalid_output');
     const byName = new Map(o.data.proof.map((x) => [x.project.trim().toLowerCase(), x.text]));
-    parts = { ...cur.parts!, letter: cleanLetter(o.data.letter), proof: cur.parts!.proof.map((b, i) => ({ ...b, text: byName.get(b.name.toLowerCase()) ?? o.data.proof[i]?.text ?? b.text })) };
+    parts = { ...cur.parts!, letter: cleanLetter(o.data.letter), proof: cur.parts!.proof.map((b, i) => { const fact = f.projects.find((x) => x.name === b.name);
+      return { ...b, ...(fact ? { links: linksFor(fact) } : {}), text: byName.get(b.name.toLowerCase()) ?? o.data.proof[i]?.text ?? b.text }; }) };
     text = assembleParts(parts, cfg['writer.loom_line']);
   } else {
     const o = writerOut.safeParse(r.data); if (!o.success) throw new Error('invalid_output');
-    text = splitText(o.data.proposal).letter;
+    text = restoreLinks(splitText(o.data.proposal).letter, f.projects.map((x) => ({ links: linksFor(x) })));
   }
   const no = await addVersion(p.id, textToHtml(text), 'ai', null, `Updated with your experience: ${yes.map((g) => g.skill).join(', ')}`, cur.version_no, undefined, parts);
   await exec(`UPDATE proposal_gaps SET applied_version=? WHERE id IN (?)`, [no, yes.map((g) => g.id)]);
@@ -590,6 +636,13 @@ export async function runGapUpdate(proposalId: number) {
     [JSON.stringify([...kept, ...(await checksFor(text, f, template, guide))]), cfg['review.auto'] ? 1 : 0, p.id]);
 }
 
+/** The warning that the answers name a project no longer chosen: added when it is so, taken away when it is not. */
+async function keepStaleWarning(p: { id: number }, stale: string[]) {
+  const w = (await query<any>('SELECT warnings FROM proposals WHERE id=?', [p.id]))[0]?.warnings;
+  let list: { source: string; text: string }[] = []; try { list = JSON.parse(w || '[]'); } catch { list = []; }
+  const next = [...list.filter((x) => !x.text.startsWith('The screening answers still name')), ...(stale.length ? [staleWarning(stale)] : [])];
+  if (JSON.stringify(next) !== JSON.stringify(list)) await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(next), p.id]);
+}
 /** Bring a written proposal up to date after its projects, profile or video changed (PLAN-SPEED point 1). Nothing to do: nothing queued. */
 export async function queueParts(screeningId: number) {
   await exec(`UPDATE proposals SET parts_status='queued', parts_error=NULL WHERE screening_id=? AND status='done' AND EXISTS (SELECT 1 FROM proposal_versions v WHERE v.proposal_id=proposals.id)`, [screeningId]);
@@ -605,30 +658,38 @@ export async function runPartsRefresh(proposalId: number) {
   const f = await loadFacts(p.screening_id);
   const template = p.template_id ? await loadTemplate(p.template_id) : null;
   const cfg = await getSettings();
+  // R125: the answers follow the chosen projects too, whether the letter is made from parts or was edited by hand
+  const fit = await refitAnswers(f, cur.answers, cur.parts?.proof.map((x) => x.name) ?? []);
+  const answersNote = fit.changed ? 'the screening answers' : '';
   if (cur.parts) {
     const r = await refitParts(f, cur.parts, template);
     const before = htmlToPlain(cur.html).replace(/\s+/g, ' ').trim();
-    if (r.text.replace(/\s+/g, ' ').trim() !== before) {
+    if (r.text.replace(/\s+/g, ' ').trim() !== before || fit.changed) {
       const what = [r.wrote.length || r.parts.proof.length !== cur.parts.proof.length || r.parts.proof.some((x, i) => x.name !== cur.parts!.proof[i]?.name) ? 'the projects' : '',
-        (r.parts.loom?.url ?? null) !== (cur.parts.loom?.url ?? null) ? 'the video' : '', r.parts.signoff !== cur.parts.signoff ? 'the sign off' : ''].filter(Boolean);
-      await addVersion(p.id, textToHtml(r.text), 'ai', null, `Updated ${what.join(', ') || 'the parts'}`, cur.version_no, undefined, r.parts);
+        (r.parts.loom?.url ?? null) !== (cur.parts.loom?.url ?? null) ? 'the video' : '', r.parts.signoff !== cur.parts.signoff ? 'the sign off' : '',
+        r.parts.proof.some((x, i) => JSON.stringify(x.links ?? null) !== JSON.stringify(cur.parts!.proof[i]?.links ?? null)) ? 'the project links' : '', answersNote].filter(Boolean);
+      await addVersion(p.id, textToHtml(r.text), 'ai', null, `Updated ${what.join(', ') || 'the parts'}`, cur.version_no, fit.answers, r.parts);
       let old: { source: string; text: string }[] = []; try { old = JSON.parse(p.warnings || '[]'); } catch { old = []; }
       const kept = old.filter((w) => w.source === 'writer' || w.text.startsWith('First two lines'));
       const auto = cfg['review.auto'];
-      await exec(`UPDATE proposals SET warnings=?, profile_id=?, review_status=IF(?, 'queued', review_status) WHERE id=?`, [JSON.stringify([...kept, ...(await checksFor(r.text, f, template, await loadGuide()))]), f.profileId, auto ? 1 : 0, p.id]);
-    }
+      await exec(`UPDATE proposals SET warnings=?, profile_id=?, review_status=IF(?, 'queued', review_status) WHERE id=?`, [JSON.stringify([...kept, ...(await checksFor(r.text, f, template, await loadGuide())), ...(fit.stale.length ? [staleWarning(fit.stale)] : [])]), f.profileId, auto ? 1 : 0, p.id]);
+    } else await keepStaleWarning(p, fit.stale);
     await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=NULL WHERE id=?`, [p.id]);
     return;
   }
-  // edited by hand: offer what the text does not have yet, and change nothing
+  // edited by hand: the letter stays as the person wrote it (only its answers follow the projects); what it lacks is offered beside it
+  if (fit.changed) await addVersion(p.id, cur.html, 'ai', null, 'Updated the screening answers for the chosen projects', cur.version_no, fit.answers, null);
+  await keepStaleWarning(p, fit.stale);
   const text = htmlToPlain(cur.html).toLowerCase();
   const offer: { kind: string; label: string; text: string }[] = [];
   // a project is already in the text when its name (with or without a part in brackets, "Open Dental AI Calling (Chloe)") or its link is
-  const inText = (proj: ProjectFact) => [proj.name, proj.name.replace(/\s*\([^)]*\)\s*/g, ' ').trim(), proj.live_link].some((x) => x && text.includes(x.toLowerCase().replace(/\/+$/, '')));
+  const inText = (proj: ProjectFact) => [proj.name, proj.name.replace(/\s*\([^)]*\)\s*/g, ' ').trim(), ...linksFor(proj).map((l) => l.url)].some((x) => x && text.includes(x.toLowerCase().replace(/\/+$/, '')));
   for (const proj of f.projects) if (!inText(proj)) {
     const t = template ? await writeProof(f, template, proj) : proj.name;
-    offer.push({ kind: 'project', label: `Project: ${proj.name}`, text: proj.live_link && !t.includes(proj.live_link) ? `${t}\n${proj.live_link}` : t });
+    offer.push({ kind: 'project', label: `Project: ${proj.name}`, text: [t, ...linkLines(linksFor(proj), t)].join('\n') });
   }
+  // R126: a project that is in the text with only some of its links: the rest are offered, to go under it
+  for (const proj of f.projects) { const ls = linksFor(proj), missing = linkLines(ls, text); if (inText(proj) && ls.length > 1 && missing.length) offer.push({ kind: 'project', label: `Links: ${proj.name}`, text: missing.join('\n') }); }
   if (f.sender.loom && !text.includes(f.sender.loom.url.toLowerCase())) offer.push({ kind: 'video', label: `Loom video: ${f.sender.loom.title}`, text: loomLine(cfg['writer.loom_line'], f.sender.loom) });
   const so = signoff(f.sender);
   if (f.sender.name && (!text.includes(f.sender.name.toLowerCase()) || (f.sender.gitlab_link && !text.includes(f.sender.gitlab_link.toLowerCase())))) offer.push({ kind: 'signoff', label: `Sign off: ${f.sender.name}`, text: so });
@@ -756,7 +817,8 @@ export async function runChat(messageId: number) {
   const parsed = chatOut.safeParse(r.data);
   if (!parsed.success) throw new Error('invalid_output');
   let resultVersion: number | null = null;
-  const revised = parsed.data.proposal?.trim();
+  // R126: a link line the rewrite dropped comes back after the project's link that is still there
+  const revised = parsed.data.proposal?.trim() ? restoreLinks(parsed.data.proposal.trim(), f.projects.map((x) => ({ links: linksFor(x) }))) : parsed.data.proposal?.trim();
   if (revised && revised.replace(/\s+/g, ' ') !== letter.replace(/\s+/g, ' ')) {
     const latest = (await query<any>('SELECT MAX(version_no) AS n FROM proposal_versions WHERE proposal_id=?', [p.id]))[0].n;
     const note = Number(latest) > basedOn ? `AI revision of v${basedOn}; v${latest} was saved meanwhile` : `AI revision of v${basedOn}`;

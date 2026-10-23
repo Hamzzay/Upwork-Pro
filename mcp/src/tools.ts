@@ -66,6 +66,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
 6. If the profile or a project you use is not in plugin_options, add it straight away with add_profile or add_project (from your own
    profile record or what the person gives: never invent a field), then save. Existing records are never overwritten; only empty fields are filled.
 7. update_status only after it happened on Upwork: Sent first, then Viewed, Chat opened, Interview, then an outcome. "When" is now unless the person says otherwise.
+   A status set by mistake is undone with update_status too: an earlier step takes back the steps after it (and the outcome), keeping that step's time; "Not sent" takes back the send.
    A lost outcome needs one of the loss reasons, and the person's own words as the note if they gave any.`;
 
   T('plugin_options', `The values Upwork Pro accepts from the Claude plugin: active Upwork profiles (with their details), project names, rule codes, statuses, outcomes, loss reasons, and the quick reasons to continue past a FLAG or FAIL (continue_reasons) or to skip a job (skip_reasons). Call this first.\n\n${PLUGIN_RULES}`, {}, { readOnlyHint: true, openWorldHint: false },
@@ -240,7 +241,7 @@ Never send the person's raw text: write every text field yourself in the format 
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', '/plugin/projects', a));
 
   T('update_status', 'Record what happened on Upwork: Sent (only once the proposal is finished), then Viewed, Chat opened, Interview, or an outcome (a lost outcome needs a loss reason). "at" is the date and time it happened, default now; it is read in the team\'s working day time zone (US Eastern) unless time_zone says otherwise: pass "mine" when the person gives a time on their own clock.',
-    { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
+    { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options. An earlier step undoes the ones after it; "Not sent" undoes the send'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
       reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional().describe('A note about this status, e.g. what the client said'),
       connects: z.number().int().optional().describe('Connects the proposal cost (with Sent)'), boost: z.number().int().optional().describe('Extra Connects spent on a boost'), notes: z.string().optional().describe('The job\'s own notes (replaces them)'),
       invited: z.boolean().optional().describe('With Sent: true when the client invited us to this job, false when we found it ourselves'), ...zoneParam },

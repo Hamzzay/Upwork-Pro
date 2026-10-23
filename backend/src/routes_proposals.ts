@@ -654,6 +654,15 @@ proposals.post('/proposals/:id/openings/:i/use', anyone, async (req, res) => {
   res.json({ version_no: r.version_no });
 });
 
+// R125 (Hamza): the screening answers written again for the projects chosen now (the worker does it with the project blocks; an answer
+// that names no project stays as it is). It also runs by itself whenever the projects change.
+proposals.post('/proposals/:id/answers/refit', anyone, async (req, res) => {
+  const p = await ownedProposal(req, res); if (!p) return;
+  if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
+  await queueParts(p.screening_id);
+  res.json({ queued: true });
+});
+
 proposals.post('/proposals/:id/versions', anyone, async (req, res) => {
   // the cover letter and, apart from it, the screening answers (left out: the newest version's answers stay as they are)
   const b = z.object({ html: z.string().max(200_000), answers: qaList.optional(), based_on: z.number().int().positive().nullish() }).safeParse(req.body);

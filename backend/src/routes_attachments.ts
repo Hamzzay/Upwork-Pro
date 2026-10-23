@@ -8,7 +8,11 @@ import { z } from 'zod';
 import { audit, exec, query } from './db';
 import { sanitizeDoc } from './html';
 import { requireRole } from './auth';
-import { attachmentPath, docsChanged, prepareFiles, readFile, recordFiles, removeAttachment, uploadBody, MAX_FILES } from './screening/attachments';
+import { attachmentPath, docsChanged, prepareFiles, readFile, readText, recordFiles, removeAttachment, uploadBody, MAX_FILES } from './screening/attachments';
+import { join } from 'node:path';
+import { readFileSync as readSync } from 'node:fs';
+import { appRoot } from './config';
+import { run } from './llm';
 
 export const attachments = Router();
 const anyone = requireRole();
@@ -27,7 +31,7 @@ async function fileOf(req: any, res: any, edit: boolean) {
   return a;
 }
 /** The files of a job, as the page shows them (the text itself is not sent: it can be long). */
-export const attachmentList = (screeningId: number) => query<any>(`SELECT a.id, a.file_name, a.kind, a.size_bytes, a.status, a.read_by, a.error, a.added_after_screening, a.created_at,
+export const attachmentList = (screeningId: number) => query<any>(`SELECT a.id, a.file_name, a.kind, a.size_bytes, a.status, a.read_by, a.error, a.added_after_screening, a.created_at, a.method, a.pages, a.attempts, a.next_try_at, a.digest_status,
   CHAR_LENGTH(COALESCE(a.text_content, '')) AS chars, u.name AS user_name FROM job_attachments a LEFT JOIN users u ON u.id=a.created_by WHERE a.screening_id=? ORDER BY a.id`, [screeningId]);
 
 attachments.get('/screenings/:id/attachments', anyone, async (req, res) => {
@@ -40,7 +44,7 @@ attachments.post('/screenings/:id/attachments', anyone, async (req, res) => {
   if (!b.success) return void res.status(400).json({ error: 'Choose one or more files' });
   const s = await jobOf(req, res, true); if (!s) return;
   const have = Number((await query<any>('SELECT COUNT(*) n FROM job_attachments WHERE screening_id=?', [s.id]))[0].n);
-  const { ready, errors } = await prepareFiles(b.data.files, have);
+  const { ready, errors } = await prepareFiles(b.data.files, have, req.user!.id);
   await recordFiles((sql, p) => exec(sql, p as any[]), s.id, req.user!.id, ready, s.status === 'done');
   if (ready.length) await docsChanged(s.id); // R116: what was worked out without them is redone
   await audit(req.user!.id, 'attachments_add', `screening=${s.id} files=${ready.length}${errors.length ? ' refused=' + errors.length : ''}`);
@@ -85,8 +89,9 @@ attachments.put('/attachments/:id/text', anyone, async (req, res) => {
 // Read again by the AI (after an error, or after the AI in Settings was changed).
 attachments.post('/attachments/:id/read', anyone, async (req, res) => {
   const a = await fileOf(req, res, true); if (!a) return;
-  if (a.kind !== 'image' && a.kind !== 'pdf') return void res.status(409).json({ error: 'This file was read in full already' });
-  await exec(`UPDATE job_attachments SET status='queued', error=NULL WHERE id=? AND status IN ('done','error')`, [a.id]);
+  if (a.status === 'queued' || a.status === 'running') return void res.json({ ok: true, already: true });
+  // R123: any file can be read again by the AI, with all its tries from the start
+  await exec(`UPDATE job_attachments SET status='queued', error=NULL, attempts=0, next_try_at=NULL WHERE id=?`, [a.id]);
   res.status(202).json({ ok: true });
 });
 attachments.delete('/attachments/:id', anyone, async (req, res) => {
@@ -96,3 +101,34 @@ attachments.delete('/attachments/:id', anyone, async (req, res) => {
   await audit(req.user!.id, 'attachment_removed', `screening=${a.screening_id} attachment=${a.id}`);
   res.json({ ok: true });
 });
+
+/**
+ * R122 (Hamza): files attached on the server were not read, while the same files worked locally. Check file reading (admins, Settings)
+ * tests each part on this server: reading a PDF and a Word file in code (and the module the PDF reader needs), the Node version, and,
+ * when asked, the AI reading a picture. The largest upload the server accepts is tested by the page itself (check-upload), because the
+ * web server in front of the app refuses a bigger one before it gets here.
+ */
+attachments.get('/admin/check-files', requireRole('admin'), async (req, res) => {
+  const dir = join(appRoot, 'assets', 'selftest'), out: Record<string, unknown> = { node: process.version, platform: `${process.platform} ${process.arch}`, app_upload_limit_mb: 40 };
+  const test = async (kind: string, file: string) => {
+    const t0 = Date.now();
+    try { const text = await readText(kind, readSync(join(dir, file))); const ok = /PINEAPPLE-42/.test(text); return { ok, chars: text.length, ms: Date.now() - t0, ...(ok ? {} : { error: 'Read, but the test words were not in the text' }) }; }
+    catch (e) { return { ok: false, ms: Date.now() - t0, error: String((e as Error).message || e).slice(0, 300) }; }
+  };
+  out.pdf_in_code = await test('pdf', 'sample.pdf');
+  out.word_in_code = await test('docx', 'sample.docx');
+  try { require('@napi-rs/canvas'); out.pdf_module = { ok: true }; } catch (e) { out.pdf_module = { ok: false, error: String((e as Error).message).slice(0, 300) }; }
+  if (req.query.ai === '1') { // costs one AI call
+    const t0 = Date.now();
+    try {
+      const r = await run({ label: 'check: picture', timeoutMs: 120_000, files: [{ path: join(dir, 'sample.png'), name: 'file.png' }], system: 'You read a picture for a check of the app.',
+        prompt: 'Read the file ./file.png (use the Read tool). What app name is written at the top? Answer in "name".', schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false } });
+      const name = String((r.data as any)?.name ?? ''); out.picture_by_ai = { ok: /freshcart/i.test(name), read: name.slice(0, 80), ms: Date.now() - t0 };
+    } catch (e) { out.picture_by_ai = { ok: false, ms: Date.now() - t0, error: String((e as Error).message || e).slice(0, 300) }; }
+  }
+  res.json(out);
+});
+attachments.post('/admin/check-upload', requireRole('admin'), async (req, res) => {
+  res.json({ ok: true, bytes: String((req.body as any)?.data ?? '').length });
+});
+

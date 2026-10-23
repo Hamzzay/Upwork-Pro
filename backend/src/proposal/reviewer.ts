@@ -167,7 +167,7 @@ export function reviewerSystem(a: { template: TemplateFact | null; signals: stri
     a.sender.stats ? `  Upwork stats allowed: ${a.sender.stats}` : '', a.sender.rules ? `  Profile rules: ${a.sender.rules}` : '',
     a.sender.loom ? `  Loom video sent with it: ${a.sender.loom.title} (${a.sender.loom.url})${a.sender.loom.topic ? ': ' + a.sender.loom.topic : ''}` : '  Loom video: none',
     r.context.experience && a.experience?.length ? `  Experience the sender confirmed for this job (true, not invented):\n${a.experience.map((x) => '    - ' + x).join('\n')}` : '',
-    ...a.projects.map((p, i) => lines([`  Project ${i + 1}: ${p.name}`, `    Link: ${p.live_link ?? '(none)'}`, p.overview ? `    Overview: ${p.overview}` : '', p.case_study ? `    Case study: ${p.case_study}` : '', p.notes ? `    Notes: ${p.notes}` : ''])),
+    ...a.projects.map((p, i) => lines([`  Project ${i + 1}: ${p.name}`, `    Link: ${p.live_link ?? '(none)'}`, p.app_links ? `    Its links, all shown in the proposal (R126): ${[p.site_link && 'web ' + p.site_link, p.app_links.android && 'Android ' + p.app_links.android, p.app_links.ios && 'iOS ' + p.app_links.ios].filter(Boolean).join(', ')}` : '', p.overview ? `    Overview: ${p.overview}` : '', p.case_study ? `    Case study: ${p.case_study}` : '', p.notes ? `    Notes: ${p.notes}` : ''])),
     '',
     r.context.documents && a.documents ? `THE CLIENT'S DOCUMENTS (what the AI read from files the client attached)\n${cut(a.documents, 6000)}\n` : '',
     r.context.type_samples && a.samples?.length ? `PROPOSALS OF THIS TYPE THAT WORKED (the standard to compare with; their projects and facts are not this sender's)\n${a.samples.map((x) => `--- ${x.title}\n${cut(x.content, 2500)}`).join('\n')}\n` : '',

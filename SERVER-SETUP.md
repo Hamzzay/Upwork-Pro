@@ -122,7 +122,7 @@ Create `/etc/nginx/sites-available/upwork-pro`, changing `YOUR-DOMAIN`:
 server {
   listen 80;
   server_name YOUR-DOMAIN;
-  client_max_body_size 5m;
+  client_max_body_size 50m;   # R122: a job's attached files travel in one request (up to 8 files, 10 MB each); 5m refused most briefs
 
   # the Claude connector
   location /mcp { proxy_pass http://127.0.0.1:3100; proxy_http_version 1.1; proxy_set_header Host $host; proxy_buffering off; proxy_read_timeout 300s; }

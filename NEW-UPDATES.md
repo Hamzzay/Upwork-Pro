@@ -2226,3 +2226,103 @@ plugin could only record a status.
 - Checked: Connects and boost changed with no status added, two notes kept one under the other, the history marked "Claude plugin",
   a wrong Loom title and an empty call refused, discard and "already discarded"; the app's own Edit details still marks "tracking form".
 
+### R122. Why attached files were not read on the server, and a check for it (done, 24 October)
+Why (Hamza): files attached in Upwork Pro on the server were not read, while the same files worked locally (R116's five tests, and
+the Screen a job page with a file picked, tested in a browser).
+- **The likely cause, on the server only**: its nginx accepted at most 5 MB in one request (`client_max_body_size 5m` in the setup
+  guide). A job's files travel in its request, about a third bigger than they are, so files over about 3.7 MB in all were refused
+  by nginx before the app saw them, and the page said only "Something went wrong". Locally there is no nginx.
+  The guide now says 50m; the server needs the same change (one command, below).
+- The page now says it plainly: "The files are too big for the server to accept..." (and "The server did not answer" for a 502).
+- **Check file reading** (Settings, admins): tests on the server itself, in plain words: a PDF and a Word file read in code, the module
+  the PDF reader needs, the Node version, the largest upload the server accepts (growing test uploads through nginx, the way a real
+  upload goes), and with "Check, with the AI too" the AI reading a picture (one AI call).
+- A PDF that cannot be read in code (it then goes to the AI) is now logged with the reason, instead of failing silently.
+- Server: raise nginx's limit to 50m:
+  `F=/etc/nginx/sites-available/upwork-pro; if grep -q client_max_body_size "$F"; then sudo sed -i 's/client_max_body_size [^;]*;/client_max_body_size 50m;/g' "$F"; else sudo sed -i 's/^\(\s*server_name [^;]*;\)/\1\n  client_max_body_size 50m;/' "$F"; fi; sudo nginx -t && sudo systemctl reload nginx && grep -n client_max_body_size "$F"`
+
+### R123. Attached files are always read: chunks, fallbacks and retries (done, 24 October)
+Why (Hamza): "If it fails, there should be a workaround, and if that fails, another one. If it is big, read it in chunks, send it in
+chunks." A file should never end with "it cannot be processed".
+- **Files go up in pieces** (512 KB each, smaller if a piece is refused, down to 16 KB, each tried 5 times). So no limit in front of
+  the app (nginx) can stop them, and a piece sent twice changes nothing. Up to 100 MB a file and 12 files a job. Any file type is
+  taken. If the server is older, the page sends the file whole, as before. Unused uploads are removed after a day.
+- **Read as what it really is**, from its first bytes, not its name: a PDF called .docx is read as a PDF.
+- **Read in code first, each kind with its own fallbacks**:
+  - PDF: the PDF reader, then pdftotext, then its own text streams;
+  - Word: mammoth, then its XML;
+  - also PowerPoint, OpenDocument, RTF, spreadsheets, text;
+  - an old .doc or unknown file: its readable text.
+- **What code cannot read goes to the AI, again with fallbacks**:
+  - a PDF is read in batches of 6 pages; a failed batch is sent as page pictures, then in halves;
+  - a picture is read as it is, then as a smaller JPEG;
+  - any other file is read as it is, then as its readable text.
+- **Retries**: a read that fails is tried again after 1, 5, 15, 60, 180 and 720 minutes. The file shows "Reading again at ..." and,
+  once read, how it was read. A job waits up to 3 minutes for a file still being read, then goes on.
+- **Big documents**:
+  - the whole text is kept: 4M characters in the database, anything longer on disk;
+  - lines that repeat with only their numbers changed (exports, logs) are kept once, with a count;
+  - the AI digests the document 60k characters at a time, 3 sections at once, each section tried twice; a section it cannot do is
+    digested in code (its headings and every line that states a need);
+  - the notes are digested again until they fit;
+  - until the AI digest is ready, the screening uses the code digest, never a cut text. A digest that fails is tried again after 5,
+    30 and 120 minutes.
+- Checked: a 7.8 MB text through the Screen a job page went up in 16 pieces. Its one requirement line, at character 3.9M of 90,000
+  repeated rows, reached the digest and the screening. A PDF named .docx was read as a PDF. The file check passed: PDF and Word in
+  code, a picture by the AI. Unit tests cover the kind detection, every in-code reader, a broken PDF read from its streams, the
+  repeat folding and the code digest.
+
+### R124. A status set by mistake can be undone (done, 24 October)
+Why (Hamza): a proposal moved from Sent to Viewed by mistake could not be put back to Sent.
+- **Any status can be picked, forwards or back.** Going back to an earlier step undoes the steps after it, and any outcome. The
+  dialog says so first ("This goes back from Viewed to Sent: the steps after Sent are undone").
+- A step that already happened keeps the time it was recorded, and the time field shows it.
+- **"Not sent"** undoes the send itself, for a proposal marked sent by mistake. It can be marked sent again later.
+- Nothing is lost: every change stays in the status history and the job's history. Claude's `update_status` works the same way
+  (plugin tool notes updated).
+- Checked:
+  - Sent → Viewed → Chat opened, back to Sent (the original send time kept);
+  - an outcome, then back to Viewed;
+  - Not sent, then Sent again;
+  - the dialog screenshot.
+
+### R125. Screening answers follow the projects you chose (done, 24 October)
+Why (Hamza): the answers kept naming the recommended projects (or the projects before a change), while the proposal used the
+chosen ones.
+- When the proposal is written from the early draft (made with the recommended projects) or the projects change later, any answer
+  that names a project no longer chosen is written again with the chosen projects. An answer that names no project stays word for
+  word.
+- The same goes for a proposal you edited by hand: the letter stays as you wrote it, and only the answers are updated, in a new
+  version.
+- **Match the chosen projects** (Screening answers tab) does it on demand.
+- If the AI cannot do it after two tries, the warning list says which project the answers still name.
+- Checked:
+  - a proposal made from parts, answers naming Kruzee and Apex, rewritten with Image Summary App and Chairboss, the rate answer
+    unchanged;
+  - a proposal edited by hand, answers naming CaboAirportShuttle, rewritten with Kruzee and Chairboss, the letter unchanged.
+
+### R126. Every link of a project in the proposal: web, Android, iOS (done, 24 October)
+Why (Hamza): proposals showed one link per project, even when the library has its web, Android and iOS links. Changing the types and
+the writing rules could not fix it: the project blocks are put together in code, and the code added one link only.
+- **Made in code, never left to the model.** Each project block now shows all its links: the web (proposal) link, then Android, then
+  iOS, each labelled ("Android link: ..."). A project with one link shows it bare, as before. Staging, landing, system and case
+  study links are never used.
+- Applies everywhere a block is made:
+  - the first write and the early draft;
+  - a project added later;
+  - Match the chosen projects;
+  - the experience update.
+- **Chat revisions**: if the rewrite drops some of a project's link lines, they are put back under the link that is still there. A
+  project the chat took out on purpose stays out.
+- A proposal edited by hand is never changed: any links it is missing are offered beside the editor ("Links: Chairboss").
+- The writer and the reviewer are given every link, so the reviewer no longer reports a store link as missing.
+- **On deploy**, proposals written and not yet sent get their project blocks rebuilt once (migration 067). That makes no AI call,
+  unless the answers name a project no longer chosen (R125). Sent proposals are not touched.
+- Checked:
+  - unit tests: the order, the labels, one link bare, an older block, the same link twice shown once, the assembled proposal, and
+    links a chat dropped coming back;
+  - live: Chairboss came out with all three links;
+  - the deploy rebuild gave 6 unsent local proposals their links: Chairboss with three, Kruzee and CaboAirportShuttle with web and
+    Android, since they have no iOS link;
+  - a hand-edited proposal was offered its missing links.
+

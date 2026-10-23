@@ -831,7 +831,14 @@ function proposalSection(s, initial, matching) {
     const drawAnswers = (answers, editable) => {
       shownAnswers = answers || []; answerBoxes = [];
       answersBox.replaceChildren(...(shownAnswers.length ? [h('div', {},
-        h('div', { class: 'jp-label', style: 'margin-bottom:10px' }, editable ? 'Paste each into its own box on Upwork. They are kept apart from the proposal: edit them here and save with Save version.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
+        h('div', { class: 'row spread', style: 'align-items:flex-start;gap:10px;margin-bottom:10px' },
+          h('div', { class: 'jp-label' }, editable ? 'Paste each into its own box on Upwork. They are kept apart from the proposal: edit them here and save with Save version.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
+          // R125: they follow the chosen projects by themselves; this does it now (an answer that names no project stays as it is)
+          editable ? h('button', { class: 'btn sm', type: 'button', title: 'Answers that name a project no longer chosen are written again with the chosen ones', disabled: data.parts && ['queued', 'running'].includes(data.parts.status), onclick: async (e) => {
+            if (answersDirty() && !(await ask('Update the answers?', 'You have unsaved changes to the answers. The update starts from the last saved version, so save yours first to keep them.', 'Update anyway'))) return;
+            e.currentTarget.disabled = true; e.currentTarget.textContent = 'Updating\u2026';
+            await api('POST', `/proposals/${data.id}/answers/refit`); data.parts = { ...(data.parts || {}), status: 'queued' }; startPolling();
+            toast('Updating the answers for the chosen projects. The new version loads here by itself.'); } }, 'Match the chosen projects') : null),
         h('div', { class: 'stack', style: 'gap:10px' }, shownAnswers.map((x, i) => {
           const box = h('textarea', { class: 'qa-answer', rows: Math.min(12, Math.max(3, Math.ceil(x.answer.length / 90) + 1)), readOnly: !editable, 'aria-label': `Answer ${i + 1}` });
           box.value = x.answer; answerBoxes.push(box);
