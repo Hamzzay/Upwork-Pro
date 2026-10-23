@@ -106,6 +106,8 @@ export async function runAttachmentRead(id: number) {
   const text = tidy(String((r.data as any)?.document_text ?? ''));
   if (!text) throw new Error('invalid_output');
   await exec(`UPDATE job_attachments SET status='done', text_content=?, read_by='ai', error=NULL WHERE id=?`, [text, id]);
+  const at = (await query<any>('SELECT screening_id, added_after_screening FROM job_attachments WHERE id=?', [id]))[0];
+  if (at && Number(at.added_after_screening)) await docsChanged(at.screening_id); // R116: its text arrived after the job was screened
 }
 
 /**
@@ -126,6 +128,25 @@ export async function docsBlock(screeningId: number): Promise<string> {
 }
 /** The job post without its documents (a text that has them appended), so Upwork's questions are found in the post alone. */
 export const postOnly = (text: string) => String(text ?? '').split('\n\nDOCUMENTS THE CLIENT ATTACHED TO THE JOB')[0];
+
+/** R116: which file texts a job has now (ids and lengths), so a draft written from other texts can be told apart. */
+export async function docsKey(screeningId: number): Promise<string> {
+  const r = (await query<any>(`SELECT GROUP_CONCAT(CONCAT(id, ':', CHAR_LENGTH(COALESCE(text_content, ''))) ORDER BY id) AS k FROM job_attachments WHERE screening_id=? AND status='done'`, [screeningId]))[0];
+  return String(r?.k ?? '').slice(0, 500);
+}
+/**
+ * R116 (Hamza): the client's files changed after the job was screened (added, removed, read by the AI, or described by a person). What was
+ * worked out without them is redone: the signals (when no proposal is written yet), the projects (when they are not confirmed yet), and an
+ * early draft is not used. A written proposal is flagged on its page (docs_changed_at), to write it again.
+ */
+export async function docsChanged(screeningId: number) {
+  const s = (await query<any>('SELECT status, continued_at, selection_confirmed_at, tagging_status FROM screenings WHERE id=?', [screeningId]))[0];
+  if (!s || s.status !== 'done') return; // not screened yet: every step reads the files anyway
+  await exec('UPDATE screenings SET docs_changed_at=NOW() WHERE id=?', [screeningId]);
+  await exec(`UPDATE early_drafts SET status='skipped' WHERE screening_id=? AND used_at IS NULL AND status IN ('queued','done')`, [screeningId]);
+  if (!(await query<any>('SELECT 1 FROM proposals WHERE screening_id=? LIMIT 1', [screeningId])).length) await exec('DELETE FROM job_signals WHERE screening_id=?', [screeningId]);
+  if (s.continued_at && !s.selection_confirmed_at && s.tagging_status === 'done') await exec(`UPDATE screenings SET tagging_status='queued' WHERE id=?`, [screeningId]);
+}
 
 /** Is any file of this job still being read? A screening waits for it. */
 export const stillReading = async (screeningId: number) => !!(await query<any>(`SELECT 1 FROM job_attachments WHERE screening_id=? AND status IN ('queued','running') LIMIT 1`, [screeningId])).length;

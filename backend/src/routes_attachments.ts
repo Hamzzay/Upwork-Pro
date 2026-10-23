@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { audit, exec, query } from './db';
 import { sanitizeDoc } from './html';
 import { requireRole } from './auth';
-import { attachmentPath, prepareFiles, readFile, recordFiles, removeAttachment, uploadBody, MAX_FILES } from './screening/attachments';
+import { attachmentPath, docsChanged, prepareFiles, readFile, recordFiles, removeAttachment, uploadBody, MAX_FILES } from './screening/attachments';
 
 export const attachments = Router();
 const anyone = requireRole();
@@ -42,6 +42,7 @@ attachments.post('/screenings/:id/attachments', anyone, async (req, res) => {
   const have = Number((await query<any>('SELECT COUNT(*) n FROM job_attachments WHERE screening_id=?', [s.id]))[0].n);
   const { ready, errors } = await prepareFiles(b.data.files, have);
   await recordFiles((sql, p) => exec(sql, p as any[]), s.id, req.user!.id, ready, s.status === 'done');
+  if (ready.length) await docsChanged(s.id); // R116: what was worked out without them is redone
   await audit(req.user!.id, 'attachments_add', `screening=${s.id} files=${ready.length}${errors.length ? ' refused=' + errors.length : ''}`);
   res.json({ saved: ready.length, errors, items: await attachmentList(s.id) });
 });
@@ -77,6 +78,7 @@ attachments.put('/attachments/:id/text', anyone, async (req, res) => {
   const a = await fileOf(req, res, true); if (!a) return;
   if (a.status === 'queued' || a.status === 'running') return void res.status(409).json({ error: 'The AI is still reading it' });
   await exec(`UPDATE job_attachments SET status='done', text_content=?, read_by='person', error=NULL WHERE id=?`, [b.data.text, a.id]);
+  await docsChanged(a.screening_id);
   await audit(req.user!.id, 'attachment_described', `attachment=${a.id}`);
   res.json({ ok: true });
 });
@@ -90,6 +92,7 @@ attachments.post('/attachments/:id/read', anyone, async (req, res) => {
 attachments.delete('/attachments/:id', anyone, async (req, res) => {
   const a = await fileOf(req, res, true); if (!a) return;
   await removeAttachment(a.id);
+  await docsChanged(a.screening_id);
   await audit(req.user!.id, 'attachment_removed', `screening=${a.screening_id} attachment=${a.id}`);
   res.json({ ok: true });
 });

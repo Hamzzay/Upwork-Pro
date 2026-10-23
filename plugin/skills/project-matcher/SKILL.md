@@ -38,6 +38,10 @@ A project's platform comes from its links and tags: a Landing Page or System lin
 | Web | It is a web product and has a web link (Landing Page or System link) | Mobile only projects, and projects whose only link is a mobile store link |
 | Mobile | It is a mobile product (an Android or iOS link, or the Mobile app tag) | Web only projects |
 | Web and mobile | Prefer projects that are both. Otherwise the two recommended must cover both: one web, one mobile | Neither |
+
+**A mobile app job** (Mobile, or Web and mobile; also a job that names iOS, Android, React Native, Flutter, Swift or Kotlin): among the
+projects that prove the work, those with an **App Store or Google Play link** (a live app) come first, and are recommended before a
+mobile project without one. `match_projects` already orders them this way; say so in the reason ("live on the App Store").
 | Backend or API only | It has API / backend service, integrations or automation work matching the job | None by platform; judge on workflow |
 | Desktop | Desktop app tag, otherwise the closest web product, flagged under "Needs your eye" | Mobile only projects |
 | Not stated | Infer from the post (a "dashboard", "portal" or "website" is web; "app store", "iOS", "Android" is mobile). If still unclear, do not filter, and say so | None |

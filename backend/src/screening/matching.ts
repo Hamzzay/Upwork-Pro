@@ -11,19 +11,21 @@ export const DEFAULT_MATCH: MatchOptions = { shown: 5, recommended: 2, minScore:
 
 export type Platform = 'web' | 'mobile' | 'desktop';
 export interface JobTag { id: number; name: string; category: string; weight: number; compliance?: boolean; core?: number | null; /** R102: applies to all our work: not scored */ practice?: boolean }
-export interface LibProject { id: number; name: string; tagIds: Set<number>; industries?: string[]; platforms?: Set<Platform> }
+export interface LibProject { id: number; name: string; tagIds: Set<number>; industries?: string[]; platforms?: Set<Platform>; /** R116: it has an App Store or Google Play link */ appLinks?: boolean }
 export type Pool = 'same' | 'related' | 'other' | 'none';
 export interface Match {
   project_id: number; project_name: string; rank: number; score: number; max_score: number;
   compliance_gap: number; recommended: boolean; shared: JobTag[]; pool: Pool; alternative: boolean; platform: string;
-  proves_work: boolean; named_in_screening: boolean; extra: boolean; fits_platform: boolean;
+  proves_work: boolean; named_in_screening: boolean; extra: boolean; fits_platform: boolean; /** R116: it has an App Store or Google Play link */ app_links: boolean;
 }
 
 const WEB = ['web app', 'saas platform', 'website / landing page', 'admin dashboard', 'marketplace', 'chrome extension', 'internal tool'];
 /** What the job runs on, from its product type tags: web, mobile, both, backend or API only, desktop, or not stated. */
+// R116 (Hamza): a job is mobile work when its product type says so, or when it names a mobile platform or stack
+const MOBILE = ['mobile app', 'ios app', 'android app', 'ios', 'android', 'react native', 'flutter', 'swift', 'swiftui', 'kotlin', 'expo', 'ionic', 'xamarin', 'app store', 'google play', 'mobile'];
 export function jobPlatform(tags: { name: string }[]): 'web' | 'mobile' | 'web and mobile' | 'backend' | 'desktop' | 'not stated' {
   const n = new Set(tags.map((t) => t.name.toLowerCase()));
-  const web = WEB.some((x) => n.has(x)), mobile = n.has('mobile app');
+  const web = WEB.some((x) => n.has(x)), mobile = MOBILE.some((x) => n.has(x));
   if (web && mobile) return 'web and mobile';
   if (mobile) return 'mobile';
   if (web) return 'web';
@@ -31,6 +33,9 @@ export function jobPlatform(tags: { name: string }[]): 'web' | 'mobile' | 'web a
   if (n.has('api / backend service')) return 'backend';
   return 'not stated';
 }
+/** What a project runs on, from its links and tags. */
+/** R116: the job builds a mobile app (alone or with web): projects with App Store or Google Play links prove it best. */
+export const isMobileJob = (tags: { name: string }[]) => { const p = jobPlatform(tags); return p === 'mobile' || p === 'web and mobile'; };
 /** What a project runs on, from its links and tags. */
 export function projectPlatforms(p: { landing_link?: string | null; system_link?: string | null; android_link?: string | null; ios_link?: string | null; mobile_link?: string | null }, tagNames: string[]): Set<Platform> {
   const n = new Set(tagNames.map((t) => t.toLowerCase())), out = new Set<Platform>();
@@ -80,6 +85,7 @@ export function rankProjects(jobTags: JobTag[], projects: LibProject[], o: Match
   const core = coreWork(scored);
   const main = core[0];
   const platform = jobPlatform(unique);
+  const mobileJob = platform === 'mobile' || platform === 'web and mobile'; // R116
   const related = new Set(industries.flatMap((i) => (o.related?.get(i) ?? []).map((x) => x.toLowerCase())).filter((x) => !industries.includes(x)));
   const named = new Set((o.named ?? []).map((x) => x.toLowerCase()));
   const fits = (p: LibProject) => {
@@ -99,17 +105,18 @@ export function rankProjects(jobTags: JobTag[], projects: LibProject[], o: Match
     const shared = scored.filter((t) => p.tagIds.has(t.id));
     return { p, shared, score: shared.reduce((n, t) => n + t.weight, 0), gap: compliance.filter((t) => !p.tagIds.has(t.id)).length, pool: poolOf(p),
       proves: !core.length || core.some((t) => p.tagIds.has(t.id)), main: !main || p.tagIds.has(main.id), coreHits: core.filter((t) => p.tagIds.has(t.id)).length,
-      fits: fits(p), named: named.has(p.name.toLowerCase()) };
+      fits: fits(p), named: named.has(p.name.toLowerCase()), app: !!p.appLinks };
   });
   const rows = o.all ? [...all] : all.filter((r) => r.fits && r.score > 0 && r.score >= o.minScore); // a project that shares nothing of value is noise
-  rows.sort((a, b) => Number(b.proves) - Number(a.proves) || Number(b.main) - Number(a.main) || order[a.pool] - order[b.pool] || b.coreHits - a.coreHits || a.gap - b.gap || b.score - a.score || b.shared.length - a.shared.length || a.p.name.localeCompare(b.p.name));
+  // R116: on a mobile job, among the projects that prove the work, those with App Store or Google Play links come first
+  rows.sort((a, b) => Number(b.proves) - Number(a.proves) || (mobileJob ? Number(b.app) - Number(a.app) : 0) || Number(b.main) - Number(a.main) || order[a.pool] - order[b.pool] || b.coreHits - a.coreHits || a.gap - b.gap || b.score - a.score || b.shared.length - a.shared.length || a.p.name.localeCompare(b.p.name));
   const top = rows.slice(0, o.shown);
   const bestSame = Math.max(0, ...rows.filter((r) => r.pool === 'same' && r.proves).map((r) => r.score));
   // only when the list shown leans on the job's industry: otherwise every project shown is already from another industry
   const alt = industries.length && top.some((r) => r.pool === 'same') ? rows.filter((r) => r.pool !== 'same' && r.proves && !top.includes(r) && r.score >= 1.5 * bestSame).sort((a, b) => b.score - a.score)[0] : undefined;
   const more = rows.filter((r) => !top.includes(r) && r !== alt).slice(0, o.more ?? 0);
   const missingNamed = all.filter((r) => r.named && !top.includes(r) && r !== alt && !more.includes(r)); // shown even below the cut
-  const show = (r: typeof all[number]) => [...(r.p.platforms ?? [])].join(' and ') || 'not known';
+  const show = (r: typeof all[number]) => ([...(r.p.platforms ?? [])].join(' and ') || 'not known') + (r.app ? ' (App Store / Google Play)' : '');
   let rec = 0;
   const out = top.map((r) => ({ r, alternative: false, extra: false, recommended: r.proves && rec++ < o.recommended }));
   if (alt) out.push({ r: alt, alternative: true, extra: false, recommended: false });
@@ -118,7 +125,7 @@ export function rankProjects(jobTags: JobTag[], projects: LibProject[], o: Match
   return out.map(({ r, alternative, extra, recommended }, i) => ({
     project_id: r.p.id, project_name: r.p.name, rank: i + 1, score: r.score, max_score: max, compliance_gap: r.gap, recommended,
     shared: [...r.shared].sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name)), pool: r.pool, alternative, platform: show(r),
-    proves_work: r.proves, named_in_screening: r.named, extra, fits_platform: r.fits,
+    proves_work: r.proves, named_in_screening: r.named, extra, fits_platform: r.fits, app_links: r.app,
   }));
 }
 

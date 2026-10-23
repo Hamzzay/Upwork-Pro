@@ -588,7 +588,7 @@ function proposalSection(s, initial, matching) {
       } catch (x) { toast(x.message, true); drawActions(); }
     }, true) : null;
     const change = owner && !chatBusy() ? actBtn('Change type', changeType) : null;
-    setActions(stale && owner ? startBtn('Write it again', null, false) : null, copy, save, change, markSent);
+    setActions((stale || data.docs_newer) && owner ? startBtn('Write it again', null, false) : null, copy, save, change, markSent);
   }
 
   // ----- change the proposal type after it is written: pick another, and it is written again with it (a new version)
@@ -864,6 +864,8 @@ function proposalSection(s, initial, matching) {
       viewing.replaceChildren(...[icon('info'), `You are looking at version ${no}, not the newest. `, owner ? h('a', { onclick: async () => { try { await api('POST', `/proposals/${data.id}/restore`, { version_no: no }); toast(`Restored as a new version`); await reload(); newer = null; drawAll(); } catch (x) { toast(x.message, true); } } }, 'Restore it as the newest version') : null, h('a', { onclick: () => { vsel.value = cur.version_no; vsel.dispatchEvent(new Event('change')); } }, 'Back to the newest')].filter(Boolean));
     };
     const stale = matching && matching.proposal_profile && data.profile_id && data.profile_id !== matching.proposal_profile.id && !partsBusy();
+    // R116: a file the client attached was added or changed after this version: it is not in the letter yet
+    const docsBox = data.docs_newer && !stale ? h('div', { class: 'docnote' }, icon('info'), h('span', {}, 'The client\u2019s files changed after this version was written, so it does not use them yet. Use Write it again at the top to write it with them (your edits stay in the earlier versions).')) : null;
     const staleBox = stale ? h('div', { class: 'docnote' }, icon('info'), h('span', {}, `Sent from ${matching.proposal_profile.name} now: the sign off is theirs. The letter was written in another profile's voice; to write it again in theirs, use Write it again at the top.`)) : null;
     // the sending profile can be changed here too (R75): the sign off and the video follow, the letter stays (Write it again for
     // the new profile's voice); the page stays on the proposal
@@ -909,7 +911,7 @@ function proposalSection(s, initial, matching) {
       h('div', { class: 'docbar' },
         h('span', { class: 'docset' }, h('span', { class: 'docsetlbl' }, 'Sent from'), profSel || h('span', {}, profName)),
         loomBox),
-      h('div', { class: 'docbody' }, ...[staleBox, viewing, bannerEl, letterPane, answersPane].filter(Boolean)),
+      h('div', { class: 'docbody' }, ...[staleBox, docsBox, viewing, bannerEl, letterPane, answersPane].filter(Boolean)),
       h('div', { class: 'docfoot' }, h('div', { class: 'row', style: 'gap:8px' }, counter, dirtyChip), h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')));
     const grid = h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' }, checksEl, doc),

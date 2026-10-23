@@ -25,6 +25,9 @@ Below, each `references/...` file means that part of the guide.
 * **None was chosen:** do not mention or promise a video. If the post asks for one, put "The client asks for a video and none was chosen" first under "Needs your eye".
 * Before showing the draft, check the chosen link is in it, once.
 
+**A mobile app job:** for a project that is a live app, its link line is its App Store or Google Play link (the store the job names, else
+the App Store), and the proposal may say it is live on the store. Its web link may still be used where it fits.
+
 ## Choosing the type
 
 Score every type with the type selection rules (`references/type-selection.md`) and show the top two or three with the signals that matched. The person picks.

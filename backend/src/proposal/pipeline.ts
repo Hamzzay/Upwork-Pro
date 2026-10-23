@@ -11,8 +11,8 @@ import { bannedPatterns, loadGuide, typeFacts, wordRange } from './guide';
 import { rankTemplates } from './rank';
 import { finalScore, reviewOut, reviewSchemaFor, reviewerSystem, type ReviewerExample, type ReviewerSections } from './reviewer';
 import { activeReviewer } from './reviewer_store';
-import { pickLoom } from '../screening/matching';
-import { docsBlock, postOnly } from '../screening/attachments';
+import { isMobileJob, pickLoom } from '../screening/matching';
+import { docsBlock, docsKey, postOnly } from '../screening/attachments';
 import { jobPostOnly } from '../screening/posting';
 import { checkFlags, openingInUse, openingTemplate } from './opening_templates';
 import { activeShortcuts, shortenHtml, shortenText } from './shortcuts';
@@ -42,6 +42,9 @@ export const gitlabLink = (v: string | null) => (!v ? null : /^https?:\/\//i.tes
 export interface Basis { projectIds: number[]; profileId: number }
 const basisKey = (b: Basis) => [...b.projectIds].sort((x, y) => x - y).join(',') + '|' + b.profileId;
 
+/** R116: every link a project may show: its proposal link, its site, its store links. */
+const projectLinks = (p: ProjectFact) => [p.live_link, p.site_link, p.app_links?.ios, p.app_links?.android].filter((x): x is string => !!x);
+
 export async function loadFacts(screeningId: number, basis?: Basis) {
   const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id, s.posting_json FROM screenings s WHERE s.id=?', [screeningId]))[0];
   // the Loom video the person chose for this proposal; an early draft (a guess) never has one
@@ -49,13 +52,23 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   const profileId: number | null = basis ? basis.profileId : s.proposal_profile_id;
   const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules, certifications FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
   const matches = await query<any>(
-    `SELECT jm.project_id, jm.project_name, p.live_link, p.notes, p.overview, p.case_study_summary FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id
+    `SELECT jm.project_id, jm.project_name, p.live_link, p.android_link, p.ios_link, p.notes, p.overview, p.case_study_summary FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id
      WHERE jm.screening_id=? AND ${basis ? 'jm.project_id IN (?)' : 'jm.selected=1'} ORDER BY jm.rank_no`, basis ? [screeningId, basis.projectIds] : [screeningId]);
   const ids = matches.map((m) => m.project_id).filter(Boolean);
   const tags = ids.length ? await query<any>('SELECT pt.project_id, t.name FROM project_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.project_id IN (?) ORDER BY t.sort_order', [ids]) : [];
   const inds = ids.length ? await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id WHERE pi.project_id IN (?) ORDER BY i.name', [ids]) : [];
-  const projects: ProjectFact[] = matches.map((m) => ({ id: m.project_id ?? null, name: m.project_name, live_link: m.live_link || null, notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
-    tags: tags.filter((t) => t.project_id === m.project_id).map((t) => t.name), industries: inds.filter((t) => t.project_id === m.project_id).map((t) => t.name) }));
+  // R116 (Hamza): on a mobile app job, a project that is a live app shows its App Store or Google Play link (the store the job names
+  // first), and the writer gets both store links; the project's site stays a link it may use
+  const jobTagNames = (await query<any>('SELECT tag_name AS name FROM job_tags WHERE screening_id=?', [screeningId])) as { name: string }[];
+  const mobile = isMobileJob(jobTagNames), names = new Set(jobTagNames.map((t) => t.name.toLowerCase()));
+  const androidFirst = ['android', 'android app', 'kotlin'].some((x) => names.has(x)) && !['ios', 'ios app', 'swift', 'swiftui'].some((x) => names.has(x));
+  const projects: ProjectFact[] = matches.map((m) => {
+    const app = m.android_link || m.ios_link ? { ios: m.ios_link || null, android: m.android_link || null } : null;
+    const store = app ? (androidFirst ? app.android || app.ios : app.ios || app.android) : null;
+    return { id: m.project_id ?? null, name: m.project_name, live_link: (mobile && store) || m.live_link || store || null, site_link: m.live_link || null, app_links: app, mobile_job: mobile,
+      notes: m.notes || null, overview: m.overview || null, case_study: m.case_study_summary || null,
+      tags: tags.filter((t) => t.project_id === m.project_id).map((t) => t.name), industries: inds.filter((t) => t.project_id === m.project_id).map((t) => t.name) };
+  });
   const sender: SenderFact = { name: pr.name, gitlab_link: gitlabLink(pr.gitlab_account) || pr.github_url || null, tagline: pr.tagline || null,
     voice: pr.voice || null, signature: pr.signature || null, stats: pr.stats_allowed || null, rules: pr.rules || null, certifications: pr.certifications || null,
     loom: loom ? { title: loom.title, url: loom.url, topic: loom.topic || null } : null };
@@ -353,7 +366,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
 /** The automatic checks of a finished text. */
 async function checksFor(text: string, f: Facts, template: TemplateFact | null, guide: Awaited<ReturnType<typeof loadGuide>>, library?: string[]) {
   const names = library ?? (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
-  return checkProposal({ text, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: names, foreignNames: await foreignNames(),
+  return checkProposal({ text, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, links: projectLinks(x), notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: names, foreignNames: await foreignNames(),
     sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
 }
 
@@ -439,11 +452,12 @@ export function runEarlyDraft(screeningId: number, stillWanted: () => boolean): 
   const p = (async () => {
     const row = (await query<any>('SELECT project_ids, profile_id FROM early_drafts WHERE screening_id=?', [screeningId]))[0];
     const basis: Basis = { projectIds: String(row.project_ids).split(',').map(Number), profileId: row.profile_id };
+    const keyBefore = await docsKey(screeningId); // R116: the file texts this draft is written from
     const f = await loadFacts(screeningId, basis);
     if (!f.sender.name || f.projects.length < 1) throw new Error('missing_inputs');
     const d = await compose(screeningId, f, { stillWanted });
     if (!d) { await exec(`UPDATE early_drafts SET status='queued' WHERE screening_id=? AND status='running'`, [screeningId]); return; }
-    await exec(`UPDATE early_drafts SET status='done', result_json=?, finished_at=NOW() WHERE screening_id=? AND status='running'`, [JSON.stringify(d), screeningId]);
+    await exec(`UPDATE early_drafts SET status='done', result_json=?, finished_at=NOW(), docs_key=? WHERE screening_id=? AND status='running'`, [JSON.stringify(d), keyBefore, screeningId]);
   })().finally(() => earlyInFlight.delete(screeningId));
   earlyInFlight.set(screeningId, p.catch(() => undefined));
   return p;
@@ -465,8 +479,10 @@ async function takeEarlyDraft(screeningId: number, basis: Basis, onWait: () => P
     await running;
     row = (await query<any>('SELECT status FROM early_drafts WHERE screening_id=?', [screeningId]))[0];
   }
-  const done = (await query<any>(`SELECT result_json FROM early_drafts WHERE screening_id=? AND status='done' AND used_at IS NULL`, [screeningId]))[0];
+  const done = (await query<any>(`SELECT result_json, docs_key FROM early_drafts WHERE screening_id=? AND status='done' AND used_at IS NULL`, [screeningId]))[0];
   if (!done) return null;
+  // R116: written before the client's files changed: the proposal is written again, with them
+  if ((done.docs_key ?? '') !== (await docsKey(screeningId))) { await exec(`UPDATE early_drafts SET status='skipped' WHERE screening_id=?`, [screeningId]); return null; }
   const d = JSON.parse(done.result_json) as Draft;
   if (!d.parts && !same) { await exec(`UPDATE early_drafts SET status='skipped' WHERE screening_id=?`, [screeningId]); return null; }
   await exec('UPDATE early_drafts SET used_at=NOW() WHERE screening_id=?', [screeningId]);
@@ -746,7 +762,7 @@ export async function runChat(messageId: number) {
     const note = Number(latest) > basedOn ? `AI revision of v${basedOn}; v${latest} was saved meanwhile` : `AI revision of v${basedOn}`;
     resultVersion = await addVersion(p.id, textToHtml(splitText(revised).letter), 'chat', null, note, basedOn);
     const library = (await query<any>('SELECT name FROM projects')).map((x) => x.name as string);
-    const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
+    const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, links: projectLinks(x), notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
       sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
     await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(warnings), p.id]);
   }

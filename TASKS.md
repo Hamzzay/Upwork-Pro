@@ -143,6 +143,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 95 | Client IDs and a client filter in the Jobs list; a clearer Clients list; new clients never joined by their join date alone (R110) | done |
 | 96 | A clearer job overview (flags spelled out, client beside it); the opening's AI chat in the side panel (R112) | done |
 | 97 | The independent reviewer fully editable: criteria with weights, caps, key points per type, examples, test bench; the app works out the score (R115) | done, check live |
+| 98 | Attached files always reach the proposal (a file added after screening too); mobile app jobs put the projects with App Store / Google Play links first and link to the stores (R116) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

@@ -80,7 +80,7 @@ export function examplesBlock(o: OpeningTemplate): string {
  * R109 (Hamza): what an opening may be built from: the words of the client's job description, nothing else. Not the job's terms
  * (hours per week, budget, rate, length, experience level), not the client's stats or history, not the screening's notes.
  */
-export const OPENING_SOURCE = 'WHAT THE OPENING IS BUILT FROM (strict): only the words of the client\'s job description. Never the hours per week, the budget or rate, the project length, the experience level or any other job term, never the client\'s stats, history or reviews, and never a screening note. If the description itself does not say it, the opening does not say it.';
+export const OPENING_SOURCE = 'WHAT THE OPENING IS BUILT FROM (strict): only the words of the client\'s job description and of the documents the client attached to it (R116: a brief or spec they attached is part of the job, and often the most specific part). Never the hours per week, the budget or rate, the project length, the experience level or any other job term, never the client\'s stats, history or reviews, and never a screening note. If neither the description nor an attached document says it, the opening does not say it.';
 export function openingRules(rules: string | null | undefined, o: OpeningTemplate | null): string {
   const all = rules?.trim();
   if (!all && !o) return '';

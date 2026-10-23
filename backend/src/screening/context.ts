@@ -36,7 +36,7 @@ async function readLibraryProjects(): Promise<LibProject[]> {
     if (!map.has(r.id)) map.set(r.id, { id: r.id, name: r.name, tagIds: new Set(), tagNames: [], industries: inds.filter((x) => x.project_id === r.id).map((x) => x.name) });
     if (r.tag_id) { map.get(r.id)!.tagIds.add(r.tag_id); map.get(r.id)!.tagNames.push(r.tag!); }
   }
-  return [...map.values()].map(({ tagNames, ...p }) => ({ ...p, platforms: projectPlatforms(links.get(p.id) ?? {}, tagNames) }));
+  return [...map.values()].map(({ tagNames, ...p }) => ({ ...p, platforms: projectPlatforms(links.get(p.id) ?? {}, tagNames), appLinks: !!(links.get(p.id)?.android_link || links.get(p.id)?.ios_link) }));
 }
 
 /** Each industry's related industries ("Dental" -> ["Healthcare"]), from the Industries page. */

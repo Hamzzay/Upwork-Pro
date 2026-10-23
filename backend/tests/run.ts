@@ -10,7 +10,7 @@ import { sheetValues } from '../src/screening/persist';
 import { renderJobText } from '../src/upwork/client';
 import { jobQuestions, separateQuestions } from '../src/screening/questions';
 import { separate, splitText, storeAnswers } from '../src/proposal/answers';
-import { coreWork, DEFAULT_MATCH, jobNeeds, jobPlatform, pickLoom, projectPlatforms, rankProjects, TECH_STACK, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
+import { coreWork, DEFAULT_MATCH, isMobileJob, jobNeeds, jobPlatform, pickLoom, projectPlatforms, rankProjects, TECH_STACK, validSelection, type JobTag, type LibProject } from '../src/screening/matching';
 import { buildTagSchema, tagJob, tagSystemPrompt } from '../src/screening/tagging';
 import { htmlToPlain, sanitizeRich, textToHtml } from '../src/html';
 import { buildDetectionSchema, codeMap, detectionPrompt, normalizeDetection, type SignalDef } from '../src/proposal/signals';
@@ -241,6 +241,21 @@ const ctx = { rules, projects };
     { shown: 3, recommended: 2 });
   assert.deepEqual(ord.map((x) => [x.project_name, x.recommended, x.extra]), [['Seller Genius AI', true, false], ['Apex', true, false], ['Rock', false, false], ['Chloe', false, true], ['Navience', false, true]]);
   assert.equal(ord[0].ai_reason, 'Qualifies leads'); assert.equal(ord[4].ai_fits, false); assert.equal(ord[3].ai_fits, null);
+  // R116: a mobile app job puts the projects that are live apps (App Store / Google Play links) first, among those that prove the work
+  { const mob = T(40, 'Mobile app', 'Product type', 2), book = T(41, 'Appointment booking / scheduling', 'Workflow type', 3), web = T(42, 'Web app', 'Product type', 2);
+    const L = (id: number, name: string, app: boolean, ...tags: number[]): LibProject => ({ id, name, tagIds: new Set(tags), platforms: new Set(['mobile'] as const), appLinks: app });
+    const r = rankProjects([mob, book], [L(50, 'Booking app, no store link', false, 40, 41, 42), L(51, 'Booking app on the stores', true, 40, 41)]);
+    assert.deepEqual(r.map((x) => x.project_name), ['Booking app on the stores', 'Booking app, no store link'], 'the live app first, though it shares fewer tags');
+    assert.ok(r[0].app_links && r[0].platform.includes('App Store'), 'the match says it has store links');
+    assert.ok('web and mobile (App Store / Google Play)'.length <= 80, 'the platform text fits its column');
+    const w = rankProjects([web, book], [{ ...L(52, 'Web booking, no store', false, 41, 42), platforms: new Set(['web'] as const) }, { ...L(53, 'Web booking with an app', true, 41), platforms: new Set(['web', 'mobile'] as const) }]);
+    assert.equal(w[0].project_name, 'Web booking, no store', 'a web job is not reordered by store links');
+    const nope = rankProjects([mob, book], [L(54, 'Live app, other work', true, 40), L(55, 'Booking, no store', false, 41)]);
+    assert.equal(nope[0].project_name, 'Booking, no store', 'a store link never beats proving the work');
+    assert.ok(isMobileJob([{ name: 'Flutter' }]) && isMobileJob([{ name: 'React Native' }, { name: 'Web app' }]) && !isMobileJob([{ name: 'Web app' }]), 'a mobile stack makes it a mobile job');
+    const aj = applyJudgement([{ ...M(1, 'No store'), app_links: false }, { ...M(2, 'On the stores'), app_links: true }, { ...M(3, 'Weak, on the stores'), app_links: true }],
+      [{ name: 'No store', fits: true, reason: '' }, { name: 'On the stores', fits: true, reason: '' }, { name: 'Weak, on the stores', fits: false, reason: '' }], { shown: 3, recommended: 2, preferApp: true });
+    assert.deepEqual(aj.map((x) => x.project_name), ['On the stores', 'No store', 'Weak, on the stores'], 'after the AI: within the projects that fit, the live app first; one that does not fit stays last'); }
   // core work is only real work: a project stage named as core work does not count
   assert.deepEqual(coreWork([{ ...T(20, 'Prototype / proof of concept', 'Project stage', 2), core: 1 }, { ...T(21, 'Lead generation / enrichment', 'Workflow type', 3), core: 2 }]).map((t) => t.name), ['Lead generation / enrichment']);
   // the reviewer (R115): the full built-in reviewer is valid; the app works out the score from the criteria, then the caps

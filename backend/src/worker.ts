@@ -8,7 +8,7 @@ import { providerName } from './llm';
 import { lastUsed } from './llm/context';
 import { COLUMN_KEYS } from './screening/contract';
 import { loadContext, loadDictionary, loadLibraryProjects, loadRelatedIndustries } from './screening/context';
-import { coreWork, jobNeeds, MORE_PROJECTS, rankProjects, TECH_STACK, type JobTag } from './screening/matching';
+import { coreWork, isMobileJob, jobNeeds, MORE_PROJECTS, rankProjects, TECH_STACK, type JobTag } from './screening/matching';
 import { applyJudgement, judgeProjects } from './screening/judge';
 import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
@@ -124,9 +124,10 @@ async function processTagging(id: number) {
       try {
         const facts = await query<any>('SELECT id, overview, case_study_summary FROM projects WHERE id IN (?)', [matches.map((m) => m.project_id)]);
         const candidates = matches.map((m) => ({ name: m.project_name, overview: facts.find((f) => f.id === m.project_id)?.overview ?? null, case_study: facts.find((f) => f.id === m.project_id)?.case_study_summary ?? null,
-          industries: lib.find((l) => l.id === m.project_id)?.industries ?? [], platform: m.platform, shared: m.shared.map((t) => t.name) }));
-        const judged = await judgeProjects(jobText, candidates, coreWork(jobTags.filter((t) => t.category !== 'Industry')).map((t) => t.name), jobTags.find((t) => t.category === 'Industry')?.name ?? null);
-        final = applyJudgement(matches, judged, { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'] }); order = 'ai';
+          industries: lib.find((l) => l.id === m.project_id)?.industries ?? [], platform: m.platform, shared: m.shared.map((t) => t.name), appLinks: m.app_links }));
+        const mobile = isMobileJob(jobTags); // R116: store links count as proof on a mobile job
+        const judged = await judgeProjects(jobText, candidates, coreWork(jobTags.filter((t) => t.category !== 'Industry')).map((t) => t.name), jobTags.find((t) => t.category === 'Industry')?.name ?? null, mobile);
+        final = applyJudgement(matches, judged, { shown: cfg['matching.shown'], recommended: cfg['matching.recommended'], preferApp: mobile }); order = 'ai';
       } catch (e) { console.error('matching order by the AI failed, the tag order is kept:', (e as Error).message); }
     }
     // R100: projects a person brought into the list (Load more, the search) stay in it after matching again

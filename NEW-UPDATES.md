@@ -2134,3 +2134,31 @@ Waqar tunes it as an admin; Hamza approves. No minimum score is enforced; the te
 - Checked: tests (the weighted score, caps, the full reviewer is valid and sums to 100, older versions ask for what they always did),
   type check, scripts. **Not checked live**: the local database (XAMPP) no longer starts on this Mac, so the screens, the bench and
   migration 064 were not run. Check on the server after deploying.
+
+### R116. Attached files always reach the proposal; mobile app jobs show the projects that are live apps (done, 23 October)
+Why (Hamza): files attached to a job did not seem to be used, and mobile app jobs did not use the projects' App Store and Google Play links.
+- **Attached files**: every step already read them (the gate, matching, signals, the writer, the review), but three things lost them:
+  - A file added on the job page **after screening** never reached the letter: the early draft written without it was used (only its
+    projects, profile and video parts were redone), and the signals and projects were not read again. Now, when a job's files change
+    after screening (added, removed, read by the AI, or described by hand), an early draft written from other files is not used, the
+    signals are read again (no proposal yet), the projects are matched again (not confirmed yet), and a proposal written before the
+    change says so on its page, with **Write it again** at the top.
+  - The opening rule (R109: only the words of the job description) shut the documents out: it now allows the description and the
+    documents the client attached.
+  - The writer has a fixed rule: the attached documents are part of the job, often its most specific part.
+- **Mobile app jobs** (tagged Mobile app, or naming iOS, Android, React Native, Flutter, Swift, Kotlin or Expo): among the projects that
+  prove the work, those with an **App Store or Google Play link come first**, in the tag order and in the AI's order (it is told which
+  have them). A store link never beats doing the work. The Projects step shows "Runs on mobile (App Store / Google Play)". In the
+  proposal, a live app's link is its App Store link (Google Play when the job is Android only), the writer sees both and may say it is
+  live, and the link check accepts them.
+- **Claude plugin 0.27.0**: the same in its matching and writing skills.
+- Migration `065_docs_changed.sql` (when a job's files changed; which file texts an early draft used; a longer platform column).
+- **Tested live, five jobs whose details were only in the attached file**: a PDF brief, a Word spec, a PNG mockup (read by the AI), a
+  scanned PDF (read by the AI), and a PDF added after screening. The proposals used 6 of 7, 7 of 8, 5 of 7, 5 of 8 and 7 of 7 of the
+  file-only details; the gate and the tags picked them up too. In the four mobile jobs the two recommended projects had store links
+  (Chairboss, Kruzee, CaboAirportShuttle), except where only a project without one did the core work, and the proposals linked to the
+  stores. The late file: the early draft was set aside, the signals cleared and the projects matched again. A test found "Data too long
+  for column 'platform'" (fixed in 065).
+- Local: XAMPP's database does not run on macOS 27 (no Rosetta). The app runs on MariaDB 13 (Homebrew) with a copy of the XAMPP data;
+  migration 064 (R115) is now applied locally too.
+

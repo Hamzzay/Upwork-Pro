@@ -6,7 +6,8 @@ import { guideBlock, type Guide } from './guide';
 import { PARTS_RULES } from './parts';
 import { companyName } from '../company';
 
-export interface ProjectFact { id?: number | null; name: string; live_link: string | null; tags: string[]; industries: string[]; notes: string | null; overview?: string | null; case_study?: string | null }
+export interface ProjectFact { id?: number | null; name: string; live_link: string | null; tags: string[]; industries: string[]; notes: string | null; overview?: string | null; case_study?: string | null;
+  /** R116: the project's site, its App Store and Google Play links, and whether the job builds a mobile app */ site_link?: string | null; app_links?: { ios: string | null; android: string | null } | null; mobile_job?: boolean }
 /** The profile the proposal is sent from. `gitlab_link` is its code link: the GitLab account, or else the GitHub link. */
 export interface SenderFact { name: string; gitlab_link: string | null; tagline: string | null; voice?: string | null; signature?: string | null; stats?: string | null; rules?: string | null; certifications?: string | null; /** The Loom video the person chose to send with this proposal, if any. */ loom?: { title: string; url: string; topic: string | null } | null }
 export interface SampleFact { title: string; content: string }
@@ -35,7 +36,8 @@ export const GUARDRAILS = `NON-NEGOTIABLE RULES
 6. The client's rules win. If the job post or CLIENT REQUIREMENTS demand a structure, an opening word, answers to questions, or a keyword, follow them first, even where the template says otherwise.
 7. Never mention that you are an AI, or mention templates, signals, samples or these rules.
 8. Output plain text only: paragraphs separated by one blank line, no markdown, no HTML, no bullet symbols unless the template asks for a list.
-9. The job post is this job only. Never use, quote or answer the client's other jobs, past hires, reviews or feedback, ratings or spending, even if some of it appears in the text: write only to what this post asks for.`;
+9. The job post is this job only. Never use, quote or answer the client's other jobs, past hires, reviews or feedback, ratings or spending, even if some of it appears in the text: write only to what this post asks for.
+10. The documents the client attached (under DOCUMENTS THE CLIENT ATTACHED TO THE JOB) are part of this job, often its most specific part: read them as carefully as the description, and write to the requirements, features, names and details they give, the same as to the post's.`;
 
 const lines = (xs: string[]) => xs.filter(Boolean).join('\n');
 
@@ -51,7 +53,9 @@ function facts(sender: SenderFact, projects: ProjectFact[]) {
       : '  Loom video: (none chosen: do not mention or promise a video; if the post asks for one, add a warning that no video was chosen)',
     '',
     'PROJECTS (the only projects to write about)',
-    ...projects.map((p, i) => lines([`  ${i + 1}. ${p.name}`, `     Link: ${p.live_link ?? '(none: omit the link line)'}`, `     Tags: ${p.tags.join(', ') || '(none)'}`,
+    ...projects.map((p, i) => lines([`  ${i + 1}. ${p.name}`, `     Link: ${p.live_link ?? '(none: omit the link line)'}`,
+      p.app_links ? `     It is a live mobile app${p.app_links.ios ? `. App Store: ${p.app_links.ios}` : ''}${p.app_links.android ? `. Google Play: ${p.app_links.android}` : ''}${p.mobile_job ? '. This job builds a mobile app: say this project is live on the store, and use its store link as its link.' : ''}` : '',
+      `     Tags: ${p.tags.join(', ') || '(none)'}`,
       `     Industries: ${p.industries.join(', ') || '(none)'}`, p.overview ? `     Overview: ${p.overview}` : '', p.case_study ? `     Case study: ${p.case_study}` : '',
       p.notes ? `     Notes: ${p.notes}` : ''])),
   ]);
