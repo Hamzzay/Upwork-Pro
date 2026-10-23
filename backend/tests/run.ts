@@ -654,6 +654,43 @@ const ctx = { rules, projects };
       // which new project replaces which: in the order the text has the old ones
       const pr = pairReplacements('Kruzee first, then Apex, then MiDoc.', ['Chairboss', 'Doctoria'], ['Apex', 'Kruzee', 'MiDoc', 'Chairboss', 'Doctoria'], ['Chairboss', 'Doctoria']);
       assert.deepEqual([...pr.pairs.entries()], [['Chairboss', 'Kruzee'], ['Doctoria', 'Apex']]); assert.deepEqual(pr.leftover, ['MiDoc'], 'the old one left over is offered to take out'); }
+    // R132, second pass (job 264): a block over several paragraphs goes whole; a passing mention in the opening is left alone
+    { const lib = [{ name: 'Kruzee', links: ['https://kruzee.com/', 'https://play.google.com/store/apps/details?id=com.kruzee'] }, { name: 'Chairboss', links: ['https://chairboss.io/'] }, { name: 'CaboAirportShuttle', links: ['https://caboairportshuttle.net/'] }];
+      const html = '<p>Hi Sam,</p><p>Like Kruzee, your app books lessons and takes payments.</p><p>Here is similar work:</p>'
+        + '<p>Chairboss – AI booking for salons</p><p>I built booking with Stripe Connect payouts.<br>Web link: <a href="https://chairboss.io/">https://chairboss.io/</a></p>'
+        + '<p>Kruzee – Driving lessons marketplace</p><p>I built the instructor app and the booking flow, live on Google Play.<br>Web link: <a href="https://kruzee.com/">https://kruzee.com/</a><br>Android link: <a href="https://play.google.com/store/apps/details?id=com.kruzee">https://play.google.com/store/apps/details?id=com.kruzee</a></p>'
+        + '<p>Can we talk this week?</p><p>Best regards,<br>Ahmad</p>';
+      const o = { kind: 'project' as const, label: '', text: 'CaboAirportShuttle – Real time operations for airport transfers\n\nI built the React Native app.\nWeb link: https://caboairportshuttle.net/', project: 'CaboAirportShuttle', replaces: 'Kruzee', old_links: lib[0].links };
+      const r = applyOffer(html, o, ['Chairboss', 'CaboAirportShuttle'], lib);
+      assert.ok(!r.html.includes('Driving lessons marketplace') && !r.html.includes('instructor app') && !r.html.includes('kruzee.com') && !r.html.includes('com.kruzee'), 'the whole old block goes: title, description and links');
+      assert.ok(r.html.includes('<p>Like CaboAirportShuttle, your app books lessons and takes payments.</p>') && /1 other place/.test(r.where), 'a mention in the opening follows the swap, and is counted');
+      assert.ok(r.html.includes('<p>CaboAirportShuttle – Real time operations for airport transfers</p><p>I built the React Native app.<br>Web link: <a href="https://caboairportshuttle.net/">'), 'the new block keeps its own paragraphs');
+      assert.ok(r.html.indexOf('chairboss.io') < r.html.indexOf('CaboAirportShuttle \u2013 Real') && r.html.indexOf('CaboAirportShuttle \u2013 Real') < r.html.indexOf('Can we talk'), 'in the old one\'s place');
+      assert.ok(r.html.includes('Web link: <a href="https://chairboss.io/">https://chairboss.io/</a></p>'), 'the project before it is untouched');
+      // links under the right project when it spans paragraphs
+      const l = applyOffer(html, { kind: 'links', label: 'Links: Chairboss', text: 'iOS link: https://apps.apple.com/x', project: 'Chairboss' }, ['Chairboss', 'Kruzee'], lib);
+      assert.ok(l.html.includes('https://chairboss.io/</a><br>iOS link:'), 'links go under its last link, in its second paragraph');
+      // its link two paragraphs down, with nothing between that names another project
+      const far = applyOffer('<p>Kruzee</p><p>A lessons app.</p><p>https://kruzee.com/</p><p>Thanks</p>', { ...o, text: 'Cabo: shuttles.' }, ['CaboAirportShuttle'], lib);
+      assert.equal(far.html, '<p>Cabo: shuttles.</p><p>Thanks</p>');
+      // a new project with nothing to replace: after the last block of the others, not after its title
+      const add = applyOffer(html.replace('Kruzee', 'Kruzie'), { kind: 'project', label: '', text: 'Cabo: shuttles.', project: 'CaboAirportShuttle' }, ['Chairboss', 'Kruzee', 'CaboAirportShuttle'], lib);
+      assert.ok(add.html.indexOf('Cabo: shuttles.') > add.html.indexOf('com.kruzee</a>') && add.html.indexOf('Cabo: shuttles.') < add.html.indexOf('Can we talk'), 'after the last project block'); }
+    // job 264: a structured proposal names each project in the opening, in a "links below" list and in its own section
+    { const lib = [{ name: 'Apex', links: ['https://crm.apexwindowstx.com/'] }, { name: '10-4 Global', links: ['https://10-4global.com/'] }, { name: 'Kruzee', links: ['https://kruzee.com/', 'https://play.google.com/store/apps/details?id=com.kruzee'] }];
+      const html = '<p>I\u2019ve done that on Kruzee and 10-4 Global, both AI features inside live products. Links below, then your three points.</p>'
+        + '<p>Kruzee \u2013 <a href="https://kruzee.com/">https://kruzee.com/</a><br>10-4 Global \u2013 <a href="https://10-4global.com/">https://10-4global.com/</a></p>'
+        + '<p>1. One full-stack AI feature you shipped</p><p>Kruzee \u2013 Driving lessons marketplace</p><p><a href="https://kruzee.com/">https://kruzee.com/</a></p><p>I built the booking and payments.</p>'
+        + '<p>10-4 Global \u2013 AI voice agent for load posting calls</p><p><a href="https://10-4global.com/">https://10-4global.com/</a></p><p>Inside an ongoing engagement, I added a voice agent.</p>'
+        + '<p>2. How you would approach AI work</p><p>I start by reading the codebase.</p><p>Best regards,<br>Hamza</p>';
+      const r = applyOffer(html, { kind: 'project', label: '', project: 'Apex', replaces: 'Kruzee', old_links: lib[2].links,
+        text: 'Apex \u2013 AI lead intake for a window company\n\nhttps://crm.apexwindowstx.com/\n\nA voice agent, a chatbot and a form feed one CRM.' }, ['Apex', '10-4 Global'], lib);
+      const t = r.html.replace(/<[^>]+>/g, ' ');
+      assert.ok(!/kruzee/i.test(r.html), 'Kruzee is gone from everywhere: ' + t);
+      assert.ok(t.includes('done that on Apex and 10-4 Global') && r.html.includes('Apex \u2013 <a href="https://crm.apexwindowstx.com/">'), 'the opening and the links list name the new project, with its link');
+      assert.ok(t.indexOf('1. One full-stack') < t.indexOf('AI lead intake') && t.indexOf('AI lead intake') < t.indexOf('10-4 Global \u2013 AI voice agent'), 'its section is where the old one was');
+      assert.ok(/2 other places/.test(r.where), r.where);
+      assert.equal((r.html.match(/10-4global\.com/g) || []).length, 4, 'the other project untouched (two links, each in an href and its text)'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

@@ -517,7 +517,10 @@ proposals.post('/proposals/:id/parts-offer/:i/apply', anyone, async (req, res) =
   let offer: Offer[] = []; try { offer = JSON.parse(row?.parts_offer_json || '[]'); } catch { offer = []; }
   const i = num(req.params.i), o = offer[i]; if (!o) return void res.status(404).json({ error: 'That part is no longer offered. Reload the page.' });
   const chosen = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1', [p.screening_id])).map((r) => String(r.project_name));
-  const r = applyOffer(sanitizeRich(b.data.html), { ...o, kind: o.kind === 'project' && o.label.startsWith('Links:') ? 'links' : o.kind }, chosen);
+  // every project's links in the order a proposal shows them (web, Android, iOS), then the others, so the text's blocks are found
+  const library = (await query<any>('SELECT name, live_link, android_link, ios_link, landing_link, system_link, mobile_link, staging_link, case_study_link FROM projects'))
+    .map((x) => ({ name: String(x.name), links: [x.live_link, x.android_link, x.ios_link, x.landing_link, x.system_link, x.mobile_link, x.staging_link, x.case_study_link].filter(Boolean) as string[] }));
+  const r = applyOffer(sanitizeRich(b.data.html), { ...o, kind: o.kind === 'project' && o.label.startsWith('Links:') ? 'links' : o.kind }, chosen, library);
   offer.splice(i, 1); // put in: it is in the editor now, saved with the next version
   await exec('UPDATE proposals SET parts_offer_json=? WHERE id=?', [offer.length ? JSON.stringify(offer) : null, p.id]);
   res.json({ html: r.html, where: r.where, offer });

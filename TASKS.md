@@ -160,6 +160,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 112 | Every project link (web, Android, iOS) in proposals written whole too (structured submissions, chat, early drafts); unsent ones rebuilt (R130) | done, check a fresh job with Chairboss or CaboAirportShuttle |
 | 113 | Every filter dropdown on the platform picks several values (Jobs, Reports, Dashboard, Changes, Logs, every Library and Admin list); picks apply when the list closes (R131) | done |
 | 114 | A changed project goes in place of the old one in a proposal edited by hand (Swap it in, Take it out, links under their project, video before the sign off) (R132) | done |
+| 115 | Swap it in, cleanly: the whole block over several paragraphs, and every other mention (opening, links list) follows (job 264) (R133) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

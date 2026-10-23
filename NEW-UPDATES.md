@@ -2449,3 +2449,28 @@ it at the end of the proposal; it should replace the project that was changed on
     The offer read "Project: CaboAirportShuttle (in place of Kruzee)", Swap it in put it exactly where Kruzee was, with its links,
     and Chairboss's missing links went under its web link.
 
+### R133. Swap it in, cleanly (job 264) (done, 24 October)
+Why (Hamza): "Swap didn't work cleanly" on job 264. Two causes:
+- **A project block is often more than one paragraph**: a title, a blank line, then the description with the links under it. The swap
+  replaced only the paragraph that named the project, so the old description and links stayed.
+- **A structured proposal names a project in several places**: the opening sentence ("I've done that on Apex and 10-4 Global"), a
+  "Links below" list, and its own section. Only the section was swapped, so the old name and link stayed in the other two.
+
+What changed:
+- **The whole block is found**: from the project's title line through its last link, across paragraphs. It never goes past a line
+  that names another project or the sign off. The start is the mention followed by the project's own link (its section, not a
+  passing mention), and a line that also names another project is never taken as the start.
+- **Every other mention follows the swap**: the old project's links become the new one's (web for web, Android for Android), its
+  name becomes the new name, and a line that is just "Old – link" becomes "New – link". The message says how many other places
+  changed ("Put it in place of Kruzee, and put CaboAirportShuttle in 2 other places").
+- **Take it out** also removes the old project's lines from a links list. A sentence that names it is left for you and counted in
+  the message.
+- Missing links go under the project's last link line, even when that is in its second paragraph. A new project with nothing to
+  replace goes after the last project's whole block.
+- The route now gets the project library, so every project's block is found by its own links.
+- Checked:
+  - unit tests shaped like job 264 (opening sentence, links list, sections over three paragraphs each): Kruzee gone from everywhere,
+    Apex in its place with its link, 10-4 Global untouched;
+  - live, on a proposal edited by hand: the two-paragraph Kruzee block swapped whole, the opening and the links list renamed, and
+    Chairboss's missing links under its last link.
+
