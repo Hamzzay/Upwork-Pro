@@ -627,7 +627,11 @@ const ctx = { rules, projects };
       assert.ok(w.sql.includes('s.upwork_profile_id IN (?)') && w.sql.includes('(s.outcome IS NULL OR s.outcome IN (?))') && w.sql.includes(`CONCAT(', ', s.rule_codes, ',') LIKE ? OR`), 'several values: any of them');
       assert.deepEqual(w.p.slice(0, 4), [['FLAG', 'FAIL'], '%, G1,%', '%, G14,%', [3, 5]]);
       assert.deepEqual(jobWhere({ user: { id: 1, role: 'admin' } }, jobFilters.parse({ profile: '7' })).p, [[7]], 'one value as before');
-      assert.ok(!jobFilters.safeParse({ profile: '3|x' }).success && !jobFilters.safeParse({ verdict: 'MAYBE' }).success, 'bad values refused'); }
+      assert.ok(!jobFilters.safeParse({ profile: '3|x' }).success && !jobFilters.safeParse({ verdict: 'MAYBE' }).success, 'bad values refused');
+      // and the yes/no, two-way and ladder filters (R129, everywhere)
+      const w2 = jobWhere({ user: { id: 1, role: 'admin' } }, jobFilters.parse({ job_type: 'hourly|fixed', reached: 'viewed|hired', source: 'app' }));
+      assert.ok(w2.sql.includes(`(s.job_type LIKE 'hour%' OR s.job_type LIKE 'fixed%')`) && w2.sql.includes(`s.client_viewed='yes') OR (`) && w2.sql.includes(`(s.source IS NULL OR s.source<>'claude_plugin')`), 'two-way and ladder filters take several');
+      assert.ok(!jobFilters.safeParse({ reached: 'sent|maybe' }).success, 'a step that does not exist is refused'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

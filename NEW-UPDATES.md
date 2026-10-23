@@ -2401,3 +2401,28 @@ the writer's output did not.
   - live: a whole-written proposal with only Chairboss's web link and Kruzee with none came out with Chairboss's three labelled links
     and Kruzee's two, each on its own line and clickable.
 
+### R131. Every filter on the platform picks several values (done, 24 October)
+Why (Hamza): all dropdowns should be multi-select, not only the Jobs list's.
+- **Every filter dropdown now takes several values.** A row is shown when it matches any of them. That covers:
+  - Jobs: every filter in the bar and under More filters, including Loom video, auto mode, client files, proposals or invites,
+    hourly or fixed, written in, and "Got as far as";
+  - Reports: profile, person, written in, gate result, and proposals and invites (both ticked, or none, is both);
+  - Dashboard: profile and person;
+  - Admin, Changes: status, kind, person and where it was made;
+  - Logs: action and person, and on AI calls the job type, result and model;
+  - every list in the Library and Admin with filters (projects, tags, industries, profiles, Loom videos, users, rules, feedback,
+    clients, signals, proposal types, opening templates, flag review).
+- **Still one choice**, because they are not filters:
+  - the period, date and "dates by" pickers;
+  - the report's "Break down by" and "At least" settings;
+  - rows per page;
+  - the Jobs list's live or discarded switch;
+  - dropdowns that set a value, like a job's status, profile, loss reason or a user's role.
+- **Picks apply when the list closes** (click away, Escape or Tab): one reload for all the ticks, and pages that redraw their filters
+  after loading can't close the list mid-pick. × clears at once.
+- Checked:
+  - in the browser: Jobs job type (Hourly and Fixed: no request while ticking, one on closing, the chip lists both); Users, two
+    roles; Logs, two actions; AI calls, Succeeded and Failed; Admin Changes, Applied and Put back;
+  - on the server: Reports, Dashboard, the list and the export with several values each, and an unknown value refused;
+  - unit tests for the two-way and ladder filters.
+

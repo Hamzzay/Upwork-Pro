@@ -268,13 +268,13 @@ export const listFilters = z.object({
   profile: ids.optional(), user: ids.optional(),
   outcome: z.string().trim().max(1000).optional(), stage: anyOf((x) => ([...STAGES, 'needs_action', 'quiet'] as string[]).includes(x), 'Not a step').optional(), phase: z.enum(PHASES).optional(),
   // added for the reports: where it was written, the proposal type, a job tag, a project shown, with or without a Loom video, and the date it was sent
-  source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(2000).optional(), tag: z.string().trim().max(4000).optional(),
-  project: z.string().trim().max(4000).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
-  invite: z.enum(['yes', 'no']).optional(), // R105: invites only, or proposals only (the Reports default)
+  source: anyOf((x) => ['app', 'claude_plugin'].includes(x), 'Not one of the choices').optional(), ptype: z.string().trim().max(2000).optional(), tag: z.string().trim().max(4000).optional(),
+  project: z.string().trim().max(4000).optional(), loom: anyOf((x) => ['yes', 'no'].includes(x), 'Not one of the choices').optional(), sent_from: day.optional(), sent_to: day.optional(),
+  invite: anyOf((x) => ['yes', 'no'].includes(x), 'Not one of the choices').optional(), // R105: invites only, or proposals only (the Reports default)
   client: ids.optional(), // R110: one client's jobs (R129: or several)
   // R118: more ways to find jobs: hourly or fixed, the client's country, auto mode, attached files, how far it got on Upwork
-  job_type: z.enum(['hourly', 'fixed']).optional(), country: z.string().trim().max(2000).optional(), auto: z.enum(['yes', 'no']).optional(),
-  docs: z.enum(['yes', 'no']).optional(), reached: z.enum(['continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired']).optional(), industry: z.string().trim().max(2000).optional(),
+  job_type: anyOf((x) => ['hourly', 'fixed'].includes(x), 'Not one of the choices').optional(), country: z.string().trim().max(2000).optional(), auto: anyOf((x) => ['yes', 'no'].includes(x), 'Not one of the choices').optional(),
+  docs: anyOf((x) => ['yes', 'no'].includes(x), 'Not one of the choices').optional(), reached: anyOf((x) => ['continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired'].includes(x), 'Not one of the choices').optional(), industry: z.string().trim().max(2000).optional(),
   // R117: the jobs behind one line of a report (and one of its numbers): the report, the line and the part (sent, viewed...)
   rdim: z.string().trim().max(40).optional(), rkey: z.string().max(300).optional(),
   rpart: z.enum(['all', 'continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired', 'lost']).optional(),
@@ -321,21 +321,21 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.outcome) { const o = many(f.outcome), named = o.filter((x) => x !== 'none');
     anyWhere([...(o.includes('none') ? ['s.outcome IS NULL'] : []), ...(named.length ? ['s.outcome IN (?)'] : [])]); if (named.length) p.push(named); }
   if (f.phase) { where.push(`(${phaseSql})=?`); p.push(f.phase); }
-  if (f.source) { where.push(f.source === 'app' ? `(s.source IS NULL OR s.source<>'claude_plugin')` : `s.source='claude_plugin'`); }
+  if (f.source) anyWhere(many(f.source).map((x) => (x === 'app' ? `(s.source IS NULL OR s.source<>'claude_plugin')` : `s.source='claude_plugin'`)));
   if (f.ptype) { where.push('p.template_name IN (?)'); p.push(many(f.ptype)); }
   if (f.tag) { where.push('EXISTS (SELECT 1 FROM job_tags jt WHERE jt.screening_id=s.id AND jt.tag_name IN (?))'); p.push(many(f.tag)); }
   if (f.project) { where.push('EXISTS (SELECT 1 FROM job_matches jm WHERE jm.screening_id=s.id AND jm.selected=1 AND jm.project_name IN (?))'); p.push(many(f.project)); }
-  if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
-  if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
+  if (f.loom) anyWhere(many(f.loom).map((x) => (x === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`)));
+  if (f.invite) anyWhere(many(f.invite).map((x) => (x === 'yes' ? `(${inviteSql})` : `NOT ${inviteSql}`)));
   if (f.client) { where.push('s.client_id IN (?)'); p.push(many(f.client).map(Number)); }
-  if (f.job_type) where.push(f.job_type === 'hourly' ? `s.job_type LIKE 'hour%'` : `s.job_type LIKE 'fixed%'`); // what it starts with: a note after it may name the other
+  if (f.job_type) anyWhere(many(f.job_type).map((x) => (x === 'hourly' ? `s.job_type LIKE 'hour%'` : `s.job_type LIKE 'fixed%'`))); // what it starts with: a note after it may name the other
   if (f.country) { const c = many(f.country); anyWhere(c.map(() => 's.client_country LIKE ?')); p.push(...c.map((x) => `%${likeEsc(x)}%`)); }
   if (f.industry) { where.push(`EXISTS (SELECT 1 FROM job_tags ji WHERE ji.screening_id=s.id AND ji.category_name='Industry' AND ji.tag_name IN (?))`); p.push(many(f.industry)); }
-  if (f.auto) where.push(f.auto === 'yes' ? 's.auto_mode=1' : 'COALESCE(s.auto_mode, 0)=0');
-  if (f.docs) where.push(`${f.docs === 'yes' ? '' : 'NOT '}EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=s.id)`);
+  if (f.auto) anyWhere(many(f.auto).map((x) => (x === 'yes' ? 's.auto_mode=1' : 'COALESCE(s.auto_mode, 0)=0')));
+  if (f.docs) anyWhere(many(f.docs).map((x) => `${x === 'yes' ? '' : 'NOT '}EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=s.id)`));
   // how far it got, as the reports count it: a view, a chat, an interview or a hire counts only once the proposal was sent (R119)
-  if (f.reached) where.push({ continued: 's.continued_at IS NOT NULL', written: 'p.finished_at IS NOT NULL', sent: sentSql, viewed: `(${sentSql} AND s.client_viewed='yes')`,
-    chat: `(${sentSql} AND s.client_replied='yes')`, interview: `(${sentSql} AND s.interviewed='yes')`, hired: `(${sentSql} AND s.outcome='Hired')` }[f.reached]);
+  if (f.reached) { const R: Record<string, string> = { continued: 's.continued_at IS NOT NULL', written: 'p.finished_at IS NOT NULL', sent: `(${sentSql})`, viewed: `(${sentSql} AND s.client_viewed='yes')`,
+    chat: `(${sentSql} AND s.client_replied='yes')`, interview: `(${sentSql} AND s.interviewed='yes')`, hired: `(${sentSql} AND s.outcome='Hired')` }; anyWhere(many(f.reached).map((x) => R[x])); }
   if (f.idlist) where.push(f.idlist.length ? `s.id IN (${f.idlist.map((n) => Number(n)).join(',')})` : '1=0');
   if (sr.start) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(sr.start); }
   if (sr.end) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < ?'); p.push(sr.end); }
@@ -1483,14 +1483,14 @@ api.patch('/admin/users/:id', admin, async (req, res) => {
 // ---------- admin: changes to the setup, to review and put back ----------
 // Every admin sees the list. Only the main admin marks a change as seen or puts one back.
 api.get('/admin/changes', admin, async (req, res) => {
-  const f = z.object({ kind: z.string().max(40).optional(), user: z.coerce.number().int().positive().optional(), source: z.enum(['app', 'claude_plugin']).optional(),
-    status: z.enum(['review', 'applied', 'reverted']).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  const f = z.object({ kind: z.string().max(400).optional(), user: ids.optional(), source: anyOf((x) => ['app', 'claude_plugin'].includes(x), 'Not one of the choices').optional(),
+    status: anyOf((x) => ['review', 'applied', 'reverted'].includes(x), 'Not one of the choices').optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     q: z.string().trim().max(100).optional(), entity_id: z.string().max(80).optional(), page: z.coerce.number().int().min(1).default(1) }).safeParse(req.query);
   if (!f.success) return void res.status(400).json({ error: f.error.issues[0].message });
   const d = f.data, where: string[] = [], p: any[] = [];
-  if (d.kind) { where.push('c.entity=?'); p.push(d.kind); } if (d.entity_id) { where.push('c.entity_id=?'); p.push(d.entity_id); }
-  if (d.user) { where.push('c.user_id=?'); p.push(d.user); } if (d.source) { where.push('c.source=?'); p.push(d.source); }
-  if (d.status === 'review') where.push(`c.needs_review=1 AND c.status='applied'`); else if (d.status) { where.push('c.status=?'); p.push(d.status); }
+  if (d.kind) { where.push('c.entity IN (?)'); p.push(many(d.kind)); } // R129: each filter takes several values if (d.entity_id) { where.push('c.entity_id=?'); p.push(d.entity_id); }
+  if (d.user) { where.push('c.user_id IN (?)'); p.push(many(d.user).map(Number)); } if (d.source) { where.push('c.source IN (?)'); p.push(many(d.source)); }
+  if (d.status) { const st = many(d.status), parts = st.map((x) => (x === 'review' ? `(c.needs_review=1 AND c.status='applied')` : `c.status=?`)); where.push(`(${parts.join(' OR ')})`); p.push(...st.filter((x) => x !== 'review')); }
   { const b = dayBounds(d.from, d.to, (req as any).zone ?? DB_ZONE); if (b.start) { where.push('c.created_at >= ?'); p.push(b.start); } if (b.end) { where.push('c.created_at < ?'); p.push(b.end); } }
   if (d.q) { where.push('(c.entity_name LIKE ? OR c.reason LIKE ?)'); p.push(`%${likeEsc(d.q)}%`, `%${likeEsc(d.q)}%`); }
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -1592,11 +1592,11 @@ const logDates = (col: string, f: { from?: string; to?: string }, where: string[
   if (b.end) { where.push(`${col} < ?`); p.push(b.end); }
 };
 api.get('/admin/audit', admin, async (req, res) => {
-  const f = z.object({ page: z.coerce.number().int().min(1).default(1), action: z.string().max(40).optional(), user: z.coerce.number().int().positive().optional(),
+  const f = z.object({ page: z.coerce.number().int().min(1).default(1), action: z.string().max(800).optional(), user: ids.optional(),
     from: day.optional(), to: day.optional(), q: z.string().trim().max(100).optional() }).parse(req.query);
   const where: string[] = []; const p: any[] = [];
-  if (f.action) { where.push('a.action=?'); p.push(f.action); }
-  if (f.user) { where.push('a.user_id=?'); p.push(f.user); }
+  if (f.action) { where.push('a.action IN (?)'); p.push(many(f.action)); }
+  if (f.user) { where.push('a.user_id IN (?)'); p.push(many(f.user).map(Number)); }
   if (f.q) { where.push('a.detail LIKE ?'); p.push(`%${likeEsc(f.q)}%`); }
   logDates('a.created_at', f, where, p, (req as any).zone);
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -1610,12 +1610,12 @@ api.get('/admin/audit', admin, async (req, res) => {
   res.json({ log, total, page, pages, page_size: ps(req), actions });
 });
 api.get('/admin/calls', admin, async (req, res) => {
-  const f = z.object({ page: z.coerce.number().int().min(1).default(1), kind: z.string().max(30).optional(), ok: z.enum(['0', '1']).optional(),
-    model: z.string().max(80).optional(), from: day.optional(), to: day.optional(), job: z.coerce.number().int().positive().optional() }).parse(req.query);
+  const f = z.object({ page: z.coerce.number().int().min(1).default(1), kind: z.string().max(400).optional(), ok: anyOf((x) => ['0', '1'].includes(x), 'Not one of the choices').optional(),
+    model: z.string().max(800).optional(), from: day.optional(), to: day.optional(), job: z.coerce.number().int().positive().optional() }).parse(req.query);
   const where: string[] = []; const p: any[] = [];
-  if (f.kind) { where.push('c.kind=?'); p.push(f.kind); }
-  if (f.ok) { where.push('c.ok=?'); p.push(Number(f.ok)); }
-  if (f.model) { where.push('c.model=?'); p.push(f.model); }
+  if (f.kind) { where.push('c.kind IN (?)'); p.push(many(f.kind)); }
+  if (f.ok) { where.push('c.ok IN (?)'); p.push(many(f.ok).map(Number)); }
+  if (f.model) { where.push('c.model IN (?)'); p.push(many(f.model)); }
   if (f.job) { where.push('c.screening_id=?'); p.push(f.job); }
   logDates('c.created_at', f, where, p, (req as any).zone);
   const w = where.length ? 'WHERE ' + where.join(' AND ') : '';

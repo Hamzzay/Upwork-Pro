@@ -352,11 +352,12 @@ function searchableSelect(sel) {
     const clearable = !!sel.value && !sel.disabled && [...sel.options].some((x) => x.value === '');
     wrap.classList.toggle('has-value', clearable); clearBtn.hidden = !clearable;
   };
+  let before = null; // a multi pick applies once, when the list closes: one reload, and a list that is redrawn on load cannot close it mid-pick
   const choose = (o) => {
     if (o.disabled) return;
     if (multi) { // tick it on or off and stay open; the "Any ..." line takes them all off
       if (o.value === '') [...sel.options].forEach((x) => { x.selected = false; }); else o.selected = !o.selected;
-      label(); draw(); sel.dispatchEvent(new Event('change', { bubbles: true })); return;
+      label(); draw(); return;
     }
     sel.value = o.value; label(); close(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
   const draw = () => {
@@ -373,9 +374,12 @@ function searchableSelect(sel) {
     if (sel.disabled) return;
     document.querySelectorAll('.ss.open').forEach((x) => x !== wrap && x.__close && x.__close());
     pop.hidden = false; wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
-    search.value = ''; active = multi ? 0 : Math.max(0, sel.selectedIndex); draw(); search.focus();
+    search.value = ''; active = multi ? 0 : Math.max(0, sel.selectedIndex); before = multi ? sel.value : null; draw(); search.focus();
   };
-  const close = () => { pop.hidden = true; wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+  const close = () => {
+    const was = !pop.hidden; pop.hidden = true; wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
+    if (multi && was && before !== null && sel.value !== before) { before = null; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  };
   wrap.__close = close;
   btn.onclick = () => (pop.hidden ? open() : close());
   btn.onkeydown = (e) => { if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); open(); } };
@@ -473,7 +477,7 @@ function fSearch(placeholder, value, onInput) {
 }
 /** R129: `multi` picks several; the value is then "a|b" both ways. */
 const isOn = (value, v) => String(value ?? '').split('|').includes(String(v));
-function fSelect(label, options, value, onChange, multi = false) {
+function fSelect(label, options, value, onChange, multi = true) { // R129: a filter picks several unless told otherwise
   const el = h('select', { 'aria-label': label, class: 'fsel', multiple: multi || null }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: multi ? isOn(value, v) : String(value) === String(v) }, l)));
   el.onchange = () => onChange(el.value);
   return el;
@@ -505,7 +509,7 @@ function listCard(o) {
   const bar = filterBar([searchEl, ...sels], { actions: o.actions, onClear: () => { st.q = ''; if (searchEl) searchEl.input.value = ''; filters.forEach((f, i) => { st[f.key] = ''; sels[i].value = ''; }); reset(); } });
   function draw() {
     const q = st.q.toLowerCase();
-    const shown = o.items.filter((it) => (!q || o.search.text(it).toLowerCase().includes(q)) && filters.every((f) => !st[f.key] || f.test(it, st[f.key])));
+    const shown = o.items.filter((it) => (!q || o.search.text(it).toLowerCase().includes(q)) && filters.every((f) => !st[f.key] || String(st[f.key]).split('|').some((v) => f.test(it, v))));
     st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / size)));
     setHashParams({ q: st.q, page: st.page, ...Object.fromEntries(filters.map((f) => [f.key, st[f.key]])) });
     if (o.onSync) o.onSync();
@@ -1026,14 +1030,14 @@ async function reportsView() {
   const fromIn = dateField('From', st.from, (v) => { st.from = v; load(); }), toIn = dateField('To', st.to, (v) => { st.to = v; load(); });
   const syncDates = () => { fromIn.hidden = toIn.hidden = st.period !== 'custom'; };
   // R129: profile, person and gate result pick several
-  const sel = (key, label, options, keep) => { const el = fSelect(label, options, st[key], (v) => { st[key] = v || (keep ?? ''); if (key === 'period') syncDates(); load(); }, ['profile', 'user', 'v'].includes(key)); return el; };
+  const sel = (key, label, options, keep) => { const el = fSelect(label, options, st[key], (v) => { st[key] = v || (keep ?? ''); if (key === 'period') syncDates(); load(); }); return el; };
   const periodSel = h('select', { 'aria-label': 'Period', class: 'fsel', 'data-plain': true }, REPORT_PERIODS.map(([k, l]) => h('option', { value: k, selected: st.period === k }, l)));
   periodSel.onchange = () => { st.period = periodSel.value; syncDates(); load(); };
   const basisSel = h('select', { 'aria-label': 'Dates by', class: 'fsel', 'data-plain': true }, [['screened', 'Date screened'], ['sent', 'Date sent']].map(([k, l]) => h('option', { value: k, selected: st.basis === k }, l)));
   basisSel.onchange = () => { st.basis = basisSel.value; load(); };
   // R105: an invite opens the chat itself, so its view and chat would blur the proposals' rates: proposals only by default
-  const inviteSel = h('select', { 'aria-label': 'Proposals or invites', class: 'fsel', 'data-plain': true }, [['no', 'Proposals only'], ['yes', 'Invites only'], ['all', 'Both']].map(([k, l]) => h('option', { value: k, selected: st.invite === k }, l)));
-  inviteSel.onchange = () => { st.invite = inviteSel.value; load(); };
+  // R129: proposals, invites, or both ticked (nothing ticked is both too)
+  const inviteSel = fSelect('Proposals and invites', [['no', 'Proposals'], ['yes', 'Invites']], st.invite === 'all' ? 'no|yes' : st.invite, (v) => { st.invite = v === 'no' || v === 'yes' ? v : 'all'; load(); });
   const profSel = sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])), userSel = opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null;
   const srcSel = sel('source', 'Any tool', [['app', 'Upwork Pro'], ['claude_plugin', 'Claude plugin']]), vSel = sel('v', 'Any verdict', [['PASS', 'Pass'], ['FLAG', 'Flag'], ['FAIL', 'Fail']]);
   const exportBtn = h('button', { class: 'btn', type: 'button', onclick: () => { if (!data) return;
@@ -1044,7 +1048,7 @@ async function reportsView() {
   const clearAll = () => { Object.assign(st, { profile: '', user: '', source: '', v: '' }); for (const x of [profSel, userSel, srcSel, vSel]) if (x) x.value = ''; load(); };
   const chipsEl = h('div', { class: 'fb-chips' });
   const drawChips = () => {
-    const name = (sel) => (sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : '');
+    const name = (sel) => (sel ? [...sel.selectedOptions].filter((o) => o.value !== '').map((o) => o.textContent).join(', ') : ''); // R129: every value picked
     const chips = [['profile', 'Profile', profSel], ['user', 'Person', userSel], ['source', 'Written in', srcSel], ['v', 'Gate result', vSel]].filter(([k, , el]) => st[k] && el)
       .map(([k, label, el]) => h('button', { type: 'button', class: 'chip fb-chip', title: 'Remove this filter', onclick: () => { st[k] = ''; el.value = ''; load(); } }, `${label}: ${name(el)}`, h('span', { 'aria-hidden': 'true' }, ' \u00d7')));
     chipsEl.hidden = !chips.length;
@@ -1499,9 +1503,8 @@ async function historyView() {
   let fbar = null;
 
   // R129: the filters that are lists pick several (any of them); yes or no, two-way and "got as far as" stay one choice
-  const MULTI = new Set(['profile', 'user', 'stage', 'outcome', 'v', 'rule', 'ptype', 'project', 'industry', 'tag', 'country', 'client']);
   const sel = (key, label, options) => {
-    const multi = MULTI.has(key);
+    const multi = key !== 'discarded'; // every filter picks several; live or discarded is a switch
     const el = h('select', { 'aria-label': label, class: 'fsel', multiple: multi || null }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: multi ? isOn(st[key], v) : String(st[key]) === String(v) }, l)));
     el.onchange = () => { st[key] = el.value; st.page = 1; load(); };
     return el;
@@ -3409,7 +3412,7 @@ async function auditView() {
   const drawTabs = () => tabs.replaceChildren(...[['activity', 'Activity'], ['calls', 'AI calls']].map(([k, l]) =>
     h('button', { type: 'button', role: 'tab', 'aria-selected': st.tab === k, class: 'tab' + (st.tab === k ? ' on' : ''), onclick: () => { st.tab = k; st.page = 1; drawTabs(); load(); } }, l)));
   drawTabs();
-  const sel = (key, label, options) => { const el = h('select', { class: 'fsel', 'aria-label': label }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l))); el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
+  const sel = (key, label, options) => { const el = h('select', { class: 'fsel', 'aria-label': label, multiple: true }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: isOn(st[key], v) }, l))); /* R129: several */ el.onchange = () => { st[key] = el.value; st.page = 1; load(); }; return el; };
   const dateIn = (key, label) => dateField(label, st[key], (v) => { st[key] = v; st.page = 1; load(); });
   const secs = (ms) => (ms / 1000).toFixed(1) + ' s';
   /** The shared filter bar; Clear empties the keys this tab filters by. */
