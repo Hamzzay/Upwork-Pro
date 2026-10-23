@@ -265,7 +265,7 @@ export const listFilters = z.object({
   client: z.coerce.number().int().positive().optional(), // R110: one client's jobs
   // R118: more ways to find jobs: hourly or fixed, the client's country, auto mode, attached files, how far it got on Upwork
   job_type: z.enum(['hourly', 'fixed']).optional(), country: z.string().trim().max(80).optional(), auto: z.enum(['yes', 'no']).optional(),
-  docs: z.enum(['yes', 'no']).optional(), reached: z.enum(['viewed', 'chat', 'interview']).optional(), industry: z.string().trim().max(120).optional(),
+  docs: z.enum(['yes', 'no']).optional(), reached: z.enum(['continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired']).optional(), industry: z.string().trim().max(120).optional(),
   // R117: the jobs behind one line of a report (and one of its numbers): the report, the line and the part (sent, viewed...)
   rdim: z.string().trim().max(40).optional(), rkey: z.string().max(300).optional(),
   rpart: z.enum(['all', 'continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired', 'lost']).optional(),
@@ -321,7 +321,9 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.industry) { where.push(`EXISTS (SELECT 1 FROM job_tags ji WHERE ji.screening_id=s.id AND ji.category_name='Industry' AND ji.tag_name=?)`); p.push(f.industry); }
   if (f.auto) where.push(f.auto === 'yes' ? 's.auto_mode=1' : 'COALESCE(s.auto_mode, 0)=0');
   if (f.docs) where.push(`${f.docs === 'yes' ? '' : 'NOT '}EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=s.id)`);
-  if (f.reached) where.push({ viewed: `s.client_viewed='yes'`, chat: `s.client_replied='yes'`, interview: `s.interviewed='yes'` }[f.reached]);
+  // how far it got, as the reports count it: a view, a chat, an interview or a hire counts only once the proposal was sent (R119)
+  if (f.reached) where.push({ continued: 's.continued_at IS NOT NULL', written: 'p.finished_at IS NOT NULL', sent: sentSql, viewed: `(${sentSql} AND s.client_viewed='yes')`,
+    chat: `(${sentSql} AND s.client_replied='yes')`, interview: `(${sentSql} AND s.interviewed='yes')`, hired: `(${sentSql} AND s.outcome='Hired')` }[f.reached]);
   if (f.idlist) where.push(f.idlist.length ? `s.id IN (${f.idlist.map((n) => Number(n)).join(',')})` : '1=0');
   if (sr.start) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(sr.start); }
   if (sr.end) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < ?'); p.push(sr.end); }

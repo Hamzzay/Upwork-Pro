@@ -838,7 +838,8 @@ async function dashboardView() {
     return '#/history?' + q;
   };
   /** R117: the jobs behind a number here, exactly (a report line: the totals, a person or a profile; the part: sent, hired...). */
-  const exact = (part, extra = {}, rdim = 'funnel', rkey = 'all', label = 'the Dashboard') => jobsLink({ rdim, rkey, rpart: part === 'all' ? '' : part, rlabel: label, ...extra });
+  const exact = (part, extra = {}, rdim = 'funnel', rkey = 'all', label = 'the Dashboard') => { const d = directFilters(rdim, rkey, part); // R119: real filters first
+    return d ? jobsLink({ ...d, ...extra }) : jobsLink({ rdim, rkey, rpart: part === 'all' ? '' : part, rlabel: label, ...extra }); };
   const kpi = (label, value, sub, link, cls) => h(link ? 'a' : 'div', { class: 'stat kpi ' + (cls || ''), href: link || null }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), sub ? h('span', { class: 'sub small muted' }, sub) : null);
   const panel = (title, sub, content, wide, after) => h('div', { class: 'card dpanel' + (wide ? ' wide' : '') }, h('div', { class: 'card-head' }, h('h2', {}, title), sub ? h('span', { class: 'sub' }, sub) : null), h('div', { class: 'card-pad' }, content, after || null));
   const hbar = (label, value, max, extra, link, shown) => h(link ? 'a' : 'div', { class: 'hbar', href: link || null }, h('span', { class: 'lbl', title: label }, label),
@@ -962,7 +963,8 @@ async function reportsView() {
   syncDates();
 
   /** R117: the jobs behind a report line, or one of its numbers (part), in the Jobs list with the same filters. */
-  const rowLink = (dimKey, label, row, part = 'all') => jobsLink({ rdim: dimKey, rkey: row.key, rpart: part === 'all' ? '' : part, rlabel: label, tab: '' });
+  const rowLink = (dimKey, label, row, part = 'all') => { const d = directFilters(dimKey, row.key, part); // R119: real filters first
+    return d ? jobsLink({ ...d, tab: '' }) : jobsLink({ rdim: dimKey, rkey: row.key, rpart: part === 'all' ? '' : part, rlabel: label, tab: '' }); };
   const PART_OF = { view: 'viewed', chat: 'chat', interview: 'interview', hire: 'hired' };
   /** A number in a report line that opens its own jobs (it never opens the line's jobs instead). */
   const numLink = (href, text, title) => h('a', { class: 'cellink', href, title, onclick: (e) => e.stopPropagation() }, text);
@@ -1329,6 +1331,22 @@ const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, type: 4, review: 4 }
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
 /** R117: the part of a report line a number stands for. */
 const RPART = { continued: 'continued', written: 'with a proposal written', sent: 'sent', viewed: 'viewed', chat: 'with a chat opened', interview: 'interviewed', hired: 'hired', lost: 'lost' };
+/**
+ * R119 (Hamza): a report line opens the Jobs list with real filters wherever the list has one for it (the profile, the person, the type,
+ * the project, the rule...), so the dropdowns show them and can be changed; the part clicked (sent, viewed, hired...) becomes "Got as far
+ * as". Null when the list has no filter for it (a signal, a review score, a speed...): then the exact jobs are opened instead (rdim).
+ */
+const DIRECT = { profile: (k) => (k === 'none' ? null : { profile: k }), person: (k) => ({ user: k }), type: (k) => ({ ptype: k }), project: (k) => ({ project: k }),
+  industry: (k) => ({ industry: k }), tag: (k) => ({ tag: k }), rule: (k) => ({ rule: k }), verdict: (k) => ({ v: k }), source: (k) => ({ source: k }), loom: (k) => ({ loom: k }),
+  mode: (k) => ({ auto: k === 'auto' ? 'yes' : 'no' }), documents: (k) => ({ docs: k }), invite: (k) => ({ invite: k === 'invite' ? 'yes' : 'no' }), outcome: (k) => ({ outcome: k }), funnel: () => ({}) };
+const SENT_BASIS = new Set(['loom', 'invite', 'outcome', 'boost', 'connects', 'loom_video', 'sent_weekday', 'sent_time', 'loss_reason', 'opening']);
+function directFilters(dim, key, part = 'all') {
+  const f = DIRECT[dim] ? DIRECT[dim](String(key)) : null;
+  if (!f || part === 'lost') return null;
+  // a report of sent proposals counts only sent ones: there, all, continued and written all mean sent
+  const reached = SENT_BASIS.has(dim) && ['all', 'continued', 'written'].includes(part) ? 'sent' : part !== 'all' ? part : '';
+  return { ...f, ...(reached ? { reached } : {}) };
+}
 const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'rdim', 'rkey', 'rpart', 'rlabel', 'job_type', 'country', 'auto', 'docs', 'reached', 'industry', 'discarded'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
@@ -1446,7 +1464,7 @@ async function historyView() {
    * is under "More filters", in groups. The active ones are chips under the bar, each with its own x, and Clear all.
    */
   const ymdOf = (d) => ymd(d);
-  const DATES = [['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Choose dates\u2026']];
+  const DATES = [['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90d', 'Last 90 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Choose dates\u2026']];
   const rangeOf = (k) => { if (k === 'lastmonth') { const n = new Date(); return { from: ymdOf(new Date(n.getFullYear(), n.getMonth() - 1, 1)), to: ymdOf(new Date(n.getFullYear(), n.getMonth(), 0)) }; } return periodRange(k); };
   let customDates = false;
   const dateKey = () => { if (!st.from && !st.to) return customDates ? 'custom' : ''; const hit = DATES.find(([k]) => k !== 'custom' && rangeOf(k).from === st.from && rangeOf(k).to === st.to); return hit ? hit[0] : 'custom'; };
@@ -1466,7 +1484,7 @@ async function historyView() {
     { group: 'Client and job', key: 'job_type', label: 'Job type', opts: [['hourly', 'Hourly'], ['fixed', 'Fixed price']] },
     { group: 'Client and job', key: 'docs', label: 'Client files', opts: [['yes', 'With attached files'], ['no', 'No files']] },
     { group: 'Upwork', key: 'invite', label: 'Proposals or invites', opts: [['no', 'Proposals only'], ['yes', 'Invites only']] },
-    { group: 'Upwork', key: 'reached', label: 'Got as far as', opts: [['viewed', 'Viewed'], ['chat', 'Chat opened'], ['interview', 'Interview']] },
+    { group: 'Upwork', key: 'reached', label: 'Got as far as', opts: [['continued', 'Continued'], ['written', 'Proposal written'], ['sent', 'Sent'], ['viewed', 'Viewed'], ['chat', 'Chat opened'], ['interview', 'Interview'], ['hired', 'Hired']] },
     { group: 'Upwork', key: 'outcome', label: 'Outcome', opts: [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])] },
     ...(me.role === 'admin' ? [{ group: 'Upwork', key: 'discarded', label: 'Live or discarded', any: 'Live jobs', opts: [['1', 'Discarded jobs']] }] : []),
   ];
@@ -3485,7 +3503,7 @@ async function mergeDialog(c) {
 // ---------- Flag review (R63): per rule, what people did when it fired and how those jobs went; for relaxing rules with evidence ----------
 const FR_HINT = { relax: ['Candidate to relax', 'PASS'], keep: ['Keep it', 'FAIL'], working: ['Doing its job', ''], mixed: ['Mixed', 'FLAG'], too_few: ['Too few jobs yet', 'wait'] };
 /** R117: a number on the Flag review opens its jobs: the jobs the rule fired on that were continued, sent or hired (the Reports line for the rule). */
-const frLink = (x, part, text, n) => (n ? h('a', { class: 'cellink', href: '#/history?' + new URLSearchParams({ rdim: 'rule', rkey: x.code, rpart: part, rlabel: `Rule fired: ${x.code}` }), title: 'Open these jobs' }, text) : text);
+const frLink = (x, part, text, n) => (n ? h('a', { class: 'cellink', href: '#/history?' + new URLSearchParams(directFilters('rule', x.code, part)), title: 'Open these jobs' }, text) : text);
 async function flagReviewView() {
   const r = await api('GET', '/reports/flag-review');
   const pct = (n, d) => (d ? Math.round((n / d) * 100) + '%' : '-');

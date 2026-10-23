@@ -2192,3 +2192,15 @@ Why (Hamza): the filters were two crowded rows (a checkbox ran under the buttons
   **Clear all** (the tab stays).
 - **Columns, Export and Select to discard** moved to the right of the tabs.
 
+### R119. Opened from a report, the Jobs list shows its filters in the dropdowns (done, 23 October)
+Why (Hamza): coming from Reports the list was right, but the dropdowns did not show the filter, so changing anything went wrong.
+- A report line, or one of its numbers, now opens the Jobs list with **real filters** wherever the list has one: the profile, the person,
+  the proposal type, the project, the industry, the tag, the rule, the gate result, written in, Loom video, auto mode, client files,
+  proposals or invites, the outcome. The number clicked becomes **Got as far as** (continued, proposal written, sent, viewed, chat
+  opened, interview, hired), which has those choices now. They show in the dropdowns and as chips, ready to change one at a time.
+- The same from the Dashboard (the funnel, the numbers at the top, a person's or profile's line) and the Flag review.
+- Reports with no such filter in the list (a signal, a review score, a speed, a day...) still open their exact jobs as before, with
+  every other filter (the period, the profile...) in the dropdowns.
+- The date list has **Last 90 days**, the Reports default.
+- Checked: 400 report numbers against the Jobs list through these filters, with and without invites: all equal.
+

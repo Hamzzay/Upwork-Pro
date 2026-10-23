@@ -146,6 +146,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 98 | Attached files always reach the proposal (a file added after screening too); mobile app jobs put the projects with App Store / Google Play links first and link to the stores (R116) | done |
 | 99 | Every number in Reports, the Dashboard and the Flag review opens exactly its jobs in the Jobs list, filters applied (R117) | done |
 | 100 | A cleaner Jobs filter bar: one row, More filters in groups, chips for the filters in use; industry, tag, project, Loom, sent dates, job type, country, auto mode, files and how far it got (R118) | done |
+| 101 | From Reports and the Dashboard, the Jobs list opens with real filters in the dropdowns; Got as far as covers every step (R119) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
