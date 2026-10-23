@@ -255,19 +255,26 @@ const PAGE_SIZES = [20, 50, 100, 200] as const;
 const ps = (req: any): number => (PAGE_SIZES as readonly number[]).includes(Number(req.user?.page_size)) ? Number(req.user.page_size) : 20;
 const likeEsc = (v: string) => v.replace(/[\\%_]/g, (c) => '\\' + c);
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/**
+ * R129 (Hamza): a filter can hold several values, separated by "|" ("profile=3|5" is either profile). One value works as before, so
+ * every link and Claude's tools are unchanged. `many` reads one back as a list.
+ */
+const anyOf = (ok: (x: string) => boolean, msg: string) => z.string().trim().max(2000).refine((v) => v.split('|').every((x) => ok(x.trim())), msg);
+export const many = (v: unknown): string[] => (v == null || v === '' ? [] : String(v).split('|').map((x) => x.trim()).filter(Boolean));
+const ids = anyOf((x) => /^\d{1,9}$/.test(x), 'Not an id');
 export const listFilters = z.object({
-  verdict: z.enum(['PASS', 'FLAG', 'FAIL']).optional(), mine: z.enum(['0', '1']).optional(), q: z.string().trim().max(100).optional(),
-  from: day.optional(), to: day.optional(), rule: z.string().trim().regex(/^[A-Z]\d{1,3}$/).optional(),
-  profile: z.coerce.number().int().positive().optional(), user: z.coerce.number().int().positive().optional(),
-  outcome: z.string().trim().max(60).optional(), stage: z.enum([...STAGES, 'needs_action', 'quiet']).optional(), phase: z.enum(PHASES).optional(),
+  verdict: anyOf((x) => ['PASS', 'FLAG', 'FAIL'].includes(x), 'Pass, Flag or Fail').optional(), mine: z.enum(['0', '1']).optional(), q: z.string().trim().max(100).optional(),
+  from: day.optional(), to: day.optional(), rule: anyOf((x) => /^[A-Z]\d{1,3}$/.test(x), 'Not a rule code').optional(),
+  profile: ids.optional(), user: ids.optional(),
+  outcome: z.string().trim().max(1000).optional(), stage: anyOf((x) => ([...STAGES, 'needs_action', 'quiet'] as string[]).includes(x), 'Not a step').optional(), phase: z.enum(PHASES).optional(),
   // added for the reports: where it was written, the proposal type, a job tag, a project shown, with or without a Loom video, and the date it was sent
-  source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(160).optional(), tag: z.string().trim().max(120).optional(),
-  project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
+  source: z.enum(['app', 'claude_plugin']).optional(), ptype: z.string().trim().max(2000).optional(), tag: z.string().trim().max(4000).optional(),
+  project: z.string().trim().max(4000).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
   invite: z.enum(['yes', 'no']).optional(), // R105: invites only, or proposals only (the Reports default)
-  client: z.coerce.number().int().positive().optional(), // R110: one client's jobs
+  client: ids.optional(), // R110: one client's jobs (R129: or several)
   // R118: more ways to find jobs: hourly or fixed, the client's country, auto mode, attached files, how far it got on Upwork
-  job_type: z.enum(['hourly', 'fixed']).optional(), country: z.string().trim().max(80).optional(), auto: z.enum(['yes', 'no']).optional(),
-  docs: z.enum(['yes', 'no']).optional(), reached: z.enum(['continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired']).optional(), industry: z.string().trim().max(120).optional(),
+  job_type: z.enum(['hourly', 'fixed']).optional(), country: z.string().trim().max(2000).optional(), auto: z.enum(['yes', 'no']).optional(),
+  docs: z.enum(['yes', 'no']).optional(), reached: z.enum(['continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired']).optional(), industry: z.string().trim().max(2000).optional(),
   // R117: the jobs behind one line of a report (and one of its numbers): the report, the line and the part (sent, viewed...)
   rdim: z.string().trim().max(40).optional(), rkey: z.string().max(300).optional(),
   rpart: z.enum(['all', 'continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired', 'lost']).optional(),
@@ -294,7 +301,9 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   // a discarded job is in no list, count, report or export; only an admin can ask for the discarded ones
   where.push(f.discarded === '1' && req.user.role === 'admin' ? 's.discarded_at IS NOT NULL' : 's.discarded_at IS NULL');
   if (!canSeeAll(req.user.role) || f.mine === '1') { where.push('s.user_id=?'); p.push(req.user.id); }
-  if (f.verdict) { where.push('s.verdict=?'); p.push(f.verdict); }
+  // R129: each filter with several values matches any of them
+  const anyWhere = (parts: string[]) => { if (parts.length) where.push(parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0]); };
+  if (f.verdict) { where.push('s.verdict IN (?)'); p.push(many(f.verdict)); }
   const cq = f.q ? /^c-?(\d{1,9})$/i.exec(f.q.trim()) : null; // R110: "C-12" finds that client's jobs
   if (cq) { where.push('s.client_id=?'); p.push(Number(cq[1])); }
   else if (f.q) {
@@ -306,21 +315,22 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   const zone = req.zone ?? DB_ZONE, cr = dayBounds(f.from, f.to, zone), sr = dayBounds(f.sent_from, f.sent_to, zone);
   if (cr.start) { where.push('s.created_at >= ?'); p.push(cr.start); }
   if (cr.end) { where.push('s.created_at < ?'); p.push(cr.end); }
-  if (f.rule) { where.push(`CONCAT(', ', s.rule_codes, ',') LIKE ?`); p.push(`%, ${f.rule},%`); } // whole codes only: G1 never matches G14
-  if (f.profile) { where.push('s.upwork_profile_id=?'); p.push(f.profile); }
-  if (f.user && canSeeAll(req.user.role)) { where.push('s.user_id=?'); p.push(f.user); }
-  if (f.outcome) { if (f.outcome === 'none') where.push('s.outcome IS NULL'); else { where.push('s.outcome=?'); p.push(f.outcome); } }
+  if (f.rule) { const r = many(f.rule); anyWhere(r.map(() => `CONCAT(', ', s.rule_codes, ',') LIKE ?`)); p.push(...r.map((x) => `%, ${x},%`)); } // whole codes only: G1 never matches G14
+  if (f.profile) { where.push('s.upwork_profile_id IN (?)'); p.push(many(f.profile).map(Number)); }
+  if (f.user && canSeeAll(req.user.role)) { where.push('s.user_id IN (?)'); p.push(many(f.user).map(Number)); }
+  if (f.outcome) { const o = many(f.outcome), named = o.filter((x) => x !== 'none');
+    anyWhere([...(o.includes('none') ? ['s.outcome IS NULL'] : []), ...(named.length ? ['s.outcome IN (?)'] : [])]); if (named.length) p.push(named); }
   if (f.phase) { where.push(`(${phaseSql})=?`); p.push(f.phase); }
   if (f.source) { where.push(f.source === 'app' ? `(s.source IS NULL OR s.source<>'claude_plugin')` : `s.source='claude_plugin'`); }
-  if (f.ptype) { where.push('p.template_name=?'); p.push(f.ptype); }
-  if (f.tag) { where.push('EXISTS (SELECT 1 FROM job_tags jt WHERE jt.screening_id=s.id AND jt.tag_name=?)'); p.push(f.tag); }
-  if (f.project) { where.push('EXISTS (SELECT 1 FROM job_matches jm WHERE jm.screening_id=s.id AND jm.selected=1 AND jm.project_name=?)'); p.push(f.project); }
+  if (f.ptype) { where.push('p.template_name IN (?)'); p.push(many(f.ptype)); }
+  if (f.tag) { where.push('EXISTS (SELECT 1 FROM job_tags jt WHERE jt.screening_id=s.id AND jt.tag_name IN (?))'); p.push(many(f.tag)); }
+  if (f.project) { where.push('EXISTS (SELECT 1 FROM job_matches jm WHERE jm.screening_id=s.id AND jm.selected=1 AND jm.project_name IN (?))'); p.push(many(f.project)); }
   if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
   if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
-  if (f.client) { where.push('s.client_id=?'); p.push(f.client); }
+  if (f.client) { where.push('s.client_id IN (?)'); p.push(many(f.client).map(Number)); }
   if (f.job_type) where.push(f.job_type === 'hourly' ? `s.job_type LIKE 'hour%'` : `s.job_type LIKE 'fixed%'`); // what it starts with: a note after it may name the other
-  if (f.country) { where.push('s.client_country LIKE ?'); p.push(`%${likeEsc(f.country)}%`); }
-  if (f.industry) { where.push(`EXISTS (SELECT 1 FROM job_tags ji WHERE ji.screening_id=s.id AND ji.category_name='Industry' AND ji.tag_name=?)`); p.push(f.industry); }
+  if (f.country) { const c = many(f.country); anyWhere(c.map(() => 's.client_country LIKE ?')); p.push(...c.map((x) => `%${likeEsc(x)}%`)); }
+  if (f.industry) { where.push(`EXISTS (SELECT 1 FROM job_tags ji WHERE ji.screening_id=s.id AND ji.category_name='Industry' AND ji.tag_name IN (?))`); p.push(many(f.industry)); }
   if (f.auto) where.push(f.auto === 'yes' ? 's.auto_mode=1' : 'COALESCE(s.auto_mode, 0)=0');
   if (f.docs) where.push(`${f.docs === 'yes' ? '' : 'NOT '}EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=s.id)`);
   // how far it got, as the reports count it: a view, a chat, an interview or a hire counts only once the proposal was sent (R119)
@@ -329,9 +339,14 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.idlist) where.push(f.idlist.length ? `s.id IN (${f.idlist.map((n) => Number(n)).join(',')})` : '1=0');
   if (sr.start) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(sr.start); }
   if (sr.end) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < ?'); p.push(sr.end); }
-  if (f.stage === 'needs_action') { where.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
-  else if (f.stage === 'quiet') { where.push(`(${stageSql})='submitted' AND COALESCE(${statusAtSql}, s.created_at) < NOW() - INTERVAL ? DAY`); p.push(quietDays); }
-  else if (f.stage) { where.push(`(${stageSql})=?`); p.push(f.stage); }
+  if (f.stage) { // any of the steps picked; "Needs action" and "Gone quiet" are groups of their own
+    const st = many(f.stage), plain = st.filter((x) => x !== 'needs_action' && x !== 'quiet');
+    const parts: string[] = [];
+    if (st.includes('needs_action')) { parts.push(`(${stageSql}) IN (?)`); p.push(NEEDS_ACTION); }
+    if (st.includes('quiet')) { parts.push(`((${stageSql})='submitted' AND COALESCE(${statusAtSql}, s.created_at) < NOW() - INTERVAL ? DAY)`); p.push(quietDays); }
+    if (plain.length) { parts.push(`(${stageSql}) IN (?)`); p.push(plain); }
+    anyWhere(parts);
+  }
   return { sql: where.length ? 'WHERE ' + where.join(' AND ') : '', p };
 }
 
@@ -981,12 +996,12 @@ async function analysisWhere(req: any, f: z.infer<typeof analysisFilters>) {
   if (f.profile_name) {
     const p = (await query<any>('SELECT id FROM upwork_profiles WHERE name=? LIMIT 1', [f.profile_name]))[0];
     if (!p) throw Object.assign(new Error(`No Upwork profile is called "${f.profile_name}". See plugin_options for the names.`), { status: 400 });
-    f.profile = p.id;
+    f.profile = String(p.id);
   }
   if (f.person) {
     const u = (await query<any>('SELECT id FROM users WHERE name=? LIMIT 1', [f.person]))[0];
     if (!u) throw Object.assign(new Error(`No person is called "${f.person}".`), { status: 400 });
-    f.user = u.id;
+    f.user = String(u.id);
   }
   return f;
 }

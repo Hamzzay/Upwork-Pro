@@ -28,6 +28,7 @@ import { looksInvited } from '../src/invite';
 import { jobPostOnly } from '../src/screening/posting';
 import { codeDigest, detectKind, extractInCode, squeeze } from '../src/screening/attachments';
 import { assemble, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
+import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes';
 import { clientPost, sameClient, sameTitle } from '../src/clients';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -611,7 +612,22 @@ const ctx = { rules, projects };
       // a chat rewrite that dropped two of them: they come back, in order, after the one still there
       const back = restoreLinks(`Hi,\n\nChairboss: booking.\n${web}\n\nShall we talk?`, [{ links: three }]);
       assert.ok(back.includes(`Chairboss: booking.\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}\n\nShall we talk?`), 'dropped links come back');
-      assert.equal(restoreLinks('Hi, no projects here.', [{ links: three }]), 'Hi, no projects here.', 'a project taken out stays out'); }
+      assert.equal(restoreLinks('Hi, no projects here.', [{ name: 'Chairboss', links: three }]), 'Hi, no projects here.', 'a project taken out stays out');
+      // R130: a proposal the model wrote whole (a structured submission): the links are put right in code
+      const P = [{ name: 'Chairboss', links: three }];
+      assert.equal(restoreLinks(`2. Relevant work\nChairboss: salon booking with Stripe.\nhttps://www.chairboss.example.com/\n\n3. Plan`, P),
+        `2. Relevant work\nChairboss: salon booking with Stripe.\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}\n\n3. Plan`, 'a bare web link (with www and a slash) becomes the block');
+      assert.equal(restoreLinks(`Chairboss\nA salon booking platform.\n\nNext steps`, P), `Chairboss\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}\nA salon booking platform.\n\nNext steps`, 'no link at all: the block goes under the title');
+      assert.equal(restoreLinks(`Chairboss: booking.\n[project links]`, P), `Chairboss: booking.\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}`, 'a copied placeholder takes the block');
+      assert.equal(restoreLinks(`Chairboss (see it live: ${web})`, P), `Chairboss (see it live: ${web})\nAndroid link: ${and}\niOS link: ${ios}`, 'a line with words keeps them; the other links follow');
+      assert.equal(restoreLinks(`Chairboss: x\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}`, P), `Chairboss: x\nWeb link: ${web}\nAndroid link: ${and}\niOS link: ${ios}`, 'a complete block stays as it is');
+      assert.equal(restoreLinks(`Chairboss: ${web}/pricing`, P).split('\n').length, 2 + 1, 'a link with a page after it counts as the project link: the other two follow'); }
+    // R129: a filter with several values (a|b) matches any of them; one value works as before; a bad value is refused
+    { const w = jobWhere({ user: { id: 1, role: 'admin' } }, jobFilters.parse({ profile: '3|5', verdict: 'FLAG|FAIL', outcome: 'none|Hired', stage: 'needs_action|ready', rule: 'G1|G14' }));
+      assert.ok(w.sql.includes('s.upwork_profile_id IN (?)') && w.sql.includes('(s.outcome IS NULL OR s.outcome IN (?))') && w.sql.includes(`CONCAT(', ', s.rule_codes, ',') LIKE ? OR`), 'several values: any of them');
+      assert.deepEqual(w.p.slice(0, 4), [['FLAG', 'FAIL'], '%, G1,%', '%, G14,%', [3, 5]]);
+      assert.deepEqual(jobWhere({ user: { id: 1, role: 'admin' } }, jobFilters.parse({ profile: '7' })).p, [[7]], 'one value as before');
+      assert.ok(!jobFilters.safeParse({ profile: '3|x' }).success && !jobFilters.safeParse({ verdict: 'MAYBE' }).success, 'bad values refused'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

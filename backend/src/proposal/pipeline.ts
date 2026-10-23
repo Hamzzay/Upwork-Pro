@@ -335,6 +335,8 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
     writerWarnings = parsed.data.warnings;
     gaps = parsed.data.gaps ?? [];
     text = splitText(parsed.data.proposal).letter; // a stray "Screening answers" section the model added is cut off
+    // R130: written whole (a structured submission): each project's links are put right in code, as the parts mode does
+    text = restoreLinks(text, f.projects.map((x) => ({ name: x.name, links: linksFor(x) })));
     if (f.questions.length) answers = pair(f.questions, parsed.data.screening_answers);
   }
 
@@ -560,6 +562,7 @@ export async function runProposal(proposalId: number, stillWanted: () => boolean
   if (!d || !stillWanted()) return;
   if (early) await saveTemplate(d.template);
   const written = d.answers ? { letter: d.text, answers: d.answers } : splitText(d.text); // an early draft from before R59 has them in the text
+  if (!d.parts) written.letter = restoreLinks(written.letter, f.projects.map((x) => ({ name: x.name, links: linksFor(x) }))); // R130: written whole, links put right
   const versionNo = await addVersion(proposalId, textToHtml(written.letter), 'ai', null, `Written with "${d.template.name}"${early ? ' (drafted early)' : ''}`, null, written.answers, d.parts ?? null);
   await saveGaps(proposalId, p.screening_id, versionNo, d.gaps ?? []);
   // the independent review follows every written proposal by itself (worker.ts picks it up), unless an admin turned that off
@@ -626,7 +629,7 @@ export async function runGapUpdate(proposalId: number) {
     text = assembleParts(parts, cfg['writer.loom_line']);
   } else {
     const o = writerOut.safeParse(r.data); if (!o.success) throw new Error('invalid_output');
-    text = restoreLinks(splitText(o.data.proposal).letter, f.projects.map((x) => ({ links: linksFor(x) })));
+    text = restoreLinks(splitText(o.data.proposal).letter, f.projects.map((x) => ({ name: x.name, links: linksFor(x) })));
   }
   const no = await addVersion(p.id, textToHtml(text), 'ai', null, `Updated with your experience: ${yes.map((g) => g.skill).join(', ')}`, cur.version_no, undefined, parts);
   await exec(`UPDATE proposal_gaps SET applied_version=? WHERE id IN (?)`, [no, yes.map((g) => g.id)]);
@@ -676,6 +679,17 @@ export async function runPartsRefresh(proposalId: number) {
     } else await keepStaleWarning(p, fit.stale);
     await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=NULL WHERE id=?`, [p.id]);
     return;
+  }
+  // R130: written whole by the AI (a structured submission, a chat revision), not by a person: its project links are put right in code
+  const src = (await query<any>('SELECT source FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, cur.version_no]))[0]?.source;
+  if (src === 'ai' || src === 'chat') {
+    const plain = htmlToPlain(cur.html), fixed = restoreLinks(plain, f.projects.map((x) => ({ name: x.name, links: linksFor(x) })));
+    if (fixed !== plain || fit.changed) {
+      await addVersion(p.id, fixed !== plain ? textToHtml(fixed) : cur.html, 'ai', null, `Updated ${[fixed !== plain ? 'the project links' : '', fit.changed ? 'the screening answers' : ''].filter(Boolean).join(', ')}`, cur.version_no, fit.answers, null);
+      await keepStaleWarning(p, fit.stale);
+      await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=NULL, profile_id=? WHERE id=?`, [f.profileId, p.id]);
+      return;
+    }
   }
   // edited by hand: the letter stays as the person wrote it (only its answers follow the projects); what it lacks is offered beside it
   if (fit.changed) await addVersion(p.id, cur.html, 'ai', null, 'Updated the screening answers for the chosen projects', cur.version_no, fit.answers, null);
@@ -818,7 +832,7 @@ export async function runChat(messageId: number) {
   if (!parsed.success) throw new Error('invalid_output');
   let resultVersion: number | null = null;
   // R126: a link line the rewrite dropped comes back after the project's link that is still there
-  const revised = parsed.data.proposal?.trim() ? restoreLinks(parsed.data.proposal.trim(), f.projects.map((x) => ({ links: linksFor(x) }))) : parsed.data.proposal?.trim();
+  const revised = parsed.data.proposal?.trim() ? restoreLinks(parsed.data.proposal.trim(), f.projects.map((x) => ({ name: x.name, links: linksFor(x) }))) : parsed.data.proposal?.trim();
   if (revised && revised.replace(/\s+/g, ' ') !== letter.replace(/\s+/g, ' ')) {
     const latest = (await query<any>('SELECT MAX(version_no) AS n FROM proposal_versions WHERE proposal_id=?', [p.id]))[0].n;
     const note = Number(latest) > basedOn ? `AI revision of v${basedOn}; v${latest} was saved meanwhile` : `AI revision of v${basedOn}`;

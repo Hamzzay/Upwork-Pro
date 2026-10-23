@@ -323,40 +323,57 @@ const acts = (...btns) => h('td', { class: 'acts' }, btns);
  * `el.value` read and `change` listener works unchanged. Applied automatically to any select added to the page.
  */
 function searchableSelect(sel) {
-  if (sel.__ss || sel.multiple || sel.dataset.plain !== undefined) return;
+  if (sel.__ss || sel.dataset.plain !== undefined) return;
   sel.__ss = true;
+  // R129: a <select multiple> picks several: each option is ticked on and off, the list stays open, and .value reads "a|b"
+  const multi = sel.multiple;
   const wrap = h('div', { class: 'ss ' + (sel.className || '') });
   if (sel.getAttribute('style')) wrap.setAttribute('style', sel.getAttribute('style'));
   const btn = h('button', { type: 'button', class: 'ss-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': sel.getAttribute('aria-label') || null });
   const search = h('input', { type: 'search', class: 'ss-search', placeholder: 'Search...', 'aria-label': 'Search options', autocomplete: 'off' });
   const list = h('ul', { class: 'ss-list', role: 'listbox' });
-  const pop = h('div', { class: 'ss-pop', hidden: true }, search, list);
+  const pop = h('div', { class: 'ss-pop' + (multi ? ' multi' : ''), hidden: true }, search, list);
   // a chosen value can be cleared in one click when "nothing chosen" is allowed (an option with value "")
   const clearBtn = h('button', { type: 'button', class: 'ss-clear', title: 'Clear', 'aria-label': 'Clear ' + (sel.getAttribute('aria-label') || 'selection') }, '×');
-  clearBtn.onclick = (e) => { e.stopPropagation(); close(); sel.value = ''; label(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
+  clearBtn.onclick = (e) => { e.stopPropagation(); close(); if (multi) [...sel.options].forEach((o) => { o.selected = false; }); else sel.value = ''; label(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
   sel.parentNode.insertBefore(wrap, sel);
   wrap.append(btn, clearBtn, pop, sel);
   sel.classList.add('ss-native'); sel.tabIndex = -1;
   let active = -1, shown = [];
+  const picked = () => [...sel.options].filter((o) => o.selected && o.value !== '');
   const label = () => {
+    if (multi) {
+      const on = picked(), any = [...sel.options].find((o) => o.value === '');
+      btn.textContent = !on.length ? (any ? any.textContent : '') : on.length === 1 ? on[0].textContent : `${on[0].textContent} +${on.length - 1}`;
+      btn.title = on.map((o) => o.textContent).join(', '); btn.classList.toggle('ph', !on.length); btn.disabled = sel.disabled;
+      wrap.classList.toggle('has-value', !!on.length && !sel.disabled); clearBtn.hidden = !on.length || sel.disabled; return;
+    }
     const o = sel.options[sel.selectedIndex]; btn.textContent = o ? o.textContent : ''; btn.classList.toggle('ph', !sel.value); btn.disabled = sel.disabled;
     const clearable = !!sel.value && !sel.disabled && [...sel.options].some((x) => x.value === '');
     wrap.classList.toggle('has-value', clearable); clearBtn.hidden = !clearable;
   };
-  const choose = (o) => { if (o.disabled) return; sel.value = o.value; label(); close(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
+  const choose = (o) => {
+    if (o.disabled) return;
+    if (multi) { // tick it on or off and stay open; the "Any ..." line takes them all off
+      if (o.value === '') [...sel.options].forEach((x) => { x.selected = false; }); else o.selected = !o.selected;
+      label(); draw(); sel.dispatchEvent(new Event('change', { bubbles: true })); return;
+    }
+    sel.value = o.value; label(); close(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     shown = [...sel.options].filter((o) => !q || o.textContent.toLowerCase().includes(q));
     if (active >= shown.length) active = shown.length - 1;
-    list.replaceChildren(...(shown.length ? shown.map((o, i) => h('li', { role: 'option', 'aria-selected': o.selected, class: (o.selected ? 'sel ' : '') + (i === active ? 'act' : '') + (o.disabled ? ' dis' : ''),
-      onmousedown: (e) => { e.preventDefault(); choose(o); }, onmousemove: () => { if (active !== i) { active = i; draw(); } } }, o.textContent)) : [h('li', { class: 'none' }, 'No matches')]));
+    const on = (o) => (multi ? (o.value === '' ? !picked().length : o.selected) : o.selected);
+    list.setAttribute('aria-multiselectable', multi ? 'true' : 'false');
+    list.replaceChildren(...(shown.length ? shown.map((o, i) => h('li', { role: 'option', 'aria-selected': on(o), class: (on(o) ? 'sel ' : '') + (i === active ? 'act' : '') + (o.disabled ? ' dis' : '') + (multi && o.value === '' ? ' any' : ''),
+      onmousedown: (e) => { e.preventDefault(); e.stopPropagation(); choose(o); }, /* stopped: the list is redrawn, so this item leaves the page and would read as a click outside */ onmousemove: () => { if (active !== i) { active = i; draw(); } } }, o.textContent)) : [h('li', { class: 'none' }, 'No matches')]));
     list.querySelector('.act')?.scrollIntoView({ block: 'nearest' });
   };
   const open = () => {
     if (sel.disabled) return;
     document.querySelectorAll('.ss.open').forEach((x) => x !== wrap && x.__close && x.__close());
     pop.hidden = false; wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
-    search.value = ''; active = Math.max(0, sel.selectedIndex); draw(); search.focus();
+    search.value = ''; active = multi ? 0 : Math.max(0, sel.selectedIndex); draw(); search.focus();
   };
   const close = () => { pop.hidden = true; wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
   wrap.__close = close;
@@ -374,7 +391,9 @@ function searchableSelect(sel) {
   // code that sets .value or disabled without an event: keep the button text in step
   new MutationObserver(label).observe(sel, { attributes: true, childList: true, subtree: true });
   const v = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
-  Object.defineProperty(sel, 'value', { get() { return v.get.call(this); }, set(x) { v.set.call(this, x); label(); }, configurable: true });
+  if (multi) Object.defineProperty(sel, 'value', { get() { return picked().map((o) => o.value).join('|'); },
+    set(x) { const want = String(x ?? '').split('|').filter(Boolean); [...this.options].forEach((o) => { o.selected = o.value !== '' && want.includes(o.value); }); label(); }, configurable: true });
+  else Object.defineProperty(sel, 'value', { get() { return v.get.call(this); }, set(x) { v.set.call(this, x); label(); }, configurable: true });
   label();
 }
 document.addEventListener('mousedown', (e) => { document.querySelectorAll('.ss.open').forEach((w) => { if (!w.contains(e.target)) w.__close(); }); });
@@ -452,8 +471,10 @@ function fSearch(placeholder, value, onInput) {
   el.input = input;
   return el;
 }
-function fSelect(label, options, value, onChange) {
-  const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(value) === String(v) }, l)));
+/** R129: `multi` picks several; the value is then "a|b" both ways. */
+const isOn = (value, v) => String(value ?? '').split('|').includes(String(v));
+function fSelect(label, options, value, onChange, multi = false) {
+  const el = h('select', { 'aria-label': label, class: 'fsel', multiple: multi || null }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: multi ? isOn(value, v) : String(value) === String(v) }, l)));
   el.onchange = () => onChange(el.value);
   return el;
 }
@@ -856,8 +877,8 @@ async function dashboardView() {
   const st = { period: PERIODS.some(([k]) => k === hp.period) ? hp.period : '30', profile: hp.profile || '', user: hp.user || '', mine: hp.mine === '1' };
   const opts = await api('GET', '/screenings/filter-options');
   const body = h('div', { class: 'stack' });
-  const sel = (key, label, options) => {
-    const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
+  const sel = (key, label, options) => { // R129: profile and person pick several
+    const el = h('select', { 'aria-label': label, class: 'fsel', multiple: true }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: isOn(st[key], v) }, l)));
     el.onchange = () => { st[key] = el.value; load(); };
     return el;
   };
@@ -1004,7 +1025,8 @@ async function reportsView() {
   };
   const fromIn = dateField('From', st.from, (v) => { st.from = v; load(); }), toIn = dateField('To', st.to, (v) => { st.to = v; load(); });
   const syncDates = () => { fromIn.hidden = toIn.hidden = st.period !== 'custom'; };
-  const sel = (key, label, options, keep) => { const el = fSelect(label, options, st[key], (v) => { st[key] = v || (keep ?? ''); if (key === 'period') syncDates(); load(); }); return el; };
+  // R129: profile, person and gate result pick several
+  const sel = (key, label, options, keep) => { const el = fSelect(label, options, st[key], (v) => { st[key] = v || (keep ?? ''); if (key === 'period') syncDates(); load(); }, ['profile', 'user', 'v'].includes(key)); return el; };
   const periodSel = h('select', { 'aria-label': 'Period', class: 'fsel', 'data-plain': true }, REPORT_PERIODS.map(([k, l]) => h('option', { value: k, selected: st.period === k }, l)));
   periodSel.onchange = () => { st.period = periodSel.value; syncDates(); load(); };
   const basisSel = h('select', { 'aria-label': 'Dates by', class: 'fsel', 'data-plain': true }, [['screened', 'Date screened'], ['sent', 'Date sent']].map(([k, l]) => h('option', { value: k, selected: st.basis === k }, l)));
@@ -1476,8 +1498,11 @@ async function historyView() {
   const listActs = h('div', { class: 'jobacts' }); // R118: Columns, Export and Select to discard, beside the tabs
   let fbar = null;
 
+  // R129: the filters that are lists pick several (any of them); yes or no, two-way and "got as far as" stay one choice
+  const MULTI = new Set(['profile', 'user', 'stage', 'outcome', 'v', 'rule', 'ptype', 'project', 'industry', 'tag', 'country', 'client']);
   const sel = (key, label, options) => {
-    const el = h('select', { 'aria-label': label, class: 'fsel' }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: String(st[key]) === String(v) }, l)));
+    const multi = MULTI.has(key);
+    const el = h('select', { 'aria-label': label, class: 'fsel', multiple: multi || null }, h('option', { value: '' }, label), options.map(([v, l]) => h('option', { value: v, selected: multi ? isOn(st[key], v) : String(st[key]) === String(v) }, l)));
     el.onchange = () => { st[key] = el.value; st.page = 1; load(); };
     return el;
   };
@@ -1539,10 +1564,10 @@ async function historyView() {
   const exportBtn = h('button', { class: 'btn', type: 'button' }, icon('doc'), 'Export');
   exportBtn.onclick = () => {
     const qs = jobQuery(st); qs.set('sort', st.sort); qs.set('dir', st.dir);
-    const n = st.v ? stats[st.v] : stats.total; // the counters ignore the verdict, so pick its own count
+    const n = st.v ? st.v.split('|').reduce((a, v) => a + (stats[v] || 0), 0) : stats.total; // the counters ignore the verdict, so add up its own counts
     const link = (fmt, text) => h('a', { class: 'btn' + (fmt === 'xlsx' ? ' primary' : ''), href: `/api/screenings/export?format=${fmt}&${qs}`, download: '' }, text);
     modal({ title: 'Export jobs', noConfirm: true, body: h('div', {},
-      h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} on screen (${tab().label}${st.v ? ', ' + st.v + ' only' : ''}, with the filters): the job post, the gate result, the decision, projects, profile, the final proposal, every status with its date and reason, and the full change history.`),
+      h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} on screen (${tab().label}${st.v ? ', ' + st.v.split('|').join(' or ') + ' only' : ''}, with the filters): the job post, the gate result, the decision, projects, profile, the final proposal, every status with its date and reason, and the full change history.`),
       h('div', { class: 'row', style: 'margin-top:16px;gap:8px' }, link('xlsx', 'Excel (.xlsx)'), link('csv', 'CSV'))) });
   };
   /**
@@ -1574,7 +1599,8 @@ async function historyView() {
     { group: 'Upwork', key: 'outcome', label: 'Outcome', opts: [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])] },
     ...(me.role === 'admin' ? [{ group: 'Upwork', key: 'discarded', label: 'Live or discarded', any: 'Live jobs', opts: [['1', 'Discarded jobs']] }] : []),
   ];
-  const named = (f, v) => { const o = f.opts.find(([k]) => String(k) === String(v)); return f.short ? f.short(v) : o ? o[1] : v; };
+  const named1 = (f, v) => { const o = f.opts.find(([k]) => String(k) === String(v)); return f.short ? f.short(v) : o ? o[1] : v; };
+  const named = (f, v) => String(v).split('|').map((x) => named1(f, x)).join(', ');
   let moreOpen = false; try { moreOpen = localStorage.getItem('jobs.more') === '1'; } catch { /* storage blocked */ }
   function drawFilters() {
     const t = tab();
@@ -1620,9 +1646,10 @@ async function historyView() {
     const add = (label, clear) => chips.push(h('button', { type: 'button', class: 'chip fb-chip', title: 'Remove this filter', onclick: () => { clear(); st.page = 1; drawFilters(); load(); } }, label, h('span', { 'aria-hidden': 'true' }, ' \u00d7')));
     if (st.q) add(`Search: ${st.q}`, () => { st.q = ''; searchIn.value = ''; });
     if (st.from || st.to) add(`Screened: ${(DATES.find(([k]) => k === dateKey()) || [])[1] && dateKey() !== 'custom' ? DATES.find(([k]) => k === dateKey())[1] : `${st.from ? dayText(st.from) : '\u2026'} to ${st.to ? dayText(st.to) : '\u2026'}`}`, () => { st.from = ''; st.to = ''; customDates = false; });
-    if (st.profile) add(`Profile: ${(opts.profiles.find((p) => String(p.id) === String(st.profile)) || {}).name || st.profile}`, () => { st.profile = ''; });
-    if (st.user) add(`Person: ${(opts.users.find((u) => String(u.id) === String(st.user)) || {}).name || st.user}`, () => { st.user = ''; });
-    if (st.stage) add(`Step: ${st.stage === 'needs_action' ? 'Needs action' : st.stage === 'quiet' ? 'Gone quiet' : (STAGE_INFO[st.stage] || [])[1] || st.stage}`, () => { st.stage = ''; });
+    const each = (v, name) => String(v).split('|').map(name).join(', ');
+    if (st.profile) add(`Profile: ${each(st.profile, (x) => (opts.profiles.find((p) => String(p.id) === x) || {}).name || x)}`, () => { st.profile = ''; });
+    if (st.user) add(`Person: ${each(st.user, (x) => (opts.users.find((u) => String(u.id) === x) || {}).name || x)}`, () => { st.user = ''; });
+    if (st.stage) add(`Step: ${each(st.stage, (x) => (x === 'needs_action' ? 'Needs action' : x === 'quiet' ? 'Gone quiet' : (STAGE_INFO[x] || [])[1] || x))}`, () => { st.stage = ''; });
     for (const f of defs) if (st[f.key]) add(`${f.label}: ${named(f, st[f.key])}`, () => { st[f.key] = ''; });
     if (st.sent_from || st.sent_to) add(`Sent: ${st.sent_from ? dayText(st.sent_from) : '\u2026'} to ${st.sent_to ? dayText(st.sent_to) : '\u2026'}`, () => { st.sent_from = ''; st.sent_to = ''; });
     if (st.mine) add('Only my jobs', () => { st.mine = false; mineBox.checked = false; });
@@ -1637,14 +1664,14 @@ async function historyView() {
       t.label, h('span', { class: 'n' }, String(t.key ? stats.tabs[t.key] || 0 : total)))));
   }
   const tile = (key, label, value, onClick, on) => h('button', { class: `stat ${key} ${on ? 'on' : ''}`, onclick: onClick }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value));
-  const setV = (v) => () => { st.v = st.v === v ? '' : v; st.page = 1; load(); };
+  const setV = (v) => () => { const on = st.v ? st.v.split('|') : []; st.v = (on.includes(v) ? on.filter((x) => x !== v) : [...on, v]).join('|'); st.page = 1; load(); }; // R129: tiles add up
   function drawStats() {
     const t = tab();
     const extra = t.need ? tile('NEED', 'Needs action', stats.needs_action, () => { st.stage = st.stage === 'needs_action' ? '' : 'needs_action'; st.page = 1; drawFilters(); load(); }, st.stage === 'needs_action')
       : t.quiet ? tile('QUIET', `Gone quiet (${stats.quiet_days}+ days)`, stats.quiet, () => { st.stage = st.stage === 'quiet' ? '' : 'quiet'; st.page = 1; drawFilters(); load(); }, st.stage === 'quiet')
       : h('div', { class: 'stat', style: 'cursor:default' }, h('span', { class: 'k' }, 'Continued anyway'), h('span', { class: 'v' }, stats.overridden));
     statsEl.replaceChildren(tile('', 'All results', stats.total, () => { st.v = ''; st.page = 1; load(); }, !st.v),
-      tile('PASS', 'Pass', stats.PASS, setV('PASS'), st.v === 'PASS'), tile('FLAG', 'Flag', stats.FLAG, setV('FLAG'), st.v === 'FLAG'), tile('FAIL', 'Fail', stats.FAIL, setV('FAIL'), st.v === 'FAIL'), extra);
+      tile('PASS', 'Pass', stats.PASS, setV('PASS'), isOn(st.v, 'PASS')), tile('FLAG', 'Flag', stats.FLAG, setV('FLAG'), isOn(st.v, 'FLAG')), tile('FAIL', 'Fail', stats.FAIL, setV('FAIL'), isOn(st.v, 'FAIL')), extra);
   }
   function headCell(label, sortKey) {
     if (!sortKey) return h('th', {}, label);

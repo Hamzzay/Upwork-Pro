@@ -2354,3 +2354,50 @@ Why (Hamza): the Screening answers tab only showed the answers; they should be e
     made version 4 with only answer 1 changed;
   - Edit on answer 2, typed and saved: version 5.
 
+### R129. Filters pick several values (done, 24 October)
+Why (Hamza): most dropdowns should be multi-select.
+- **Now multi-select**:
+  - Jobs: profile, person, step, outcome, gate result, rule fired, proposal type, project shown, industry, job tag, client country
+    and returning client;
+  - Reports: profile, person and gate result;
+  - Dashboard: profile and person.
+  A job matches if it matches **any** of the values picked.
+- **Still one choice**, where several would mean nothing:
+  - yes/no and two-way filters: Loom video, auto mode, client files, proposals or invites, hourly or fixed, written in;
+  - "Got as far as", which is a ladder: Sent already includes Viewed;
+  - the period and date pickers;
+  - the admin pages (Changes, Logs).
+- How it works:
+  - Each option has a tick box, the list stays open while you tick, and a search box at the top narrows it.
+  - The button reads "Hamza Yaseen +1", × clears it, and "Any profile" at the top clears the ticks.
+  - The chip under the bar lists every value ("Profile: Hamza Yaseen, Wasif Ibrahim").
+  - On the Jobs list, the Pass, Flag and Fail tiles now add up: Flag then Fail shows both.
+- In links the values are joined by "|" (`profile=3|1`), so a single value works as before. Report links, Claude's tools and saved
+  links are unchanged. Every list, count, report, export and the Dashboard read the same filters.
+- Checked:
+  - unit tests: several values match any of them, one value works as before, a bad value is refused;
+  - in the browser: two profiles ticked on Jobs gave 24 jobs (20 + 4) with `profile=3|1`, and the Dashboard read the same pick from
+    its link;
+  - also fixed: the list closed after the first tick (the redrawn list made the click look like a click outside).
+
+### R130. Every project link in proposals written whole, too (done, 24 October)
+Why (Hamza): after R126, jobs 261 (Type 2) and 262 (Type 5) still showed only the bare web link. The reviewer saw all three links,
+the writer's output did not.
+- **The cause:** R126 builds the links in code for proposals made in parts. A structured submission (Type 2, and any proposal the
+  post's structure decides) is written whole by the model, which wrote one link however it was told.
+- **Now code puts them right in every proposal written whole**: the first write, the early draft, chat revisions and the experience
+  update. For each project:
+  - a link the model wrote (bare, labelled, with or without https://, www. or a trailing slash) becomes the labelled Web, Android,
+    iOS block;
+  - a line with other words keeps them, and the missing links follow on their own lines;
+  - a copied "[project links]" placeholder takes the block;
+  - a project named with no link at all gets the block under its name;
+  - a project the text does not name stays out.
+- **On deploy** (migration 070), unsent proposals are rebuilt again. One the AI wrote whole gets a new version with the links ("Updated
+  the project links"). One a person edited only gets the missing links offered beside the editor.
+- Checked:
+  - six new unit tests: a bare link with www and a slash, no link under the title, the placeholder, a line with words, a complete
+    block left alone, a link with a page after it;
+  - live: a whole-written proposal with only Chairboss's web link and Kruzee with none came out with Chairboss's three labelled links
+    and Kruzee's two, each on its own line and clickable.
+

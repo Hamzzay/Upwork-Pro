@@ -33,28 +33,43 @@ export function linkLines(links: ProjectLink[], text = ''): string[] {
   return links.filter((l) => !has(l.url)).map((l) => (links.length > 1 ? `${l.label}: ${l.url}` : l.url));
 }
 /**
- * After a chat revision (the model rewrites the whole text): a project whose link is still there gets back any of its other links
- * the rewrite dropped, on the lines after it. A project taken out entirely stays out.
+ * R126/R130: every project's links in a text the model wrote whole (a structured submission, a chat revision, an experience update),
+ * put right in code, since the model leaves them out however it is told. For each project with more than one link:
+ * - where the text has any of its links (bare, labelled, or on a line with other words), those lines become its labelled block,
+ *   in order (Web, Android, iOS);
+ * - else a "[project links]" placeholder the model copied from the type takes the block;
+ * - else, when the text names the project, the block goes on the line after it.
+ * A project the text does not name at all stays out. Links match with or without https://, www. and a trailing slash.
  */
-export function restoreLinks(text: string, projects: { links: ProjectLink[] }[]): string {
-  let t = text;
+export function restoreLinks(text: string, projects: { name?: string; links: ProjectLink[] }[]): string {
+  const bare = (u: string) => u.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  const has = (line: string, u: string) => { // the link, not a longer one that starts with it
+    const l = line.toLowerCase().replace(/https?:\/\/(www\.)?/g, ''), b = bare(u); let i = l.indexOf(b);
+    while (i >= 0) { if (!/[\w-]/.test(l[i + b.length] ?? '')) return true; i = l.indexOf(b, i + 1); }
+    return false;
+  };
+  const block = (p: { links: ProjectLink[] }) => p.links.map((k) => `${k.label}: ${k.url}`);
+  let lines = text.split('\n');
   for (const p of projects) {
     if (p.links.length < 2) continue;
-    const lines = t.split('\n'), norm = (u: string) => u.replace(/\/+$/, '').toLowerCase();
-    const at = lines.findIndex((l) => p.links.some((k) => l.toLowerCase().includes(norm(k.url))));
-    if (at < 0) continue;
-    const missing = p.links.filter((k) => !t.toLowerCase().includes(norm(k.url)));
-    if (!missing.length) continue;
-    // a bare link line gets its label, so the block reads the same as one made in code
-    const bare = p.links.find((k) => lines[at].trim().replace(/\/+$/, '').toLowerCase() === norm(k.url));
-    if (bare) lines[at] = `${bare.label}: ${bare.url}`;
-    // the block's lines in order: the ones it has, with the missing ones in their place
-    let end = at; while (end + 1 < lines.length && p.links.some((k) => lines[end + 1].toLowerCase().includes(norm(k.url)))) end++;
-    const block = p.links.map((k) => lines.slice(at, end + 1).find((l) => l.toLowerCase().includes(norm(k.url))) ?? `${k.label}: ${k.url}`);
-    lines.splice(at, end - at + 1, ...block);
-    t = lines.join('\n');
+    const at = lines.findIndex((l) => p.links.some((k) => has(l, k.url)));
+    if (at >= 0) {
+      let end = at; while (end + 1 < lines.length && lines[end + 1].trim() && p.links.some((k) => has(lines[end + 1], k.url))) end++;
+      // the line keeps any words before the link ("Live: ", "See it here: "): only a line that is just the link (or a label and it) is replaced
+      const onlyLinks = lines.slice(at, end + 1).every((l) => { let t = l; for (const k of p.links) t = t.toLowerCase().split(bare(k.url)).join(''); return t.replace(/https?:\/\/(www\.)?|\/|[|:,\-\u2013\u2014()]|\b(web|android|ios|app store|google play|play store|live|link|links|site|website)\b/gi, '').trim() === ''; });
+      const run = lines.slice(at, end + 1);
+      if (onlyLinks) lines.splice(at, end - at + 1, ...block(p));
+      else lines.splice(end + 1, 0, ...p.links.filter((k) => !run.some((l) => has(l, k.url))).map((k) => `${k.label}: ${k.url}`)); // keep its words; add the rest
+      continue;
+    }
+    const ph = lines.findIndex((l) => /\[\s*project\s+links?\s*\]/i.test(l));
+    if (ph >= 0) { lines.splice(ph, 1, ...(lines[ph].replace(/\[\s*project\s+links?\s*\]/i, '').trim() ? [lines[ph].replace(/\[\s*project\s+links?\s*\]/i, '').trimEnd(), ...block(p)] : block(p))); continue; }
+    if (!p.name) continue;
+    const names = [p.name, p.name.replace(/\s*\([^)]*\)\s*/g, ' ').trim()].map((x) => x.toLowerCase()).filter((x) => x.length > 2);
+    const ti = lines.findIndex((l) => names.some((n) => l.toLowerCase().includes(n)));
+    if (ti >= 0) lines.splice(ti + 1, 0, ...block(p));
   }
-  return t;
+  return lines.join('\n');
 }
 /** Stored with every version made from parts. A version without it was edited by hand (or by the chat): its text is the person's. */
 export interface Parts { letter: string; proof: ProofBlock[]; loom: { id: number | null; title: string; url: string } | null; profile_id: number | null; signoff: string }

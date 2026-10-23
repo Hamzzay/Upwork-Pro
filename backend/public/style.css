@@ -1330,3 +1330,10 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 .livetag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 3px var(--pass-line); }
 /* R128: the screening answer being edited, by hand or with the AI */
 .qa.on .qa-answer { background: var(--surface); border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent); }
+/* R129: a dropdown that picks several: a tick box in front of each option, the "Any ..." line apart */
+.ss-pop.multi .ss-list li:not(.none) { display: flex; align-items: flex-start; gap: 9px; }
+.ss-pop.multi .ss-list li:not(.none)::before { content: ''; flex: 0 0 16px; height: 16px; margin-top: 1px; border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--surface) no-repeat center / 12px 12px; }
+.ss-pop.multi .ss-list li.sel:not(.any)::before { border-color: var(--brand); background-color: var(--brand); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.ss-pop.multi .ss-list li.any { color: var(--muted); border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; margin-bottom: 2px; }
+.ss-pop.multi .ss-list li.any::before { display: none; }
+.ss-pop.multi .ss-list li.sel { font-weight: 500; color: var(--text); }
