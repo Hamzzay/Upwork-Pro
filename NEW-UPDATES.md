@@ -2474,3 +2474,37 @@ What changed:
   - live, on a proposal edited by hand: the two-paragraph Kruzee block swapped whole, the opening and the links list renamed, and
     Chairboss's missing links under its last link.
 
+### R134. A project's links go where its proposal type puts them (done, 24 October)
+Why (Hamza): the links should follow the proposal type's instructions; the app listed them under the whole block.
+- Every proposal type with project sections sets the format "Project Name – Project Title", then "[project link]" on the next line,
+  then the description. The app added the links after the description instead.
+- **The place is read from the type's own format text**:
+  - "[project link]" on the line after a title: **under the title** (Types 1, 2, 4, 5, 7 and 8);
+  - "Project Name – [link]" one-liners and no sections: **on the name's line**, with any Android and iOS lines under it (Types 3
+    and 6);
+  - neither: under the block, as before.
+  If an admin changes a type's format, the placement follows it.
+- Applies to proposals made from parts (the first write, early drafts, project changes, the experience update) and to the project
+  blocks offered beside an edited proposal. The writer's instruction says the same.
+- **On deploy** (migration 071), unsent proposals are rebuilt once so their links move under the titles.
+- Checked:
+  - unit tests: each type style read right, under the title with the description after, on the name line, one line with no title,
+    the assembled proposal;
+  - live: a proposal's Chairboss and Image Summary App blocks came out as title, links, description.
+
+### R135. A cleaner job header, with more of what matters (done, 24 October)
+Why (Hamza): the facts beside the title were cut off ("$60.00 to $80.00 p...", "Argentina, Buenos ...") and showed little.
+- **Their own row under the title**, six cells, each a short value with a line of detail under it. Nothing is cut off: values are
+  shortened by formatting ("$60–80/hr", "$32.04/hr", "Argentina"), and the full text shows on hover.
+  - Budget: the amount, then hourly or fixed price and the level.
+  - Client: the country, then payment verified, the rating with its review count, and member since.
+  - Client spend: total spent, then hires, hire rate and jobs posted.
+  - Avg paid: the average hourly rate, then the average per hire.
+  - Competition: proposals, then interviewing and invites sent.
+  - Connects: the cost, then when it was posted.
+- **Colour marks what needs a look**: payment not verified in red, a hire rate under 40% in red and 70% or more in green, 50+
+  proposals in amber.
+- A job with little data shows only the cells it has, at their own width; a cell with no main value shows its detail instead of a
+  dash. On a phone it is two columns.
+- Checked on a job with full client data, a job with almost none, and at phone width.
+

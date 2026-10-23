@@ -20,7 +20,7 @@ import { buildDetectionSchema, detectionPrompt, normalizeDetection, type Detecte
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
 import { pairReplacements, type Offer } from './offers';
-import { assemble, cleanLetter, linkLines, loomLine, partsOut, partsSchema, projectLinkSet, proofFor, proofOut, proofSchema, restoreLinks, signoff, type Parts, type ProofBlock } from './parts';
+import { assemble, cleanLetter, layoutBlock, linkLines, linkPlace, type LinkPlace, loomLine, partsOut, partsSchema, projectLinkSet, proofFor, proofOut, proofSchema, restoreLinks, signoff, type Parts, type ProofBlock } from './parts';
 
 
 export const loadSignalDefs = () => cached('signals', readSignalDefs);
@@ -328,7 +328,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
       const t = written.get(p.name.toLowerCase()) ?? po.data.proof[i]?.text ?? null;
       proof.push({ project_id: p.id ?? null, name: p.name, link: p.live_link, links: linksFor(p), text: t ?? (await writeProof(f, template, p)) });
     }
-    parts = { letter: cleanLetter(po.data.letter), proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender) };
+    parts = { letter: cleanLetter(po.data.letter), proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender), link_place: placeOf(template) };
     text = assembleParts(parts, cfg['writer.loom_line']);
   } else {
     const parsed = writerOut.safeParse(w.data);
@@ -376,7 +376,9 @@ async function checksFor(text: string, f: Facts, template: TemplateFact | null, 
 }
 
 /** The parts put together, with the Loom line in the admin's wording. */
-export const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: loomLine(loomTemplate, p.loom), signoff: p.signoff });
+export const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: loomLine(loomTemplate, p.loom), signoff: p.signoff, place: p.link_place });
+/** R134: where a proposal type puts a project's links, from its format text. */
+const placeOf = (template: { body_html: string } | null | undefined): LinkPlace => linkPlace(template ? htmlToPlain(template.body_html) : null);
 
 /** One project's proof block, written on its own: a short call, for a project added after the proposal was written. */
 async function writeProof(f: Facts, template: TemplateFact, p: ProjectFact): Promise<string> {
@@ -417,7 +419,7 @@ export async function refitParts(f: Facts, parts: Parts, template: TemplateFact 
     const t = template ? await writeProof(f, template, p) : p.name;
     return { project_id: p.id ?? null, name: p.name, link: p.live_link, links: linksFor(p), text: t };
   }));
-  const next: Parts = { ...parts, proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender) };
+  const next: Parts = { ...parts, proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender), link_place: template ? placeOf(template) : parts.link_place };
   return { parts: next, text: assembleParts(next, cfg['writer.loom_line']), wrote };
 }
 
@@ -706,7 +708,7 @@ export async function runPartsRefresh(proposalId: number) {
   const { pairs, leftover } = pairReplacements(htmlToPlain(cur.html), newOnes.map((x) => x.name), lib.map((x) => String(x.name)), f.projects.map((x) => x.name));
   for (const proj of newOnes) {
     const t = template ? await writeProof(f, template, proj) : proj.name, old = pairs.get(proj.name);
-    offer.push({ kind: 'project', label: old ? `Project: ${proj.name} (in place of ${old})` : `Project: ${proj.name}`, text: [t, ...linkLines(linksFor(proj), t)].join('\n'), project: proj.name, ...(old ? { replaces: old, old_links: linksOfOld(old) } : {}) });
+    offer.push({ kind: 'project', label: old ? `Project: ${proj.name} (in place of ${old})` : `Project: ${proj.name}`, text: layoutBlock(t, linksFor(proj), placeOf(template)), project: proj.name, ...(old ? { replaces: old, old_links: linksOfOld(old) } : {}) });
   }
   for (const old of leftover) offer.push({ kind: 'remove', label: `Take out: ${old}`, text: `${old} is no longer one of the chosen projects.`, project: old, old_links: linksOfOld(old) });
   // R126: a project that is in the text with only some of its links: the rest are offered, to go under it

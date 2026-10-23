@@ -72,7 +72,7 @@ export function restoreLinks(text: string, projects: { name?: string; links: Pro
   return lines.join('\n');
 }
 /** Stored with every version made from parts. A version without it was edited by hand (or by the chat): its text is the person's. */
-export interface Parts { letter: string; proof: ProofBlock[]; loom: { id: number | null; title: string; url: string } | null; profile_id: number | null; signoff: string }
+export interface Parts { letter: string; proof: ProofBlock[]; loom: { id: number | null; title: string; url: string } | null; profile_id: number | null; signoff: string; /** R134: where its type puts a project's links */ link_place?: LinkPlace }
 
 export const PARTS_RULES = `WRITE IN PARTS (the app puts the proposal together, so one part can be changed later without rewriting the rest)
 - "letter": the whole proposal EXCEPT three things the app adds: the proof of past projects, the Loom video line and the sign off.
@@ -81,7 +81,7 @@ export const PARTS_RULES = `WRITE IN PARTS (the app puts the proposal together, 
   a link, and never write a sign off or the sender's name in the letter. You may say "the projects below" or "similar builds".
 - "proof": one item per project in PROJECTS, in the order given. "project" is its exact name. "text" is how this proposal shows it,
   in the type's format: the project's name, then one or two sentences on what it proves for THIS job, from its facts only. No link:
-  the app adds the project's links (web, Android, iOS) on the next lines.
+  the app adds the project's links (web, Android, iOS) where the type puts them, under the block's first line when that is its title.
 - These rules replace rule 4 (the sign off) and the LOOM VIDEO instruction: the app adds both.
 - Never mention the parts, the markers or the app in "warnings": the person never sees them.`;
 
@@ -121,9 +121,36 @@ export function loomLine(template: string, loom: { title: string; url: string } 
   return t.includes(loom.url) ? t : `${t}\n${loom.url}`;
 }
 /** The proof as it reads in the proposal: each block, then its link on its own line. */
-export const proofText = (proof: ProofBlock[]) => proof.map((p) => {
+/**
+ * R134 (Hamza): where a proposal type puts a project's links, read from its own format text. Every type with project sections writes
+ * "Project Name – Project Title", then "[project link]" on the next line, then the description: the links go under the title. A type of
+ * one-line link lines ("Project Name – [link]") puts the link on the name's line. Neither: under the block, as before.
+ */
+export type LinkPlace = 'title' | 'inline' | 'end';
+export function linkPlace(typeText: string | null | undefined): LinkPlace {
+  const lines = String(typeText ?? '').split('\n').map((l) => l.trim());
+  let title = 0, inline = 0;
+  lines.forEach((l, k) => {
+    if (!/\[\s*(project\s+)?links?\s*\]/i.test(l)) return;
+    if (l.replace(/\[\s*(project\s+)?links?\s*\]/i, '').replace(/[\s\u2013\u2014:|-]/g, '')) { inline++; return; } // "Project Name – [link]"
+    const prev = lines.slice(0, k).reverse().find((x) => x); if (prev && prev.length <= 160) title++;
+  });
+  return title ? 'title' : inline ? 'inline' : 'end';
+}
+/** One project's block with its links where its type puts them. */
+export function layoutBlock(text: string, links: ProjectLink[], place: LinkPlace = 'end'): string {
+  const t = text.trim(), add = linkLines(links, t);
+  if (!add.length) return t;
+  const first = t.split('\n')[0], rest = t.slice(first.length), titled = first.trim().length <= 160 && rest.trim().length > 0;
+  if (place === 'inline' && !rest.trim() && links.length) { // the name's own line: "Chairboss – https://...", any other links under it
+    const [one, ...more] = add; return [`${first.trim().replace(/[\s\u2013\u2014:-]+$/, '')} \u2013 ${one.replace(/^(Web|Android|iOS) link: /, '')}`, ...more].join('\n');
+  }
+  if ((place === 'title' || place === 'inline') && titled) return `${first}\n${add.join('\n')}${rest}`; // under the title, the description after
+  return [t, ...add].join('\n');
+}
+export const proofText = (proof: ProofBlock[], place: LinkPlace = 'end') => proof.map((p) => {
   const links = p.links?.length ? p.links : p.link ? [{ label: 'Web link', url: p.link }] : [];
-  return [p.text.trim(), ...linkLines(links, p.text)].join('\n');
+  return layoutBlock(p.text, links, place);
 }).join('\n\n');
 
 /** A letter that came back with a name, link or sign off in it anyway is still usable: the markers are what matter. */
@@ -135,8 +162,8 @@ export function cleanLetter(letter: string): string {
 }
 
 /** The whole proposal from its parts. A missing marker is handled: the proof goes before the last paragraph, the video before the sign off. */
-export function assemble(p: { letter: string; proof: ProofBlock[]; loomLine: string; signoff: string }): string {
-  const proof = proofText(p.proof);
+export function assemble(p: { letter: string; proof: ProofBlock[]; loomLine: string; signoff: string; place?: LinkPlace }): string {
+  const proof = proofText(p.proof, p.place);
   let t = cleanLetter(p.letter);
   const put = (marker: string, text: string, fallback: (t: string) => string) => {
     const re = new RegExp(`^[ \\t]*${marker.replace(/[[\]]/g, '\\$&')}[ \\t]*$`, 'm');

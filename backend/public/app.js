@@ -2218,18 +2218,42 @@ function jobHeader(s, stage) {
   const sep = () => h('span', { class: 'dot' }, '·');
   const bits = [s.source === 'claude_plugin' ? 'From the Claude plugin' : null, s.user_name, h('span', { title: full(s.created_at) }, ago(s.created_at)),
     s.profile_name, gateChip(s), s.source_url ? h('a', { href: s.source_url, target: '_blank', rel: 'noopener noreferrer' }, 'Upwork post') : null].filter(Boolean);
-  // R103 (Ahmad): the space beside the title holds the job's key facts, the ones a person checks before spending Connects
-  const known = (v) => v && !/^(not shown|not known|none|n\/a|-)$/i.test(String(v).trim());
-  const FACTS = [['Budget', s.budget], ['Client', s.client_country], ['Hire rate', s.hire_rate], ['Avg paid', s.avg_hourly_paid], ['Proposals', s.proposals], ['Connects', s.connects_cost]]
-    .filter(([, v]) => known(v)).slice(0, 5);
+  // R135 (Hamza): the job's key facts, the ones a person checks before spending Connects, in a row of their own under the title: each a
+  // short value (shortened, never cut off) with a second line of detail, and the full text on hover. Colour marks what needs a look.
+  const known = (v) => v != null && String(v).trim() && !/^(not shown|not known|none|n\/a|-|unknown)\b/i.test(String(v).trim());
+  const k = (v) => (known(v) ? String(v).trim() : '');
+  const money = (v) => k(v).replace(/(\d)\.00\b/g, '$1').replace(/\s*\((stated|about|approx\.?)\)/gi, '').replace(/\s*(per hour|an hour|\/\s*hr|\/\s*hour)\b/gi, '/hr').trim();
+  const budget = money(s.budget).replace(/\s+to\s+/i, '\u2013').replace(/^(\$[\d,.]+)\u2013\$/, '$1\u2013');
+  const kind = /hour/i.test(s.job_type || '') ? 'Hourly' : /fixed/i.test(s.job_type || '') ? 'Fixed price' : '';
+  const cm = /^([^(,]+?)\s*(?:\((.+)\)|,\s*(.+))?$/.exec(k(s.client_country)) || [];
+  const rating = /^([\d.]+)\s*\((\d+)\)/.exec(k(s.client_rating));
+  const pct = (v) => Number((/(\d+)\s*%/.exec(k(v)) || [])[1]);
+  const hr = pct(s.hire_rate), props = Number((/(\d+)/.exec(k(s.proposals)) || [])[1]), bucket = (/\((\d+\+?(?:\s*to\s*\d+)?)\)/.exec(k(s.proposals)) || [])[1];
+  const unverified = /^no\b/i.test(k(s.payment_verified));
+  const since = k(s.member_since).replace(/^(\w{3})\w*\s+\d{1,2},\s*(\d{4})$/, '$1 $2');
+  const join = (...x) => x.filter(Boolean).join(' \u00b7 ');
+  const FACTS = [
+    { k: 'Budget', v: budget, sub: join(kind, k(s.experience_level)) },
+    { k: 'Client', v: (cm[1] || '').trim(), sub: join(unverified ? 'Payment not verified' : /^yes\b/i.test(k(s.payment_verified)) ? 'Payment verified' : '', rating ? `\u2605 ${rating[1]} (${rating[2]})` : '', since ? 'since ' + since : ''), tone: unverified ? 'bad' : '' },
+    { k: 'Client spend', v: money(s.total_spent), sub: join(k(s.hires) ? `${k(s.hires)} hires` : '', Number.isFinite(hr) ? `${hr}% hire rate` : '', k(s.jobs_posted) ? `${k(s.jobs_posted)} jobs` : ''),
+      mark: Number.isFinite(hr) ? [`${hr}% hire rate`, hr >= 70 ? 'good' : hr < 40 ? 'bad' : ''] : null }, // the colour on the hire rate, not on the money
+    { k: 'Avg paid', v: money(s.avg_hourly_paid), sub: k(s.avg_spend_per_hire) ? money(s.avg_spend_per_hire).replace(/^about\s+/i, '~').replace(/\s*\(.*\)$/, '') + ' per hire' : '' },
+    { k: 'Competition', v: k(s.proposals) ? (bucket ? `${bucket} proposals` : `${k(s.proposals)} proposals`) : '', sub: join(k(s.interviewing) ? `${k(s.interviewing)} interviewing` : '', k(s.invites_sent) ? `${k(s.invites_sent)} invites` : ''), tone: props >= 50 || /50/.test(bucket || '') ? 'warn' : '' },
+    { k: 'Connects', v: k(s.connects_cost), sub: k(s.posted) ? 'posted ' + k(s.posted).replace(/^posted\s+/i, '') : '' },
+  ].filter((f) => f.v || f.sub).map((f) => { if (f.v) return f; const [first, ...rest] = f.sub.split(' \u00b7 '); return { ...f, v: first, sub: rest.join(' \u00b7 ') }; }); // no main value: its detail moves up
+  const raw = { Budget: [s.budget, s.job_type, s.experience_level], Client: [s.client_country, s.payment_verified && 'Payment verified: ' + s.payment_verified, s.client_rating && 'Rating: ' + s.client_rating, s.member_since && 'Member since ' + s.member_since],
+    'Client spend': [s.total_spent && 'Spent ' + s.total_spent, s.hires && s.hires + ' hires', s.hire_rate && 'Hire rate ' + s.hire_rate, s.jobs_posted && s.jobs_posted + ' jobs posted'], 'Avg paid': [s.avg_hourly_paid, s.avg_spend_per_hire && 'Per hire ' + s.avg_spend_per_hire],
+    Competition: [s.proposals && 'Proposals ' + s.proposals, s.interviewing && 'Interviewing ' + s.interviewing, s.invites_sent && 'Invites sent ' + s.invites_sent], Connects: [s.connects_cost, s.posted && 'Posted ' + s.posted] };
+  const subOf = (f) => { if (!f.mark || !f.mark[1] || !f.sub.includes(f.mark[0])) return f.sub; const [a, b] = f.sub.split(f.mark[0]); return [a, h('span', { class: 'tone-' + f.mark[1] }, f.mark[0]), b]; };
+  const factsRow = FACTS.length ? h('dl', { class: 'jp-facts' + (FACTS.length < 4 ? ' few' : ''), style: `--n:${FACTS.length}` }, FACTS.map((f) => h('div', { class: f.tone || null, title: (raw[f.k] || []).filter(known).map((x) => cap(String(x))).join('\n') },
+    h('dt', {}, f.k), h('dd', {}, f.v), f.sub ? h('div', { class: 'jp-fsub' }, subOf(f)) : null))) : null;
   return [
     h('a', { href: lastList.history, class: 'jp-back' }, icon('back'), 'Jobs'),
-    h('div', { class: 'jp-headgrid' },
-      h('div', { class: 'jp-headmain' },
-        h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? verdictBadge(s.verdict) : null,
-          label ? h('span', { class: 'jp-stage' }, n ? `Step ${n} of 5 · ${label}` : label) : null),
-        h('div', { class: 'jp-meta' }, bits.flatMap((b, i) => (i ? [sep(), b] : [b])))),
-      FACTS.length ? h('dl', { class: 'jp-facts' }, FACTS.map(([k, v]) => h('div', { title: `${k}: ${cap(String(v))}` }, h('dt', {}, k), h('dd', {}, cap(String(v)))))) : null),
+    h('div', { class: 'jp-headmain' },
+      h('div', { class: 'jp-title' }, h('h1', {}, title), s.verdict ? verdictBadge(s.verdict) : null,
+        label ? h('span', { class: 'jp-stage' }, n ? `Step ${n} of 5 · ${label}` : label) : null),
+      h('div', { class: 'jp-meta' }, bits.flatMap((b, i) => (i ? [sep(), b] : [b])))),
+    factsRow,
   ];
 }
 

@@ -27,7 +27,7 @@ import { openingLabel } from '../src/proposal/openings';
 import { looksInvited } from '../src/invite';
 import { jobPostOnly } from '../src/screening/posting';
 import { codeDigest, detectKind, extractInCode, squeeze } from '../src/screening/attachments';
-import { assemble, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
+import { assemble, layoutBlock, linkPlace, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
 import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes';
 import { applyOffer, pairReplacements } from '../src/proposal/offers';
 import { clientPost, sameClient, sameTitle } from '../src/clients';
@@ -691,6 +691,17 @@ const ctx = { rules, projects };
       assert.ok(t.indexOf('1. One full-stack') < t.indexOf('AI lead intake') && t.indexOf('AI lead intake') < t.indexOf('10-4 Global \u2013 AI voice agent'), 'its section is where the old one was');
       assert.ok(/2 other places/.test(r.where), r.where);
       assert.equal((r.html.match(/10-4global\.com/g) || []).length, 4, 'the other project untouched (two links, each in an href and its text)'); }
+    // R134: the links go where the proposal type puts them: under the title, on the name's line, or under the block
+    { assert.equal(linkPlace('Project format\nProject Name \u2013 Project Title\n[project link]\nProject description.'), 'title', 'Type 1 style: under the title');
+      assert.equal(linkPlace('Link lines\nProject Name \u2013 [link]\nClose rules'), 'inline', 'Type 3 style: on the name line');
+      assert.equal(linkPlace('Opening\nLink lines\nProject Name \u2013 [link]\n\n[Second project] \u2013 [Project title]\n[project links]\n[Two sentences.]'), 'title', 'sections win over link lines');
+      assert.equal(linkPlace('No format here'), 'end');
+      const L = projectLinkSet({ web: 'https://chairboss.io/', android: 'https://play.example.com/c', ios: 'https://apps.example.com/c' });
+      assert.equal(layoutBlock('Chairboss \u2013 AI booking for salons\n\nI built booking with Stripe.', L, 'title'),
+        'Chairboss \u2013 AI booking for salons\nWeb link: https://chairboss.io/\nAndroid link: https://play.example.com/c\niOS link: https://apps.example.com/c\n\nI built booking with Stripe.', 'under the title, the description after');
+      assert.equal(layoutBlock('Chairboss', L, 'inline'), 'Chairboss \u2013 https://chairboss.io/\nAndroid link: https://play.example.com/c\niOS link: https://apps.example.com/c', 'on the name line');
+      assert.equal(layoutBlock('Chairboss: booking.', projectLinkSet({ web: 'https://chairboss.io/' }), 'title'), 'Chairboss: booking.\nhttps://chairboss.io/', 'one line, no title: under it');
+      assert.ok(proofText([{ project_id: 1, name: 'Chairboss', link: null, links: L, text: 'Chairboss \u2013 AI booking\nI built it.' }], 'title').startsWith('Chairboss \u2013 AI booking\nWeb link:'), 'the assembled block follows the type'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);
