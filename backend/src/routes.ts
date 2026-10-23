@@ -263,6 +263,9 @@ export const listFilters = z.object({
   project: z.string().trim().max(190).optional(), loom: z.enum(['yes', 'no']).optional(), sent_from: day.optional(), sent_to: day.optional(),
   invite: z.enum(['yes', 'no']).optional(), // R105: invites only, or proposals only (the Reports default)
   client: z.coerce.number().int().positive().optional(), // R110: one client's jobs
+  // R118: more ways to find jobs: hourly or fixed, the client's country, auto mode, attached files, how far it got on Upwork
+  job_type: z.enum(['hourly', 'fixed']).optional(), country: z.string().trim().max(80).optional(), auto: z.enum(['yes', 'no']).optional(),
+  docs: z.enum(['yes', 'no']).optional(), reached: z.enum(['viewed', 'chat', 'interview']).optional(), industry: z.string().trim().max(120).optional(),
   // R117: the jobs behind one line of a report (and one of its numbers): the report, the line and the part (sent, viewed...)
   rdim: z.string().trim().max(40).optional(), rkey: z.string().max(300).optional(),
   rpart: z.enum(['all', 'continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired', 'lost']).optional(),
@@ -313,6 +316,12 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.loom) { where.push(f.loom === 'yes' ? '(s.loom_video_id IS NOT NULL OR s.loom_video_title IS NOT NULL)' : `(s.loom_video_id IS NULL AND s.loom_video_title IS NULL AND ${sentSql})`); }
   if (f.invite) where.push(f.invite === 'yes' ? inviteSql : `NOT ${inviteSql}`);
   if (f.client) { where.push('s.client_id=?'); p.push(f.client); }
+  if (f.job_type) where.push(f.job_type === 'hourly' ? `s.job_type LIKE 'hour%'` : `s.job_type LIKE 'fixed%'`); // what it starts with: a note after it may name the other
+  if (f.country) { where.push('s.client_country LIKE ?'); p.push(`%${likeEsc(f.country)}%`); }
+  if (f.industry) { where.push(`EXISTS (SELECT 1 FROM job_tags ji WHERE ji.screening_id=s.id AND ji.category_name='Industry' AND ji.tag_name=?)`); p.push(f.industry); }
+  if (f.auto) where.push(f.auto === 'yes' ? 's.auto_mode=1' : 'COALESCE(s.auto_mode, 0)=0');
+  if (f.docs) where.push(`${f.docs === 'yes' ? '' : 'NOT '}EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=s.id)`);
+  if (f.reached) where.push({ viewed: `s.client_viewed='yes'`, chat: `s.client_replied='yes'`, interview: `s.interviewed='yes'` }[f.reached]);
   if (f.idlist) where.push(f.idlist.length ? `s.id IN (${f.idlist.map((n) => Number(n)).join(',')})` : '1=0');
   if (sr.start) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) >= ?'); p.push(sr.start); }
   if (sr.end) { where.push('COALESCE(s.proposal_sent_at, s.proposal_sent_date) < ?'); p.push(sr.end); }
@@ -570,6 +579,11 @@ api.get('/screenings/filter-options', requireRole(), async (req, res) => {
     rules: await query("SELECT code, type, rule FROM rules ORDER BY type='flag', CAST(SUBSTRING(code, 2) AS UNSIGNED)"),
     outcomes: (await query<any>('SELECT DISTINCT outcome FROM screenings WHERE outcome IS NOT NULL AND discarded_at IS NULL ORDER BY outcome')).map((r) => r.outcome),
     types: (await query<any>('SELECT DISTINCT template_name FROM proposals WHERE template_name IS NOT NULL ORDER BY template_name')).map((r) => r.template_name),
+    // R118: what the other filters can offer: the industries and tags jobs have, the projects shown, the clients' countries
+    industries: (await query<any>(`SELECT DISTINCT tag_name FROM job_tags WHERE category_name='Industry' ORDER BY tag_name`)).map((r) => r.tag_name),
+    tags: (await query<any>(`SELECT tag_name, MIN(category_name) AS category, COUNT(DISTINCT screening_id) AS n FROM job_tags WHERE category_name<>'Industry' GROUP BY tag_name ORDER BY n DESC, tag_name LIMIT 400`)).map((r) => ({ name: r.tag_name, category: r.category })),
+    projects: (await query<any>(`SELECT DISTINCT project_name FROM job_matches WHERE selected=1 ORDER BY project_name`)).map((r) => r.project_name),
+    countries: (await query<any>(`SELECT DISTINCT TRIM(SUBSTRING_INDEX(client_country, ',', 1)) AS c FROM screenings WHERE client_country IS NOT NULL AND client_country NOT LIKE 'not %' AND discarded_at IS NULL ORDER BY c`)).map((r) => r.c).filter((c: string) => c && c.length < 60),
     // R110: the clients with more than one job, for the client filter (one job is not a client worth filtering by)
     clients: (await query<any>(`SELECT c.id, COALESCE(c.name, c.company, c.contact_name) AS name, COUNT(s.id) AS jobs FROM clients c JOIN screenings s ON s.client_id=c.id AND s.discarded_at IS NULL
       ${all ? '' : 'AND s.user_id=' + Number(req.user!.id)} WHERE c.merged_into IS NULL GROUP BY c.id HAVING jobs > 1 ORDER BY MAX(s.id) DESC LIMIT 300`)).map((r) => ({ id: r.id, name: r.name, jobs: Number(r.jobs) })),

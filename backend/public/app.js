@@ -1329,11 +1329,11 @@ const STEP_OF_STAGE = { decide: 1, projects: 2, profile: 3, type: 4, review: 4 }
 const jobHref = (r) => (r.user_id === me.id && TAB_OF_STAGE[r.stage] ? `#/s/${r.id}/${TAB_OF_STAGE[r.stage]}` : '#/s/' + r.id);
 /** R117: the part of a report line a number stands for. */
 const RPART = { continued: 'continued', written: 'with a proposal written', sent: 'sent', viewed: 'viewed', chat: 'with a chat opened', interview: 'interviewed', hired: 'hired', lost: 'lost' };
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'rdim', 'rkey', 'rpart', 'rlabel', 'discarded'];
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'rdim', 'rkey', 'rpart', 'rlabel', 'job_type', 'country', 'auto', 'docs', 'reached', 'industry', 'discarded'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', rdim: 'rdim', rkey: 'rkey', rpart: 'rpart', discarded: 'discarded' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', rdim: 'rdim', rkey: 'rkey', rpart: 'rpart', job_type: 'job_type', country: 'country', auto: 'auto', docs: 'docs', reached: 'reached', industry: 'industry', discarded: 'discarded' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
@@ -1369,6 +1369,7 @@ async function historyView() {
   const tab = () => JOB_TABS.find((t) => t.key === st.tab) || JOB_TABS[0];
   let cols = savedCols(st.tab);
   const tabsEl = h('div', { class: 'jobtabs', role: 'tablist' }), statsEl = h('div', { class: 'stats' }), bodyEl = h('div', {}), filters = h('div', {});
+  const listActs = h('div', { class: 'jobacts' }); // R118: Columns, Export and Select to discard, beside the tabs
   let fbar = null;
 
   const sel = (key, label, options) => {
@@ -1440,24 +1441,90 @@ async function historyView() {
       h('p', { class: 'muted', style: 'margin-top:0' }, `Exports the ${n.toLocaleString()} job${n === 1 ? '' : 's'} on screen (${tab().label}${st.v ? ', ' + st.v + ' only' : ''}, with the filters): the job post, the gate result, the decision, projects, profile, the final proposal, every status with its date and reason, and the full change history.`),
       h('div', { class: 'row', style: 'margin-top:16px;gap:8px' }, link('xlsx', 'Excel (.xlsx)'), link('csv', 'CSV'))) });
   };
+  /**
+   * R118 (Hamza): the filters, cleaner. One row: search, the date, profile, person, and the step or outcome of the tab. Every other filter
+   * is under "More filters", in groups. The active ones are chips under the bar, each with its own x, and Clear all.
+   */
+  const ymdOf = (d) => ymd(d);
+  const DATES = [['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Choose dates\u2026']];
+  const rangeOf = (k) => { if (k === 'lastmonth') { const n = new Date(); return { from: ymdOf(new Date(n.getFullYear(), n.getMonth() - 1, 1)), to: ymdOf(new Date(n.getFullYear(), n.getMonth(), 0)) }; } return periodRange(k); };
+  let customDates = false;
+  const dateKey = () => { if (!st.from && !st.to) return customDates ? 'custom' : ''; const hit = DATES.find(([k]) => k !== 'custom' && rangeOf(k).from === st.from && rangeOf(k).to === st.to); return hit ? hit[0] : 'custom'; };
+  const FDEF = () => [
+    { group: 'Screening', key: 'v', label: 'Gate result', opts: [['PASS', 'Pass'], ['FLAG', 'Flag'], ['FAIL', 'Fail']] },
+    { group: 'Screening', key: 'rule', label: 'Rule fired', opts: opts.rules.map((r) => [r.code, `${r.code}  ${r.rule}`]), short: (v) => v },
+    { group: 'Proposal', key: 'ptype', label: 'Proposal type', opts: (opts.types || []).map((x) => [x, x]) },
+    { group: 'Proposal', key: 'source', label: 'Written in', opts: [['app', 'Upwork Pro'], ['claude_plugin', 'The Claude plugin']] },
+    { group: 'Proposal', key: 'project', label: 'Project shown', opts: (opts.projects || []).map((x) => [x, x]) },
+    { group: 'Proposal', key: 'loom', label: 'Loom video', opts: [['yes', 'With a Loom video'], ['no', 'Without a video']] },
+    { group: 'Proposal', key: 'auto', label: 'Auto mode', opts: [['yes', 'Written in auto mode'], ['no', 'Step by step']] },
+    { group: 'Client and job', key: 'client', label: 'Returning client', opts: [...(opts.clients || []).map((c) => [c.id, `${clientId(c.id)}${c.name ? ' \u00b7 ' + c.name : ''} \u00b7 ${c.jobs} jobs`]),
+      ...(st.client && !(opts.clients || []).some((c) => String(c.id) === String(st.client)) ? [[st.client, clientId(st.client)]] : [])], short: (v) => clientId(v) },
+    { group: 'Client and job', key: 'industry', label: 'Industry', opts: (opts.industries || []).map((x) => [x, x]) },
+    { group: 'Client and job', key: 'tag', label: 'Job tag', opts: (opts.tags || []).map((t) => [t.name, `${t.name} (${t.category})`]), short: (v) => v },
+    { group: 'Client and job', key: 'country', label: 'Client country', opts: (opts.countries || []).map((x) => [x, x]) },
+    { group: 'Client and job', key: 'job_type', label: 'Job type', opts: [['hourly', 'Hourly'], ['fixed', 'Fixed price']] },
+    { group: 'Client and job', key: 'docs', label: 'Client files', opts: [['yes', 'With attached files'], ['no', 'No files']] },
+    { group: 'Upwork', key: 'invite', label: 'Proposals or invites', opts: [['no', 'Proposals only'], ['yes', 'Invites only']] },
+    { group: 'Upwork', key: 'reached', label: 'Got as far as', opts: [['viewed', 'Viewed'], ['chat', 'Chat opened'], ['interview', 'Interview']] },
+    { group: 'Upwork', key: 'outcome', label: 'Outcome', opts: [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])] },
+    ...(me.role === 'admin' ? [{ group: 'Upwork', key: 'discarded', label: 'Live or discarded', any: 'Live jobs', opts: [['1', 'Discarded jobs']] }] : []),
+  ];
+  const named = (f, v) => { const o = f.opts.find(([k]) => String(k) === String(v)); return f.short ? f.short(v) : o ? o[1] : v; };
+  let moreOpen = false; try { moreOpen = localStorage.getItem('jobs.more') === '1'; } catch { /* storage blocked */ }
   function drawFilters() {
     const t = tab();
     const stageOpts = t.stages ? [...(t.need ? [['needs_action', 'Needs action']] : []), ...t.stages.map((x) => [x, STAGE_INFO[x][1]])] : t.quiet ? [['quiet', 'Gone quiet']] : null;
-    fbar = filterBar([h('div', { class: 'search' }, icon('search'), searchIn), dateIn('from', 'From'), dateIn('to', 'To'),
-      stageOpts ? sel('stage', t.key === 'in_progress' ? 'Any step' : t.quiet ? 'Any submitted' : 'Skipped or failed', stageOpts) : null,
-      sel('rule', 'Any rule', opts.rules.map((r) => [r.code, `${r.code}  ${r.rule}`])),
+    // the date of screening: a preset, or two dates
+    const dsel = h('select', { 'aria-label': 'Screened', class: 'fsel', 'data-plain': true }, h('option', { value: '' }, 'Any date'), DATES.map(([k, l]) => h('option', { value: k, selected: dateKey() === k }, l)));
+    dsel.onchange = () => { const k = dsel.value; if (k === 'custom') { customDates = true; drawFilters(); return; } customDates = false; const r = k ? rangeOf(k) : {}; st.from = r.from || ''; st.to = r.to || ''; st.page = 1; drawFilters(); load(); };
+    const custom = dateKey() === 'custom' ? h('span', { class: 'fb-dates' }, dateIn('from', 'From'), dateIn('to', 'To')) : null;
+    const defs = FDEF(), main = new Set(['outcome']);
+    const moreKeys = defs.filter((f) => !(main.has(f.key) && (t.key === 'closed' || t.key === 'submitted' || !t.key))).map((f) => f.key);
+    const moreN = moreKeys.filter((k) => st[k]).length + (st.sent_from || st.sent_to ? 1 : 0) + (st.mine ? 1 : 0);
+    const moreBtn = h('button', { type: 'button', class: 'btn' + (moreOpen ? ' on' : ''), 'aria-expanded': String(moreOpen), onclick: () => { moreOpen = !moreOpen; try { localStorage.setItem('jobs.more', moreOpen ? '1' : '0'); } catch { /* storage blocked */ } drawFilters(); } },
+      icon('funnel'), 'More filters', h('span', { class: 'fb-n', hidden: !moreN }, String(moreN)));
+    const row = h('div', { class: 'fb-row' },
+      h('div', { class: 'search' }, icon('search'), searchIn), dsel, custom,
       sel('profile', 'Any profile', opts.profiles.map((p) => [p.id, p.name])),
       opts.users.length ? sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])) : null,
-      t.key === 'closed' || t.key === 'submitted' || !t.key ? sel('outcome', 'Any outcome', [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])]) : null,
-      (opts.types || []).length ? sel('ptype', 'Any proposal type', opts.types.map((x) => [x, x])) : null,
-      sel('source', 'Written anywhere', [['app', 'Written in Upwork Pro'], ['claude_plugin', 'Written with the Claude plugin']]),
-      sel('invite', 'Proposals and invites', [['no', 'Proposals only'], ['yes', 'Invites only']]), // R105
-      (opts.clients || []).length || st.client ? sel('client', 'Any client', [...(opts.clients || []).map((c) => [c.id, `${clientId(c.id)}${c.name ? ' \u00b7 ' + c.name : ''} \u00b7 ${c.jobs} jobs`]),
-        ...(st.client && !(opts.clients || []).some((c) => String(c.id) === String(st.client)) ? [[st.client, clientId(st.client)]] : [])]) : null, // R110: returning clients only
-      me.role === 'admin' ? sel('discarded', 'Live jobs', [['1', 'Discarded jobs']]) : null,
-      me.role !== 'employee' ? h('label', { class: 'check', for: 'mine' }, mineBox, 'Only mine') : null],
-      { actions: [st.discarded ? null : pickBtn, colBtn, exportBtn].filter(Boolean), onClear: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } });
+      stageOpts ? sel('stage', t.key === 'in_progress' ? 'Any step' : t.quiet ? 'Any submitted' : 'Skipped or failed', stageOpts) : null,
+      t.key === 'closed' || t.key === 'submitted' || !t.key ? sel('outcome', 'Any outcome', defs.find((f) => f.key === 'outcome').opts) : null,
+      moreBtn);
+    listActs.replaceChildren(...[st.discarded ? null : pickBtn, colBtn, exportBtn].filter(Boolean));
+    // More filters: every other filter, in groups, each with its name above it
+    const groups = [...new Set(defs.map((f) => f.group))];
+    const field = (f) => h('label', { class: 'fb-field' }, h('span', { class: 'fb-lbl' }, f.label), sel(f.key, f.any || 'Any', f.opts));
+    const more = moreOpen ? h('div', { class: 'fb-more' },
+      groups.map((g) => h('div', { class: 'fb-group' }, h('div', { class: 'fb-gtitle' }, g), defs.filter((f) => f.group === g && moreKeys.includes(f.key)).map(field),
+        g === 'Upwork' ? h('div', { class: 'fb-field' }, h('span', { class: 'fb-lbl' }, 'Sent between'), h('span', { class: 'fb-dates' }, dateIn('sent_from', 'From'), dateIn('sent_to', 'To'))) : null)),
+      me.role !== 'employee' ? h('div', { class: 'fb-group' }, h('div', { class: 'fb-gtitle' }, 'People'), h('label', { class: 'check', for: 'mine' }, mineBox, 'Only my jobs')) : null) : null;
+    fbar = h('div', { class: 'jobfilters' }, row, more, activeChips());
+    fbar.setActive = () => {};
     filters.replaceChildren(fbar);
+  }
+  function refreshChips() {
+    if (!fbar) return;
+    const old = fbar.querySelector('.fb-chips'), c = activeChips();
+    if (old) old.replaceWith(c || document.createComment('')); else if (c) fbar.append(c);
+    const n = FDEF().filter((f) => st[f.key] && !(f.key === 'outcome' && (tab().key === 'closed' || tab().key === 'submitted' || !tab().key))).length + (st.sent_from || st.sent_to ? 1 : 0) + (st.mine ? 1 : 0);
+    const badge = fbar.querySelector('.fb-n'); if (badge) { badge.textContent = String(n); badge.hidden = !n; }
+  }
+  /** The filters in use, as chips: each one's x takes it off; Clear all takes them all off (the tab stays). */
+  function activeChips() {
+    const defs = FDEF(), chips = [];
+    const add = (label, clear) => chips.push(h('button', { type: 'button', class: 'chip fb-chip', title: 'Remove this filter', onclick: () => { clear(); st.page = 1; drawFilters(); load(); } }, label, h('span', { 'aria-hidden': 'true' }, ' \u00d7')));
+    if (st.q) add(`Search: ${st.q}`, () => { st.q = ''; searchIn.value = ''; });
+    if (st.from || st.to) add(`Screened: ${(DATES.find(([k]) => k === dateKey()) || [])[1] && dateKey() !== 'custom' ? DATES.find(([k]) => k === dateKey())[1] : `${st.from ? dayText(st.from) : '\u2026'} to ${st.to ? dayText(st.to) : '\u2026'}`}`, () => { st.from = ''; st.to = ''; customDates = false; });
+    if (st.profile) add(`Profile: ${(opts.profiles.find((p) => String(p.id) === String(st.profile)) || {}).name || st.profile}`, () => { st.profile = ''; });
+    if (st.user) add(`Person: ${(opts.users.find((u) => String(u.id) === String(st.user)) || {}).name || st.user}`, () => { st.user = ''; });
+    if (st.stage) add(`Step: ${st.stage === 'needs_action' ? 'Needs action' : st.stage === 'quiet' ? 'Gone quiet' : (STAGE_INFO[st.stage] || [])[1] || st.stage}`, () => { st.stage = ''; });
+    for (const f of defs) if (st[f.key]) add(`${f.label}: ${named(f, st[f.key])}`, () => { st[f.key] = ''; });
+    if (st.sent_from || st.sent_to) add(`Sent: ${st.sent_from ? dayText(st.sent_from) : '\u2026'} to ${st.sent_to ? dayText(st.sent_to) : '\u2026'}`, () => { st.sent_from = ''; st.sent_to = ''; });
+    if (st.mine) add('Only my jobs', () => { st.mine = false; mineBox.checked = false; });
+    if (!chips.length) return null;
+    return h('div', { class: 'fb-chips' }, h('span', { class: 'jp-label' }, 'Filtered by'), chips,
+      h('button', { type: 'button', class: 'linkbtn small', onclick: () => { location.hash = '#/history' + (st.tab ? '?tab=' + st.tab : ''); route(); } }, 'Clear all'));
   }
   function drawTabs() {
     const total = Object.values(stats.tabs || {}).reduce((a, b) => a + b, 0);
@@ -1531,14 +1598,15 @@ async function historyView() {
       st.rpart && st.rpart !== 'all' ? `, only those ${RPART[st.rpart] || st.rpart}` : '', '. Same period and filters.'),
       h('span', { class: 'row', style: 'gap:8px;margin-left:auto' }, h('button', { type: 'button', class: 'btn sm', onclick: () => history.back() }, icon('back'), 'Back'),
         h('button', { type: 'button', class: 'btn sm', onclick: () => { for (const k of ['rdim', 'rkey', 'rpart', 'rlabel']) st[k] = ''; st.page = 1; load(); } }, 'Show every job'))) : null;
-    const EXTRA = { tag: 'Tag', project: 'Project shown', loom: 'Loom video', sent_from: 'Sent from', sent_to: 'Sent to' };
-    const extras = Object.keys(EXTRA).filter((k) => st[k]);
+    const EXTRA = {}; // R118: the filters in use are chips under the bar now
+    const extras = [];
     const note = extras.length ? h('div', { class: 'toolbar', style: 'gap:6px' }, h('span', { class: 'jp-label' }, 'Also filtered by'), extras.map((k) => h('button', { type: 'button', class: 'chip', title: 'Remove this filter', onclick: () => { st[k] = ''; st.page = 1; load(); } },
       `${EXTRA[k]}: ${k === 'loom' ? (st[k] === 'yes' ? 'with a video' : 'without a video') : k.startsWith('sent_') ? dayText(st[k]) : st[k]}`, h('span', { 'aria-hidden': 'true' }, ' ×')))) : null;
     bodyEl.replaceChildren(...[fromReport, pickBar, note, table, pager(total, st.page, (n) => { st.page = n; load(); })].filter(Boolean));
   }
   let seq = 0;
   async function load() {
+    refreshChips(); // R118: the chips and the count follow every change
     const my = ++seq;
     const qs = jobQuery(st); const sq = new URLSearchParams(qs); sq.delete('verdict');
     qs.set('page', st.page); qs.set('sort', st.sort); qs.set('dir', st.dir);
@@ -1551,7 +1619,7 @@ async function historyView() {
   }
   drawFilters();
   shell('history', [pageHead(me.role === 'employee' ? 'My jobs' : 'Jobs', 'Every job, from screening to outcome. In progress: we are preparing the proposal. Submitted: applied on Upwork, waiting on the client. Closed: hired or lost.',
-    h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), tabsEl, statsEl, h('div', { class: 'card' }, filters, bodyEl)]);
+    h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), h('div', { class: 'jobbar' }, tabsEl, listActs), statsEl, h('div', { class: 'card' }, filters, bodyEl)]);
   bodyEl.append(h('div', { class: 'card-pad' }, h('div', { class: 'skel', style: 'width:60%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:80%;margin-bottom:12px' }), h('div', { class: 'skel', style: 'width:45%' })));
   await load();
 }

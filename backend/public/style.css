@@ -1291,3 +1291,30 @@ a.ovjob:hover .clclip { color: var(--brand) !important; }
 a.cellink { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius-xs); padding: 1px 3px; margin: -1px -3px; }
 a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decoration: underline; text-underline-offset: 3px; }
 .fromrep { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* R118: the Jobs list filters: one row, More filters in groups, the active ones as chips */
+.jobfilters { display: grid; gap: 12px; padding: 14px 16px; }
+.fb-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.fb-row .search { flex: 1 1 260px; min-width: 200px; }
+.fb-row > .fsel, .fb-row > .ss-btn, .fb-row .sselect { flex: 0 1 170px; min-width: 140px; }
+.fb-row .fb-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.fb-row .btn.on { border-color: var(--brand); color: var(--brand); }
+.fb-n { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; margin-left: 2px; }
+.fb-n[hidden] { display: none; }
+.fb-dates { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.fb-more { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 20px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.fb-group { display: grid; gap: 8px; align-content: start; }
+.fb-gtitle { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.fb-field { display: grid; gap: 4px; }
+.fb-lbl { font-size: 12px; color: var(--muted); }
+.fb-field select, .fb-field .fsel { width: 100%; }
+.fb-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fb-chip { cursor: pointer; }
+.fb-chip:hover { border-color: var(--brand); color: var(--brand); }
+@media (max-width: 700px) { .fb-row .fb-actions { margin-left: 0; width: 100%; } .fb-row > .fsel, .fb-row .sselect { flex: 1 1 45%; } }
+.fb-row > .ss { flex: 0 1 180px; min-width: 150px; display: flex; }
+.fb-row > .ss .ss-btn, .fb-field .ss, .fb-field .ss .ss-btn { width: 100%; }
+.fb-field .ss { display: flex; }
+.jobfilters .search { display: flex; align-items: center; }
+@media (max-width: 700px) { .fb-row > .ss { flex: 1 1 45%; } }
+.fb-row .search { flex: 1 1 220px; max-width: 360px; }
+.fb-row > .ss { flex: 0 1 160px; min-width: 130px; max-width: 200px; }

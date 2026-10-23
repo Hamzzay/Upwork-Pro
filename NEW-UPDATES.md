@@ -2177,3 +2177,18 @@ Why (Hamza): a line such as "Hamza Yaseen: 20 proposals" should open the Jobs li
   filters.") with **Back** and **Show every job**; the tabs, the counters and the export follow the same jobs.
 - Checked: 112 report lines and numbers against the Jobs list total, all equal; clicked through Reports and the Dashboard; tests.
 
+### R118. A cleaner Jobs filter bar, with every filter (done, 23 October)
+Why (Hamza): the filters were two crowded rows (a checkbox ran under the buttons), and some filters had no control at all.
+- **One row**: search, the date (Any date, Today, Last 7 days, Last 30 days, This month, Last month, or two dates), profile, person, and
+  the step or outcome of the tab. **More filters** (with how many are on) opens the rest in groups, each with its name above it:
+  - Screening: gate result, rule fired.
+  - Proposal: proposal type, written in (Upwork Pro or the Claude plugin), project shown, Loom video, auto mode.
+  - Client and job: returning client, industry, job tag, client country, job type (hourly or fixed), client files.
+  - Upwork: proposals or invites, how far it got (viewed, chat opened, interview), outcome, sent between two dates, live or discarded
+    (admins); and "Only my jobs".
+- **New filters**: industry, job tag, project shown, Loom video and sent dates had no control before (only a link could set them); job
+  type, client country, auto mode, client files and how far it got are new. The panel stays open or closed as you left it.
+- **The filters in use** are chips under the bar ("Profile: Wasif Ibrahim x", "Job type: Fixed price x"), each with its own x, and
+  **Clear all** (the tab stays).
+- **Columns, Export and Select to discard** moved to the right of the tabs.
+
