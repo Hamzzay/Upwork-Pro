@@ -43,3 +43,16 @@ When asked what is still open, call `find_jobs` with `phase: "submitted"` and li
 
 `update_status` takes now when no time is given. A time the person gives ("sent at 10 am") is read on the team's working day clock (US
 Eastern) unless you pass `time_zone`: pass "mine" when they give it on their own clock (for example Pakistan time), and say which you used.
+
+## Corrections after checking Upwork (R121)
+
+When the person asks to compare Upwork with Upwork Pro, treat Upwork as the truth and show every change first; write only after they say go.
+* A status or an outcome that is missing or wrong: `update_status` (with the reason and the date and time it happened on Upwork).
+* Connects, boost, the Loom video or the invite are different on Upwork: `update_job_details`. It records no status, so nothing is
+  logged twice. Upwork shows base plus boost as one total: split it from the Connects history when you can; else record the total as
+  the base and say so.
+* Something to remember with no new status (a client's questions, a reply not answered): `update_job_details` with `add_note`. It is
+  added under the job's notes, dated; it never replaces them.
+* A job that should not be there (a test, a duplicate, a stale draft never sent): `discard_job` with the reason, admins only, after
+  the person agrees. It can be restored in the app.
+

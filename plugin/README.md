@@ -45,7 +45,12 @@ The plugin never submits to Upwork. Copy the final proposal and submit it yourse
 
 Sources are listed in `skills/proposal/references/config.md`. Every Claude with this plugin shares the same data through Upwork Pro.
 
-## Status (v0.27.0)
+## Status (v0.28.0)
+
+v0.28.0: `update_job_details` (Connects, boost, Loom video, invite, and a note added under the job's notes, with no status recorded) and
+`discard_job` (admins), for correcting Upwork Pro after checking it against Upwork.
+
+## Earlier (v0.27.0)
 
 v0.27.0: on a mobile app job, the projects with App Store or Google Play links come first, and a live app links to its store.
 

@@ -2213,3 +2213,16 @@ Why (Hamza): the Reports filters wrapped onto two rows with Export alone on a th
 - The filters in use are chips under the bar, each with its own x, and **Clear all**.
 - The Jobs list's dropdowns keep their labels the same way, so its search, date, profile, person, outcome and More filters fit one row.
 
+### R121. Claude can correct a job after checking Upwork (done, 23 October)
+Why (Hamza): Claude compared Upwork with Upwork Pro and listed fixes (Connects and boost, notes, a stale job to discard), but the
+plugin could only record a status.
+- **`update_job_details`** (plugin 0.28.0): the Connects, the boost, the Loom video and the invite, without recording a status (so a
+  "Sent" is never logged twice), and **`add_note`**, which adds a dated note under the job's notes ("23 Oct, 20:22, Hamza Yaseen
+  (Claude): ..."), never replacing them. The same as Edit details in the app: every change is kept in the job's history, marked
+  "Claude plugin".
+- **`discard_job`** (admins): discards a job with the reason, exactly as Discard job does; restorable in the app.
+- The job-status skill says when to use which: statuses and outcomes with `update_status`, corrections with `update_job_details`,
+  and always show the changes and wait for a go.
+- Checked: Connects and boost changed with no status added, two notes kept one under the other, the history marked "Claude plugin",
+  a wrong Loom title and an empty call refused, discard and "already discarded"; the app's own Edit details still marks "tracking form".
+

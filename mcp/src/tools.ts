@@ -250,6 +250,21 @@ Never send the person's raw text: write every text field yourself in the format 
       return api.call('POST', `/plugin/jobs/${a.id}/status` + (a.time_zone ? '?' + qs({ time_zone: a.time_zone }) : ''), { status: a.status, at: a.at, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes, invited: a.invited });
     });
 
+  // R121: corrections after checking Upwork against Upwork Pro, without recording a status again
+  T('update_job_details', 'Correct a job\'s details without recording a status: the Connects it cost, the boost, the Loom video sent, whether it was an invite, and add_note to add a dated note under the job\'s notes (it never replaces them). Use it when Upwork shows different Connects or boost than Upwork Pro, or to note what happened (a client\'s questions, a reply not answered). Every change is kept in the job\'s history. Statuses and outcomes go through update_status.',
+    { id: z.number().int(), connects: z.number().int().nullable().optional().describe('The base Connects the proposal cost (null clears it)'),
+      boost: z.number().int().nullable().optional().describe('The extra Connects spent on a boost (null clears it). Upwork shows base plus boost as one total: split it from the Connects history when you can'),
+      loom_video: z.string().nullable().optional().describe('The title of the Loom video sent, exactly as in plugin_options (null: none)'),
+      invited: z.boolean().optional().describe('True when the client invited us to this job'),
+      add_note: z.string().optional().describe('A note to add, for example "Client asked about the API limits; replied 23 Oct 5:48 PM; no answer since"') },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    async (a) => api.call('POST', `/plugin/jobs/${a.id}/details`, { connects: a.connects, boost: a.boost, loom_video: a.loom_video, invited: a.invited, add_note: a.add_note }));
+
+  T('discard_job', 'Admins only: discard a job (a test, a duplicate, a stale draft never sent). It leaves every list, count, report and export, and Claude no longer sees it; nothing is deleted and an admin can restore it in the app. Always ask the person first and give the reason.',
+    { id: z.number().int(), reason: z.string().describe('Why, for example "Stale, not sent" or "Duplicate of #197"') },
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    async (a) => api.call('POST', `/plugin/jobs/${a.id}/discard`, { reason: a.reason }));
+
   if (opts.importDir) {
     T('list_workbook_sheets', 'Local mode only: the sheets of an .xlsx workbook in the import folder.', { file: z.string().describe('File name inside the import folder') }, { readOnlyHint: true },
       async (a) => ({ file: a.file, sheets: await sheetNames(safePath(opts.importDir, a.file)) }));

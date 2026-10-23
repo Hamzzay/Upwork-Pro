@@ -789,7 +789,7 @@ api.post('/screenings/:id/retry', requireRole(), async (req, res) => {
 
 // Discard a job (admins only): a test or a mistake. It leaves every list, count, report and export, and Claude cannot see it.
 // Nothing is deleted: Restore brings it back exactly as it was.
-api.post('/admin/screenings/:id/discard', requireRole('admin'), async (req, res) => {
+const discardJob = async (req: any, res: any) => {
   const b = z.object({ reason: z.string().trim().max(300).optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const id = Number(req.params.id);
@@ -797,7 +797,9 @@ api.post('/admin/screenings/:id/discard', requireRole('admin'), async (req, res)
   if (!r.affectedRows) return void res.status(404).json({ error: 'Not found, or already discarded' });
   await audit(req.user!.id, 'job_discard', `screening=${id}${b.data.reason ? ' reason=' + b.data.reason : ''}`);
   res.json({ ok: true });
-});
+};
+api.post('/admin/screenings/:id/discard', requireRole('admin'), discardJob);
+api.post('/plugin/jobs/:id/discard', requireRole('admin'), discardJob); // R121: Claude, for an admin (restorable in the app)
 // R94 (Ahmad): discard many jobs at once, for clearing out the first test jobs. Only the main admin. Each is discarded exactly as
 // one at a time would be: nothing is deleted, each can be restored, and the audit log names every job.
 api.post('/admin/screenings/discard-many', requireRole('admin'), async (req, res) => {
@@ -851,8 +853,10 @@ async function recordChanges(id: number, before: Record<string, string | null>, 
     await exec('INSERT INTO field_changes (screening_id, field, old_value, new_value, source, user_id) VALUES (?,?,?,?,?,?)', [id, k, before[k], after[k], source, userId]);
   }
 }
-api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
-  const b = trackBody.safeParse(req.body);
+api.patch('/screenings/:id/tracking', requireRole(), (req, res) => applyTracking(req, res, req.body, 'tracking form'));
+/** The job's tracked details changed: from the app's forms, or from Claude (R121); each change is kept with where it came from. */
+async function applyTracking(req: any, res: any, body: unknown, source: string) {
+  const b = trackBody.safeParse(body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const id = Number(req.params.id);
   const s = (await query<any>('SELECT user_id, status FROM screenings WHERE id=?', [id]))[0];
@@ -898,16 +902,16 @@ api.patch('/screenings/:id/tracking', requireRole(), async (req, res) => {
     proposal_sent_at=IF(proposal_sent_date IS NOT NULL AND (proposal_sent_at IS NULL OR DATE(proposal_sent_at)<>proposal_sent_date), proposal_sent_date, proposal_sent_at) WHERE id=?`, [id]);
   if (becomesSent) { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104
   const after = await trackSnapshot(id);
-  await recordChanges(id, before, after, 'tracking form', req.user!.id);
+  await recordChanges(id, before, after, source, req.user!.id);
   // a milestone first set through the form also goes into the status history, like the status button
   const firsts: [string, string, string][] = [['proposal_sent_at', 'Sent', 'proposal_sent_at'], ['client_viewed_at', 'Viewed', 'client_viewed_at'], ['client_replied_at', 'Chat opened', 'client_replied_at'],
     ['interviewed_at', 'Interview', 'interviewed_at'], ['outcome_at', after.outcome ?? '', 'outcome_at']];
   for (const [k, label, col] of firsts) if (label && after[col] && before[k] !== after[k]) {
     await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, label, after[col], req.user!.id, k === 'outcome_at' ? after.outcome_reason : null, k === 'outcome_at' ? after.outcome_note : null]);
   }
-  await audit(req.user!.id, 'tracking_update', `screening=${id} fields=${Object.keys(b.data).join(',')}`);
+  await audit(req.user!.id, source === 'tracking form' ? 'tracking_update' : 'plugin_details', `screening=${id} fields=${Object.keys(b.data).join(',')}`);
   res.json({ ok: true });
-});
+}
 
 // ---------- the Claude plugin: look jobs up before saving, so the same job is not saved twice ----------
 const pluginSelect = () => listSelect.replace(listFrom, `, s.upwork_job_id ${listFrom}`);
@@ -1149,6 +1153,34 @@ const postStatus = async (req: any, res: any) => {
 };
 api.post('/screenings/:id/status', requireRole(), postStatus);
 api.post('/plugin/jobs/:id/status', requireRole(), postStatus); // the same rules for the Claude plugin
+/**
+ * R121 (Hamza): Claude corrects a job's details without recording a status again (it checked Upwork against Upwork Pro): Connects,
+ * boost, the Loom video, whether it was an invite, and a note added to the job's notes (never replacing them). The app's Edit details,
+ * with the same rules; every change is kept in the job's history as made by the Claude plugin.
+ */
+api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
+  const b = z.object({ connects: z.number().int().min(0).max(1000).nullable().optional(), boost: z.number().int().min(0).max(1000).nullable().optional(),
+    loom_video: z.string().trim().max(300).nullable().optional(), invited: z.boolean().optional(), add_note: z.string().trim().min(2).max(2000).optional() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const d = b.data, id = Number(req.params.id);
+  const s = (await query<any>('SELECT notes, discarded_at FROM screenings WHERE id=?', [id]))[0];
+  if (!s || s.discarded_at) return void res.status(404).json({ error: 'Not found' });
+  const patch: Record<string, unknown> = {};
+  if (d.connects !== undefined) patch.connects_spent = d.connects;
+  if (d.boost !== undefined) patch.boost_connects = d.boost;
+  if (d.invited !== undefined) patch.invited = d.invited ? 'yes' : 'no';
+  if (d.loom_video !== undefined) {
+    if (d.loom_video === null) patch.loom_video_id = null;
+    else { const v = (await query<any>('SELECT id FROM loom_videos WHERE title=? ORDER BY active DESC, id DESC LIMIT 1', [d.loom_video]))[0];
+      if (!v) return void res.status(400).json({ error: `No Loom video is called "${d.loom_video}". See plugin_options for the titles.` }); patch.loom_video_id = v.id; }
+  }
+  if (d.add_note) { // added under the notes there, dated and signed, so nothing written before is lost
+    const stamp = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    patch.notes = [s.notes, `${stamp}, ${req.user!.name} (Claude): ${d.add_note}`].filter(Boolean).join('\n\n').slice(-4000);
+  }
+  if (!Object.keys(patch).length) return void res.status(400).json({ error: 'Nothing to change: send connects, boost, loom_video, invited or add_note' });
+  return applyTracking(req, res, patch, 'Claude plugin');
+});
 const getStatus = async (req: any, res: any) => {
   const id = Number(req.params.id);
   const s = (await query<any>(`SELECT s.user_id, ${statusSql} AS current_status, ${stageSql} AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
