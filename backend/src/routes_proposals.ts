@@ -8,6 +8,7 @@ import { addVersion, applySendParts, latestVersion, loadTemplate, loomChoices, q
 import { qaList, separate } from './proposal/answers';
 import { allOpenings, MAX_ACTIVE, MAX_EXAMPLES, MAX_OPENINGS, openingInUse, readList, templateBlock } from './proposal/opening_templates';
 import { editOpening, openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
+import { saveAnswer } from './proposal/answer_edit';
 import { compareOf, queueCompare } from './proposal/compare';
 
 export const proposals = Router();
@@ -661,6 +662,37 @@ proposals.post('/proposals/:id/answers/refit', anyone, async (req, res) => {
   if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
   await queueParts(p.screening_id);
   res.json({ queued: true });
+});
+// (after answers/refit: Express 5 has no number-only params, so the fixed path must come first)
+// R128 (Hamza): one screening answer edited by hand, or with the AI in a chat (one thread per answer), the way an opening is
+proposals.post('/proposals/:id/answers/:i', anyone, async (req, res) => {
+  const b = z.object({ text: z.string().max(10_000) }).safeParse(req.body ?? {});
+  if (!b.success) return void bad(res, b.error);
+  const p = await ownedProposal(req, res); if (!p) return;
+  if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
+  const r = await saveAnswer(p.id, num(req.params.i), b.data.text, req.user!.id);
+  if (r.error) return void res.status(409).json({ error: r.error });
+  await audit(req.user!.id, 'proposal_answer_edited', `proposal=${p.id} answer=${num(req.params.i) + 1} version=${r.version_no}`);
+  res.json({ version_no: r.version_no });
+});
+proposals.get('/proposals/:id/answers/:i/chat', anyone, async (req, res) => {
+  const p = await seenProposal(req, res); if (!p) return;
+  res.json({ messages: await query<any>(`SELECT m.id, m.role, m.content, m.draft, m.status, m.error_message, m.created_at, u.name AS user_name
+    FROM answer_messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.proposal_id=? AND m.answer_index=? ORDER BY m.id`, [p.id, num(req.params.i)]) });
+});
+proposals.post('/proposals/:id/answers/:i/chat', anyone, async (req, res) => {
+  const b = z.object({ content: z.string().trim().min(2, 'Say what to change').max(2000), current: z.string().trim().min(1).max(10_000) }).safeParse(req.body ?? {});
+  if (!b.success) return void bad(res, b.error);
+  const p = await ownedProposal(req, res); if (!p) return;
+  if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
+  const i = num(req.params.i), cur = await latestVersion(p.id);
+  if (!cur?.answers[i]) return void res.status(400).json({ error: 'There is no such answer' });
+  const busy = await query(`SELECT id FROM answer_messages WHERE proposal_id=? AND role='user' AND status IN ('queued','running') LIMIT 1`, [p.id]);
+  if (busy.length) return void res.status(409).json({ error: 'The AI is still answering the last message' });
+  const r = await exec(`INSERT INTO answer_messages (proposal_id, answer_index, role, content, base_text, status, user_id) VALUES (?,?,'user',?,?,'queued',?)`,
+    [p.id, i, b.data.content, b.data.current.replace(/\r\n/g, '\n'), req.user!.id]);
+  await audit(req.user!.id, 'answer_chat', `proposal=${p.id} answer=${i + 1}`);
+  res.status(202).json({ id: Number(r.insertId) });
 });
 
 proposals.post('/proposals/:id/versions', anyone, async (req, res) => {

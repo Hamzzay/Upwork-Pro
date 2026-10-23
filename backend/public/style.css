@@ -1324,3 +1324,9 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 /* R120: a dropdown keeps the width of its label; the row wraps instead of cutting labels */
 .fb-row > select.fsel, .fb-row > .ss { flex: 0 0 auto; min-width: 140px; max-width: 240px; width: auto; }
 .fb-row > .ss .ss-btn { width: auto; min-width: 140px; max-width: 240px; }
+
+/* R127: the Dashboard's live mark */
+.livetag { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.livetag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 3px var(--pass-line); }
+/* R128: the screening answer being edited, by hand or with the AI */
+.qa.on .qa-answer { background: var(--surface); border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent); }

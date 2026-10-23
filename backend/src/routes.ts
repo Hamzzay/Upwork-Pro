@@ -457,6 +457,15 @@ const dashboard = async (req: any, res: any) => {
   });
 };
 api.get('/dashboard', requireRole(), dashboard);
+/**
+ * R127 (Hamza): whether anything the Dashboard counts has changed, in one cheap query: the page asks every few seconds and reloads
+ * its numbers only when this changes (jobs, proposals, statuses, feedback, answered experience questions).
+ */
+api.get('/dashboard/stamp', requireRole(), async (_req, res) => {
+  const r = (await query<any>(`SELECT CONCAT_WS('|', (SELECT COUNT(*) FROM screenings), (SELECT MAX(changed_at) FROM screenings), (SELECT MAX(updated_at) FROM proposals),
+    (SELECT MAX(id) FROM status_events), (SELECT MAX(id) FROM proposal_feedback), (SELECT MAX(answered_at) FROM proposal_gaps)) AS stamp`))[0];
+  res.json({ stamp: String(r?.stamp ?? '') });
+});
 api.get('/plugin/dashboard', requireRole(), dashboard);
 
 /**

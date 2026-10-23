@@ -946,10 +946,28 @@ async function dashboardView() {
     setHashParams({ period: st.period === '30' ? '' : st.period, profile: st.profile, user: st.user, mine: st.mine ? '1' : '' });
     fbar.setActive(!!(st.profile || st.user || st.mine));
     draw(await api('GET', '/dashboard?' + q));
+    live.textContent = 'Live \u00b7 updated ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: TZ });
   }
-  shell('dashboard', [pageHead('Dashboard', 'How the team is doing: what came in, what went out, how fast, and what is waiting.', h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job')), bar, body], 1480);
+  // R127: live. Every 10 seconds (and on coming back to the tab) it asks whether anything changed, and only then reloads the numbers
+  const live = h('span', { class: 'livetag small muted', title: 'The numbers update by themselves when anything changes' });
+  let stamp = null, timer = null, busy = false;
+  const check = async () => {
+    clearTimeout(timer);
+    if (!body.isConnected) { document.removeEventListener('visibilitychange', onVis); return; } // left the Dashboard
+    if (!document.hidden && !busy) {
+      busy = true;
+      try { const r = await api('GET', '/dashboard/stamp'); if (stamp !== null && r.stamp !== stamp) await load(); stamp = r.stamp; } catch { /* the next check tries again */ }
+      busy = false;
+    }
+    timer = setTimeout(check, 10_000);
+  };
+  const onVis = () => { if (!document.hidden) check(); };
+  document.addEventListener('visibilitychange', onVis);
+  shell('dashboard', [pageHead('Dashboard', 'How the team is doing: what came in, what went out, how fast, and what is waiting.', h('div', { class: 'row', style: 'gap:12px;align-items:center' }, live, h('a', { class: 'btn primary', href: '#/new' }, icon('screen'), 'Screen a job'))), bar, body], 1480);
   body.append(h('div', { class: 'card card-pad' }, h('div', { class: 'skel', style: 'width:60%' })));
+  try { stamp = (await api('GET', '/dashboard/stamp')).stamp; } catch { /* the first check takes it */ } // before loading: a change while it loads is not missed
   await load();
+  timer = setTimeout(check, 10_000);
 }
 
 // ---------- reports: every trend, for the jobs the filters match ----------

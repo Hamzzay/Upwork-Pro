@@ -353,16 +353,18 @@ function proposalSection(s, initial, matching) {
 
   // ----- the side panel: one tool at a time, so the proposal stays the main thing on screen. The tab you used last is kept.
   // R112: 'opening' is the chat that edits the opening with the AI; it is there only while that edit is open
-  const SIDE = [['opening', 'Opening'], ['chat', 'Chat'], ['review', 'Review'], ['gaps', 'Experience'], ['feedback', 'Feedback']];
+  const SIDE = [['opening', 'Opening'], ['answer', 'Answer'], ['chat', 'Chat'], ['review', 'Review'], ['gaps', 'Experience'], ['feedback', 'Feedback']];
   let sideTab = 'chat', gapsShown = false, mainTab = 'letter'; // mainTab: the cover letter or the screening answers
   try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { /* storage blocked */ }
   const hasGaps = () => !!(data && data.gaps && data.gaps.items && data.gaps.items.length);
   const openGaps = () => (hasGaps() ? data.gaps.items.filter((x) => x.status === 'open').length : 0);
   const aiEditing = () => { try { return !!(editing && editing.ai); } catch { return false; } }; // editing is declared further down
-  function showSide(k) { sideTab = k; if (k !== 'opening') try { localStorage.setItem('prop.side', k); } catch { /* storage blocked */ } drawSideTabs(); }
+  let ansEditing = null; // R128: the screening answer being edited { i, ai }
+  const ansAi = () => !!(ansEditing && ansEditing.ai);
+  function showSide(k) { sideTab = k; if (k !== 'opening' && k !== 'answer') try { localStorage.setItem('prop.side', k); } catch { /* storage blocked */ } drawSideTabs(); }
   function drawSideTabs() {
     const bar = box.querySelector('.sidetabs'); if (!bar) return;
-    if (sideTab === 'opening' && !aiEditing()) { try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { sideTab = 'chat'; } }
+    if ((sideTab === 'opening' && !aiEditing()) || (sideTab === 'answer' && !ansAi())) { try { sideTab = localStorage.getItem('prop.side') || 'chat'; } catch { sideTab = 'chat'; } }
     if (!SIDE.some(([k]) => k === sideTab) || (sideTab === 'gaps' && !hasGaps())) sideTab = 'chat';
     const rv = data.review, n = openGaps();
     const badge = {
@@ -370,7 +372,7 @@ function proposalSection(s, initial, matching) {
       review: reviewBusy() ? h('span', { class: 'spin' }) : rv && rv.score ? h('span', { class: 'n ' + (rv.score >= 8 ? 'PASS' : rv.score >= 5 ? 'FLAG' : 'FAIL') }, String(rv.score)) : null,
       gaps: gapsBusy() ? h('span', { class: 'spin' }) : n ? h('span', { class: 'n FLAG' }, String(n)) : null,
     };
-    bar.replaceChildren(...SIDE.filter(([k]) => (k !== 'gaps' || hasGaps()) && (k !== 'opening' || aiEditing())).map(([k, label]) => h('button', { type: 'button', role: 'tab', class: 'tab' + (k === sideTab ? ' on' : ''), 'aria-selected': k === sideTab, onclick: () => showSide(k) }, label, badge[k] || null)));
+    bar.replaceChildren(...SIDE.filter(([k]) => (k !== 'gaps' || hasGaps()) && (k !== 'opening' || aiEditing()) && (k !== 'answer' || ansAi())).map(([k, label]) => h('button', { type: 'button', role: 'tab', class: 'tab' + (k === sideTab ? ' on' : ''), 'aria-selected': k === sideTab, onclick: () => showSide(k) }, label, badge[k] || null)));
     SIDE.forEach(([k]) => { const el = box.querySelector('.side-' + k); if (el) el.hidden = k !== sideTab; });
   }
   // ----- above the editor, one line: what to check before sending, and the questions about our experience
@@ -410,7 +412,7 @@ function proposalSection(s, initial, matching) {
     const input = h('textarea', { rows: 2, maxlength: 2000, placeholder: 'What should change? For example: shorter; lead with their deadline; less formal; use their word "dispatch"', 'aria-label': 'Ask the AI' });
     const send = h('button', { class: 'btn sm primary', type: 'button' }, 'Send');
     let msgs = [], seen = null, timer = null, gone = false;
-    const pending = () => msgs.some((m) => m.role === 'user' && (m.status === 'queued' || m.status === 'running'));
+    const pending = () => msgs.some((m, k) => m.role === 'user' && (m.status === 'queued' || m.status === 'running') && !msgs.slice(k + 1).some((x) => x.role === 'assistant')); // answered already: the worker marks it done a moment later
     const draw = () => {
       list.replaceChildren(...(msgs.length ? msgs.map((m) => h('div', { class: 'msg ' + (m.role === 'user' ? 'me' : 'ai') },
         h('div', { class: 'bubble' }, m.content, m.draft ? h('div', { class: 'faint small', style: 'margin-top:6px' }, '\u201c' + m.draft + '\u201d') : null),
@@ -439,6 +441,46 @@ function proposalSection(s, initial, matching) {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } });
     load();
     return { el: h('div', { class: 'openchat' }, h('div', { class: 'openchat-head' }, h('strong', {}, ed.label ? `Opening: ${ed.label}` : 'The opening'), h('span', { class: 'faint small' }, 'Each answer goes into the box on the left. Save and use there when it reads right.')),
+      list, h('div', { class: 'openchat-send' }, input, h('div', { class: 'row spread', style: 'gap:8px' }, h('span', { class: 'faint small' }, 'Enter to send'), send))),
+      focus: () => input.focus() };
+  }
+  /** R128: the chat that edits one screening answer, like the opening's (R106): each version the AI gives goes into the answer's box. */
+  function answerChat(i, question, ta) {
+    const list = h('div', { class: 'chatlist openchat-list' });
+    const input = h('textarea', { rows: 2, maxlength: 2000, placeholder: 'What should change? For example: shorter; mention the Stripe work; answer yes first; less formal', 'aria-label': 'Ask the AI' });
+    const send = h('button', { class: 'btn sm primary', type: 'button' }, 'Send');
+    let msgs = [], seen = null, timer = null;
+    const alive = () => list.isConnected && ansEditing && ansEditing.i === i && ansEditing.ai;
+    const pending = () => msgs.some((m, k) => m.role === 'user' && (m.status === 'queued' || m.status === 'running') && !msgs.slice(k + 1).some((x) => x.role === 'assistant')); // answered already: the worker marks it done a moment later
+    const put = (text) => { ta.value = text; ansEditing.text = text; answersChip.hidden = !answersDirty(); drawActions(); drawMainTabs(); };
+    const draw = () => {
+      list.replaceChildren(...(msgs.length ? msgs.map((m) => h('div', { class: 'msg ' + (m.role === 'user' ? 'me' : 'ai') },
+        h('div', { class: 'bubble' }, m.content, m.draft ? h('div', { class: 'faint small', style: 'margin-top:6px;white-space:pre-wrap' }, '\u201c' + m.draft + '\u201d') : null),
+        m.role === 'assistant' && m.draft && m.draft !== ta.value.trim() ? h('button', { class: 'btn sm', type: 'button', style: 'justify-self:start', onclick: () => { put(m.draft); draw(); } }, 'Put this one in the box') : null,
+        m.status === 'error' ? h('span', { class: 'err small' }, icon('x'), 'The AI could not answer: ' + (m.error_message || 'try again')) : null))
+        : [h('p', { class: 'jp-label', style: 'margin:0' }, 'Say what to change. The AI gives the whole answer back with only that changed, and it comes into the answer\u2019s box. Keep asking until it reads right, then Save.')]),
+        pending() ? h('div', { class: 'msg ai' }, h('div', { class: 'bubble faint' }, 'Rewriting the answer\u2026')) : '');
+      send.disabled = pending(); list.scrollTop = list.scrollHeight;
+    };
+    const load = async () => {
+      if (!alive() && seen !== null) return;
+      try { msgs = (await api('GET', `/proposals/${data.id}/answers/${i}/chat`)).messages; } catch { /* next time */ }
+      const last = [...msgs].reverse().find((m) => m.role === 'assistant' && m.draft);
+      if (seen === null) seen = last ? last.id : 0; // what was there when the chat opened stays out of the box
+      else if (last && last.id !== seen) { seen = last.id; put(last.draft); } // a new answer goes into the box
+      draw(); clearTimeout(timer); if (pending()) timer = setTimeout(load, 2000);
+    };
+    const go = async () => {
+      const content = input.value.trim(); if (!content || pending()) return;
+      if (!ta.value.trim()) return toast('Put the answer in the box first', true);
+      btnBusy(send, 'Sending');
+      try { await api('POST', `/proposals/${data.id}/answers/${i}/chat`, { content, current: ta.value.trim() }); input.value = ''; await load(); }
+      catch (x) { toast(x.message, true); } finally { send.replaceChildren('Send'); draw(); }
+    };
+    send.onclick = go;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } });
+    load();
+    return { el: h('div', { class: 'openchat' }, h('div', { class: 'openchat-head' }, h('strong', {}, `Answer ${i + 1}`), h('span', { class: 'faint small' }, question)),
       list, h('div', { class: 'openchat-send' }, input, h('div', { class: 'row spread', style: 'gap:8px' }, h('span', { class: 'faint small' }, 'Enter to send'), send))),
       focus: () => input.focus() };
   }
@@ -830,9 +872,12 @@ function proposalSection(s, initial, matching) {
     // the screening answers, apart from the letter: each its own box, Copy and edit; saved with Save version, never through the letter
     const drawAnswers = (answers, editable) => {
       shownAnswers = answers || []; answerBoxes = [];
+      if (!editable) ansEditing = null;
+      const pane = box.querySelector('.side-answer');
+      if (pane && !ansAi() && pane.childNodes.length) { pane.replaceChildren(); drawSideTabs(); }
       answersBox.replaceChildren(...(shownAnswers.length ? [h('div', {},
         h('div', { class: 'row spread', style: 'align-items:flex-start;gap:10px;margin-bottom:10px' },
-          h('div', { class: 'jp-label' }, editable ? 'Paste each into its own box on Upwork. They are kept apart from the proposal: edit them here and save with Save version.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
+          h('div', { class: 'jp-label' }, editable ? 'Paste each into its own box on Upwork. Edit one yourself, or tell the AI what to change.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
           // R125: they follow the chosen projects by themselves; this does it now (an answer that names no project stays as it is)
           editable ? h('button', { class: 'btn sm', type: 'button', title: 'Answers that name a project no longer chosen are written again with the chosen ones', disabled: data.parts && ['queued', 'running'].includes(data.parts.status), onclick: async (e) => {
             if (answersDirty() && !(await ask('Update the answers?', 'You have unsaved changes to the answers. The update starts from the last saved version, so save yours first to keep them.', 'Update anyway'))) return;
@@ -840,15 +885,30 @@ function proposalSection(s, initial, matching) {
             await api('POST', `/proposals/${data.id}/answers/refit`); data.parts = { ...(data.parts || {}), status: 'queued' }; startPolling();
             toast('Updating the answers for the chosen projects. The new version loads here by itself.'); } }, 'Match the chosen projects') : null),
         h('div', { class: 'stack', style: 'gap:10px' }, shownAnswers.map((x, i) => {
-          const box = h('textarea', { class: 'qa-answer', rows: Math.min(12, Math.max(3, Math.ceil(x.answer.length / 90) + 1)), readOnly: !editable, 'aria-label': `Answer ${i + 1}` });
-          box.value = x.answer; answerBoxes.push(box);
-          box.addEventListener('input', () => { answersChip.hidden = !answersDirty(); drawActions(); drawMainTabs(); });
-          return h('div', { class: 'qa' },
+          const on = editable && ansEditing && ansEditing.i === i;
+          const ta = h('textarea', { class: 'qa-answer' + (on ? ' editing' : ''), rows: Math.min(14, Math.max(3, Math.ceil(x.answer.length / 90) + 1)), readOnly: !on, 'aria-label': `Answer ${i + 1}` });
+          ta.value = on && ansEditing.text != null ? ansEditing.text : x.answer; answerBoxes.push(ta);
+          ta.addEventListener('input', () => { if (on) ansEditing.text = ta.value; answersChip.hidden = !answersDirty(); drawActions(); drawMainTabs(); });
+          const copy = h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(ta.value.trim()); toast(ok ? `Answer ${i + 1} copied` : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy');
+          const start = (ai) => { if (ansEditing && ansEditing.i !== i && answersDirty()) return toast('Save or cancel the answer you are editing first', true); ansEditing = { i, ai, text: on ? ta.value : x.answer }; drawAnswers(shownAnswers, true); };
+          let tools;
+          if (on) {
+            const save = h('button', { class: 'btn sm primary', type: 'button' }, 'Save');
+            save.onclick = async () => { btnBusy(save, 'Saving');
+              try { const r = await api('POST', `/proposals/${data.id}/answers/${i}`, { text: ta.value }); ansEditing = null; toast(r.version_no === loaded ? 'Nothing changed' : `Answer ${i + 1} saved as version ${r.version_no}`); await reload(); newer = null; drawAll(); }
+              catch (e) { toast(e.message, true); save.disabled = false; save.replaceChildren('Save'); } };
+            const cancel = h('button', { class: 'btn sm', type: 'button', onclick: () => { ansEditing = null; drawAnswers(shownAnswers, true); answersChip.hidden = !answersDirty(); drawActions(); drawMainTabs(); } }, 'Cancel');
+            tools = [copy, ansEditing.ai ? null : h('button', { class: 'btn sm', type: 'button', title: 'Tell the AI what to change; its version comes into this box', onclick: () => start(true) }, icon('message'), 'Ask the AI'), cancel, save];
+          } else tools = [copy, editable ? h('button', { class: 'btn sm', type: 'button', onclick: () => start(false) }, 'Edit') : null,
+            editable ? h('button', { class: 'btn sm', type: 'button', title: 'Tell the AI what to change, as often as you like, then save it', onclick: () => start(true) }, icon('message'), 'Edit with AI') : null];
+          if (on && ansEditing.ai && pane) { const chat = answerChat(i, x.question, ta); pane.replaceChildren(chat.el); sideTab = 'answer'; drawSideTabs(); requestAnimationFrame(() => { if (window.innerWidth >= 1100) chat.focus(); else ta.focus(); }); }
+          else if (on) requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+          return h('div', { class: 'qa' + (on ? ' on' : '') },
             h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start;gap:10px' }, h('label', { class: 'jp-label' }, `${i + 1}. ${x.question}`),
-              h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(box.value.trim()); toast(ok ? `Answer ${i + 1} copied` : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy')),
-            box);
+              h('span', { class: 'row', style: 'gap:6px;flex-wrap:nowrap' }, ...tools.filter(Boolean))),
+            ta, on && ansEditing.ai ? h('div', { class: 'faint small', style: 'margin-top:6px' }, 'Tell the AI what to change in the Answer panel on the right; each version comes into this box. Save when it reads right.') : null);
         })), answersChip)] : []));
-      answersChip.hidden = true; drawMainTabs();
+      answersChip.hidden = !answersDirty(); drawMainTabs();
     };
     editor = richEditor(cur.html, { label: 'Proposal text', readOnly: !owner, onChange: (d) => { if (d !== wasDirty) { wasDirty = d; drawActions(); drawMainTabs(); } dirtyChip.hidden = !d; count(); } });
     let wasDirty = false;
@@ -923,7 +983,7 @@ function proposalSection(s, initial, matching) {
     const grid = h('div', { class: 'propgrid' },
       h('div', { class: 'propmain' }, checksEl, doc),
       h('div', { class: 'propside' }, h('div', { class: 'card sidecard' }, h('div', { class: 'tabs sidetabs', role: 'tablist', 'aria-label': 'Proposal tools' }),
-        h('div', { class: 'sidebody' }, h('div', { class: 'side-opening' }), h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
+        h('div', { class: 'sidebody' }, h('div', { class: 'side-opening' }), h('div', { class: 'side-answer' }), h('div', { class: 'chatpanel side-chat' }), h('div', { class: 'reviewpanel side-review' }), h('div', { class: 'side-gaps' }, gapsEl), h('div', { class: 'feedbackpanel side-feedback' })))));
     return grid;
   }
 

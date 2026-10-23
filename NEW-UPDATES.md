@@ -2326,3 +2326,31 @@ the writing rules could not fix it: the project blocks are put together in code,
     Android, since they have no iOS link;
   - a hand-edited proposal was offered its missing links.
 
+### R127. The Dashboard updates by itself (done, 24 October)
+Why (Hamza): the Dashboard only showed new numbers after a refresh.
+- Every 10 seconds the page asks the server one cheap question: has anything changed? It reloads the numbers only when something
+  has. The things that count are jobs, proposals, statuses, feedback and answered experience questions.
+- When you come back to the tab, it checks at once. A hidden tab doesn't ask, and leaving the Dashboard stops the checks.
+- A green "Live · updated 1:59" next to Screen a job shows when the numbers last changed.
+- Your filters and the period stay as you set them.
+- Migration 068 adds `changed_at` to jobs. It moves by itself on any change, so no code path can forget to report one.
+- Checked: with the Dashboard open, a job was marked Viewed through the API. "Client viewed" went from 4 to 5 seven seconds later,
+  with no refresh.
+
+### R128. Screening answers can be edited by hand or with the AI, like opening lines (done, 24 October)
+Why (Hamza): the Screening answers tab only showed the answers; they should be editable the way the opening lines are.
+- Each answer now has **Copy**, **Edit** and **Edit with AI**. An answer stays read-only until you pick one.
+- **Edit** opens the answer's box for your changes, with Cancel and Save (and **Ask the AI** to switch over).
+- **Edit with AI** opens an **Answer** chat in the panel on the right, as the opening chat does.
+  - You say what to change. The AI gives the whole answer back with only that changed, and it comes into the box.
+  - Keep asking, change the box yourself, or put an earlier version back. Save when it reads right.
+  - The AI sees the job, the cover letter, the other answers, the chosen projects (the only past work it may name), the profile and
+    the screening answer rules.
+- Saving makes a new version with only that answer changed: the cover letter, its project blocks and the other answers stay the same.
+  Each answer has its own chat thread, kept on the proposal (migration 069).
+- Also fixed in both chats (openings and answers): for a moment after the AI answered, the panel could still say "Rewriting...".
+- Checked in the browser:
+  - Edit with AI on answer 1 ("two short sentences, lead with Chairboss"): the new answer came into the box in 8 seconds, and Save
+    made version 4 with only answer 1 changed;
+  - Edit on answer 2, typed and saved: version 5.
+

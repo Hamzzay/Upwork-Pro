@@ -154,6 +154,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 106 | A status set by mistake can be undone: back to any earlier step, or Not sent (R124) | done |
 | 107 | Screening answers follow the chosen projects, after an early draft or a project change, plus Match the chosen projects (R125) | done |
 | 108 | Proposals show every project link (web, Android, iOS) made in code, kept through chat revisions; unsent proposals rebuilt on deploy (R126) | done |
+| 109 | The Dashboard updates by itself: a change check every 10 seconds and on returning to the tab, with a Live mark (R127) | done |
+| 110 | Screening answers: Edit and Edit with AI on each answer, an Answer chat on the right, saved as a version with only that answer changed (R128) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

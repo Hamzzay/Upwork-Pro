@@ -15,6 +15,7 @@ import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
 import { linkClient, linkUnchecked } from './clients';
 import { runOpeningChat } from './proposal/openings';
+import { runAnswerChat } from './proposal/answer_edit';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { runOpenings } from './proposal/openings';
 import { queueFitReasons, runFitReasons } from './screening/fit_reasons';
@@ -242,6 +243,17 @@ async function processOpeningChat(id: number) {
   }
 }
 
+/** One turn of the chat that edits a screening answer (R128). */
+async function processAnswerChat(id: number) {
+  try { await runAnswerChat(id); }
+  catch (e) {
+    if (stopping) { await exec(`UPDATE answer_messages SET status='queued' WHERE id=?`, [id]); return; }
+    const info = errorInfo(e);
+    await exec(`UPDATE answer_messages SET status='error', error_message=? WHERE id=?`, [info.message, id]);
+    await audit(null, 'answer_chat_error', `message=${id} code=${info.code}`);
+  }
+}
+
 /** One chat turn. */
 async function processChat(id: number) {
   try { await runChat(id); }
@@ -278,6 +290,9 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   const oc = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM opening_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
   if (oc.length) return { kind: 'opening_chat', claim: async () => !!(await exec(`UPDATE opening_messages SET status='running' WHERE id=? AND status='queued'`, [oc[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'chat', proposalId: oc[0].proposal_id, screeningId: oc[0].screening_id }, () => processOpeningChat(oc[0].id)) };
+  const ac = await query<{ id: number; proposal_id: number; screening_id: number }>(`SELECT m.id, p.id AS proposal_id, p.screening_id FROM answer_messages m JOIN proposals p ON p.id=m.proposal_id WHERE m.role='user' AND m.status='queued' ORDER BY m.id LIMIT 1`);
+  if (ac.length) return { kind: 'answer_chat', claim: async () => !!(await exec(`UPDATE answer_messages SET status='running' WHERE id=? AND status='queued'`, [ac[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'chat', proposalId: ac[0].proposal_id, screeningId: ac[0].screening_id }, () => processAnswerChat(ac[0].id)) };
   // two versions compared for a person looking at them (R76)
   const cm = await query<{ id: number; proposal_id: number }>(`SELECT id, proposal_id FROM proposal_comparisons WHERE status='queued' ORDER BY id LIMIT 1`);
   if (cm.length) return { kind: 'compare', claim: async () => !!(await exec(`UPDATE proposal_comparisons SET status='running' WHERE id=? AND status='queued'`, [cm[0].id])).affectedRows,
@@ -433,6 +448,7 @@ async function shutdown() {
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE opening_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE answer_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`).catch(() => undefined);
   await pool.end().catch(() => undefined);
@@ -458,6 +474,7 @@ async function main() {
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE opening_messages SET status='queued' WHERE status='running'`);
+  await exec(`UPDATE answer_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);
   // R106: jobs saved before returning clients were looked for (no AI; a few seconds at most)
