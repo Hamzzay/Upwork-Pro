@@ -5,7 +5,7 @@ import { attachZone, teamZone } from './zone';
 import { cheapFacts, DEEP_INCLUDES, deepDetails, deepText } from './deepdata';
 import { convertWall, fromDb, wallClock, DB_ZONE, dayBounds, isZone, shiftMinutes, todayIn, ZONES, zoneLabel } from './tz';
 import { attachUser, checkPassword, currentSessionHash, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
-import { detectInput, InputError, jobIdFromUrl } from './screening/jobsource';
+import { detectInput, InputError, jobIdFromUrl, jobLinkInText } from './screening/jobsource';
 import { loadContext } from './screening/context';
 import { gatePrompt, normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
@@ -179,6 +179,7 @@ api.post('/screenings', requireRole(), async (req, res) => {
     if (!/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i.test(b.data.job_url)) return void res.status(400).json({ error: 'The job link must be an Upwork link' });
     sourceUrl = b.data.job_url;
   }
+  if (parsed.type === 'text' && !sourceUrl) sourceUrl = jobLinkInText(b.data.input); // R139: the page's own link, when the box was left empty
   // the files are read first; the job and its files are then saved together, so the worker never screens it without them
   const { ready, errors } = b.data.files?.length ? await prepareFiles(b.data.files, 0, req.user!.id) : { ready: [], errors: [] };
   const conn = await pool.getConnection();
@@ -864,8 +865,10 @@ const trackBody = z.object({
   skip_reason: z.string().trim().max(120).nullable().optional(),
   skip_note: z.string().trim().max(2000).nullable().optional(),
   invited: z.enum(['yes', 'no']).nullable().optional(), // R105
+  // R139: the job link, set or corrected by hand (Edit details) or by Claude; an Upwork link, or nothing
+  source_url: z.string().trim().max(500).regex(/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i, 'The job link must be an Upwork link').or(z.literal('')).nullable().optional(),
 });
-const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id', 'skip_reason', 'skip_note', 'invited'] as const;
+const TRACK_KEYS = ['proceeded', 'proposal_sent_date', 'outcome', 'notes', 'connects_spent', 'boost_connects', 'client_viewed', 'client_replied', 'interviewed', 'outcome_reason', 'outcome_note', 'loom_video_id', 'skip_reason', 'skip_note', 'invited', 'source_url'] as const;
 /** Every tracked field, so a change can be stored as old value -> new value. */
 const TRACKED = [...TRACK_KEYS, 'proposal_sent_at', 'client_viewed_at', 'client_replied_at', 'interviewed_at', 'outcome_at'];
 const show = (v: any) => (v == null ? null : v instanceof Date ? v.toLocaleString('sv', { timeZone: 'Asia/Karachi' }) : String(v));
@@ -919,6 +922,7 @@ async function applyTracking(req: any, res: any, body: unknown, source: string) 
   }
   if (!sets.length) return void res.status(400).json({ error: 'Nothing to change' });
   await exec(`UPDATE screenings SET ${sets.join(',')}, tracking_updated_at=NOW() WHERE id=?`, [...p, id]);
+  if (b.data.source_url !== undefined) await exec('UPDATE screenings SET upwork_job_id=? WHERE id=?', [b.data.source_url ? jobIdFromUrl(b.data.source_url) : null, id]); // R139: its id follows
   // keep the video's title with the job, so the job still names it after the video is deleted
   if (b.data.loom_video_id !== undefined) await exec('UPDATE screenings s LEFT JOIN loom_videos v ON v.id=s.loom_video_id SET s.loom_video_title=v.title WHERE s.id=?', [id]);
   // a milestone set through the form gets its date-time too (now, unless it already had one), like the status button
@@ -978,7 +982,9 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const cl = await clientFor(id);
   const returning = cl && cl.jobs.length ? { client_id: cl.id, name: cl.name, earlier_jobs: cl.jobs.map((j: any) => ({ id: j.id, title: j.title, screened: j.created_at, by: j.user_name, profile: j.profile_name,
     status: j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened'), why: j.why ?? undefined })) } : null;
-  res.json({ job: { ...pluginRow(r), returning_client: returning, proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.html), screening_answers: cur.answers.length ? cur.answers : undefined, finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
+  // R139: the job page as it was pasted (its link and every detail in it), for Claude to read; long pages are cut at 15,000 characters
+  const page = String((await query<any>('SELECT COALESCE(job_text, raw_input) AS t FROM screenings WHERE id=?', [id]))[0]?.t ?? '');
+  res.json({ job: { ...pluginRow(r), job_page: page.length > 15000 ? page.slice(0, 15000) + '\n[cut: the page goes on]' : page, returning_client: returning, proposal: cur ? { version: cur.version_no, text: htmlToPlain(cur.html), screening_answers: cur.answers.length ? cur.answers : undefined, finished: !!s2.finalized_at } : null, review: rvw ? reviewOf(rvw) : null, status_history: events,
     saved: { decision: s2.proceeded === 'no' ? { continue: false, reason: s2.skip_note } : s2.continued_at ? { continue: true, reason: s2.continue_reason ?? null } : null,
       tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
       signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),
@@ -1206,7 +1212,8 @@ api.post('/plugin/jobs/:id/status', requireRole(), postStatus); // the same rule
  */
 api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
   const b = z.object({ connects: z.number().int().min(0).max(1000).nullable().optional(), boost: z.number().int().min(0).max(1000).nullable().optional(),
-    loom_video: z.string().trim().max(300).nullable().optional(), invited: z.boolean().optional(), add_note: z.string().trim().min(2).max(2000).optional() }).safeParse(req.body ?? {});
+    loom_video: z.string().trim().max(300).nullable().optional(), invited: z.boolean().optional(), add_note: z.string().trim().min(2).max(2000).optional(),
+    job_link: z.string().trim().max(500).regex(/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i, 'The job link must be an Upwork link').nullable().optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const d = b.data, id = Number(req.params.id);
   const s = (await query<any>('SELECT notes, discarded_at FROM screenings WHERE id=?', [id]))[0];
@@ -1215,6 +1222,7 @@ api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
   if (d.connects !== undefined) patch.connects_spent = d.connects;
   if (d.boost !== undefined) patch.boost_connects = d.boost;
   if (d.invited !== undefined) patch.invited = d.invited ? 'yes' : 'no';
+  if (d.job_link !== undefined) patch.source_url = d.job_link; // R139
   if (d.loom_video !== undefined) {
     if (d.loom_video === null) patch.loom_video_id = null;
     else { const v = (await query<any>('SELECT id FROM loom_videos WHERE title=? ORDER BY active DESC, id DESC LIMIT 1', [d.loom_video]))[0];
@@ -1224,7 +1232,7 @@ api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
     const stamp = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     patch.notes = [s.notes, `${stamp}, ${req.user!.name} (Claude): ${d.add_note}`].filter(Boolean).join('\n\n').slice(-4000);
   }
-  if (!Object.keys(patch).length) return void res.status(400).json({ error: 'Nothing to change: send connects, boost, loom_video, invited or add_note' });
+  if (!Object.keys(patch).length) return void res.status(400).json({ error: 'Nothing to change: send connects, boost, loom_video, invited, job_link or add_note' });
   return applyTracking(req, res, patch, 'Claude plugin');
 });
 const getStatus = async (req: any, res: any) => {

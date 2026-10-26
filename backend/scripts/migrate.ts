@@ -53,6 +53,8 @@ const run = async (stmt: string) => {
     ['063_regroup_clients.data', () => regroupAll()],
     // R137: the experience lines the app had added to project Notes taken out (the experience is in the tags); recorded, so revertible
     ['072_experience_notes.data', async () => (await import('../src/proposal/experience_notes')).removeAppExperienceNotes()],
+    // R139: a job saved without its link gets the one in its own pasted page (recorded in its history)
+    ['073_job_links.data', async () => (await import('../src/screening/job_links')).fillJobLinks()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;

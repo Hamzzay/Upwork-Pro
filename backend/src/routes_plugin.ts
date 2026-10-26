@@ -11,7 +11,7 @@ import { htmlToPlain, textToHtml } from './html';
 import { qaList, splitText, storeAnswers } from './proposal/answers';
 import { latestVersion } from './proposal/pipeline';
 import { picksOf } from './flagreview';
-import { jobIdFromUrl } from './screening/jobsource';
+import { jobIdFromUrl, jobLinkInText } from './screening/jobsource';
 import { splitMobile } from './library/mobile';
 import { diff, snapshot } from './changes';
 import { getSettings } from './settings';
@@ -61,6 +61,7 @@ plugin.post('/plugin/jobs', anyone, async (req, res) => {
   const b = jobBody.safeParse(req.body);
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message, field: b.error.issues[0].path.join('.') });
   const d = b.data, user = req.user!;
+  if (!d.job_url) d.job_url = jobLinkInText(d.job_text) ?? undefined; // R139: no link sent: the page's own, from the job text
   const jobId = d.job_url ? jobIdFromUrl(d.job_url) : null;
   if (jobId && !d.force_new) {
     const dup = (await query<any>('SELECT s.id, s.title, s.created_at, u.name AS user_name FROM screenings s JOIN users u ON u.id=s.user_id WHERE s.upwork_job_id=? AND s.discarded_at IS NULL ORDER BY s.id DESC LIMIT 1', [jobId]))[0];

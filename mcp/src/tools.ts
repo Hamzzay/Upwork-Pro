@@ -76,7 +76,7 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
     { url: z.string().optional(), job_id: z.string().optional(), q: z.string().optional(), phase: z.enum(['in_progress', 'submitted', 'closed', 'not_pursued']).optional(), limit: z.number().int().min(1).max(50).optional() },
     { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/jobs?' + new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))));
 
-  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, returning_client (other jobs we screened from the same Upwork client, how each went and why they match: tell the person), its latest proposal (the cover letter in text, the screening answers apart in screening_answers), and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, whether tech stack tags were skipped, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
+  T('get_job', 'One job in Upwork Pro: where it stands, its status and history, job_page (the job page as it was pasted, its link included), returning_client (other jobs we screened from the same Upwork client, how each went and why they match: tell the person), its latest proposal (the cover letter in text, the screening answers apart in screening_answers), and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, whether tech stack tags were skipped, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
 
   // ---------- analysis: many jobs at once, and the trend numbers ----------
   const jobFilters = {
@@ -252,14 +252,15 @@ Never send the person's raw text: write every text field yourself in the format 
     });
 
   // R121: corrections after checking Upwork against Upwork Pro, without recording a status again
-  T('update_job_details', 'Correct a job\'s details without recording a status: the Connects it cost, the boost, the Loom video sent, whether it was an invite, and add_note to add a dated note under the job\'s notes (it never replaces them). Use it when Upwork shows different Connects or boost than Upwork Pro, or to note what happened (a client\'s questions, a reply not answered). Every change is kept in the job\'s history. Statuses and outcomes go through update_status.',
+  T('update_job_details', 'Correct a job\'s details without recording a status: the Connects it cost, the boost, the Loom video sent, whether it was an invite, its Upwork job link (job_link; get_job\'s job_page has the page as pasted, its link at the end), and add_note to add a dated note under the job\'s notes (it never replaces them). Use it when Upwork shows different Connects or boost than Upwork Pro, or to note what happened (a client\'s questions, a reply not answered). Every change is kept in the job\'s history. Statuses and outcomes go through update_status.',
     { id: z.number().int(), connects: z.number().int().nullable().optional().describe('The base Connects the proposal cost (null clears it)'),
       boost: z.number().int().nullable().optional().describe('The extra Connects spent on a boost (null clears it). Upwork shows base plus boost as one total: split it from the Connects history when you can'),
       loom_video: z.string().nullable().optional().describe('The title of the Loom video sent, exactly as in plugin_options (null: none)'),
       invited: z.boolean().optional().describe('True when the client invited us to this job'),
+      job_link: z.string().nullable().optional().describe('The job\'s Upwork link, https://www.upwork.com/jobs/~02... (null clears it). Jobs saved from now on get it by themselves'),
       add_note: z.string().optional().describe('A note to add, for example "Client asked about the API limits; replied 23 Oct 5:48 PM; no answer since"') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    async (a) => api.call('POST', `/plugin/jobs/${a.id}/details`, { connects: a.connects, boost: a.boost, loom_video: a.loom_video, invited: a.invited, add_note: a.add_note }));
+    async (a) => api.call('POST', `/plugin/jobs/${a.id}/details`, { connects: a.connects, boost: a.boost, loom_video: a.loom_video, invited: a.invited, job_link: a.job_link, add_note: a.add_note }));
 
   T('discard_job', 'Admins only: discard a job (a test, a duplicate, a stale draft never sent). It leaves every list, count, report and export, and Claude no longer sees it; nothing is deleted and an admin can restore it in the app. Always ask the person first and give the reason.',
     { id: z.number().int(), reason: z.string().describe('Why, for example "Stale, not sent" or "Duplicate of #197"') },

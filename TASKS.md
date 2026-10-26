@@ -1,12 +1,12 @@
 # Tasks and handoff
 
 The running task list for Upwork Pro, kept so any Claude (or person) can pick up where the last one stopped.
-**Update this file whenever a task starts, finishes or changes.** What was built and why is in `NEW-UPDATES.md` (R1 to R34 and on).
+**Update this file whenever a task starts, finishes or changes.** What was built and why is in `NEW-UPDATES.md`, the latest copy of the update log (from R138). Older entries: `updates/NEW-UPDATES-1.md` (R1 to R137). **A copy holds 50 entries at most:** when `NEW-UPDATES.md` reaches 50, move it to `updates/NEW-UPDATES-<n>.md` (archived note at its top), start a new one at the next R number with the same header, and add its row to the copies table.
 The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 October, line by line, are in `CHECKLIST.md`.
 
 ## How to pick up
 
-1. Read this file, then the last few entries of `NEW-UPDATES.md`, then `README.md`.
+1. Read this file, then the last few entries of `NEW-UPDATES.md` (the latest copy; older copies are in `updates/`), then `README.md`.
 2. Work on branch `hamza`. Never merge to `main`. Commit each finished task with its `NEW-UPDATES.md` entry and push.
 3. Local setup (Hamza's Mac): MySQL from XAMPP on port 3306 (database `upwork_gate`); backend in `backend/`
    (`npm run dev` for the website on http://localhost:3000, `npm run worker` for the AI jobs); MCP in `mcp/` (`npm run build`).
@@ -165,6 +165,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 117 | Job header: the key facts in their own row (budget, client, spend, avg paid, competition, Connects) with details and colour, nothing cut off (R135) | done |
 | 118 | Multi-select filters apply as you tick (short pause, the list stays open); the Logs filter bar is kept between loads (R136) | done |
 | 119 | Experience answers add only tags, never project Notes; the app's "Experience with..." lines taken out of Notes, recorded and revertible (R137) | done |
+| 120 | The update log kept in copies of 50: R1 to R137 archived as `updates/NEW-UPDATES-1.md`, `NEW-UPDATES.md` is the latest copy from R138 (R138) | done |
+| 121 | Every job keeps its Upwork link: saved from the pasted page by itself, old jobs filled once, a Job link field in Edit details, Claude can read the page and set it (R139) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

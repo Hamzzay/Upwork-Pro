@@ -11,7 +11,7 @@ A tool for the Stackup team that takes an Upwork job from paste to proposal to o
 
 Stack: Node (Express 5, TypeScript), MySQL/MariaDB, and an AI of your choice (GLM through Z.ai, Claude, or GPT; see **Choosing the AI** below).
 GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backend-glm-guide.pdf`); GPT calls the OpenAI API. The browser app is plain JavaScript in `backend/public`.
-`NEW-UPDATES.md` is the change log of the speed and refinement rounds (branch `hamza`).
+`NEW-UPDATES.md` is the latest copy of the change log (branch `hamza`); older copies of 50 entries each are in `updates/`.
 
 ## Where to look
 
@@ -20,7 +20,7 @@ GLM and Claude run through the pinned Claude Code CLI (see `claude-code-in-backe
 | How to use it (for the team, with pictures) | `guide/index.html` |
 | Setting up a fresh, empty copy for a company | `guide/setup.html` (and `npm run seed:starter`) |
 | The design rules every page follows | `DESIGN.md` |
-| What was built and why, change by change | `NEW-UPDATES.md` |
+| What was built and why, change by change | `NEW-UPDATES.md` (latest), `updates/NEW-UPDATES-<n>.md` (older copies) |
 | What is open and how to pick up the work | `TASKS.md` |
 | Using it from Claude (the MCP and the plugin) | `mcp/README.md`, `plugin/README.md` |
 | Putting it on a server, step by step | `SERVER-SETUP.md` |

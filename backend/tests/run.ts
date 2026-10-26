@@ -31,6 +31,7 @@ import { assemble, layoutBlock, linkPlace, projectLinkSet, proofText, restoreLin
 import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes';
 import { applyOffer, pairReplacements } from '../src/proposal/offers';
 import { withoutAppLines } from '../src/proposal/experience_notes';
+import { jobLinkInText } from '../src/screening/jobsource';
 import { clientPost, sameClient, sameTitle } from '../src/clients';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -707,6 +708,13 @@ const ctx = { rules, projects };
     { assert.equal(withoutAppLines('Built for a US client.\nExperience with Twilio: SMS reminders (confirmed on job #52).\nExperience with DevOps and backup restoration (confirmed on job #79).'), 'Built for a US client.');
       assert.equal(withoutAppLines('Experience with Stripe (confirmed on job #3).'), null, 'nothing left: empty');
       assert.equal(withoutAppLines('We have experience with Stripe (confirmed on job #3) and more.'), 'We have experience with Stripe (confirmed on job #3) and more.', 'a sentence a person wrote stays'); }
+    // R139: the job's own link from the pasted page: the one after "Job link", else the only one, never a guess between several
+    { const own = 'https://www.upwork.com/jobs/~022107535586588578224';
+      assert.equal(jobLinkInText(`Senior React dev\nAbout the client\nOther open jobs by this Client\nhttps://www.upwork.com/jobs/~021111111111111111111\nJob link\n${own}\nCopy link`), own, 'the one after "Job link"');
+      assert.equal(jobLinkInText(`We need an app.\nSee https://www.upwork.com/jobs/Build-app_~022107535586588578224/?referrer_url_path=find_work_home`), own, 'the only one, in one form');
+      assert.equal(jobLinkInText(`a https://www.upwork.com/jobs/~021111111111111111111 b https://www.upwork.com/jobs/~022222222222222222222`), null, 'two other jobs: none');
+      assert.equal(jobLinkInText('No link here, and https://example.com/jobs/~02123456789012345 is not Upwork.'), null);
+      assert.equal(jobLinkInText(`Job link: https://www.upwork.com/freelance-jobs/apply/AI-agent_~022107535586588578224/`), own, 'an apply link counts'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

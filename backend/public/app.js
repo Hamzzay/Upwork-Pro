@@ -1239,14 +1239,16 @@ function trackFields(s, videos) {
   const c = h('input', { type: 'number', id: 'tc', min: 0, max: 1000, value: s.connects_spent ?? '' });
   const bo = h('input', { type: 'number', id: 'tb', min: 0, max: 1000, value: s.boost_connects ?? '' });
   const no = h('textarea', { id: 'tn', style: 'min-height:70px', maxlength: 4000, placeholder: 'Anything worth knowing later (optional)' }); no.value = s.notes || '';
+  const link = h('input', { type: 'url', id: 'tjl', maxlength: 500, placeholder: 'https://www.upwork.com/jobs/~02...', value: s.source_url || '' }); // R139
   const num = (el) => (el.value === '' ? null : Number(el.value));
   const inv = inviteBox(!!s.invite, s.invite_by_type);
   return {
     body: [inv.el, h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tc' }, 'Connects spent'), c), h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tb' }, 'Boost (Connects)'), bo)),
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tl' }, 'Loom video sent with the proposal'), loom,
         h('div', { class: 'hint' }, mine.length ? 'Recorded so the reports can compare proposals with a video against those without.' : 'This profile has no Loom videos yet. An admin adds them under Loom videos.')),
+      h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tjl' }, 'Job link'), link, h('div', { class: 'hint' }, 'The Upwork link of this job. Saved by itself when the page you paste has it.')),
       h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'tn' }, 'Notes'), no)],
-    values: () => ({ connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null, loom_video_id: num(loom), ...(inv.changed() ? { invited: inv.on() ? 'yes' : 'no' } : {}) }),
+    values: () => ({ connects_spent: num(c), boost_connects: num(bo), notes: no.value.trim() || null, loom_video_id: num(loom), ...(link.value.trim() !== (s.source_url || '') ? { source_url: link.value.trim() || null } : {}), ...(inv.changed() ? { invited: inv.on() ? 'yes' : 'no' } : {}) }),
   };
 }
 /** R105: "The client invited us". An invite opens the chat itself, so the reports keep it apart from proposals. */
