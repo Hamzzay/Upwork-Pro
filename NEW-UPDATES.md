@@ -90,3 +90,19 @@ gave at most 50 with no next page, and `analyze_jobs` had no link column, so the
   has the old list.
 - Checked locally: "no link" gave 16 jobs over two pages of 10 (more, next_page, then the last 6), the 21 with a link all had
   `job_url`, `analyze_jobs` gave the column, and the Jobs list filter agreed (16).
+
+### R141. Why Claude showed the 10-4 Global logo for the connector, and the connector's own icon (done, 27 October)
+Why (Hamza): the Upwork Pro connector in Claude showed the 10-4 Global logo.
+- **Not from this project**: every icon in it is the Upwork Pro "U". 10-4 Global appears only as a project in the library data.
+  `upworkpro.stackupsolutions.co` serves the right icon (its favicon is byte for byte the project's), and its page names the Upwork
+  Pro icons.
+- **The cause is the main domain.** `stackupsolutions.co` runs another site on the server (Apache), and its page names its icon
+  `/web/images/receipt-logo.png`, which is the 10-4 Global Logistics logo. Google's favicon service has that logo for
+  `stackupsolutions.co` and has nothing for the `upworkpro.` subdomain, so an icon lookup for the connector falls back to the main
+  domain and gets 10-4's. (Also: `www.stackupsolutions.co` redirects to itself in a loop.)
+- **The connector now names itself and its icon** (`serverInfo`: title "Upwork Pro", the website, and the 512, 192 and SVG icons from
+  the app's own address), the way the MCP spec lets a server say which icon to show, instead of leaving it to the domain.
+- **To fix at the source, on the server:** give `stackupsolutions.co` its own Stackup icon (the 10-4 app's `receipt-logo.png` should not
+  be the domain's icon), or move that 10-4 app off the main domain. Google refreshes its cached icon on its next visit; Claude may
+  keep its own copy until the connector is removed and added again.
+- Checked: the connector's handshake returns the title, website and three icons; the live site's favicon matches the project's.

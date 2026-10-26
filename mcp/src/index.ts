@@ -8,7 +8,11 @@ import { registerTools } from './tools';
 
 const BASE = process.env.UPWORK_PRO_URL || 'http://localhost:3000';
 export const makeServer = (api: Api, importDir?: string) => {
-  const s = new McpServer({ name: 'upwork-pro', version: '0.1.0' }, { instructions: 'Changes to the setup (projects, tags, profiles, rules, the writing guide, settings) go through setup_start, setup_prepare and, only after the person\'s yes, setup_apply. Saves into Upwork Pro: the jobs, proposals and statuses from the Claude plugin (call plugin_options first, find_jobs before save_job), and sheet data (always preview, show the person, and get a yes before commit_import).' });
+  // R141 (Hamza): the connector names itself and shows the Upwork Pro icon, from the app's own address, so Claude does not fall back to
+  // whatever icon the domain or the server's default site gives (it showed another site's logo)
+  const site = (process.env.UPWORK_PRO_PUBLIC_URL || BASE).replace(/\/+$/, '');
+  const s = new McpServer({ name: 'upwork-pro', title: 'Upwork Pro', version: '0.1.0', websiteUrl: site,
+    icons: [{ src: `${site}/icon-512.png`, mimeType: 'image/png', sizes: ['512x512'] }, { src: `${site}/icon-192.png`, mimeType: 'image/png', sizes: ['192x192'] }, { src: `${site}/favicon.svg`, mimeType: 'image/svg+xml', sizes: ['any'] }] }, { instructions: 'Changes to the setup (projects, tags, profiles, rules, the writing guide, settings) go through setup_start, setup_prepare and, only after the person\'s yes, setup_apply. Saves into Upwork Pro: the jobs, proposals and statuses from the Claude plugin (call plugin_options first, find_jobs before save_job), and sheet data (always preview, show the person, and get a yes before commit_import).' });
   registerTools(s, api, { importDir });
   return s;
 };
