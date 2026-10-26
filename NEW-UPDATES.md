@@ -106,3 +106,11 @@ Why (Hamza): the Upwork Pro connector in Claude showed the 10-4 Global logo.
   be the domain's icon), or move that 10-4 app off the main domain. Google refreshes its cached icon on its next visit; Claude may
   keep its own copy until the connector is removed and added again.
 - Checked: the connector's handshake returns the title, website and three icons; the live site's favicon matches the project's.
+- **Fixed on the server (26 October):** Apache answered any name without a site of its own with the first site in alphabetical
+  order, `104-global-api.stackupsolutions.co`, so the bare `stackupsolutions.co` showed the 10-4 Global app. Now:
+  - a `000-catchall` site answers unknown names with "not found";
+  - `stackupsolutions.co` has its own site and certificate and redirects to `https://stackupsolutions.com`;
+  - checked from outside: the 10-4 sites and Upwork Pro still answer.
+  Google's favicon service still has the old logo for the domain until it reads the site again. Search Console, Request indexing
+  for `https://stackupsolutions.co/` and `https://upworkpro.stackupsolutions.co/`, speeds that up. Removing and re-adding the
+  connector does not, because the copy is Google's.
