@@ -281,6 +281,7 @@ export const listFilters = z.object({
   rpart: z.enum(['all', 'continued', 'written', 'sent', 'viewed', 'chat', 'interview', 'hired', 'lost']).optional(),
   idlist: z.array(z.number().int()).optional(), // worked out from the three above, never sent by a page
   discarded: z.enum(['1']).optional(), // admins only: the discarded jobs instead of the live ones
+  link: anyOf((x) => ['yes', 'no'].includes(x), 'Not one of the choices').optional(), // R140: with or without a job link
 });
 export type ListFilters = z.infer<typeof listFilters>;
 
@@ -333,6 +334,7 @@ export function listWhere(req: any, f: ListFilters, quietDays = 5) {
   if (f.country) { const c = many(f.country); anyWhere(c.map(() => 's.client_country LIKE ?')); p.push(...c.map((x) => `%${likeEsc(x)}%`)); }
   if (f.industry) { where.push(`EXISTS (SELECT 1 FROM job_tags ji WHERE ji.screening_id=s.id AND ji.category_name='Industry' AND ji.tag_name IN (?))`); p.push(many(f.industry)); }
   if (f.auto) anyWhere(many(f.auto).map((x) => (x === 'yes' ? 's.auto_mode=1' : 'COALESCE(s.auto_mode, 0)=0')));
+  if (f.link) anyWhere(many(f.link).map((x) => (x === 'yes' ? `(s.source_url IS NOT NULL AND s.source_url<>'')` : `(s.source_url IS NULL OR s.source_url='')`)));
   if (f.docs) anyWhere(many(f.docs).map((x) => `${x === 'yes' ? '' : 'NOT '}EXISTS (SELECT 1 FROM job_attachments ja WHERE ja.screening_id=s.id)`));
   // how far it got, as the reports count it: a view, a chat, an interview or a hire counts only once the proposal was sent (R119)
   if (f.reached) { const R: Record<string, string> = { continued: 's.continued_at IS NOT NULL', written: 'p.finished_at IS NOT NULL', sent: `(${sentSql})`, viewed: `(${sentSql} AND s.client_viewed='yes')`,
@@ -949,13 +951,15 @@ const pluginRow = (r: any) => ({ id: r.id, title: r.title, source: r.source, job
   stage: r.stage, phase: r.phase, status: r.current_status, status_at: r.status_at, outcome: r.outcome, profile: r.profile_name, by: r.user_name, created_at: r.created_at, url: `/#/s/${r.id}` });
 api.get('/plugin/jobs', requireRole(), async (req, res) => {
   const f = z.object({ url: z.string().max(500).optional(), job_id: z.string().regex(/^\d{10,30}$/).optional(), q: z.string().trim().max(100).optional(),
-    phase: z.enum(PHASES).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }).parse(req.query);
-  const w = listWhere(req, { q: f.q, phase: f.phase });
+    phase: z.enum(PHASES).optional(), limit: z.coerce.number().int().min(1).max(50).default(20),
+    link: z.enum(['yes', 'no']).optional(), page: z.coerce.number().int().min(1).default(1) }).parse(req.query); // R140: jobs with or without a link, page by page
+  const w = listWhere(req, { q: f.q, phase: f.phase, link: f.link });
   const jid = f.job_id ?? (f.url ? jobIdFromUrl(f.url) : null);
   const where = [w.sql ? w.sql.replace(/^WHERE /, '') : '', jid ? 's.upwork_job_id=?' : f.url ? 's.source_url=?' : ''].filter(Boolean);
-  const rows = await query<any>(`${pluginSelect()} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY s.id DESC LIMIT ?`,
-    [...w.p, ...(jid ? [jid] : f.url ? [f.url] : []), f.limit]);
-  res.json({ jobs: rows.map(pluginRow) });
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '', params = [...w.p, ...(jid ? [jid] : f.url ? [f.url] : [])];
+  const rows = await query<any>(`${pluginSelect()} ${whereSql} ORDER BY s.id DESC LIMIT ? OFFSET ?`, [...params, f.limit, (f.page - 1) * f.limit]);
+  const total = Number((await query<any>(`SELECT COUNT(DISTINCT s.id) AS n ${listFrom} ${whereSql}`, params))[0]?.n ?? rows.length);
+  res.json({ jobs: rows.map(pluginRow), total, page: f.page, more: f.page * f.limit < total, ...(f.page * f.limit < total ? { next_page: f.page + 1 } : {}) });
 });
 api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
   const id = Number(req.params.id);
@@ -1067,7 +1071,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
   // every time in the rows is on the clock of the zone the days are counted in (said in the answer); a date without a time stays a date
   const tzone: string = (req as any).zone ?? DB_ZONE;
   const yes = (v: any) => (v === 'yes' ? 1 : 0), when = (v: any) => (!v ? null : String(v).length <= 10 ? String(v) : fromDb(String(v), tzone).slice(0, 16));
-  const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',
+  const columns = ['id', 'screened', 'person', 'profile', 'written_in', 'title', 'job_url', 'stage', 'gate_result', 'rule_codes', 'continued', 'continued_past', 'proposal_type', 'type_chosen', 'projects', 'industry',
     'proposal_words', 'loom_video', 'connects', 'boost', 'invite', 'sent_at', 'viewed', 'viewed_at', 'chat_opened', 'chat_at', 'interview', 'interview_at', 'outcome', 'outcome_at', 'loss_reason',
     'client_country', 'budget', 'job_type', 'experience_level', 'secs_to_proposal',
     'mode', 'review_score', 'opening_sent', 'versions', 'documents', 'experience_confirmed', 'experience_waiting', 'feedback_count',
@@ -1081,7 +1085,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
     const t = tags.get(r.id) ?? [], prop = proposals.get(r.id) ?? '';
     let rep: any = null, post: any = null;
     if (inc.has('flags') || inc.has('description')) { try { rep = r.report_json ? normalizeReport(JSON.parse(r.report_json)).jobs[0] : null; } catch { rep = null; } try { post = r.posting_json ? JSON.parse(r.posting_json) : null; } catch { post = null; } }
-    return [r.id, when(r.created_at), r.person, r.profile, r.source === 'claude_plugin' ? 'Claude plugin' : 'Upwork Pro', (r.title ?? '').slice(0, 90), r.stage, r.verdict, r.rule_codes, Number(r.continued), r.continued_past,
+    return [r.id, when(r.created_at), r.person, r.profile, r.source === 'claude_plugin' ? 'Claude plugin' : 'Upwork Pro', (r.title ?? '').slice(0, 90), r.source_url || null, r.stage, r.verdict, r.rule_codes, Number(r.continued), r.continued_past,
       r.template_name, r.template_name ? r.template_choice : null, (projects.get(r.id) ?? []).map((x) => x.project_name).join('; ') || null, t.filter((x) => /^industry$/i.test(x.category_name)).map((x) => x.tag_name).join('; ') || null,
       prop ? prop.split(/\s+/).length : null, r.loom_video_title, r.connects_spent, r.boost_connects, Number(r.invite) ? 1 : 0, when(r.sent_at), yes(r.client_viewed), when(r.client_viewed_at), yes(r.client_replied), when(r.client_replied_at),
       yes(r.interviewed), when(r.interviewed_at), r.outcome, when(r.outcome_at), r.outcome_reason, r.client_country, r.budget, r.job_type, r.experience_level, r.secs_to_proposal,

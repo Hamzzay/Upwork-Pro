@@ -1463,11 +1463,11 @@ function directFilters(dim, key, part = 'all') {
   const reached = SENT_BASIS.has(dim) && ['all', 'continued', 'written'].includes(part) ? 'sent' : part !== 'all' ? part : '';
   return { ...f, ...(reached ? { reached } : {}) };
 }
-const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'rdim', 'rkey', 'rpart', 'rlabel', 'job_type', 'country', 'auto', 'docs', 'reached', 'industry', 'discarded'];
+const FILTER_KEYS = ['v', 'q', 'mine', 'from', 'to', 'rule', 'profile', 'user', 'outcome', 'stage', 'tab', 'ptype', 'source', 'tag', 'project', 'loom', 'sent_from', 'sent_to', 'invite', 'client', 'rdim', 'rkey', 'rpart', 'rlabel', 'job_type', 'country', 'auto', 'docs', 'link', 'reached', 'industry', 'discarded'];
 /** The list's filters as API query parameters (the export uses the same ones). */
 function jobQuery(st) {
   const qs = new URLSearchParams();
-  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', rdim: 'rdim', rkey: 'rkey', rpart: 'rpart', job_type: 'job_type', country: 'country', auto: 'auto', docs: 'docs', reached: 'reached', industry: 'industry', discarded: 'discarded' };
+  const map = { v: 'verdict', q: 'q', from: 'from', to: 'to', rule: 'rule', profile: 'profile', user: 'user', outcome: 'outcome', stage: 'stage', tab: 'phase', ptype: 'ptype', source: 'source', tag: 'tag', project: 'project', loom: 'loom', sent_from: 'sent_from', sent_to: 'sent_to', invite: 'invite', client: 'client', rdim: 'rdim', rkey: 'rkey', rpart: 'rpart', job_type: 'job_type', country: 'country', auto: 'auto', docs: 'docs', link: 'link', reached: 'reached', industry: 'industry', discarded: 'discarded' };
   for (const [k, api] of Object.entries(map)) if (st[k]) qs.set(api, st[k]);
   if (st.mine) qs.set('mine', '1');
   return qs;
@@ -1601,6 +1601,7 @@ async function historyView() {
     { group: 'Client and job', key: 'country', label: 'Client country', opts: (opts.countries || []).map((x) => [x, x]) },
     { group: 'Client and job', key: 'job_type', label: 'Job type', opts: [['hourly', 'Hourly'], ['fixed', 'Fixed price']] },
     { group: 'Client and job', key: 'docs', label: 'Client files', opts: [['yes', 'With attached files'], ['no', 'No files']] },
+    { group: 'Client and job', key: 'link', label: 'Job link', opts: [['yes', 'With a job link'], ['no', 'No job link']] }, // R140
     { group: 'Upwork', key: 'invite', label: 'Proposals or invites', opts: [['no', 'Proposals only'], ['yes', 'Invites only']] },
     { group: 'Upwork', key: 'reached', label: 'Got as far as', opts: [['continued', 'Continued'], ['written', 'Proposal written'], ['sent', 'Sent'], ['viewed', 'Viewed'], ['chat', 'Chat opened'], ['interview', 'Interview'], ['hired', 'Hired']] },
     { group: 'Upwork', key: 'outcome', label: 'Outcome', opts: [['none', 'No outcome yet'], ...outcomes.map((o) => [o, o])] },

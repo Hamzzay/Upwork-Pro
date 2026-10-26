@@ -347,15 +347,18 @@ setup.post('/plugin/setup/apply', staff, async (req, res) => {
 // ---------- the history, and putting a change back ----------
 setup.get('/plugin/setup/history', requireRole('admin'), async (req, res) => {
   try {
-    const f = z.object({ kind: z.string().max(40).optional(), item: z.string().max(200).optional(), status: z.enum(['review', 'applied', 'reverted']).optional(), person: z.string().max(100).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }).parse(req.query);
+    const f = z.object({ kind: z.string().max(40).optional(), item: z.string().max(200).optional(), status: z.enum(['review', 'applied', 'reverted']).optional(), person: z.string().max(100).optional(), limit: z.coerce.number().int().min(1).max(50).default(20), page: z.coerce.number().int().min(1).default(1) }).parse(req.query);
     const where: string[] = [], p: any[] = [];
     if (f.kind) { where.push('c.entity=?'); p.push(f.kind); }
     if (f.item) { where.push('(c.entity_name LIKE ? OR c.entity_id=?)'); p.push('%' + f.item + '%', f.item); }
     if (f.person) { where.push('u.name LIKE ?'); p.push('%' + f.person + '%'); }
     if (f.status === 'review') where.push("c.needs_review=1 AND c.status='applied'"); else if (f.status) { where.push('c.status=?'); p.push(f.status); }
     const rows = await query<any>(`SELECT c.id, c.created_at, u.name AS who, c.source, c.entity, c.entity_name, c.action, c.changes_json, c.reason, c.status, c.needs_review FROM change_sets c LEFT JOIN users u ON u.id=c.user_id
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY c.id DESC LIMIT ?`, [...p, f.limit]);
-    res.json({ you_are_main_admin: (await mainAdminId()) === req.user!.id, changes: rows.map((c) => ({ change_set: c.id, at: c.created_at, who: c.who, from: c.source === 'claude_plugin' ? 'Claude' : 'the app', kind: c.entity, item: c.entity_name, action: c.action,
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...p, f.limit, (f.page - 1) * f.limit]);
+    // R140: every change, a page at a time
+    const total = Number((await query<any>(`SELECT COUNT(*) AS n FROM change_sets c LEFT JOIN users u ON u.id=c.user_id ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`, p))[0]?.n ?? 0);
+    const more = f.page * f.limit < total;
+    res.json({ you_are_main_admin: (await mainAdminId()) === req.user!.id, total, page: f.page, more, ...(more ? { next_page: f.page + 1 } : {}), changes: rows.map((c) => ({ change_set: c.id, at: c.created_at, who: c.who, from: c.source === 'claude_plugin' ? 'Claude' : 'the app', kind: c.entity, item: c.entity_name, action: c.action,
       changed: (JSON.parse(c.changes_json || '[]') as any[]).map((x) => ({ field: x.field, ...(x.added || x.removed ? { added: (x.added ?? []).slice(0, 12), removed: (x.removed ?? []).slice(0, 12) } : { before: short(x.from, 200), after: short(x.to, 200) }) })).slice(0, 12),
       reason: c.reason, status: c.status === 'reverted' ? 'put back' : Number(c.needs_review) ? 'to review' : 'applied' })) });
   } catch (e) { send(res, e); }

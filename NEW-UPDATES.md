@@ -68,3 +68,25 @@ set it. New jobs should save their link by themselves.
     an apply link;
   - locally: 18 of 45 jobs filled (the other 27 have no link in their text); a pasted page with the box empty saved its link and
     job id; Edit details and Claude's job_link changed it, each in the history; a non-Upwork link refused.
+
+### R140. Claude reaches every job, a page at a time; finding the jobs still missing a link (done, 27 October)
+Why (Hamza): after R139 filled the links, Claude checked 72 of about 160 jobs (68 had a link) but could go no further. `find_jobs`
+gave at most 50 with no next page, and `analyze_jobs` had no link column, so the older jobs could not be checked.
+- **Jobs list: a "Job link" filter** under More filters (With a job link / No job link), so every job still missing one is a click
+  away. Edit details sets it.
+- **Claude**:
+  - `find_jobs` takes `link` ("no": only jobs without a link) and `page`, and answers with `total`, `more` and `next_page`, so it
+    can go through all of them;
+  - `analyze_jobs` takes the same `link` filter and every row has `job_url`.
+  With R139's `get_job` (the job page) and `update_job_details` (`job_link`), it can find, read and fill every one.
+- **Every list Claude reads now reaches everything** (Hamza: for research and trends it must be able to fetch all the jobs, 160 or
+  5,000, in chunks):
+  - `analyze_jobs` already did: each page fits the answer, and it calls again with `after` until `more` is false. Checked: every
+    page pulled gave all 37 jobs (one page, or two with the heavy extras), the same as the database;
+  - `find_jobs`: `page`, with `total`, `more` and `next_page` (it stopped at 50);
+  - `list_feedback`: `page` (it stopped at 500 notes), with `total`, `more` and `next_page`;
+  - `setup_history`: `page` (it stopped at 50 changes). Checked: 5 pages of 10 gave all 41 changes.
+- Note: the new tools show in Claude once Upwork Pro is reconnected there (or in a new chat); a chat open before the deploy still
+  has the old list.
+- Checked locally: "no link" gave 16 jobs over two pages of 10 (more, next_page, then the last 6), the 21 with a link all had
+  `job_url`, `analyze_jobs` gave the column, and the Jobs list filter agreed (16).

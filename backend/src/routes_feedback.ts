@@ -62,11 +62,12 @@ export async function feedbackList(user: { id: number; role: string }, q: Record
   if (q.person) { where.push('u.name=?'); p.push(q.person); }
   { const b = dayBounds(q.from, q.to, zone); if (b.start) { where.push('f.created_at >= ?'); p.push(b.start); } if (b.end) { where.push('f.created_at < ?'); p.push(b.end); } }
   if (q.q) { where.push('(f.excerpt LIKE ? OR f.feedback LIKE ? OR s.title LIKE ?)'); p.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`); }
-  const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
+  const limit = Math.min(500, Math.max(1, Number(q.limit) || 200)), page = Math.max(1, Number(q.page) || 1); // R140: every note, a page at a time
   const items = await query<any>(`SELECT f.id, f.screening_id, s.title AS job_title, f.version_no, f.profile_name, f.template_name, f.projects, f.excerpt, f.category, f.feedback, f.created_at, u.name AS user_name
-    FROM proposal_feedback f JOIN screenings s ON s.id=f.screening_id LEFT JOIN users u ON u.id=f.user_id WHERE ${where.join(' AND ')} ORDER BY f.id DESC LIMIT ?`, [...p, limit]);
+    FROM proposal_feedback f JOIN screenings s ON s.id=f.screening_id LEFT JOIN users u ON u.id=f.user_id WHERE ${where.join(' AND ')} ORDER BY f.id DESC LIMIT ? OFFSET ?`, [...p, limit, (page - 1) * limit]);
   const counts = await query<any>(`SELECT f.category, COUNT(*) n FROM proposal_feedback f JOIN screenings s ON s.id=f.screening_id LEFT JOIN users u ON u.id=f.user_id WHERE ${where.join(' AND ')} GROUP BY f.category ORDER BY n DESC`, p);
-  return { items, counts, categories: FEEDBACK_CATEGORIES };
+  const total = counts.reduce((a: number, c: any) => a + Number(c.n), 0);
+  return { items, counts, categories: FEEDBACK_CATEGORIES, total, page, more: page * limit < total, ...(page * limit < total ? { next_page: page + 1 } : {}) };
 }
 feedback.get('/feedback', anyone, async (req, res) => {
   const out: any = await feedbackList(req.user!, req.query as any, (req as any).zone);
