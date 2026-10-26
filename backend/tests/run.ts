@@ -30,6 +30,7 @@ import { codeDigest, detectKind, extractInCode, squeeze } from '../src/screening
 import { assemble, layoutBlock, linkPlace, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
 import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes';
 import { applyOffer, pairReplacements } from '../src/proposal/offers';
+import { withoutAppLines } from '../src/proposal/experience_notes';
 import { clientPost, sameClient, sameTitle } from '../src/clients';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -702,6 +703,10 @@ const ctx = { rules, projects };
       assert.equal(layoutBlock('Chairboss', L, 'inline'), 'Chairboss \u2013 https://chairboss.io/\nAndroid link: https://play.example.com/c\niOS link: https://apps.example.com/c', 'on the name line');
       assert.equal(layoutBlock('Chairboss: booking.', projectLinkSet({ web: 'https://chairboss.io/' }), 'title'), 'Chairboss: booking.\nhttps://chairboss.io/', 'one line, no title: under it');
       assert.ok(proofText([{ project_id: 1, name: 'Chairboss', link: null, links: L, text: 'Chairboss \u2013 AI booking\nI built it.' }], 'title').startsWith('Chairboss \u2013 AI booking\nWeb link:'), 'the assembled block follows the type'); }
+    // R137: only the app's own experience lines leave a project's Notes; a person's words stay
+    { assert.equal(withoutAppLines('Built for a US client.\nExperience with Twilio: SMS reminders (confirmed on job #52).\nExperience with DevOps and backup restoration (confirmed on job #79).'), 'Built for a US client.');
+      assert.equal(withoutAppLines('Experience with Stripe (confirmed on job #3).'), null, 'nothing left: empty');
+      assert.equal(withoutAppLines('We have experience with Stripe (confirmed on job #3) and more.'), 'We have experience with Stripe (confirmed on job #3) and more.', 'a sentence a person wrote stays'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

@@ -39,7 +39,7 @@ async function usualWeight(categoryId: number): Promise<number> {
  */
 async function teachLibrary(a: GapAnswer, gap: any, user: { id: number; role: string }, projectId: number): Promise<Lib> {
   if (user.role !== 'admin' && user.role !== 'manager') return 'to_add';
-  const project = (await query<any>('SELECT id, name, notes FROM projects WHERE id=?', [projectId]))[0];
+  const project = (await query<any>('SELECT id, name FROM projects WHERE id=?', [projectId]))[0];
   if (!project) return 'none';
   const name = (a.tag_name || gap.skill).trim();
   const reason = `Experience confirmed on a proposal (job #${gap.screening_id}): ${gap.ask}`;
@@ -59,8 +59,8 @@ async function teachLibrary(a: GapAnswer, gap: any, user: { id: number; role: st
   // a switched off tag can be on the project at once: it counts only once an admin switches it on
   if (tag && !Number(tag.active)) { await exec('INSERT IGNORE INTO project_tags (project_id, tag_id) VALUES (?,?)', [project.id, tag.id]); result = 'added'; }
   else if (tag) result = 'waiting';
-  const line = `Experience with ${name}${a.note ? ': ' + a.note : ''} (confirmed on job #${gap.screening_id}).`;
-  if (!String(project.notes || '').includes(line)) await exec("UPDATE projects SET notes=TRIM(CONCAT(COALESCE(notes, ''), ?)) WHERE id=?", [(project.notes ? '\n' : '') + line, project.id]);
+  // R137 (Hamza): the experience lives in the project's tags, which the writer reads; nothing is written into the project's Notes,
+  // which are a person's own. (The detail typed with the Yes stays on the answer, and that job's proposal uses it.)
   await record({ userId: user.id, source: 'app', kind: 'project', id: project.id, before, after: await raw('project', project.id), reason });
   return result;
 }

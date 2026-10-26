@@ -51,6 +51,8 @@ const run = async (stmt: string) => {
     }],
     // R111: clients worked out again with the stricter rules (a new client's join date and country alone no longer join two jobs)
     ['063_regroup_clients.data', () => regroupAll()],
+    // R137: the experience lines the app had added to project Notes taken out (the experience is in the tags); recorded, so revertible
+    ['072_experience_notes.data', async () => (await import('../src/proposal/experience_notes')).removeAppExperienceNotes()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;

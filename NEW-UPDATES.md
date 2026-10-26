@@ -2520,3 +2520,17 @@ Why (Hamza): tick a name, or two, and nothing happened until you clicked out of 
   - Logs: two actions, applied one after the other;
   - Reports, the Dashboard and Admin Changes: each applied on the tick.
 
+### R137. Experience answers no longer write into project Notes (done, 27 October)
+Why (Hamza): 10-4 Global's Notes were full of "Experience with ..." lines. They were never asked for; the experience is kept as tags.
+- **Where they came from**: answering Yes to an experience question ("Have you done this?") added a tag to the picked projects,
+  and also wrote a line into each project's Notes ("Experience with X (confirmed on job #N)."). The writer, the reviewer and the
+  checks read Notes as facts.
+- **Now a Yes only adds the tag.** Nothing is written into Notes, which are for people. The writer still gets the skill, because
+  it reads each picked project's tags (switched off ones too). The detail typed with the Yes stays on that job's answer, and that
+  job's proposal uses it.
+- **The lines already written are taken out** (data step 072 on deploy). Only lines in exactly the app's form go; anything a person
+  wrote stays. Each project's change is recorded in Admin, Changes, so it can be put back.
+- Checked:
+  - unit tests: the app's lines go, a person's text stays, a sentence that only looks like one stays;
+  - locally: 6 projects cleaned (Apex, 10-4 Global, Chairboss and three more), each with its change recorded.
+
