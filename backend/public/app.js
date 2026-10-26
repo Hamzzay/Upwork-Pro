@@ -352,12 +352,14 @@ function searchableSelect(sel) {
     const clearable = !!sel.value && !sel.disabled && [...sel.options].some((x) => x.value === '');
     wrap.classList.toggle('has-value', clearable); clearBtn.hidden = !clearable;
   };
-  let before = null; // a multi pick applies once, when the list closes: one reload, and a list that is redrawn on load cannot close it mid-pick
+  // R136 (Hamza): a multi pick applies as it is ticked, after a short pause (ticking three names quickly is one reload), and at once on close
+  let applied = null, pending = null;
+  const apply = () => { clearTimeout(pending); pending = null; if (sel.value !== applied) { applied = sel.value; sel.dispatchEvent(new Event('change', { bubbles: true })); } };
   const choose = (o) => {
     if (o.disabled) return;
     if (multi) { // tick it on or off and stay open; the "Any ..." line takes them all off
       if (o.value === '') [...sel.options].forEach((x) => { x.selected = false; }); else o.selected = !o.selected;
-      label(); draw(); return;
+      label(); draw(); clearTimeout(pending); pending = setTimeout(apply, 350); return;
     }
     sel.value = o.value; label(); close(); sel.dispatchEvent(new Event('change', { bubbles: true })); btn.focus(); };
   const draw = () => {
@@ -374,11 +376,11 @@ function searchableSelect(sel) {
     if (sel.disabled) return;
     document.querySelectorAll('.ss.open').forEach((x) => x !== wrap && x.__close && x.__close());
     pop.hidden = false; wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
-    search.value = ''; active = multi ? 0 : Math.max(0, sel.selectedIndex); before = multi ? sel.value : null; draw(); search.focus();
+    search.value = ''; active = multi ? 0 : Math.max(0, sel.selectedIndex); if (multi) applied = sel.value; draw(); search.focus();
   };
   const close = () => {
     const was = !pop.hidden; pop.hidden = true; wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
-    if (multi && was && before !== null && sel.value !== before) { before = null; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    if (multi && was && pending) apply(); // a tick still waiting goes now
   };
   wrap.__close = close;
   btn.onclick = () => (pop.hidden ? open() : close());
@@ -3440,14 +3442,17 @@ async function auditView() {
   const dateIn = (key, label) => dateField(label, st[key], (v) => { st[key] = v; st.page = 1; load(); });
   const secs = (ms) => (ms / 1000).toFixed(1) + ' s';
   /** The shared filter bar; Clear empties the keys this tab filters by. */
-  const bar = (controls, keys) => { const b = filterBar(controls, { onClear: () => { for (const k of keys) st[k] = ''; st.page = 1; load(); } }); b.setActive(keys.some((k) => st[k])); return b; };
+  const bar = (controls, keys) => { const b = filterBar(controls, { onClear: () => { for (const k of keys) st[k] = ''; delete bars[st.tab]; st.page = 1; load(); } }); b.setActive(keys.some((k) => st[k])); return b; };
+  // R136: each tab's bar is made once and kept, so a dropdown stays open while its ticks apply and the list reloads under it
+  const bars = {};
+  const barOnce = (make, keys) => { if (!bars[st.tab]) bars[st.tab] = make(); bars[st.tab].setActive(keys.some((k) => st[k])); return bars[st.tab]; };
   async function load() {
     const keys = st.tab === 'calls' ? ['kind', 'ok', 'model', 'from', 'to', 'job'] : ['action', 'user', 'from', 'to'];
     const q = new URLSearchParams({ page: st.page }); for (const k of keys) if (st[k]) q.set(k, st[k]);
     setHashParams({ tab: st.tab === 'activity' ? '' : st.tab, page: st.page, ...Object.fromEntries(['action', 'user', 'from', 'to', 'kind', 'ok', 'model', 'job'].map((k) => [k, keys.includes(k) ? st[k] : ''])) });
     if (st.tab === 'activity') {
       const d = await api('GET', '/admin/audit?' + q);
-      holder.replaceChildren(bar([sel('action', 'Any action', d.actions.map((a) => [a, cap(a.replace(/_/g, ' '))])), sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])), dateIn('from', 'From'), dateIn('to', 'To')], ['action', 'user', 'from', 'to']),
+      holder.replaceChildren(barOnce(() => bar([sel('action', 'Any action', d.actions.map((a) => [a, cap(a.replace(/_/g, ' '))])), sel('user', 'Anyone', opts.users.map((u) => [u.id, u.name])), dateIn('from', 'From'), dateIn('to', 'To')], ['action', 'user', 'from', 'to']), ['action', 'user', 'from', 'to']),
         d.log.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['When', 'Who', 'Action', 'Detail'].map((t) => h('th', {}, t)))),
           h('tbody', {}, d.log.map((l) => h('tr', {}, h('td', { class: 'muted nowrap', title: full(l.created_at) }, ago(l.created_at)), h('td', { class: 'nowrap' }, l.user_name || 'System'),
             h('td', { class: 'nowrap' }, cap(l.action.replace(/_/g, ' '))), h('td', { style: 'overflow-wrap:anywhere;min-width:280px' }, h('div', { class: 'muted' }, l.detail || ''), changesList(l.changes))))))) : emptyState('audit', 'Nothing here', 'No activity matches these filters.'),
@@ -3455,8 +3460,8 @@ async function auditView() {
     } else {
       const d = await api('GET', '/admin/calls?' + q);
       const errs = d.summary.reduce((a, r) => a + r.errors, 0), all = d.summary.reduce((a, r) => a + r.calls, 0);
-      holder.replaceChildren(bar([sel('kind', 'Any job type', d.kinds.map((k) => [k, cap(k.replace(/_/g, ' '))])), sel('ok', 'Any result', [['1', 'Succeeded'], ['0', 'Failed']]),
-          sel('model', 'Any model', d.models.map((m) => [m, m])), dateIn('from', 'From'), dateIn('to', 'To')], ['kind', 'ok', 'model', 'from', 'to', 'job']),
+      holder.replaceChildren(barOnce(() => bar([sel('kind', 'Any job type', d.kinds.map((k) => [k, cap(k.replace(/_/g, ' '))])), sel('ok', 'Any result', [['1', 'Succeeded'], ['0', 'Failed']]),
+          sel('model', 'Any model', d.models.map((m) => [m, m])), dateIn('from', 'From'), dateIn('to', 'To')], ['kind', 'ok', 'model', 'from', 'to', 'job']), ['kind', 'ok', 'model', 'from', 'to', 'job']),
         h('div', { class: 'card-head', style: 'border-bottom:0' }, h('h2', {}, 'By step'), h('span', { class: 'sub' }, `${all.toLocaleString()} call${all === 1 ? '' : 's'} · ${errs} failed`)),
         h('div', {},
           d.summary.length ? h('div', { class: 'tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Job type', 'Step', 'Model', 'Calls', 'Failed', 'Average', 'Slowest'].map((t) => h('th', {}, t)))),

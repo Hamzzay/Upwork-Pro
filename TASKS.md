@@ -163,6 +163,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 115 | Swap it in, cleanly: the whole block over several paragraphs, and every other mention (opening, links list) follows (job 264) (R133) | done |
 | 116 | A project's links go where its proposal type puts them (under the title, or on the name line), read from the type's format; unsent rebuilt (R134) | done |
 | 117 | Job header: the key facts in their own row (budget, client, spend, avg paid, competition, Connects) with details and colour, nothing cut off (R135) | done |
+| 118 | Multi-select filters apply as you tick (short pause, the list stays open); the Logs filter bar is kept between loads (R136) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

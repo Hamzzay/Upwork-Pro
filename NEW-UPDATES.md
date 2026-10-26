@@ -2508,3 +2508,15 @@ Why (Hamza): the facts beside the title were cut off ("$60.00 to $80.00 p...", "
   dash. On a phone it is two columns.
 - Checked on a job with full client data, a job with almost none, and at phone width.
 
+### R136. Multi-select filters apply as you tick (done, 26 October)
+Why (Hamza): tick a name, or two, and nothing happened until you clicked out of the filter.
+- **Each tick applies on its own**, after a short pause (about a third of a second), and **the list stays open** so you can keep
+  ticking. Ticking several quickly is one reload, not one per tick. Closing the list applies a tick still waiting at once.
+- R131 had made picks apply on close because the Logs page rebuilt its filter bar on every load, which closed an open list. The
+  Logs bar (Activity and AI calls) is now made once per tab and kept, and only the table under it reloads. Clear filters still
+  resets it.
+- Checked in the browser, the list open throughout:
+  - Jobs: Wasif gave 20 jobs, adding Hamza 24 (`profile=3|1`), and two quick ticks made one request;
+  - Logs: two actions, applied one after the other;
+  - Reports, the Dashboard and Admin Changes: each applied on the tick.
+
