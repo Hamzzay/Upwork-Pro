@@ -2858,9 +2858,10 @@ async function profilesView() {
 // ---------- Loom videos ----------
 /** Short Loom videos per profile (5 to 7 general topics), each tagged with the job tags it suits. The Profile step suggests the best one. */
 async function loomsView() {
-  const [{ videos }, { profiles }, { categories }] = await Promise.all([api('GET', '/looms'), api('GET', '/profiles?all=1'), api('GET', '/tags')]);
+  const [{ videos }, { profiles }, { categories }, { projects }] = await Promise.all([api('GET', '/looms'), api('GET', '/profiles?all=1'), api('GET', '/tags'), api('GET', '/projects')]);
   function editor(v, profileId) {
     const picked = new Set(v ? v.tags.map((t) => t.id) : []);
+    const projPicked = new Set(v ? (v.projects || []).map((p) => p.id) : []); // R142: the projects it is about; none for a generic video
     const f = {
       profile: h('select', { id: 'lp' }, h('option', { value: '' }, 'Choose a profile'), profiles.map((p) => h('option', { value: p.id, selected: (v ? v.profile_id : profileId) === p.id || null }, p.name + (Number(p.active) ? '' : ' (disabled)')))),
       title: h('input', { type: 'text', id: 'lt', maxlength: 200, value: v ? v.title : '', placeholder: 'For example: How we build AI voice agents' }),
@@ -2875,13 +2876,15 @@ async function loomsView() {
       body: h('div', { style: 'display:grid;gap:16px' },
         h('div', { class: 'grid2' }, fld('lp', 'Profile', f.profile), h('div', { class: 'grid2' }, fld('lo', 'Order', f.order), h('div', { class: 'field row', style: 'align-self:end;padding-bottom:8px' }, f.active, h('label', { for: 'la', style: 'font-weight:600' }, 'Active')))),
         fld('lt', 'Title', f.title), fld('lu', 'Loom link', f.url), fld('lc', 'What it shows (optional)', f.topic),
+        h('div', {}, multiPick('Projects (optional)', projects.filter((p) => Number(p.active) || projPicked.has(p.id)).map((p) => ({ id: p.id, name: p.name })), projPicked, 'Find a project'),
+          h('div', { class: 'hint' }, 'The projects this video is about. Leave it empty for a generic video. A video about one of a proposal\'s chosen projects is suggested first.')),
         h('div', {}, tagPicker(categories, picked), h('div', { class: 'hint' }, 'The job tags this video suits, industries included. For each job, the video sharing the most tag weight with it is suggested.'))),
       extra: v ? () => h('button', { class: 'btn danger', type: 'button', onclick: () => modal({ title: 'Delete ' + v.title + '?', confirm: 'Delete video', danger: true,
         body: h('p', { class: 'muted' }, 'The video is removed from Upwork Pro. The Loom itself is not touched.'),
         onConfirm: async () => { await api('DELETE', '/looms/' + v.id); document.querySelectorAll('dialog').forEach((d) => d.close()); toast('Video deleted'); route(); } }) }, 'Delete') : null,
       onConfirm: async () => {
         await api(v ? 'PATCH' : 'POST', v ? '/looms/' + v.id : '/looms', { profile_id: Number(f.profile.value) || 0, title: f.title.value, url: f.url.value.trim(), topic: f.topic.value.trim() || null,
-          sort_order: Number(f.order.value) || 0, active: f.active.checked, tag_ids: [...picked] });
+          sort_order: Number(f.order.value) || 0, active: f.active.checked, tag_ids: [...picked], project_ids: [...projPicked] });
         toast(v ? 'Video saved' : 'Video added'); route();
       } });
   }
@@ -2890,7 +2893,8 @@ async function loomsView() {
     h('div', { class: 'card-head' }, h('h2', {}, p.name), h('span', { class: 'sub' }, `${mine.length} video${mine.length === 1 ? '' : 's'}${Number(p.active) ? '' : ' · profile disabled'}`),
       h('button', { class: 'btn sm', onclick: () => editor(null, p.id) }, 'Add video')),
     mine.length ? dataTable.fixed(['Video', 'Tags', 'Status', ''], mine.map((v) => h('tr', {}, // R93: the same column widths in every profile's card
-      h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null),
+      h('td', {}, h('a', { href: v.url, target: '_blank', rel: 'noopener noreferrer' }, h('strong', {}, v.title)), v.topic ? h('div', { class: 'meta' }, v.topic) : null,
+        h('div', { class: 'meta' }, (v.projects || []).length ? 'Projects: ' + v.projects.map((p) => p.name).join(', ') : 'Generic (no project)')),
       h('td', {}, v.tags.length ? h('div', { class: 'chips', title: v.tags.map((t) => t.name).join(', ') }, ...v.tags.slice(0, 10).map((t) => h('span', { class: 'chip' }, t.name)), v.tags.length > 10 ? h('span', { class: 'chip' }, `+${v.tags.length - 10}`) : null) : h('span', { class: 'faint' }, 'No tags: never suggested')),
       h('td', {}, activeSwitch(v.active, { name: v.title, url: '/looms/' + v.id, no: 'Disabled', offText: 'It stays saved, but it is no longer suggested or offered for proposals.' })),
       acts(h('button', { class: 'btn sm', onclick: () => editor(v) }, 'Edit')))))
@@ -2902,12 +2906,14 @@ async function loomsView() {
     pageHead('Loom videos', 'Short videos per profile, each tagged with the jobs it suits. On a job\'s Profile step, each profile shows the video that fits best.',
       h('button', { class: 'btn primary', onclick: () => editor(null, null) }, icon('screen'), 'Add video')),
     listCard({ items: groups, bare: true, paged: false, icon: 'video', emptyTitle: 'No profiles yet', emptyText: 'Add an Upwork profile first, then its videos.',
-      search: { placeholder: 'Search videos', text: (g) => g.p.name + ' ' + g.videos.map((v) => v.title + ' ' + (v.topic || '') + ' ' + v.tags.map((t) => t.name).join(' ')).join(' ') },
+      search: { placeholder: 'Search videos', text: (g) => g.p.name + ' ' + g.videos.map((v) => v.title + ' ' + (v.topic || '') + ' ' + v.tags.map((t) => t.name).join(' ') + ' ' + (v.projects || []).map((p) => p.name).join(' ')).join(' ') },
       filters: [{ key: 'profile', label: 'Any profile', options: shownProfiles.map((p) => [p.id, p.name]), test: (g, v) => String(g.p.id) === v },
         { key: 'status', label: 'Any status', options: [['1', 'Active videos'], ['0', 'Disabled videos'], ['none', 'Profiles without a video']], test: (g, v) => (v === 'none' ? !g.videos.length : g.videos.some((x) => String(Number(x.active)) === v)) },
-        { key: 'tagged', label: 'Any tagging', options: [['1', 'Tagged'], ['0', 'Not tagged (never suggested)']], test: (g, v) => g.videos.some((x) => String(Number(x.tags.length > 0)) === v) }],
+        { key: 'tagged', label: 'Any tagging', options: [['1', 'Tagged'], ['0', 'Not tagged (never suggested)']], test: (g, v) => g.videos.some((x) => String(Number(x.tags.length > 0)) === v) },
+        { key: 'about', label: 'Any project', options: [['generic', 'Generic videos'], ...projects.filter((p) => videos.some((x) => (x.projects || []).some((y) => y.id === p.id))).map((p) => [String(p.id), p.name])],
+          test: (g, v) => g.videos.some((x) => (v === 'generic' ? !(x.projects || []).length : (x.projects || []).some((y) => String(y.id) === v))) }],
       render: (slice) => { const hp = hashParams(), q = (hp.q || '').toLowerCase();
-        return h('div', { class: 'stack' }, slice.map((g) => card(g.p, g.videos.filter((v) => (g.p.name.toLowerCase().includes(q) || hit(v, q)) && (!['1', '0'].includes(hp.status) || String(Number(v.active)) === hp.status) && (!hp.tagged || String(Number(v.tags.length > 0)) === hp.tagged))))); } }),
+        return h('div', { class: 'stack' }, slice.map((g) => card(g.p, g.videos.filter((v) => (g.p.name.toLowerCase().includes(q) || hit(v, q)) && (!['1', '0'].includes(hp.status) || String(Number(v.active)) === hp.status) && (!hp.tagged || String(Number(v.tags.length > 0)) === hp.tagged) && (!hp.about || String(hp.about).split('|').some((a) => (a === 'generic' ? !(v.projects || []).length : (v.projects || []).some((y) => String(y.id) === a)))))))); } }),
   ]);
 }
 

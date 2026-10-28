@@ -114,3 +114,28 @@ Why (Hamza): the Upwork Pro connector in Claude showed the 10-4 Global logo.
   Google's favicon service still has the old logo for the domain until it reads the site again. Search Console, Request indexing
   for `https://stackupsolutions.co/` and `https://upworkpro.stackupsolutions.co/`, speeds that up. Removing and re-adding the
   connector does not, because the copy is Google's.
+
+### R142. More than one Loom video on a proposal, and Loom videos linked to projects (done, 29 October)
+Why (Hamza): one video is the standard (and the one added by itself), but a person should be able to add another. And some videos
+are about a project, so a video should be linkable to projects (generic ones to none), to use it on proposals for that project.
+- **Several videos on a proposal.** The first video is the standard one, picked by itself as before (`screenings.loom_video_id`, so
+  reports and statuses are unchanged). Up to five more can be added, each one of the sending profile's own.
+  - In the proposal they sit in the one video place: the first in the admin's wording, then each added one as "Title: link".
+    Changing the videos swaps that block in place, in a proposal made from parts and in one edited by hand (offered beside it when
+    the old lines cannot be found).
+  - Where to add them:
+    - the step before writing: the video cards, then "Add another video";
+    - the proposal page: the Loom video dropdown, then "More videos" beside it;
+    - Claude: `save_step` loom takes `more` (titles).
+  - The checks allow every chosen video's link.
+- **Videos linked to projects.** Library, Loom videos: each video has a Projects field (empty for a generic video). The list shows
+  "Projects: ..." or "Generic (no project)", has an "Any project" filter, and searches project names. Changes are kept in Changes.
+  - Picking by itself: a video about one of the proposal's chosen projects comes first; otherwise the best tag match, as before.
+    The pickers say "About Chairboss", "For ..." or "Generic".
+  - Claude's `plugin_options` lists each video's projects.
+- Migration 074: `loom_video_projects` and `screening_looms`.
+- Checked:
+  - unit tests: one video as before, three in one place, the first never twice, none, assembled in the video place;
+  - live on a test job showing Chairboss: a video linked to Chairboss was suggested first; three videos went in, then one, none
+    and three again, each swapped in place; a video of another profile refused;
+  - screenshots of the proposal page (the two pickers side by side) and the video editor's Projects field.

@@ -865,7 +865,7 @@ select.sm, .ss.sm .ss-btn { padding: 5px 30px 5px 10px; font-size: 13px; line-he
 .docver { display: flex; align-items: center; gap: 6px; padding: 6px 0; }
 .docver .btn svg { width: 14px; height: 14px; }
 .docbar { display: flex; align-items: center; gap: 8px 20px; flex-wrap: wrap; padding: 8px 14px; background: var(--surface-2); border-bottom: 1px solid var(--line); font-size: 13px; }
-.docset { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; }
+.docset { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; flex-wrap: wrap; }
 .docsetlbl { color: var(--muted); }
 .docbody { padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .docbody > *, .doccard { min-width: 0; }

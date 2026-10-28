@@ -210,13 +210,16 @@ export async function loomVideos(where = '1=1', params: any[] = []) {
   const vids = await query<any>(`SELECT v.id, v.profile_id, p.name AS profile_name, v.title, v.url, v.topic, v.active, v.sort_order, v.updated_at
     FROM loom_videos v JOIN upwork_profiles p ON p.id=v.profile_id WHERE ${where} ORDER BY p.name, v.sort_order, v.title`, params);
   const tags = vids.length ? await query<any>('SELECT lt.video_id, t.id, t.name FROM loom_video_tags lt JOIN tags t ON t.id=lt.tag_id WHERE lt.video_id IN (?) ORDER BY t.name', [vids.map((v) => v.id)]) : [];
-  return vids.map((v) => ({ ...v, tags: tags.filter((t) => t.video_id === v.id).map((t) => ({ id: t.id, name: t.name })) }));
+  // R142: the projects a video is about (none: a generic video)
+  const projs = vids.length ? await query<any>('SELECT lp.video_id, pr.id, pr.name FROM loom_video_projects lp JOIN projects pr ON pr.id=lp.project_id WHERE lp.video_id IN (?) ORDER BY pr.name', [vids.map((v) => v.id)]) : [];
+  return vids.map((v) => ({ ...v, tags: tags.filter((t) => t.video_id === v.id).map((t) => ({ id: t.id, name: t.name })), projects: projs.filter((x) => x.video_id === v.id).map((x) => ({ id: x.id, name: x.name })) }));
 }
 library.get('/looms', anyone, async (_req, res) => { res.json({ videos: await loomVideos() }); });
 export const loomBody = z.object({
   profile_id: z.number('Choose a profile').int().positive('Choose a profile'), title: z.string().trim().min(1, 'Title is required').max(200),
   url, topic: optText(1000), active: z.boolean().optional(), sort_order: z.number().int().min(0).max(1000).optional(),
   tag_ids: z.array(z.number().int().positive()).max(200).optional(),
+  project_ids: z.array(z.number().int().positive()).max(100).optional(), // R142: the projects it is about; none for a generic video
 });
 async function saveLoom(req: any, res: any, vid: number | null) {
   const before = vid ? await snapshot('loom_videos', vid) : null;
@@ -241,6 +244,11 @@ async function saveLoom(req: any, res: any, vid: number | null) {
       await conn.query('DELETE FROM loom_video_tags WHERE video_id=?', [vidId]);
       const ids = [...new Set<number>(d.tag_ids)];
       if (ids.length) await conn.query('INSERT INTO loom_video_tags (video_id, tag_id) SELECT ?, id FROM tags WHERE id IN (?)', [vidId, ids]);
+    }
+    if (d.project_ids) {
+      await conn.query('DELETE FROM loom_video_projects WHERE video_id=?', [vidId]);
+      const ids = [...new Set<number>(d.project_ids)];
+      if (ids.length) await conn.query('INSERT INTO loom_video_projects (video_id, project_id) SELECT ?, id FROM projects WHERE id IN (?)', [vidId, ids]);
     }
     await conn.commit();
     const after = await snapshot('loom_videos', vidId);

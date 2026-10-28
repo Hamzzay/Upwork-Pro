@@ -27,7 +27,7 @@ import { openingLabel } from '../src/proposal/openings';
 import { looksInvited } from '../src/invite';
 import { jobPostOnly } from '../src/screening/posting';
 import { codeDigest, detectKind, extractInCode, squeeze } from '../src/screening/attachments';
-import { assemble, layoutBlock, linkPlace, projectLinkSet, proofText, restoreLinks } from '../src/proposal/parts';
+import { assemble, layoutBlock, linkPlace, projectLinkSet, proofText, restoreLinks, videoLines } from '../src/proposal/parts';
 import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes';
 import { applyOffer, pairReplacements } from '../src/proposal/offers';
 import { withoutAppLines } from '../src/proposal/experience_notes';
@@ -715,6 +715,15 @@ const ctx = { rules, projects };
       assert.equal(jobLinkInText(`a https://www.upwork.com/jobs/~021111111111111111111 b https://www.upwork.com/jobs/~022222222222222222222`), null, 'two other jobs: none');
       assert.equal(jobLinkInText('No link here, and https://example.com/jobs/~02123456789012345 is not Upwork.'), null);
       assert.equal(jobLinkInText(`Job link: https://www.upwork.com/freelance-jobs/apply/AI-agent_~022107535586588578224/`), own, 'an apply link counts'); }
+    // R142: one Loom video is the standard; each one added goes under it, with its title, all in the one place
+    { const t = 'Here is a short video walkthrough of a similar build:\n{url}';
+      const a = { title: 'Voice agents', url: 'https://www.loom.com/share/a' }, b = { title: 'Booking flow', url: 'https://www.loom.com/share/b' }, c = { title: 'Admin panel', url: 'https://www.loom.com/share/c' };
+      assert.equal(videoLines(t, a), 'Here is a short video walkthrough of a similar build:\nhttps://www.loom.com/share/a', 'one video: as before');
+      assert.equal(videoLines(t, a, [b, c]), 'Here is a short video walkthrough of a similar build:\nhttps://www.loom.com/share/a\nBooking flow: https://www.loom.com/share/b\nAdmin panel: https://www.loom.com/share/c');
+      assert.equal(videoLines(t, a, [a, b]).split('\n').length, 3, 'the first one is never listed twice');
+      assert.equal(videoLines(t, null, []), '', 'none: no line');
+      const p = assemble({ letter: 'Hi,\n\n[[PROOF]]\n\n[[VIDEO]]\n\nShall we talk?', proof: [], loomLine: videoLines(t, a, [b]), signoff: 'Best regards,\nHamza' });
+      assert.ok(p.includes('share/a\nBooking flow: https://www.loom.com/share/b\n\nShall we talk?'), 'both in the video place'); }
     // R106: the writer reads the job only, never the client's history and reviews
     const page = 'Build a booking bot\nWe need a WhatsApp bot that books visits for our clinic, with reminders.\nSkills and Expertise\nNode.js\nAbout the client\nPayment verified\nClient\'s recent history (3)\nCRM cleanup\nGreat to work with, fast replies and clean code.\nOther open jobs by this client (1)\nLogo design';
     const cut = jobPostOnly(page, null);

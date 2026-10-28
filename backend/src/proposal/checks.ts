@@ -3,7 +3,7 @@ export interface CheckInput {
   selectedProjects: { name: string; live_link: string | null; notes: string | null; /** R116: its other links (site, App Store, Google Play) */ links?: string[] }[];
   otherProjectNames: string[];       // every other library project
   foreignNames: string[];            // names of sample authors and people named in templates
-  sender: { name: string; gitlab_link: string | null; loom_link?: string | null };
+  sender: { name: string; gitlab_link: string | null; loom_link?: string | null; /** R142: the videos added after the first */ loom_links?: string[] };
   banned?: { phrase: string; re: RegExp }[];   // from the Writing guide
   wordRange?: [number, number] | null;          // the proposal type's length, for the cover letter
 }
@@ -26,7 +26,7 @@ export function checkProposal(i: CheckInput): string[] {
   const own = new Set(String(i.sender.name ?? '').toLowerCase().split(/\s+/).filter(Boolean));
   const isSender = (n: string) => n.toLowerCase().split(/\s+/).filter(Boolean).every((x) => own.has(x));
   for (const n of i.foreignNames) if (n && !isSender(n) && has(t, n)) w.push(`The proposal contains the name "${n}", which comes from a sample or template. Remove it.`);
-  const allowed = new Set([...i.selectedProjects.flatMap((p) => [p.live_link, ...(p.links ?? [])]).filter(Boolean), i.sender.gitlab_link, i.sender.loom_link].filter(Boolean).map((u) => norm(String(u))));
+  const allowed = new Set([...i.selectedProjects.flatMap((p) => [p.live_link, ...(p.links ?? [])]).filter(Boolean), i.sender.gitlab_link, i.sender.loom_link, ...(i.sender.loom_links ?? [])].filter(Boolean).map((u) => norm(String(u))));
   for (const u of new Set(urls(t))) if (!allowed.has(norm(u))) w.push(`The link ${u} is not one of the provided project or profile links. Check it.`);
   if (!has(t, i.sender.name)) w.push(`The sign-off does not contain the sender name "${i.sender.name}".`);
   if (i.sender.loom_link && !t.toLowerCase().includes(norm(i.sender.loom_link))) w.push('The Loom video you chose is not in the proposal. Add its link, or write it again.');

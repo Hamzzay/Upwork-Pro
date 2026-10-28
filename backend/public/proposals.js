@@ -661,12 +661,12 @@ function proposalSection(s, initial, matching) {
 
   // ----- before anything is written: which type of proposal? The types that suit the job's signals come first.
   const SUGGEST = 5; // how many are shown before "Show all types"
-  let picked = null, byHand = false, showAll = false, choices = null, typeTimer = null, loomPick; // loomPick: a video id, null for none, undefined until loaded
+  let picked = null, byHand = false, showAll = false, choices = null, typeTimer = null, loomPick, morePick; // loomPick: a video id, null for none, undefined until loaded; morePick (R142): the videos added after it
   function typeChooser() {
     const el = h('div', { class: 'stack' });
     const write = async (e) => {
       const b = e.currentTarget; btnBusy(b, 'Starting');
-      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: picked, loom_video_id: loomPick ?? null }); await reload(); drawAll(); startPolling(); if (typeof stepCtx !== 'undefined' && stepCtx) stepCtx.refresh(); }
+      try { await api('POST', `/screenings/${s.id}/proposal/start`, { template_id: picked, loom_video_id: loomPick ?? null, more_loom_ids: loomPick ? (morePick || []) : [] }); await reload(); drawAll(); startPolling(); if (typeof stepCtx !== 'undefined' && stepCtx) stepCtx.refresh(); }
       catch (x) { toast(x.message, true); b.disabled = false; b.replaceChildren('Write the proposal'); }
     };
     const why = (t) => { const req = t.matched.filter((m) => m.role === 'required').map((m) => m.label), sup = t.matched.filter((m) => m.role !== 'required').map((m) => m.label);
@@ -678,17 +678,27 @@ function proposalSection(s, initial, matching) {
       // the Loom video: the one already chosen; else, when the post asks for a video, the one that fits best; else none
       const lm = choices.loom || { asked: false, chosen: null, videos: [] };
       if (loomPick === undefined) loomPick = lm.chosen ?? (lm.asked && lm.videos.length ? (lm.videos.find((v) => v.best) || lm.videos[0]).id : null);
+      if (morePick === undefined) morePick = lm.more || [];
+      // R142: a video about one of this proposal's projects says so; a video for other projects names them; one for none is generic
+      const about = (v) => (v.for_projects && v.for_projects.length ? 'About ' + v.for_projects.join(', ') : v.projects && v.projects.length ? 'For ' + v.projects.join(', ') : 'Generic');
       const loomCard = (v) => h('button', { type: 'button', class: 'pcard2 typecard' + (loomPick === (v ? v.id : null) ? ' on' : ''), role: 'radio', 'aria-checked': loomPick === (v ? v.id : null), onclick: () => { loomPick = v ? v.id : null; draw(); } },
         h('div', { class: 'row spread', style: 'flex-wrap:nowrap;align-items:flex-start' }, h('span', { class: 'jp-sec', style: 'min-width:0' }, v ? v.title : 'No Loom video'), v && v.best ? h('span', { class: 'tagpill' }, 'Fits best') : null),
         h('div', { class: 'jp-label' }, v ? v.topic || 'No description yet' : 'The proposal does not mention a video.'),
-        v && v.best && v.shared.length ? h('div', { class: 'jp-label faint' }, 'Shares ' + v.shared.join(', ') + ' with this job') : null);
+        v && v.best && v.shared.length ? h('div', { class: 'jp-label faint' }, 'Shares ' + v.shared.join(', ') + ' with this job') : null,
+        v ? h('div', { class: 'jp-label faint' }, about(v)) : null);
+      // R142: the standard is one video; more can be added, each a line under the first in the proposal
+      const others = loomPick ? lm.videos.filter((v) => v.id !== loomPick) : [];
+      const moreSel = others.length ? h('select', { multiple: true, 'aria-label': 'Add another video', class: 'fsel' }, h('option', { value: '' }, 'Add another video (optional)'),
+        others.map((v) => h('option', { value: v.id, selected: (morePick || []).includes(v.id) }, `${v.title} (${about(v)})`))) : null;
+      if (moreSel) moreSel.onchange = () => { morePick = moreSel.value ? moreSel.value.split('|').map(Number) : []; };
       const loomBlock = h('div', { class: 'stack', style: 'gap:10px;margin-top:8px' },
         h('div', {}, h('div', { class: 'jp-sec' }, 'Send a Loom video with it?'),
           h('div', { class: 'jp-label' }, lm.asked ? 'This job post asks for a video. ' + (lm.videos.length ? 'The one that fits best is selected. Its link is written into the proposal.' : '') : lm.videos.length ? 'Pick one and its link is written into the proposal.' : '')),
         lm.asked && !lm.videos.length ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'The client asks for a video, and this profile has no Loom videos.'),
           h('div', { style: 'margin-top:4px' }, 'An admin can add one under Loom videos (then reload this page). Or record one now and paste its link into the proposal after it is written.')) : null,
         lm.videos.length ? h('div', { class: 'pgrid2 typegrid', role: 'radiogroup', 'aria-label': 'Loom video' }, loomCard(null), lm.videos.map(loomCard))
-          : !lm.asked ? h('div', { class: 'jp-label' }, 'This profile has no Loom videos yet. An admin adds them under Loom videos.') : null);
+          : !lm.asked ? h('div', { class: 'jp-label' }, 'This profile has no Loom videos yet. An admin adds them under Loom videos.') : null,
+        moreSel ? h('div', { class: 'field', style: 'max-width:520px' }, moreSel, h('div', { class: 'hint' }, 'One video is the standard. Each one added goes under it in the proposal, with its title.')) : null);
       const shown = showAll ? choices.types : choices.types.filter((t, i) => i < SUGGEST || t.id === picked);
       setActions(picked ? actBtn('Write the proposal', write, true) : null);
       const card = (t) => h('button', { type: 'button', class: 'pcard2 typecard' + (picked === t.id ? ' on' : ''), role: 'radio', 'aria-checked': picked === t.id, onclick: () => { picked = t.id; byHand = true; draw(); } },
@@ -960,14 +970,25 @@ function proposalSection(s, initial, matching) {
     if (loomSel) api('GET', `/screenings/${s.id}/proposal/types`).then((r) => {
       const vids = (r.loom && r.loom.videos) || [];
       if (!vids.length) return noLoom('None on this profile');
-      loomSel.replaceChildren(h('option', { value: '' }, 'No Loom video'), ...vids.map((v) => h('option', { value: v.id, selected: r.loom.chosen === v.id }, v.title + (v.best ? ' (best fit)' : ''))));
-      loomSel.onchange = async () => {
-        if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Change the video?', 'You have unsaved changes. The video line is changed in the last saved version, so save yours first to keep them.', 'Change it'))) { loomSel.value = r.loom.chosen ?? ''; return; }
-        loomSel.disabled = true;
-        try { const res = await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: loomSel.value ? Number(loomSel.value) : null }); s.loom_video_id = loomSel.value ? Number(loomSel.value) : null;
-          if (res.updated === 'in_place') { await reload(); drawAll(); toast(loomSel.value ? 'The video line is in.' : 'The video line is out.'); }
+      const tag = (v) => (v.for_projects && v.for_projects.length ? ' (about ' + v.for_projects.join(', ') + ')' : v.best ? ' (best fit)' : '');
+      loomSel.replaceChildren(h('option', { value: '' }, 'No Loom video'), ...vids.map((v) => h('option', { value: v.id, selected: r.loom.chosen === v.id }, v.title + tag(v))));
+      // R142: more videos after the first (the standard is one); each goes under it in the proposal, with its title
+      let more = r.loom.more || [];
+      const moreSel = vids.length > 1 ? h('select', { multiple: true, class: 'sm', 'aria-label': 'More Loom videos' }) : null;
+      const drawMore = () => { if (!moreSel) return; const first = loomSel.value ? Number(loomSel.value) : null;
+        moreSel.replaceChildren(h('option', { value: '' }, more.length ? 'More videos' : '+ Another video'), ...vids.filter((v) => v.id !== first).map((v) => h('option', { value: v.id, selected: more.includes(v.id) }, v.title + tag(v))));
+        moreSel.disabled = !first; }; // no first video: nothing to add after it
+      if (moreSel) { (loomSel.closest('.ss') || loomSel).after(moreSel); drawMore(); } // beside the video's own dropdown, not inside it
+      const save = async (undo) => {
+        if (editor && (editor.isDirty() || answersDirty()) && !(await ask('Change the video?', 'You have unsaved changes. The video line is changed in the last saved version, so save yours first to keep them.', 'Change it'))) { undo(); return; }
+        const first = loomSel.value ? Number(loomSel.value) : null;
+        loomSel.disabled = true; if (moreSel) moreSel.disabled = true;
+        try { const res = await api('PUT', `/screenings/${s.id}/loom`, { loom_video_id: first, more_loom_ids: first ? more.filter((x) => x !== first) : [] }); s.loom_video_id = first; r.loom.chosen = first; r.loom.more = more;
+          if (res.updated === 'in_place') { await reload(); drawAll(); toast(first ? (more.length ? `The video lines are in (${more.length + 1} videos).` : 'The video line is in.') : 'The video line is out.'); }
           else { data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawParts(); startPolling(); } }
-        catch (x) { toast(x.message, true); loomSel.disabled = false; } };
+        catch (x) { toast(x.message, true); loomSel.disabled = false; if (moreSel) moreSel.disabled = false; } };
+      loomSel.onchange = () => { const was = r.loom.chosen; if (!loomSel.value) more = []; drawMore(); save(() => { loomSel.value = was ?? ''; more = r.loom.more || []; drawMore(); }); };
+      if (moreSel) moreSel.onchange = () => { const was = r.loom.more || []; more = moreSel.value ? moreSel.value.split('|').map(Number) : []; save(() => { more = was; drawMore(); }); };
     }).catch(() => noLoom('Could not load the videos'));
     // open questions about our experience: their tab is shown first, once
     if (!gapsShown && owner && openGaps()) { sideTab = 'gaps'; gapsShown = true; }

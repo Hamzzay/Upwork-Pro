@@ -249,7 +249,7 @@ const stepBody = z.discriminatedUnion('step', [
     shortlist: z.array(z.object({ name: z.string().trim().min(1).max(190), reason: z.string().trim().max(300).optional(), recommended: z.boolean().optional() })).max(20).default([]),
     picked: z.array(z.string().trim().min(1).max(190)).max(6), skip_tech_stack: z.boolean().optional() }) }),
   z.object({ step: z.literal('type'), data: z.object({ type: z.string().trim().min(1).max(160), ranking: z.array(z.object({ type: z.string().trim().max(160), why: z.string().trim().max(400).optional() })).max(12).optional() }) }),
-  z.object({ step: z.literal('loom'), data: z.object({ video: z.string().trim().min(1).max(200).nullable() }) }),
+  z.object({ step: z.literal('loom'), data: z.object({ video: z.string().trim().min(1).max(200).nullable(), more: z.array(z.string().trim().min(1).max(200)).max(5).optional() }) }), // R142: more videos after the first
 ]);
 plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
   const b = stepBody.safeParse(req.body);
@@ -382,7 +382,16 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
       if (!v) return void res.status(400).json({ error: `${cur.name} has no Loom video called "${d.video}". Its videos: ${vids.map((x) => x.title).join('; ') || 'none'}. Use a title from get_library (loom_videos), or send null for no video.`, field: 'video' });
       await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, id]);
       note('loom video', cur.loom_video_title ?? null, v.title); extra.loom_video = v.title;
+      if (d.more !== undefined) { // R142: the videos added after the first, by title, each one of the profile's own
+        const more = d.more.map((t) => vids.find((x) => lower(x.title) === lower(t))).filter((x) => x && x.id !== v.id) as { id: number; title: string }[];
+        const missing = d.more.filter((t) => !vids.some((x) => lower(x.title) === lower(t)));
+        if (missing.length) return void res.status(400).json({ error: `${cur.name} has no Loom video called ${missing.map((t) => `"${t}"`).join(', ')}. Its videos: ${vids.map((x) => x.title).join('; ')}.`, field: 'more' });
+        await exec('DELETE FROM screening_looms WHERE screening_id=?', [id]);
+        for (const [k, x] of more.entries()) await exec('INSERT INTO screening_looms (screening_id, loom_video_id, sort_order, title) VALUES (?,?,?,?)', [id, x.id, k, x.title]);
+        extra.more_loom_videos = more.map((x) => x.title);
+      }
     }
+    if (d.video === null) await exec('DELETE FROM screening_looms WHERE screening_id=?', [id]); // no first video: none after it
   }
 
   for (const [field, before, after] of changes) await exec('INSERT INTO field_changes (screening_id, field, old_value, new_value, source, user_id) VALUES (?,?,?,?,?,?)', [id, field, before, after, STEP_SOURCE, userId]);
@@ -573,7 +582,7 @@ plugin.get('/plugin/library', anyone, async (req, res) => {
       industries: inds.filter((x) => x.project_id === p.id).map((x) => x.name),
       tags: links.filter((x) => x.project_id === p.id && x.category !== 'Industry').map((x) => x.name) })),
     loom_videos_note: 'Short Loom videos per profile. Before writing, ask the person which of the sending profile\'s videos to send, or none: recommend the one whose tags share the most weight with the job (industry included) when the post asks for a video, and none otherwise. Put the chosen link in the proposal and send its title as loom_video on save_proposal.',
-    loom_videos: (await loomVideos('v.active=1 AND p.active=1')).map((v) => clean({ profile: v.profile_name, title: v.title, url: v.url, topic: v.topic, tags: v.tags.map((t: any) => t.name) })),
+    loom_videos: (await loomVideos('v.active=1 AND p.active=1')).map((v) => clean({ profile: v.profile_name, title: v.title, url: v.url, topic: v.topic, tags: v.tags.map((t: any) => t.name), projects: v.projects.map((p: any) => p.name) })),
   });
 });
 

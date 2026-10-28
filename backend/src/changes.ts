@@ -13,7 +13,7 @@ type Snap = Record<string, string | null>;
 const LINKS: Record<string, [string, string, string, string, string, string][]> = {
   projects: [['tags', 'project_tags', 'project_id', 'tag_id', 'tags', 'name'], ['industries', 'project_industries', 'project_id', 'industry_id', 'industries', 'name']],
   industries: [['projects', 'project_industries', 'industry_id', 'project_id', 'projects', 'name']],
-  loom_videos: [['tags', 'loom_video_tags', 'video_id', 'tag_id', 'tags', 'name']],
+  loom_videos: [['tags', 'loom_video_tags', 'video_id', 'tag_id', 'tags', 'name'], ['projects', 'loom_video_projects', 'video_id', 'project_id', 'projects', 'name']],
   tags: [['projects', 'project_tags', 'tag_id', 'project_id', 'projects', 'name']],
 };
 const SKIP = new Set(['id', 'created_at', 'updated_at', 'password_hash', 'updated_by', 'created_by', 'last_used_at', 'added_via']);

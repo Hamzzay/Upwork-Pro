@@ -20,6 +20,7 @@ import { buildDetectionSchema, detectionPrompt, normalizeDetection, type Detecte
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
 import { pairReplacements, type Offer } from './offers';
+import { videoLines } from './parts';
 import { assemble, cleanLetter, layoutBlock, linkLines, linkPlace, type LinkPlace, loomLine, partsOut, partsSchema, projectLinkSet, proofFor, proofOut, proofSchema, restoreLinks, signoff, type Parts, type ProofBlock } from './parts';
 
 
@@ -52,6 +53,9 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   const s = (await query<any>('SELECT s.job_text, s.raw_input, s.report_json, s.proposal_profile_id, s.loom_video_id, s.posting_json FROM screenings s WHERE s.id=?', [screeningId]))[0];
   // the Loom video the person chose for this proposal; an early draft (a guess) never has one
   const loom = !basis && s.loom_video_id ? (await query<any>('SELECT title, url, topic FROM loom_videos WHERE id=?', [s.loom_video_id]))[0] ?? null : null;
+  // R142: the videos added after the first, of the sending profile (an early draft, a guess, has none)
+  const extraLooms: { id: number; title: string; url: string }[] = !basis ? await query<any>(`SELECT v.id, v.title, v.url FROM screening_looms sl JOIN loom_videos v ON v.id=sl.loom_video_id
+    WHERE sl.screening_id=? AND v.profile_id=? AND v.id<>? ORDER BY sl.sort_order, v.title`, [screeningId, s.proposal_profile_id ?? 0, s.loom_video_id ?? 0]) : [];
   const profileId: number | null = basis ? basis.profileId : s.proposal_profile_id;
   const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules, certifications FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
   const matches = await query<any>(
@@ -94,7 +98,7 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   const questions = jobQuestions(page, posting);
   // the client's attached documents (R74) follow the post everywhere the AI reads it
   const docs = await docsBlock(screeningId);
-  return { jobText: post + docs, jobOnly: separateQuestions(post).jobOnly + docs, questions, sender, projects, requirements, profileId, projectIds: ids as number[], loomId: loom ? (s.loom_video_id as number) : null };
+  return { jobText: post + docs, jobOnly: separateQuestions(post).jobOnly + docs, questions, sender, projects, requirements, profileId, projectIds: ids as number[], loomId: loom ? (s.loom_video_id as number) : null , extraLooms};
 }
 
 export async function loadTemplate(id: number): Promise<(TemplateFact & { id: number }) | null> {
@@ -222,13 +226,22 @@ async function rankTypes(detected: DetectedValue[]) {
 export const asksForVideo = (jobText: string) => /\bloom\b|\b(video|screen)\s*(intro(duction)?|message|recording|response|proposal|walk-?through|cover letter)\b|\b(record|send|share|include|attach)\w*\s+(us\s+|me\s+)?(a\s+)?(short\s+|quick\s+|brief\s+)?(\d+\s*-?\s*(min(ute)?s?|sec(ond)?s?)\s+)?video\b/i.test(jobText);
 export async function loomChoices(screeningId: number) {
   const s = (await query<any>('SELECT job_text, raw_input, proposal_profile_id, loom_video_id FROM screenings WHERE id=?', [screeningId]))[0];
-  if (!s?.proposal_profile_id) return { asked: false, chosen: null, videos: [] };
-  const vids = await query<any>('SELECT id, title, url, topic, sort_order FROM loom_videos WHERE profile_id=? AND (active=1 OR id=?) ORDER BY sort_order, title', [s.proposal_profile_id, s.loom_video_id ?? 0]);
-  const vt = vids.length ? await query<any>('SELECT lt.video_id, t.name FROM loom_video_tags lt JOIN tags t ON t.id=lt.tag_id WHERE lt.video_id IN (?)', [vids.map((v) => v.id)]) : [];
+  if (!s?.proposal_profile_id) return { asked: false, chosen: null, more: [], videos: [] };
+  const vids = await query<any>('SELECT id, title, url, topic, sort_order FROM loom_videos WHERE profile_id=? AND (active=1 OR id=? OR id IN (SELECT loom_video_id FROM screening_looms WHERE screening_id=?)) ORDER BY sort_order, title', [s.proposal_profile_id, s.loom_video_id ?? 0, screeningId]);
+  const ids = vids.map((v) => v.id);
+  const vt = ids.length ? await query<any>('SELECT lt.video_id, t.name FROM loom_video_tags lt JOIN tags t ON t.id=lt.tag_id WHERE lt.video_id IN (?)', [ids]) : [];
+  // R142: the projects each video is about, and the ones this job shows
+  const vp = ids.length ? await query<any>('SELECT lp.video_id, lp.project_id, pr.name FROM loom_video_projects lp JOIN projects pr ON pr.id=lp.project_id WHERE lp.video_id IN (?) ORDER BY pr.name', [ids]) : [];
+  const chosenProjects = new Set((await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND selected=1 AND project_id IS NOT NULL', [screeningId])).map((r) => Number(r.project_id)));
+  const forJob = (id: number) => vp.filter((x) => x.video_id === id && chosenProjects.has(Number(x.project_id))).map((x) => String(x.name));
   const jobTags = await query<any>('SELECT tag_name AS name, weight FROM job_tags WHERE screening_id=?', [screeningId]);
-  const best = pickLoom(jobTags, vids.map((v) => ({ ...v, tags: vt.filter((x) => x.video_id === v.id).map((x) => x.name) })));
-  return { asked: asksForVideo(String(s.job_text ?? s.raw_input ?? '')), chosen: s.loom_video_id ?? null,
-    videos: vids.map((v) => ({ id: v.id, title: v.title, url: v.url, topic: v.topic, best: !!best && best.video.id === v.id, shared: best && best.video.id === v.id ? best.shared : [] })) };
+  // the best one: a video about one of the projects this proposal shows comes first; else the one whose tags fit the job best
+  const byProject = vids.find((v) => forJob(v.id).length);
+  const best = byProject ? { video: byProject, shared: [] as string[] } : pickLoom(jobTags, vids.map((v) => ({ ...v, tags: vt.filter((x) => x.video_id === v.id).map((x) => x.name) })));
+  const more = (await query<any>('SELECT sl.loom_video_id AS id FROM screening_looms sl JOIN loom_videos v ON v.id=sl.loom_video_id WHERE sl.screening_id=? AND v.profile_id=? AND v.id<>? ORDER BY sl.sort_order', [screeningId, s.proposal_profile_id, s.loom_video_id ?? 0])).map((r) => Number(r.id));
+  return { asked: asksForVideo(String(s.job_text ?? s.raw_input ?? '')), chosen: s.loom_video_id ?? null, more,
+    videos: vids.map((v) => ({ id: v.id, title: v.title, url: v.url, topic: v.topic, best: !!best && best.video.id === v.id, shared: best && best.video.id === v.id ? best.shared : [],
+      projects: vp.filter((x) => x.video_id === v.id).map((x) => String(x.name)), for_projects: forJob(v.id) })) };
 }
 
 export async function typeChoices(screeningId: number) {
@@ -328,7 +341,7 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
       const t = written.get(p.name.toLowerCase()) ?? po.data.proof[i]?.text ?? null;
       proof.push({ project_id: p.id ?? null, name: p.name, link: p.live_link, links: linksFor(p), text: t ?? (await writeProof(f, template, p)) });
     }
-    parts = { letter: cleanLetter(po.data.letter), proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender), link_place: placeOf(template) };
+    parts = { letter: cleanLetter(po.data.letter), proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, looms: f.extraLooms, profile_id: f.profileId, signoff: signoff(f.sender), link_place: placeOf(template) };
     text = assembleParts(parts, cfg['writer.loom_line']);
   } else {
     const parsed = writerOut.safeParse(w.data);
@@ -372,11 +385,11 @@ async function compose(screeningId: number, f: Facts, opts: { templateId?: numbe
 async function checksFor(text: string, f: Facts, template: TemplateFact | null, guide: Awaited<ReturnType<typeof loadGuide>>, library?: string[]) {
   const names = library ?? (await query<any>('SELECT name FROM projects')).map((r) => r.name as string);
   return checkProposal({ text, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, links: projectLinks(x), notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: names, foreignNames: await foreignNames(),
-    sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
+    sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null, loom_links: f.extraLooms.map((x) => x.url) }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
 }
 
 /** The parts put together, with the Loom line in the admin's wording. */
-export const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: loomLine(loomTemplate, p.loom), signoff: p.signoff, place: p.link_place });
+export const assembleParts = (p: Parts, loomTemplate: string) => assemble({ letter: p.letter, proof: p.proof, loomLine: videoLines(loomTemplate, p.loom, p.looms ?? []), signoff: p.signoff, place: p.link_place });
 /** R134: where a proposal type puts a project's links, from its format text. */
 const placeOf = (template: { body_html: string } | null | undefined): LinkPlace => linkPlace(template ? htmlToPlain(template.body_html) : null);
 
@@ -419,7 +432,7 @@ export async function refitParts(f: Facts, parts: Parts, template: TemplateFact 
     const t = template ? await writeProof(f, template, p) : p.name;
     return { project_id: p.id ?? null, name: p.name, link: p.live_link, links: linksFor(p), text: t };
   }));
-  const next: Parts = { ...parts, proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, profile_id: f.profileId, signoff: signoff(f.sender), link_place: template ? placeOf(template) : parts.link_place };
+  const next: Parts = { ...parts, proof, loom: f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null, looms: f.extraLooms, profile_id: f.profileId, signoff: signoff(f.sender), link_place: template ? placeOf(template) : parts.link_place };
   return { parts: next, text: assembleParts(next, cfg['writer.loom_line']), wrote };
 }
 
@@ -672,7 +685,7 @@ export async function runPartsRefresh(proposalId: number) {
     const before = htmlToPlain(cur.html).replace(/\s+/g, ' ').trim();
     if (r.text.replace(/\s+/g, ' ').trim() !== before || fit.changed) {
       const what = [r.wrote.length || r.parts.proof.length !== cur.parts.proof.length || r.parts.proof.some((x, i) => x.name !== cur.parts!.proof[i]?.name) ? 'the projects' : '',
-        (r.parts.loom?.url ?? null) !== (cur.parts.loom?.url ?? null) ? 'the video' : '', r.parts.signoff !== cur.parts.signoff ? 'the sign off' : '',
+        (r.parts.loom?.url ?? null) !== (cur.parts.loom?.url ?? null) || JSON.stringify((r.parts.looms ?? []).map((x) => x.url)) !== JSON.stringify((cur.parts.looms ?? []).map((x) => x.url)) ? 'the video' : '', r.parts.signoff !== cur.parts.signoff ? 'the sign off' : '',
         r.parts.proof.some((x, i) => JSON.stringify(x.links ?? null) !== JSON.stringify(cur.parts!.proof[i]?.links ?? null)) ? 'the project links' : '', answersNote].filter(Boolean);
       await addVersion(p.id, textToHtml(r.text), 'ai', null, `Updated ${what.join(', ') || 'the parts'}`, cur.version_no, fit.answers, r.parts);
       let old: { source: string; text: string }[] = []; try { old = JSON.parse(p.warnings || '[]'); } catch { old = []; }
@@ -713,7 +726,10 @@ export async function runPartsRefresh(proposalId: number) {
   for (const old of leftover) offer.push({ kind: 'remove', label: `Take out: ${old}`, text: `${old} is no longer one of the chosen projects.`, project: old, old_links: linksOfOld(old) });
   // R126: a project that is in the text with only some of its links: the rest are offered, to go under it
   for (const proj of f.projects) { const ls = linksFor(proj), missing = linkLines(ls, text); if (inText(proj) && ls.length > 1 && missing.length) offer.push({ kind: 'links', label: `Links: ${proj.name}`, text: missing.join('\n'), project: proj.name }); }
-  if (f.sender.loom && !text.includes(f.sender.loom.url.toLowerCase())) offer.push({ kind: 'video', label: `Loom video: ${f.sender.loom.title}`, text: loomLine(cfg['writer.loom_line'], f.sender.loom) });
+  { const vids = [f.sender.loom, ...f.extraLooms].filter(Boolean) as { title: string; url: string }[]; // R142: every video chosen
+    const missing = vids.filter((v) => !text.includes(v.url.toLowerCase()));
+    if (missing.length) offer.push({ kind: 'video', label: `Loom video${missing.length > 1 ? 's' : ''}: ${missing.map((v) => v.title).join(', ')}`,
+      text: missing.length === vids.length ? videoLines(cfg['writer.loom_line'], f.sender.loom ?? null, f.extraLooms) : missing.map((v) => `${v.title}: ${v.url}`).join('\n') }); }
   const so = signoff(f.sender);
   if (f.sender.name && (!text.includes(f.sender.name.toLowerCase()) || (f.sender.gitlab_link && !text.includes(f.sender.gitlab_link.toLowerCase())))) offer.push({ kind: 'signoff', label: `Sign off: ${f.sender.name}`, text: so });
   await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=?, profile_id=? WHERE id=?`, [offer.length ? JSON.stringify(offer) : null, f.profileId, p.id]);
@@ -726,7 +742,7 @@ export async function runPartsRefresh(proposalId: number) {
  * swapped for the new ones where they are found word for word; when they are not, nothing is changed and 'offer' is returned, so
  * the new lines are offered beside the editor as before. `before` is what the sign off and the video were.
  */
-export async function applySendParts(screeningId: number, before: { signoff: string | null; loomUrl: string | null }): Promise<'none' | 'in_place' | 'offer'> {
+export async function applySendParts(screeningId: number, before: { signoff: string | null; loomUrl: string | null; loomUrls?: string[] }): Promise<'none' | 'in_place' | 'offer'> {
   const p = (await query<any>(`SELECT id, status FROM proposals WHERE screening_id=?`, [screeningId]))[0];
   const cur = p && p.status === 'done' ? await latestVersion(p.id) : null;
   if (!cur) return 'none';
@@ -734,20 +750,21 @@ export async function applySendParts(screeningId: number, before: { signoff: str
   const cfg = await getSettings();
   const newSign = signoff(f.sender);
   const loom = f.sender.loom ? { id: f.loomId, title: f.sender.loom.title, url: f.sender.loom.url } : null;
-  const newLoomLine = loomLine(cfg['writer.loom_line'], loom);
+  const newLoomLine = videoLines(cfg['writer.loom_line'], loom, f.extraLooms); // R142: the first video and any added after it
   let html: string, parts: Parts | null = null;
   if (cur.parts) {
-    parts = { ...cur.parts, loom, profile_id: f.profileId, signoff: newSign };
+    parts = { ...cur.parts, loom, looms: f.extraLooms, profile_id: f.profileId, signoff: newSign };
     html = textToHtml(assembleParts(parts, cfg['writer.loom_line']));
   } else {
     let text = htmlToPlain(cur.html);
     // the old video line: the paragraph with the old link (the whole paragraph, so its words go with it)
-    if (before.loomUrl && before.loomUrl !== loom?.url) {
-      const paras = text.split(/\n{2,}/); const i = paras.findIndex((x) => x.includes(before.loomUrl!));
+    const was = (before.loomUrls ?? [before.loomUrl]).filter(Boolean) as string[], now = [loom?.url, ...f.extraLooms.map((x) => x.url)].filter(Boolean) as string[];
+    if (was.length && JSON.stringify(was) !== JSON.stringify(now)) {
+      const paras = text.split(/\n{2,}/); const i = paras.findIndex((x) => was.some((u) => x.includes(u)));
       if (i < 0) return 'offer';
       if (newLoomLine) paras[i] = newLoomLine; else paras.splice(i, 1);
       text = paras.join('\n\n');
-    } else if (!before.loomUrl && loom) {
+    } else if (!was.length && now.length) {
       // a video added to edited text: before the sign off, where the app puts it
       const at = before.signoff ? text.lastIndexOf(before.signoff.trim()) : -1;
       if (at < 0) return 'offer';
@@ -768,7 +785,7 @@ export async function applySendParts(screeningId: number, before: { signoff: str
 /** What the sign off and the video line are now, before a change (for applySendParts). */
 export async function sendPartsNow(screeningId: number) {
   const f = await loadFacts(screeningId);
-  return { signoff: f.sender.name ? signoff(f.sender) : null, loomUrl: f.sender.loom?.url ?? null };
+  return { signoff: f.sender.name ? signoff(f.sender) : null, loomUrl: f.sender.loom?.url ?? null, loomUrls: [f.sender.loom?.url, ...f.extraLooms.map((x) => x.url)].filter(Boolean) as string[] };
 }
 
 /** What the reviewer gets for a job's newest proposal version, with the given reviewer sections: the instructions and the facts. */
@@ -848,7 +865,7 @@ export async function runChat(messageId: number) {
     resultVersion = await addVersion(p.id, textToHtml(splitText(revised).letter), 'chat', null, note, basedOn);
     const library = (await query<any>('SELECT name FROM projects')).map((x) => x.name as string);
     const warnings = checkProposal({ text: revised, selectedProjects: f.projects.map((x) => ({ name: x.name, live_link: x.live_link, links: projectLinks(x), notes: [x.notes, x.overview, x.case_study, f.sender.stats].filter(Boolean).join(' ') || null })), otherProjectNames: library, foreignNames: await foreignNames(),
-      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
+      sender: { name: f.sender.name, gitlab_link: f.sender.gitlab_link, loom_link: f.sender.loom?.url ?? null, loom_links: f.extraLooms.map((x) => x.url) }, banned: bannedPatterns(guide.banned), wordRange: template ? wordRange(htmlToPlain(template.body_html)) : null }).map((t) => ({ source: 'check', text: t }));
     await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(warnings), p.id]);
   }
   await exec(`INSERT INTO proposal_messages (proposal_id, role, content, status, based_on_version, result_version) VALUES (?, 'assistant', ?, 'done', ?, ?)`, [p.id, parsed.data.reply.slice(0, 4000), basedOn, resultVersion]);

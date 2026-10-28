@@ -72,7 +72,7 @@ export function restoreLinks(text: string, projects: { name?: string; links: Pro
   return lines.join('\n');
 }
 /** Stored with every version made from parts. A version without it was edited by hand (or by the chat): its text is the person's. */
-export interface Parts { letter: string; proof: ProofBlock[]; loom: { id: number | null; title: string; url: string } | null; profile_id: number | null; signoff: string; /** R134: where its type puts a project's links */ link_place?: LinkPlace }
+export interface Parts { letter: string; proof: ProofBlock[]; loom: { id: number | null; title: string; url: string } | null; /** R142: videos added after the first */ looms?: { id: number | null; title: string; url: string }[]; profile_id: number | null; signoff: string; /** R134: where its type puts a project's links */ link_place?: LinkPlace }
 
 export const PARTS_RULES = `WRITE IN PARTS (the app puts the proposal together, so one part can be changed later without rewriting the rest)
 - "letter": the whole proposal EXCEPT three things the app adds: the proof of past projects, the Loom video line and the sign off.
@@ -119,6 +119,15 @@ export function loomLine(template: string, loom: { title: string; url: string } 
   if (!loom) return '';
   const t = (template || 'Here is a short video walkthrough of a similar build:\n{url}').replace(/\{title\}/g, loom.title).replace(/\{url\}/g, loom.url);
   return t.includes(loom.url) ? t : `${t}\n${loom.url}`;
+}
+/**
+ * R142 (Hamza): the video lines of a proposal: the first video in the admin's wording (as before), then each video added after it
+ * on its own line, "Title: link", all in the one place, so a change of videos swaps the whole block.
+ */
+export function videoLines(template: string, first: { title: string; url: string } | null, more: { title: string; url: string }[] = []): string {
+  const extra = more.filter((v) => v && v.url && v.url !== first?.url);
+  if (!first) return extra.map((v) => `${v.title}: ${v.url}`).join('\n');
+  return [loomLine(template, first), ...extra.map((v) => `${v.title}: ${v.url}`)].join('\n');
 }
 /** The proof as it reads in the proposal: each block, then its link on its own line. */
 /**

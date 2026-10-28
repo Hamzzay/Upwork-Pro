@@ -149,7 +149,7 @@ Use the same filters as analyze_jobs. Pass "reports" to get only some; "top" is 
 - profile: the profile the person picked and the rate.
 - projects: the shortlist you showed (with the reason for each, recommended ones marked) and the projects the person picked, and skip_tech_stack true when the person chose to match without the Tech stack tags. Every project must be in the library: add a missing one with add_project first.
 - type: the proposal type the person picked.
-- loom: the Loom video the person picked (its title, from get_library for that profile), or null for none.
+- loom: the Loom video the person picked (its title, from get_library for that profile), or null for none. One is the standard; when the person wants more, "more" lists the titles of the others, each a line under the first in the proposal. A video's "projects" (plugin_options) says which projects it is about; one about a project this proposal shows fits best.
 Saving a step again replaces what that step saved; other steps stay. The answer gives the job's stage in Upwork Pro after the save. If it is refused, show the message, fix only what the person confirms, and save again; never go on as if it was saved.`,
     { id: z.number().int(), step: z.enum(['read', 'profile', 'projects', 'type', 'loom']),
       data: z.object({
@@ -162,6 +162,7 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
         skip_tech_stack: z.boolean().optional().describe('projects: true when the projects were matched without the Tech stack tags, false when with them'),
         type: z.string().optional().describe('type: the proposal type name, e.g. "Type 7. Problem first"'),
         video: z.string().nullable().optional().describe('loom: the video title, or null for none'),
+        more: z.array(z.string()).optional().describe('loom: more video titles after the first (the standard is one; only when the person asks)'),
       }) },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async (a) => api.call('POST', `/plugin/jobs/${a.id}/step`, { step: a.step, data: a.data }));
 

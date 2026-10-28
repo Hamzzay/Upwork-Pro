@@ -30,7 +30,7 @@ export const KINDS: Record<string, Kind> = {
   tag: { table: 'tags', label: 'Tag', links: [['projects', 'project_tags', 'tag_id', 'project_id', 'projects']], active: 'active', roles: ['admin'] },
   tag_category: { table: 'tag_categories', label: 'Tag category', roles: ['admin'] },
   profile: { table: 'upwork_profiles', label: 'Upwork profile', active: 'active', roles: ['admin'] },
-  loom_video: { table: 'loom_videos', label: 'Loom video', links: [['tags', 'loom_video_tags', 'video_id', 'tag_id', 'tags']], active: 'active', roles: ['admin'] },
+  loom_video: { table: 'loom_videos', label: 'Loom video', links: [['tags', 'loom_video_tags', 'video_id', 'tag_id', 'tags'], ['projects', 'loom_video_projects', 'video_id', 'project_id', 'projects']], active: 'active', roles: ['admin'] },
   rule: { table: 'rules', key: 'code', label: 'Rule', active: 'active', roles: ['admin'] },
   signal: { table: 'signals', label: 'Signal', active: 'active', roles: ['admin'] },
   signal_value: { table: 'signal_values', label: 'Signal value', active: 'active', roles: ['admin'] },

@@ -423,7 +423,7 @@ export async function proposalFor(screeningId: number) {
 }
 async function ownedScreening(req: any, res: any) {
   const id = num(req.params.id);
-  const s = (await query<any>('SELECT id, user_id, status, selection_confirmed_at, proposal_profile_id FROM screenings WHERE id=?', [id]))[0];
+  const s = (await query<any>('SELECT id, user_id, status, selection_confirmed_at, proposal_profile_id, loom_video_id FROM screenings WHERE id=?', [id]))[0];
   if (!s || s.user_id !== req.user.id) { res.status(404).json({ error: 'Not found' }); return null; }
   return s;
 }
@@ -453,8 +453,21 @@ proposals.get('/screenings/:id/proposal/types', anyone, async (req, res) => {
   res.json({ ...(await typeChoices(s.id)), chosen_type_id: chosen, loom: await loomChoices(s.id) });
 });
 
+/**
+ * R142 (Hamza): the Loom videos added after the first one (the standard is one; a person may add more). Each must be one of the
+ * sending profile's own; the list replaces the one there. Returns an error to show, or null.
+ */
+async function setMoreLooms(screeningId: number, profileId: number, first: number | null, ids: number[]): Promise<string | null> {
+  const want = [...new Set(ids)].filter((x) => x !== first).slice(0, 5);
+  const vids = want.length ? await query<any>('SELECT id, title FROM loom_videos WHERE id IN (?) AND profile_id=?', [want, profileId]) : [];
+  if (vids.length !== want.length) return 'Each Loom video must be one of the sending profile\'s own';
+  await exec('DELETE FROM screening_looms WHERE screening_id=?', [screeningId]);
+  for (const [k, v] of want.entries()) await exec('INSERT INTO screening_looms (screening_id, loom_video_id, sort_order, title) VALUES (?,?,?,?)', [screeningId, v, k, vids.find((x) => x.id === v)?.title ?? null]);
+  return null;
+}
 proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
-  const b = z.object({ template_id: z.number().int().positive().nullish(), loom_video_id: z.number().int().positive().nullable().optional() }).safeParse(req.body ?? {});
+  const b = z.object({ template_id: z.number().int().positive().nullish(), loom_video_id: z.number().int().positive().nullable().optional(),
+    more_loom_ids: z.array(z.number().int().positive()).max(5).optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: 'Invalid request' });
   const s = await ownedScreening(req, res); if (!s) return;
   if (!s.selection_confirmed_at) return void res.status(409).json({ error: 'Confirm the projects first' });
@@ -478,6 +491,10 @@ proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
       await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, s.id]);
     }
   }
+  if (b.data.more_loom_ids !== undefined) {
+    const err = await setMoreLooms(s.id, s.proposal_profile_id, b.data.loom_video_id ?? s.loom_video_id ?? null, b.data.more_loom_ids);
+    if (err) return void res.status(400).json({ error: err });
+  }
   if (existing) {
     await exec(`UPDATE proposals SET status='queued', stage=NULL, error_code=NULL, error_message=NULL, template_choice=?, template_id=COALESCE(?, template_id), finished_at=NULL WHERE id=?`, [tpl ? 'manual' : 'auto', tpl, existing.id]);
     if (!tpl) await exec('UPDATE proposals SET template_id=NULL WHERE id=?', [existing.id]);
@@ -490,7 +507,7 @@ proposals.post('/screenings/:id/proposal/start', anyone, async (req, res) => {
 
 // The Loom video after the proposal is written: only the video line changes, no new write (PLAN-SPEED point 1).
 proposals.put('/screenings/:id/loom', anyone, async (req, res) => {
-  const b = z.object({ loom_video_id: z.number().int().positive().nullable() }).safeParse(req.body ?? {});
+  const b = z.object({ loom_video_id: z.number().int().positive().nullable(), more_loom_ids: z.array(z.number().int().positive()).max(5).optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: 'Choose a video, or none' });
   const s = await ownedScreening(req, res); if (!s) return;
   const before = await sendPartsNow(s.id);
@@ -500,10 +517,14 @@ proposals.put('/screenings/:id/loom', anyone, async (req, res) => {
     if (!v) return void res.status(400).json({ error: 'That Loom video does not belong to the sending profile' });
     await exec('UPDATE screenings SET loom_video_id=?, loom_video_title=? WHERE id=?', [v.id, v.title, s.id]);
   }
+  if (b.data.more_loom_ids !== undefined) { // R142: the videos added after the first
+    const err = await setMoreLooms(s.id, s.proposal_profile_id, b.data.loom_video_id, b.data.more_loom_ids);
+    if (err) return void res.status(400).json({ error: err });
+  }
   // only the video line changes, in the version as it is, at once (R78); text edited past recognition gets the line offered
   const r = await applySendParts(s.id, before);
   if (r === 'offer') await queueParts(s.id);
-  await audit(req.user!.id, 'proposal_loom', `screening=${s.id} video=${b.data.loom_video_id ?? 'none'} ${r}`);
+  await audit(req.user!.id, 'proposal_loom', `screening=${s.id} video=${b.data.loom_video_id ?? 'none'}${b.data.more_loom_ids?.length ? ' more=' + b.data.more_loom_ids.join(',') : ''} ${r}`);
   res.json({ ok: true, updated: r });
 });
 // A part offered beside an edited proposal is dismissed.

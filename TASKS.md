@@ -169,6 +169,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 121 | Every job keeps its Upwork link: saved from the pasted page by itself, old jobs filled once, a Job link field in Edit details, Claude can read the page and set it (R139) | done |
 | 122 | Claude reaches every job: find_jobs, list_feedback and setup_history page through everything (analyze_jobs already did); a Job link filter on Jobs and for Claude, job_url in analyze_jobs (R140) | done |
 | 123 | The connector's 10-4 logo: the main domain's site names the 10-4 logo as its icon (fix on the server); the connector now names its own Upwork Pro icon (R141) | done; server fixed (catch-all site, stackupsolutions.co redirects to stackupsolutions.com); waiting for Google to refresh its icon (Search Console) |
+| 124 | More than one Loom video on a proposal (the first is the standard; more added on the proposal page, before writing, or by Claude); Loom videos linked to projects, preferred for those projects (R142) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
