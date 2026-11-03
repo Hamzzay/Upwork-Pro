@@ -55,6 +55,8 @@ const run = async (stmt: string) => {
     ['072_experience_notes.data', async () => (await import('../src/proposal/experience_notes')).removeAppExperienceNotes()],
     // R139: a job saved without its link gets the one in its own pasted page (recorded in its history)
     ['073_job_links.data', async () => (await import('../src/screening/job_links')).fillJobLinks()],
+    // R143: a chat or an interview marked without the steps before it: those filled in (each in the job's history)
+    ['075_earlier_steps.data', async () => (await import('../src/screening/steps')).fillAllEarlierSteps()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;

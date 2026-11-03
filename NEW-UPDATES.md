@@ -139,3 +139,20 @@ are about a project, so a video should be linkable to projects (generic ones to 
   - live on a test job showing Chairboss: a video linked to Chairboss was suggested first; three videos went in, then one, none
     and three again, each swapped in place; a video of another profile refused;
   - screenshots of the proposal page (the two pickers side by side) and the video editor's Projects field.
+
+### R143. A later step fills in the steps before it (done, 3 November)
+Why (Hamza): Sent, Viewed, Chat opened and Interview come in order, but people skipped the middle ones (straight to Chat or to
+Interview), so jobs that got a chat showed as never viewed.
+- **A chat means the proposal was viewed; an interview means both.** Marking Chat opened fills in Viewed, and marking Interview
+  fills in Viewed and Chat opened. Sent was already required first.
+- A step filled in takes the time of the step that implied it (it happened by then); one already recorded keeps its own time.
+- Each filled-in step goes into the status history, noted "Filled in: Interview comes after it", and the message says so ("Status:
+  Interview (Viewed and Chat opened filled in: Interview comes after them)").
+- Works the same from the status button, Edit details and Claude (`update_status`).
+- **Jobs already saved with a skipped step are filled in once** (data step 075), each in the job's history as "filled in from a later
+  step". The Reports and Dashboard view and chat numbers rise to match.
+- Checked locally:
+  - one old job (a chat with no view) filled in;
+  - Sent straight to Interview filled in Viewed and Chat opened at the interview's time, with their history rows;
+  - Edit details with "interviewed" did the same;
+  - Chat opened alone filled in Viewed.

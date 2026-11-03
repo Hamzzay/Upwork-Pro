@@ -1220,8 +1220,8 @@ async function statusDialog(id, onDone, invite) {
       h('ul', { class: 'plain' }, d.events.map((e) => h('li', {}, h('strong', {}, e.status), h('span', { class: 'muted' }, ` · ${full(e.happened_at)}${e.user_name ? ' · ' + e.user_name : ''}${e.reason ? ' · ' + e.reason : ''}`))))) : null),
     onConfirm: async () => {
       const lost = d.loss_outcomes.includes(pick);
-      await api('POST', `/screenings/${id}/status`, { status: pick, at: when.value, reason: lost ? reason.value || null : null, note: note.value.trim() || null, ...(inv && inv.changed() ? { invited: inv.on() } : {}) });
-      toast(`Status: ${pick}`); if (onDone) await onDone();
+      const r = await api('POST', `/screenings/${id}/status`, { status: pick, at: when.value, reason: lost ? reason.value || null : null, note: note.value.trim() || null, ...(inv && inv.changed() ? { invited: inv.on() } : {}) });
+      toast(`Status: ${pick}${r.filled_in ? ` (${r.filled_in.reverse().join(' and ')} filled in: ${pick} comes after ${r.filled_in.length > 1 ? 'them' : 'it'})` : ''}`); if (onDone) await onDone(); // R143
     } });
 }
 

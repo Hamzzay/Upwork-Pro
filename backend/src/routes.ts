@@ -6,6 +6,7 @@ import { cheapFacts, DEEP_INCLUDES, deepDetails, deepText } from './deepdata';
 import { convertWall, fromDb, wallClock, DB_ZONE, dayBounds, isZone, shiftMinutes, todayIn, ZONES, zoneLabel } from './tz';
 import { attachUser, checkPassword, currentSessionHash, hashPassword, login, loginThrottled, logout, requireRole, setSessionCookie } from './auth';
 import { detectInput, InputError, jobIdFromUrl, jobLinkInText } from './screening/jobsource';
+import { fillEarlierSteps } from './screening/steps';
 import { loadContext } from './screening/context';
 import { gatePrompt, normalizeReport } from './screening/contract';
 import { screenJobText } from './screening/service';
@@ -932,6 +933,7 @@ async function applyTracking(req: any, res: any, body: unknown, source: string) 
     client_replied_at=IF(client_replied='yes', COALESCE(client_replied_at, NOW()), client_replied_at), interviewed_at=IF(interviewed='yes', COALESCE(interviewed_at, NOW()), interviewed_at),
     outcome_at=IF(outcome IS NOT NULL, COALESCE(outcome_at, NOW()), outcome_at),
     proposal_sent_at=IF(proposal_sent_date IS NOT NULL AND (proposal_sent_at IS NULL OR DATE(proposal_sent_at)<>proposal_sent_date), proposal_sent_date, proposal_sent_at) WHERE id=?`, [id]);
+  await fillEarlierSteps(id, req.user!.id, false); // R143: the steps before a chat or an interview (their history rows come just below)
   if (becomesSent) { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104
   const after = await trackSnapshot(id);
   await recordChanges(id, before, after, source, req.user!.id);
@@ -1202,10 +1204,11 @@ const postStatus = async (req: any, res: any) => {
   const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes], ['invited', b.data.invited == null ? null : b.data.invited ? 'yes' : 'no']].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
   if (more.length) await exec(`UPDATE screenings SET ${more.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...more.map(([, v]) => v), id]);
   if (st === 'Sent') { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104: the version that went out
+  const filled = await fillEarlierSteps(id, req.user!.id, true); // R143: a chat or an interview fills in the steps before it
   await recordChanges(id, before, await trackSnapshot(id), 'status', req.user!.id);
   await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, req.user!.id, lost ? b.data.reason : null, b.data.note || null]);
-  await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}`);
-  res.json({ ok: true });
+  await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}${filled.length ? ' filled=' + filled.join(',') : ''}`);
+  res.json({ ok: true, ...(filled.length ? { filled_in: filled } : {}) });
 };
 api.post('/screenings/:id/status', requireRole(), postStatus);
 api.post('/plugin/jobs/:id/status', requireRole(), postStatus); // the same rules for the Claude plugin
