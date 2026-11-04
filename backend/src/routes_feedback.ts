@@ -39,7 +39,7 @@ feedback.post('/screenings/:id/feedback', anyone, async (req, res) => {
   const s = (await query<any>(`SELECT s.id, s.user_id, pr.name AS profile_name FROM screenings s LEFT JOIN upwork_profiles pr ON pr.id=s.proposal_profile_id WHERE s.id=?`, [sid]))[0];
   if (!s || (s.user_id !== req.user!.id && !canSeeAll(req.user!.role))) return void res.status(404).json({ error: 'Not found' });
   const p = (await query<any>(`SELECT p.id, p.template_name, (SELECT MAX(v.version_no) FROM proposal_versions v WHERE v.proposal_id=p.id) AS version FROM proposals p WHERE p.screening_id=?`, [sid]))[0];
-  const projects = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [sid])).map((r) => r.project_name).join(', ') || null;
+  const projects = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY COALESCE(pick_no, rank_no), rank_no', [sid])).map((r) => r.project_name).join(', ') || null;
   const r = await exec(`INSERT INTO proposal_feedback (screening_id, proposal_id, version_no, profile_name, template_name, projects, excerpt, category, feedback, user_id) VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [sid, p?.id ?? null, p?.version ?? null, s.profile_name ?? null, p?.template_name ?? null, projects, b.data.excerpt, b.data.category, b.data.feedback, req.user!.id]);
   await audit(req.user!.id, 'proposal_feedback', `screening=${sid} category=${b.data.category}`);

@@ -78,6 +78,8 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
     { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/jobs?' + new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))));
 
   T('get_job', 'One job in Upwork Pro: where it stands, its status and history, job_page (the job page as it was pasted, its link included), returning_client (other jobs we screened from the same Upwork client, how each went and why they match: tell the person), its latest proposal (the cover letter in text, the screening answers apart in screening_answers), and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, whether tech stack tags were skipped, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
+  T('get_client', 'A client profile (managers and admins), to check who was joined and why. With no id: the clients with the most jobs. With an id (26 or C-26): every job in it, with the country, member-since date, city, company and contact the matching saw, what each job was matched with and why, whether a person placed it by hand, and member_since_seen and countries_seen. More than one member-since date means different clients are in one profile.',
+    { id: z.union([z.number().int(), z.string()]).optional() }, { readOnlyHint: true }, async (a) => api.call('GET', a.id == null ? '/plugin/clients' : `/plugin/clients/${encodeURIComponent(String(a.id))}`));
 
   // ---------- analysis: many jobs at once, and the trend numbers ----------
   const jobFilters = {
@@ -158,7 +160,7 @@ Saving a step again replaces what that step saved; other steps stay. The answer 
         signals: z.array(z.object({ signal: z.union([z.number(), z.string()]).describe('Signal number or name'), value: z.string(), evidence: z.string().optional() })).optional().describe('read: stated values only'),
         profile: z.string().optional().describe('profile: the Upwork profile name'), rate: z.number().nullable().optional().describe('profile: the hourly rate chosen'),
         shortlist: z.array(z.object({ name: z.string(), reason: z.string().optional(), recommended: z.boolean().optional() })).optional().describe('projects: the projects shown, in order'),
-        picked: z.array(z.string()).optional().describe('projects: the names the person picked'),
+        picked: z.array(z.string()).optional().describe('projects: the names the person picked, first one first: the proposal shows them in this order'),
         skip_tech_stack: z.boolean().optional().describe('projects: true when the projects were matched without the Tech stack tags, false when with them'),
         type: z.string().optional().describe('type: the proposal type name, e.g. "Type 7. Problem first"'),
         video: z.string().nullable().optional().describe('loom: the video title, or null for none'),

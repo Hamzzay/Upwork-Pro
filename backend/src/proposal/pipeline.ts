@@ -19,7 +19,7 @@ import { activeShortcuts, shortenHtml, shortenText } from './shortcuts';
 import { buildDetectionSchema, detectionPrompt, normalizeDetection, type DetectedValue, type SignalDef } from './signals';
 import { chatOut, chatSchema, chatSystem, GUARDRAILS, writerOut, writerSchemaWithAnswers, questionsPrompt, writerSchema, writerSystem, type ProjectFact, type SenderFact, type TemplateFact } from './writer';
 import { answersText, separate, splitText, storeAnswers, type QA } from './answers';
-import { pairReplacements, type Offer } from './offers';
+import { orderProjects, pairReplacements, type Offer } from './offers';
 import { videoLines } from './parts';
 import { assemble, cleanLetter, layoutBlock, linkLines, linkPlace, type LinkPlace, loomLine, partsOut, partsSchema, projectLinkSet, proofFor, proofOut, proofSchema, restoreLinks, signoff, type Parts, type ProofBlock } from './parts';
 
@@ -60,7 +60,7 @@ export async function loadFacts(screeningId: number, basis?: Basis) {
   const pr = profileId ? (await query<any>('SELECT name, tagline, gitlab_account, github_url, voice, signature, stats_allowed, rules, certifications FROM upwork_profiles WHERE id=?', [profileId]))[0] ?? {} : {};
   const matches = await query<any>(
     `SELECT jm.project_id, jm.project_name, p.live_link, p.android_link, p.ios_link, p.notes, p.overview, p.case_study_summary FROM job_matches jm LEFT JOIN projects p ON p.id=jm.project_id
-     WHERE jm.screening_id=? AND ${basis ? 'jm.project_id IN (?)' : 'jm.selected=1'} ORDER BY jm.rank_no`, basis ? [screeningId, basis.projectIds] : [screeningId]);
+     WHERE jm.screening_id=? AND ${basis ? 'jm.project_id IN (?)' : 'jm.selected=1'} ORDER BY COALESCE(jm.pick_no, jm.rank_no), jm.rank_no`, basis ? [screeningId, basis.projectIds] : [screeningId]);
   const ids = matches.map((m) => m.project_id).filter(Boolean);
   const tags = ids.length ? await query<any>('SELECT pt.project_id, t.name FROM project_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.project_id IN (?) ORDER BY t.sort_order', [ids]) : [];
   const inds = ids.length ? await query<any>('SELECT pi.project_id, i.name FROM project_industries pi JOIN industries i ON i.id=pi.industry_id WHERE pi.project_id IN (?) ORDER BY i.name', [ids]) : [];
@@ -662,6 +662,9 @@ async function keepStaleWarning(p: { id: number }, stale: string[]) {
   const next = [...list.filter((x) => !x.text.startsWith('The screening answers still name')), ...(stale.length ? [staleWarning(stale)] : [])];
   if (JSON.stringify(next) !== JSON.stringify(list)) await exec('UPDATE proposals SET warnings=? WHERE id=?', [JSON.stringify(next), p.id]);
 }
+/** Every project with its links, so a project's block is found in a text and known to stop where another starts. */
+const libraryLinks = async () => (await query<any>('SELECT name, live_link, android_link, ios_link, landing_link, system_link, mobile_link, staging_link, case_study_link FROM projects'))
+  .map((x) => ({ name: String(x.name), links: [x.live_link, x.android_link, x.ios_link, x.landing_link, x.system_link, x.mobile_link, x.staging_link, x.case_study_link].filter(Boolean) as string[] }));
 /** Bring a written proposal up to date after its projects, profile or video changed (PLAN-SPEED point 1). Nothing to do: nothing queued. */
 export async function queueParts(screeningId: number) {
   await exec(`UPDATE proposals SET parts_status='queued', parts_error=NULL WHERE screening_id=? AND status='done' AND EXISTS (SELECT 1 FROM proposal_versions v WHERE v.proposal_id=proposals.id)`, [screeningId]);
@@ -700,8 +703,9 @@ export async function runPartsRefresh(proposalId: number) {
   const src = (await query<any>('SELECT source FROM proposal_versions WHERE proposal_id=? AND version_no=?', [p.id, cur.version_no]))[0]?.source;
   if (src === 'ai' || src === 'chat') {
     const plain = htmlToPlain(cur.html), fixed = restoreLinks(plain, f.projects.map((x) => ({ name: x.name, links: linksFor(x) })));
-    if (fixed !== plain || fit.changed) {
-      await addVersion(p.id, fixed !== plain ? textToHtml(fixed) : cur.html, 'ai', null, `Updated ${[fixed !== plain ? 'the project links' : '', fit.changed ? 'the screening answers' : ''].filter(Boolean).join(', ')}`, cur.version_no, fit.answers, null);
+    const ordered = orderProjects(fixed !== plain ? textToHtml(fixed) : cur.html, f.projects.map((x) => x.name), await libraryLinks()); // R144
+    if (fixed !== plain || fit.changed || ordered) {
+      await addVersion(p.id, ordered ?? (fixed !== plain ? textToHtml(fixed) : cur.html), 'ai', null, `Updated ${[ordered ? 'the project order' : '', fixed !== plain ? 'the project links' : '', fit.changed ? 'the screening answers' : ''].filter(Boolean).join(', ')}`, cur.version_no, fit.answers, null);
       await keepStaleWarning(p, fit.stale);
       await exec(`UPDATE proposals SET parts_status='done', parts_offer_json=NULL, profile_id=? WHERE id=?`, [f.profileId, p.id]);
       return;
@@ -723,6 +727,8 @@ export async function runPartsRefresh(proposalId: number) {
     const t = template ? await writeProof(f, template, proj) : proj.name, old = pairs.get(proj.name);
     offer.push({ kind: 'project', label: old ? `Project: ${proj.name} (in place of ${old})` : `Project: ${proj.name}`, text: layoutBlock(t, linksFor(proj), placeOf(template)), project: proj.name, ...(old ? { replaces: old, old_links: linksOfOld(old) } : {}) });
   }
+  // R144: the projects are all in the text, in another order than the one chosen
+  if (!newOnes.length && orderProjects(cur.html, f.projects.map((x) => x.name), await libraryLinks())) offer.push({ kind: 'order', label: 'Project order', text: f.projects.map((x, i) => `${i + 1}. ${x.name}`).join('\n') });
   for (const old of leftover) offer.push({ kind: 'remove', label: `Take out: ${old}`, text: `${old} is no longer one of the chosen projects.`, project: old, old_links: linksOfOld(old) });
   // R126: a project that is in the text with only some of its links: the rest are offered, to go under it
   for (const proj of f.projects) { const ls = linksFor(proj), missing = linkLines(ls, text); if (inText(proj) && ls.length > 1 && missing.length) offer.push({ kind: 'links', label: `Links: ${proj.name}`, text: missing.join('\n'), project: proj.name }); }

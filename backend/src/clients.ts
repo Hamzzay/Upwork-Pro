@@ -37,27 +37,45 @@ export function clientPost(title: string | null, posting: any, jobId?: string | 
   };
 }
 
+/** The parts of a member-since date: "Oct 16, 2026", "October 16 2026" and "Oct 2026" are read alike. */
+function dateParts(s: string) {
+  const t = norm(s);
+  return { year: /\b(19|20)\d{2}\b/.exec(t)?.[0] ?? '', month: /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/.exec(t)?.[1] ?? '', day: /\b([0-3]?\d)\b/.exec(t)?.[1]?.replace(/^0/, '') ?? '' };
+}
+/** R144: two member-since dates that cannot be one account. A part only one of them shows says nothing. */
+export function datesDiffer(a: string, b: string): boolean {
+  const x = dateParts(a), y = dateParts(b);
+  return (['year', 'month', 'day'] as const).some((k) => x[k] && y[k] && x[k] !== y[k]);
+}
+
 /**
  * Why two jobs are from the same client, or [] when nothing says so. a is the newer job.
  * R111 (Hamza): a brand-new client (no history, one job, no reviews) shares nothing with another one but, at most, the day they joined
  * and the country, and many new clients join on the same day. So that alone never joins two jobs: it counts only beside the same city,
  * the same job or a past job in common. Every reason here is one a new client cannot match by chance.
+ * R144 (Hamza, client C-26: 21 proposals from many clients in one profile): an account's member-since date never changes, so two
+ * different dates are two clients, whatever else they share (only the same job link says otherwise). And a job title seen on another
+ * post is weak: two clients can both have run a job called "AI Automation Expert". It joins two jobs only beside the same join date,
+ * or when the title is long enough to be their own and both posts show the same country.
  */
+const LONG_TITLE = 30; // shorter than this, a title is one many clients use
 export function sameClient(a: ClientPost, b: ClientPost): string[] {
   const why: string[] = [];
   const countriesDiffer = !!(norm(a.country) && norm(b.country) && norm(a.country) !== norm(b.country));
   if (a.jobId && a.jobId === b.jobId) why.push('the same Upwork job (the same link)');
+  if (datesDiffer(a.memberSince, b.memberSince)) return why;
   const twin = sameTitle(a.title, b.title); // the same title: most likely this same job, saved twice
-  // a job of one is listed on the other's page (history or open jobs), and nothing says they are in different countries
-  if (!countriesDiffer) {
-    if (a.history.some((h) => sameTitle(h.title, b.title))) why.push('the earlier job is in this client\'s recent history');
-    else if (a.open.some((t) => sameTitle(t, b.title))) why.push('the earlier job is one of this client\'s open jobs');
-    else if (b.open.some((t) => sameTitle(t, a.title)) || b.history.some((h) => sameTitle(h.title, a.title))) why.push('this job was listed on the earlier job\'s page');
-  }
+  const sameCountry = !!(norm(a.country) && norm(a.country) === norm(b.country));
+  const sameJoin = !!(sameCountry && norm(a.memberSince) && /\d{4}/.test(a.memberSince) && !datesDiffer(a.memberSince, b.memberSince) && norm(b.memberSince));
+  // a job of one is listed on the other's page (history or open jobs): enough only when that title can be told from anyone else's
+  const listed = (title: string) => !countriesDiffer && (sameJoin || (sameCountry && norm(title).length >= LONG_TITLE));
+  if (listed(b.title) && a.history.some((h) => sameTitle(h.title, b.title))) why.push('the earlier job is in this client\'s recent history');
+  else if (listed(b.title) && a.open.some((t) => sameTitle(t, b.title))) why.push('the earlier job is one of this client\'s open jobs');
+  else if (listed(a.title) && (b.open.some((t) => sameTitle(t, a.title)) || b.history.some((h) => sameTitle(h.title, a.title)))) why.push('this job was listed on the earlier job\'s page');
   const shared = a.history.filter((h) => b.history.some((g) => sameTitle(g.title, h.title) && norm(g.dates) === norm(h.dates))).length;
   if (shared >= 2) why.push(`${shared} past jobs in common in the client's history`);
   // the member-since day and country: only beside something a new client cannot share by chance
-  const sameDay = !!(norm(a.memberSince) && /\d{4}/.test(a.memberSince) && norm(a.memberSince) === norm(b.memberSince) && norm(a.country) && norm(a.country) === norm(b.country));
+  const sameDay = sameJoin;
   const sameCity = !!(norm(a.city) && norm(a.city) === norm(b.city));
   if (sameDay && (sameCity || twin || shared >= 1 || why.length)) why.push(`the same member-since date (${a.memberSince}) and country${sameCity ? ` and city (${a.city})` : ''}`);
   // R107: the same company, or the same full name in the same country (a first name alone says nothing)
@@ -146,6 +164,23 @@ export async function clientProfile(clientId: number) {
     for (const t of p.other_open_jobs ?? []) { const k = norm(t); if (k && !open.has(k)) open.set(k, { title: String(t), seen: r.created_at }); }
   }
   return { ...c, about, about_from: aboutFrom, history: [...history.values()], open_jobs: [...open.values()] };
+}
+
+/** R144: a client for Claude, to check a match: every job with what the matching saw in it and why it was joined. */
+export async function clientReport(clientId: number) {
+  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, merged_into FROM clients WHERE id=?', [clientId]))[0];
+  if (!c) return null;
+  const id = c.merged_into ?? c.id;
+  const rows = await query<any>('SELECT id, title, posting_json, upwork_job_id, client_manual, client_match_json FROM screenings WHERE client_id=? AND discarded_at IS NULL ORDER BY id', [id]);
+  const jobs = rows.map((r) => {
+    let p: any = null; try { p = r.posting_json ? JSON.parse(r.posting_json) : null; } catch { p = null; }
+    let why: ClientMatch[] = []; try { why = r.client_match_json ? JSON.parse(r.client_match_json) : []; } catch { why = []; }
+    const cp = clientPost(r.title, p, r.upwork_job_id);
+    return { id: r.id, title: r.title, upwork_job_id: r.upwork_job_id, placed_by_hand: !!Number(r.client_manual), country: cp?.country || null, member_since: cp?.memberSince || null,
+      city: cp?.city || null, company: cp?.company || null, contact: cp?.contact || null, past_jobs: cp?.history.length ?? 0, matched_with: why };
+  });
+  const distinct = (k: 'member_since' | 'country') => [...new Set(jobs.map((j) => j[k]).filter(Boolean))];
+  return { ...c, id, job_count: jobs.length, member_since_seen: distinct('member_since'), countries_seen: distinct('country'), jobs };
 }
 
 /** A job taken out of its client by hand: it gets a profile of its own, and the matching leaves it there. */

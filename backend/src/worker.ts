@@ -16,6 +16,7 @@ import { extractPosting } from './screening/posting';
 import { linkClient, linkUnchecked } from './clients';
 import { runOpeningChat } from './proposal/openings';
 import { runAnswerChat } from './proposal/answer_edit';
+import { setPicks } from './screening/picks';
 import { detectSignals, queueEarlyDraft, runChat, runEarlyDraft, runGapUpdate, runPartsRefresh, runProposal, runReview } from './proposal/pipeline';
 import { runOpenings } from './proposal/openings';
 import { queueFitReasons, runFitReasons } from './screening/fit_reasons';
@@ -153,7 +154,7 @@ async function processTagging(id: number) {
       if (keep && keep.ids.length) {
         const shownIds = new Set(final.map((m) => m.project_id)), back = keep.ids.filter((x) => shownIds.has(x));
         if (back.length >= cfg['selection.min'] && back.length <= cfg['selection.max']) {
-          await conn.query('UPDATE job_matches SET selected=(project_id IN (?)) WHERE screening_id=?', [back, id]);
+          await setPicks(conn, id, back);
           await conn.query('UPDATE screenings SET selection_confirmed_at=?, selection_confirmed_by=? WHERE id=?', [new Date(keep.at), keep.by, id]);
           kept = true;
         }
@@ -163,7 +164,7 @@ async function processTagging(id: number) {
     });
     const back = addedBefore.filter((x) => !final.some((m) => m.project_id === x));
     if (back.length) await addMatches(id, back, back.length, null).catch((e) => console.error('added projects not kept:', (e as Error).message));
-    if (kept && back.length) await exec('UPDATE job_matches SET selected=1 WHERE screening_id=? AND project_id IN (?) AND project_id IN (?)', [id, back, keep!.ids]);
+    if (kept && back.length) await exec('UPDATE job_matches SET selected=1, pick_no=FIELD(project_id, ?) WHERE screening_id=? AND project_id IN (?) AND project_id IN (?)', [keep!.ids, id, back, keep!.ids]);
     // R100: tags were added while this pass ran: one more pass, keeping the choice as it now stands
     if ((await query<any>('SELECT rematch_pending FROM screenings WHERE id=?', [id]))[0]?.rematch_pending) {
       const sel = (await query<any>('SELECT s.selection_confirmed_at AS at, s.selection_confirmed_by AS by_ FROM screenings s WHERE s.id=?', [id]))[0];

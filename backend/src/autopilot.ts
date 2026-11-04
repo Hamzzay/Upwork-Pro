@@ -8,6 +8,7 @@
 import { audit, exec, pool, query } from './db';
 import { getSettings } from './settings';
 import { loomChoices } from './proposal/pipeline';
+import { setPicks } from './screening/picks';
 
 const stop = (id: number, note: string) => exec(`UPDATE screenings SET auto_state='stopped', auto_note=? WHERE id=? AND auto_mode=1`, [note.slice(0, 300), id]);
 
@@ -64,7 +65,7 @@ export async function autoAfterMatching(id: number): Promise<boolean> {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.query('UPDATE job_matches SET selected = (project_id IN (?)) WHERE screening_id=?', [pick, id]);
+    await setPicks(conn, id, pick);
     await conn.query(`UPDATE screenings SET selection_confirmed_at=NOW(), selection_confirmed_by=?, proposal_profile_id=?, upwork_profile_id=?, proposal_profile_confirmed_at=NOW(),
       proposal_profile_confirmed_by=?, auto_state='running' WHERE id=?`, [s.user_id, profileId, profileId, s.user_id, id]);
     await conn.commit();

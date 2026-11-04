@@ -189,13 +189,13 @@ plugin.post('/plugin/jobs/:id/proposal', anyone, async (req, res) => {
     await conn.beginTransaction();
     // the projects it used: mark them chosen among any matches the app already has, add the rest
     const [have]: any = await conn.query('SELECT id, project_id, project_name, rank_no FROM job_matches WHERE screening_id=?', [s.id]);
-    if (d.projects) await conn.query('UPDATE job_matches SET selected=0 WHERE screening_id=?', [s.id]);
+    if (d.projects) await conn.query('UPDATE job_matches SET selected=0, pick_no=NULL WHERE screening_id=?', [s.id]);
     let rank = have.reduce((m: number, r: any) => Math.max(m, r.rank_no), 0);
-    for (const x of picked) {
+    for (const [i, x] of picked.entries()) { // R144: in the order given
       const row = have.find((r: any) => (x.p && r.project_id === x.p.id) || r.project_name.toLowerCase() === x.name.toLowerCase());
-      if (row) await conn.query('UPDATE job_matches SET selected=1 WHERE id=?', [row.id]);
-      else await conn.query(`INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected) VALUES (?,?,?,?,0,0,0,0,'[]',1)`,
-        [s.id, x.p ? x.p.id : null, x.p ? x.p.name : x.name, ++rank]);
+      if (row) await conn.query('UPDATE job_matches SET selected=1, pick_no=? WHERE id=?', [i + 1, row.id]);
+      else await conn.query(`INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pick_no) VALUES (?,?,?,?,0,0,0,0,'[]',1,?)`,
+        [s.id, x.p ? x.p.id : null, x.p ? x.p.name : x.name, ++rank, i + 1]);
     }
     // the plugin did its own matching: mark it done so the app shows the projects it chose
     await conn.query(`UPDATE screenings SET tagging_status='done', tagged_at=COALESCE(tagged_at, NOW()), selection_confirmed_at=COALESCE(selection_confirmed_at, NOW()), selection_confirmed_by=COALESCE(selection_confirmed_by, ?),
@@ -329,7 +329,7 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
     const picked = [...new Set(d.picked.map((n) => inLib(n)!.id))];
     if (picked.length < cfg['selection.min'] || picked.length > cfg['selection.max']) return void res.status(400).json({ error: `Pick ${cfg['selection.min'] === cfg['selection.max'] ? cfg['selection.max'] : cfg['selection.min'] + ' to ' + cfg['selection.max']} project${cfg['selection.max'] === 1 ? '' : 's'} (the setting in Upwork Pro). ${picked.length} were sent.`, field: 'picked' });
     const beforeSkip = !!(await query<any>('SELECT skip_tech_stack FROM screenings WHERE id=?', [id]))[0]?.skip_tech_stack;
-    const beforePicked = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null;
+    const beforePicked = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY COALESCE(pick_no, rank_no), rank_no', [id])).map((x) => x.project_name).join(', ') || null;
     const beforeList = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null;
     // the shortlist in the order shown, then any picked project that was not on it
     const order = [...d.shortlist.map((x) => ({ p: inLib(x.name)!, reason: x.reason ?? null, rec: !!x.recommended })), ...d.picked.map((n) => inLib(n)!).filter((p) => !d.shortlist.some((x) => lower(x.name) === lower(p.name))).map((p) => ({ p, reason: null as string | null, rec: false }))]
@@ -340,24 +340,24 @@ plugin.post('/plugin/jobs/:id/step', anyone, async (req, res) => {
       const [have]: any = await conn.query('SELECT id, project_id, rank_no FROM job_matches WHERE screening_id=? FOR UPDATE', [id]);
       // rows the app matched keep their scores; the plugin's own earlier rows that are no longer shown go
       const keep = new Set(order.map((x) => x.p.id));
-      await conn.query('UPDATE job_matches SET selected=0 WHERE screening_id=?', [id]);
+      await conn.query('UPDATE job_matches SET selected=0, pick_no=NULL WHERE screening_id=?', [id]);
       for (const h of have) if (!keep.has(h.project_id)) await conn.query('DELETE FROM job_matches WHERE id=? AND max_score=0', [h.id]);
       const [left]: any = await conn.query('SELECT id, project_id, rank_no FROM job_matches WHERE screening_id=?', [id]);
       let rank = left.reduce((m: number, r: any) => Math.max(m, r.rank_no), 0);
       for (const x of order) {
-        const row = left.find((r: any) => r.project_id === x.p.id), sel = picked.includes(x.p.id) ? 1 : 0;
-        if (row) await conn.query('UPDATE job_matches SET selected=?, recommended=IF(?, 1, recommended), ai_reason=COALESCE(?, ai_reason) WHERE id=?', [sel, x.rec ? 1 : 0, x.reason, row.id]);
-        else await conn.query(`INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, ai_reason) VALUES (?,?,?,?,0,0,0,?,'[]',?,?)`,
-          [id, x.p.id, x.p.name, ++rank, x.rec ? 1 : 0, sel, x.reason]);
+        const row = left.find((r: any) => r.project_id === x.p.id), sel = picked.includes(x.p.id) ? 1 : 0, no = sel ? picked.indexOf(x.p.id) + 1 : null; // R144: the order picked
+        if (row) await conn.query('UPDATE job_matches SET selected=?, pick_no=?, recommended=IF(?, 1, recommended), ai_reason=COALESCE(?, ai_reason) WHERE id=?', [sel, no, x.rec ? 1 : 0, x.reason, row.id]);
+        else await conn.query(`INSERT INTO job_matches (screening_id, project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pick_no, ai_reason) VALUES (?,?,?,?,0,0,0,?,'[]',?,?,?)`,
+          [id, x.p.id, x.p.name, ++rank, x.rec ? 1 : 0, sel, no, x.reason]);
       }
       await conn.query(`UPDATE screenings SET tagging_status='done', tagged_at=COALESCE(tagged_at, NOW()), selection_confirmed_at=NOW(), selection_confirmed_by=?,
         skip_tech_stack=COALESCE(?, skip_tech_stack), rematch_only=0 WHERE id=?`, [userId, d.skip_tech_stack == null ? null : d.skip_tech_stack ? 1 : 0, id]);
       await conn.commit();
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
     note('projects shown', beforeList, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null);
-    note('projects picked', beforePicked, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY rank_no', [id])).map((x) => x.project_name).join(', ') || null);
+    note('projects picked', beforePicked, (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY COALESCE(pick_no, rank_no), rank_no', [id])).map((x) => x.project_name).join(', ') || null);
     if (d.skip_tech_stack != null) note('skip tech stack', beforeSkip ? 'yes' : 'no', d.skip_tech_stack ? 'yes' : 'no');
-    Object.assign(extra, { picked: order.filter((x) => picked.includes(x.p.id)).map((x) => x.p.name), shown: order.length });
+    Object.assign(extra, { picked: picked.map((i) => order.find((x) => x.p.id === i)!.p.name), shown: order.length });
   }
 
   if (b.data.step === 'type') {

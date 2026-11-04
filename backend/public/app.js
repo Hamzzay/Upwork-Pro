@@ -1919,9 +1919,11 @@ function matchingSection(s, initial) {
     if (rows.length < 2) {
       return h('div', { class: 'notice' }, icon('info'), rows.length ? 'Only one project shares tags with this job, so there is nothing to choose between.' : 'No project shares useful tags with this job.');
     }
-    if (!picked) picked = new Set((m.confirmed_at ? rows.filter((r) => r.selected) : rows.filter((r) => r.recommended)).map((r) => r.project_id));
-    const confirmedIds = new Set(rows.filter((r) => r.selected).map((r) => r.project_id));
-    const changed = !m.confirmed_at || picked.size !== confirmedIds.size || [...picked].some((i) => !confirmedIds.has(i));
+    // R144: a Set keeps its order, so it is also the order the projects go in the proposal
+    const pickRank = (r) => r.pick_no ?? r.rank;
+    if (!picked) picked = new Set((m.confirmed_at ? rows.filter((r) => r.selected).sort((a, b) => pickRank(a) - pickRank(b)) : rows.filter((r) => r.recommended)).map((r) => r.project_id));
+    const confirmedIds = rows.filter((r) => r.selected).sort((a, b) => pickRank(a) - pickRank(b)).map((r) => r.project_id);
+    const changed = !m.confirmed_at || picked.size !== confirmedIds.length || [...picked].some((id, i) => id !== confirmedIds[i]);
     const pmin = cfg('selection.min', 2), pmax = cfg('selection.max', 2), okSize = picked.size >= pmin && picked.size <= pmax;
     const range = pmin === pmax ? `${pmax}` : `${pmin} to ${pmax}`;
     const count = h('span', { class: 'counter' + (okSize ? ' ok' : '') }, `${picked.size} of ${pmax} selected`);
@@ -1977,13 +1979,22 @@ function matchingSection(s, initial) {
       const none = (m.tags || []).filter((t) => t.id && (Number(t.weight) > 0 || Number(t.compliance)) && !Number(t.practice) && shown.every((r) => missingOf(r).some((x) => x.id === t.id)));
       return none.length ? h('div', { class: 'gapsum' }, h('strong', {}, `No project shown has: ${none.map((t) => t.name).join(', ')}`),
         h('div', { class: 'small muted' }, canTeach ? 'If one of these projects did this work, add the tag on its card. A tag no project has can still be written about from the job post.' : 'A tag no project has can still be written about from the job post.')) : null; };
+    // R144: which project comes first in the proposal
+    const orderBox = () => { const ids = [...picked]; if (ids.length < 2) return null;
+      const nameOf = (id) => rows.find((r) => r.project_id === id)?.project_name ?? '';
+      const move = (i, to) => { [ids[i], ids[to]] = [ids[to], ids[i]]; picked = new Set(ids); draw(); };
+      return h('div', { class: 'pickorder' }, h('div', { class: 'jp-sec' }, 'Order in the proposal'),
+        ids.map((id, i) => h('div', { class: 'pickrow' }, h('span', { class: 'picknum' }, i + 1), h('span', { class: 'pickname' }, nameOf(id)),
+          owner ? h('span', { class: 'row', style: 'gap:4px' },
+            h('button', { class: 'btn sm', type: 'button', disabled: i === 0 || null, 'aria-label': `Move ${nameOf(id)} up`, onclick: () => move(i, i - 1) }, '\u2191'),
+            h('button', { class: 'btn sm', type: 'button', disabled: i === ids.length - 1 || null, 'aria-label': `Move ${nameOf(id)} down`, onclick: () => move(i, i + 1) }, '\u2193')) : null))); };
     const card = (r) => {
       const on = picked.has(r.project_id), locked = !owner || !r.project_id || (picked.size >= pmax && !on);
       const cb = h('input', { type: 'checkbox', id: 'mp' + r.rank, checked: on, disabled: locked, 'aria-label': 'Select ' + r.project_name });
       cb.onchange = () => { if (cb.checked) picked.add(r.project_id); else picked.delete(r.project_id); draw(); };
       const toggle = (e) => { if (locked || e.target.closest('a, input')) return; cb.checked = !cb.checked; cb.onchange(); }; // the whole card picks the project
       return h('div', { class: 'mcard' + (on ? ' on' : '') + (r.recommended ? ' rec' : '') + (owner && !locked ? ' pickable' : ''), onclick: owner ? toggle : null },
-        h('div', { class: 'mtop' }, owner ? cb : null, h('span', { class: 'rank' }, '#' + r.rank),
+        h('div', { class: 'mtop' }, owner ? cb : null, on && picked.size > 1 ? h('span', { class: 'picknum', title: 'Its place in the proposal' }, [...picked].indexOf(r.project_id) + 1) : null, h('span', { class: 'rank' }, '#' + r.rank),
           h('div', { class: 'mname' }, r.project_id ? h('a', { href: '#/p/' + r.project_id }, r.project_name) : h('span', {}, r.project_name, h('span', { class: 'faint small' }, ' (removed from library)'))),
           r.recommended ? h('span', { class: 'chip brand' }, 'Recommended') : h('span', { class: 'chip', title: r.added ? 'You brought it into the list (Load more or the search)' : null }, r.alternative ? 'Alternative' : r.added ? 'Added' : 'Match')),
         r.ai_reason ? h('p', { class: 'jp-body', style: 'margin:2px 0 0' }, r.ai_reason) : null,
@@ -2004,7 +2015,7 @@ function matchingSection(s, initial) {
         noneHas(),
         h('div', { class: 'jp-label', style: 'margin:2px 0 12px' }, m.confirmed_at ? `Confirmed${m.confirmed_by ? ' by ' + m.confirmed_by : ''} ${dateTxt(m.confirmed_at)}.${owner ? ' Pick others to change it.' : ''}`
           : owner ? 'The recommended ones are ticked. Swap them if you like, then confirm at the top right.' : 'Only the person who submitted this job can choose the projects.'),
-        err,
+        err, orderBox(),
         h('div', { class: 'mgrid' }, rec.map(card)), rest.length ? h('div', { class: 'mgrid', style: 'margin-top:12px' }, rest.map(card)) : null,
         alt.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'jp-sec' }, 'Alternative from another industry'),
           h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'It shares much more with this job than the best project from the same industry. Use it when the work matters more than the industry.'),

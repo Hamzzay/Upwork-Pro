@@ -207,7 +207,16 @@ function proposalSection(s, initial, matching) {
       }
       // the parts finished updating: a new version is picked up above; an offer for edited text is shown beside the editor
       if ((st.parts_status || null) !== ((data.parts && data.parts.status) || null)) {
-        const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.parts = fresh.parts; drawParts();
+        const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal; data.parts = fresh.parts; drawParts(); drawOrder();
+      }
+      // the answers were asked to match the projects, and that is done: say how it went, and give the button back
+      if (refitFrom != null && st.parts_status !== 'queued' && st.parts_status !== 'running') {
+        const from = refitFrom; refitFrom = null;
+        const fresh = (await api('GET', `/screenings/${s.id}/proposal`)).proposal, stale = (fresh.warnings || []).find((w) => w.text.startsWith('The screening answers still name'));
+        if (st.parts_status === 'error') toast(`The answers could not be updated${fresh.parts.error ? ': ' + fresh.parts.error : '.'}`, true);
+        else if (stale) toast(stale.text, true);
+        else toast(st.latest_version > from ? 'The answers now match the chosen projects' : 'The answers already match: none of them names a project that is not chosen');
+        if (redrawAnswers) redrawAnswers();
       }
       // the experience update finished (or failed): its new version is picked up above; the gaps card shows the answers
       if ((st.gaps_status || null) !== ((data.gaps && data.gaps.status) || null)) {
@@ -569,7 +578,22 @@ function proposalSection(s, initial, matching) {
 
   const bannerEl = h('div', { class: 'newer', hidden: true });
   // the parts: "updating" while they are redone, and the parts offered when the person's own text was not changed for them
-  const partsEl = h('div', {});
+  const partsEl = h('div', {}), orderEl = h('div', {});
+  let redrawAnswers = null; // drawAnswers lives inside drawAll
+  let refitFrom = null; // the version the answers were last asked to match the projects from, until that is done
+  // R144: the chosen projects, first one first, and changing their places. It goes through the same save as the Projects step
+  function drawOrder() {
+    const ps = (data && data.projects) || []; if (ps.length < 2 || !owner) { orderEl.replaceChildren(); return; }
+    const put = async (ids, b) => { btnBusy(b, 'Moving');
+      try { await api('PUT', `/screenings/${s.id}/selection`, { project_ids: ids });
+        data.projects = ids.map((id) => ps.find((p) => p.id === id)); data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawOrder(); drawParts(); startPolling(); }
+      catch (x) { toast(x.message, true); drawOrder(); } };
+    const ids = ps.map((p) => p.id), swap = (i) => { const n = [...ids]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; };
+    orderEl.replaceChildren(h('div', { class: 'pickorder', style: 'margin:8px 0' }, h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, 'Project order'),
+      ps.length === 2 ? h('button', { class: 'btn sm', type: 'button', disabled: partsBusy() || null, onclick: (e) => put(swap(1), e.currentTarget) }, 'Swap order') : null),
+      ps.map((p, i) => h('div', { class: 'pickrow' }, h('span', { class: 'picknum' }, i + 1), h('span', { class: 'pickname' }, p.name),
+        ps.length > 2 && i ? h('button', { class: 'btn sm', type: 'button', disabled: partsBusy() || null, 'aria-label': `Move ${p.name} up`, onclick: (e) => put(swap(i), e.currentTarget) }, '\u2191') : null))));
+  }
   function drawParts() {
     const pt = data && data.parts; if (!pt) { partsEl.replaceChildren(); return; }
     if (pt.status === 'queued' || pt.status === 'running') {
@@ -588,8 +612,8 @@ function proposalSection(s, initial, matching) {
       h('p', { class: 'jp-label', style: 'margin:2px 0 10px' }, 'You edited this proposal, so these were not put in for you. Each goes where it belongs: a new project in place of the one it replaces. Look it over and save.'),
       h('div', { class: 'stack', style: 'gap:10px' }, offer.map((o, i) => h('div', { class: 'qa' },
         h('div', { class: 'row spread', style: 'flex-wrap:nowrap;gap:10px' }, h('div', { class: 'jp-label' }, o.label),
-          h('div', { class: 'row', style: 'gap:6px' }, owner ? h('button', { class: 'btn sm' + (o.kind === 'remove' ? '' : ' primary'), type: 'button', onclick: (e) => put(o, i, e.currentTarget) }, o.kind === 'remove' ? 'Take it out' : o.replaces ? 'Swap it in' : 'Put it in') : null,
-            o.kind === 'remove' ? null : h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(o.text); toast(ok ? 'Copied' : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy'))),
+          h('div', { class: 'row', style: 'gap:6px' }, owner ? h('button', { class: 'btn sm' + (o.kind === 'remove' ? '' : ' primary'), type: 'button', onclick: (e) => put(o, i, e.currentTarget) }, o.kind === 'remove' ? 'Take it out' : o.kind === 'order' ? 'Put in this order' : o.replaces ? 'Swap it in' : 'Put it in') : null,
+            o.kind === 'remove' || o.kind === 'order' ? null : h('button', { class: 'btn sm', type: 'button', onclick: async () => { const ok = await copyText(o.text); toast(ok ? 'Copied' : 'Could not copy. Select the text and copy it.', !ok); } }, 'Copy'))),
         h('p', { class: 'jp-body', style: 'margin:4px 0 0;white-space:pre-wrap' }, o.text))))));
   }
   function drawBanner() {
@@ -895,9 +919,12 @@ function proposalSection(s, initial, matching) {
           h('div', { class: 'jp-label' }, editable ? 'Paste each into its own box on Upwork. Edit one yourself, or tell the AI what to change.' : 'Paste each into its own box on Upwork. They are kept apart from the proposal.'),
           // R125: they follow the chosen projects by themselves; this does it now (an answer that names no project stays as it is)
           editable ? h('button', { class: 'btn sm', type: 'button', title: 'Answers that name a project no longer chosen are written again with the chosen ones', disabled: data.parts && ['queued', 'running'].includes(data.parts.status), onclick: async (e) => {
+            const b = e.currentTarget; // gone after the first await
             if (answersDirty() && !(await ask('Update the answers?', 'You have unsaved changes to the answers. The update starts from the last saved version, so save yours first to keep them.', 'Update anyway'))) return;
-            e.currentTarget.disabled = true; e.currentTarget.textContent = 'Updating\u2026';
-            await api('POST', `/proposals/${data.id}/answers/refit`); data.parts = { ...(data.parts || {}), status: 'queued' }; startPolling();
+            b.disabled = true; b.textContent = 'Updating\u2026';
+            try { await api('POST', `/proposals/${data.id}/answers/refit`); }
+            catch (x) { toast(x.message, true); b.disabled = false; b.textContent = 'Match the chosen projects'; return; }
+            data.parts = { ...(data.parts || {}), status: 'queued' }; refitFrom = loaded; drawParts(); startPolling();
             toast('Updating the answers for the chosen projects. The new version loads here by itself.'); } }, 'Match the chosen projects') : null),
         h('div', { class: 'stack', style: 'gap:10px' }, shownAnswers.map((x, i) => {
           const on = editable && ansEditing && ansEditing.i === i;
@@ -992,10 +1019,11 @@ function proposalSection(s, initial, matching) {
     }).catch(() => noLoom('Could not load the videos'));
     // open questions about our experience: their tab is shown first, once
     if (!gapsShown && owner && openGaps()) { sideTab = 'gaps'; gapsShown = true; }
-    count(); drawAnswers(cur.answers, owner); drawParts();
+    redrawAnswers = () => drawAnswers(shownAnswers, owner);
+    count(); drawAnswers(cur.answers, owner); drawParts(); drawOrder();
     // the proposal on the left; beside it (below it on a narrow screen) one card with a tab per tool
     previewIdx = 0; viewingOther = false;
-    letterPane.append(partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader));
+    letterPane.append(orderEl, partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader));
     drawMainTabs();
     // one card holds the proposal: its parts and version on top, what it is sent with under that, the text, then its numbers
     const profName = matching && matching.proposal_profile ? matching.proposal_profile.name : '';

@@ -38,7 +38,8 @@ import { withCallContext } from './llm/context';
 import { diff, snapshot } from './changes';
 import { testCall } from './llm';
 import { inviteSql, looksInvited } from './invite';
-import { clientFor, clientProfile, mergeClients, separateJob } from './clients';
+import { clientFor, clientProfile, clientReport, mergeClients, separateJob } from './clients';
+import { PICK_ORDER, setPicks } from './screening/picks';
 import { PROVIDERS, PROVIDER_IDS, currentChoice, keyPresent, realCallsEnabled, type ProviderId } from './llm/providers';
 
 export const api = Router();
@@ -562,7 +563,7 @@ export async function reportFor(req: any, f: ListFilters) {
   const ids = jobs.map((j) => j.id);
   const extra = ids.length ? {
     tags: await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?)', [ids]),
-    projects: await query<any>('SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?)', [ids]),
+    projects: await query<any>(`SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?) ORDER BY ${PICK_ORDER}`, [ids]),
     signals: await query<any>('SELECT screening_id, signal_number, signal_name, value_name, is_fallback FROM job_signals WHERE screening_id IN (?)', [ids]),
   } : { tags: [], projects: [], signals: [] };
   return { ...buildReport(jobs, extra, (await getSettings())['tracking.loss_outcomes'], zone), capped, limit: REPORT_LIMIT, time_zone: zone, time_zone_name: zoneLabel(zone) };
@@ -659,11 +660,11 @@ async function matchingFor(id: number) {
   base.tags = await query(
     `SELECT jt.tag_id AS id, jt.tag_name AS name, jt.category_name AS category, jt.weight, jt.reason, jt.core_rank, COALESCE(c.is_compliance, 0) AS compliance, (SELECT practice FROM tags WHERE id=jt.tag_id) AS practice FROM job_tags jt LEFT JOIN tag_categories c ON c.name=jt.category_name
      WHERE jt.screening_id=? ORDER BY COALESCE(c.sort_order, 999), jt.weight DESC, jt.tag_name`, [id]);
-  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits, added FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
+  const rows = await query<any>('SELECT project_id, project_name, rank_no, score, max_score, compliance_gap, recommended, shared_tags, selected, pick_no, pool, alternative, platform, proves_work, named_in_screening, extra, ai_reason, ai_fits, added FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   base.matches = rows.map((r) => ({
     project_id: r.project_id, project_name: r.project_name, rank: r.rank_no, score: r.score, max_score: r.max_score,
     percent: r.max_score ? Math.round((r.score / r.max_score) * 100) : 0, compliance_gap: r.compliance_gap,
-    recommended: !!r.recommended, selected: !!r.selected, shared: JSON.parse(r.shared_tags), pool: r.pool, alternative: !!r.alternative, platform: r.platform,
+    recommended: !!r.recommended, selected: !!r.selected, pick_no: r.pick_no, shared: JSON.parse(r.shared_tags), pool: r.pool, alternative: !!r.alternative, platform: r.platform,
     proves_work: !!r.proves_work, named_in_screening: !!r.named_in_screening, extra: !!r.extra, ai_reason: r.ai_reason, ai_fits: r.ai_fits == null ? null : !!r.ai_fits, added: !!r.added,
   }));
   if (s.selection_confirmed_at) { // step 3 needs every profile to choose from
@@ -741,6 +742,16 @@ api.get('/clients/:id', requireRole(), async (req, res) => {
     ${listFrom} WHERE s.client_id=? AND s.discarded_at IS NULL ORDER BY s.id DESC`, [c.id]);
   res.json({ client: c, can_fix: all, jobs: jobs.map((j) => { let why = null; try { why = j.client_match_json ? JSON.parse(j.client_match_json) : null; } catch { why = null; }
     return { ...j, client_match_json: undefined, why, manual: !!Number(j.client_manual), sent: !!Number(j.sent), invite: !!Number(j.invite), can_open: all || j.user_id === req.user!.id }; }) });
+});
+// R144: Claude reads a client (managers and admins): with no id, the clients with the most jobs; with one, each job and why it was joined
+api.get('/plugin/clients', requireRole('admin', 'manager'), async (_req, res) => {
+  res.json({ clients: await query<any>(`SELECT c.id, c.company, c.contact_name, c.country, c.member_since, COUNT(s.id) AS jobs FROM clients c JOIN screenings s ON s.client_id=c.id AND s.discarded_at IS NULL
+    WHERE c.merged_into IS NULL GROUP BY c.id ORDER BY jobs DESC, c.id LIMIT 30`) });
+});
+api.get('/plugin/clients/:id', requireRole('admin', 'manager'), async (req, res) => {
+  const c = await clientReport(Number(String(req.params.id).replace(/\D/g, '')));
+  if (!c) return void res.status(404).json({ error: 'Not found' });
+  res.json({ client: c });
 });
 // R107: fixing a match by hand (managers and admins): a job out of its client, or two profiles that are one client
 api.post('/screenings/:id/client/separate', requireRole('admin', 'manager'), async (req, res) => {
@@ -976,7 +987,7 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
     FROM screenings s LEFT JOIN overrides o ON o.screening_id=s.id LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0];
   const tags = await query<any>('SELECT tag_name, category_name, reason, core_rank FROM job_tags WHERE screening_id=? ORDER BY core_rank IS NULL, core_rank, category_name, tag_name', [id]);
   const signals = await query<any>('SELECT signal_number, signal_name, value_name, evidence FROM job_signals WHERE screening_id=? AND is_fallback=0 ORDER BY signal_number', [id]);
-  const matches = await query<any>('SELECT project_name, recommended, selected, ai_reason FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
+  const matches = await query<any>('SELECT project_name, recommended, selected, pick_no, rank_no, ai_reason FROM job_matches WHERE screening_id=? ORDER BY rank_no', [id]);
   const done = { decision: !!(s2.continued_at || s2.proceeded), read: tags.length > 0, profile: !!s2.proposal_profile_confirmed_at, projects: !!s2.selection_confirmed_at, type: !!(s2.template_name || s2.chosen_template_name),
     draft: Number(s2.versions) > 0, final: !!s2.finalized_at };
   // the plugin's own order of steps: the first one not done yet is where to continue
@@ -995,7 +1006,7 @@ api.get('/plugin/jobs/:id', requireRole(), async (req, res) => {
       tags: tags.map((t) => ({ name: t.tag_name, category: t.category_name, reason: t.reason || undefined, core_rank: t.core_rank ?? undefined })),
       signals: signals.map((g) => ({ signal: `${g.signal_number}. ${g.signal_name}`, value: g.value_name, evidence: g.evidence || undefined })),
       profile: s2.proposal_profile_confirmed_at ? r.profile_name : null, rate: s2.proposal_rate == null ? null : Number(s2.proposal_rate),
-      shortlist: matches.map((m) => ({ name: m.project_name, reason: m.ai_reason || undefined, recommended: !!m.recommended, picked: !!m.selected })), picked: s2.selection_confirmed_at ? matches.filter((m) => m.selected).map((m) => m.project_name) : [], skip_tech_stack: !!s2.skip_tech_stack,
+      shortlist: matches.map((m) => ({ name: m.project_name, reason: m.ai_reason || undefined, recommended: !!m.recommended, picked: !!m.selected })), picked: s2.selection_confirmed_at ? matches.filter((m) => m.selected).sort((x, y) => (x.pick_no ?? x.rank_no) - (y.pick_no ?? y.rank_no)).map((m) => m.project_name) : [], skip_tech_stack: !!s2.skip_tech_stack,
       type: s2.template_name ?? s2.chosen_template_name ?? null, loom_video: s2.loom_video_title ?? null, drafts: Number(s2.versions), finished: !!s2.finalized_at,
       connects: s2.connects_spent, boost: s2.boost_connects, notes: s2.notes },
     steps_done: done, continue_from: next ? next[1] : s2.proceeded === 'no' ? 'nothing: this job was skipped' : 'nothing: the proposal is finished. Record what happens on Upwork with update_status.' } });
@@ -1051,7 +1062,7 @@ api.get('/plugin/analysis/jobs', requireRole(), async (req, res) => {
     ${listFrom} ${q.data.after ? and('s.id < ?') : w.sql} ORDER BY s.id DESC LIMIT ?`, [...w.p, ...(q.data.after ? [q.data.after] : []), q.data.limit]);
   const ids = list.map((r) => r.id);
   const group = (rows: any[]) => { const m = new Map<number, any[]>(); for (const r of rows) (m.get(r.screening_id) ?? m.set(r.screening_id, []).get(r.screening_id)!).push(r); return m; };
-  const projects = group(ids.length ? await query<any>('SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?) ORDER BY rank_no', [ids]) : []);
+  const projects = group(ids.length ? await query<any>(`SELECT screening_id, project_name FROM job_matches WHERE selected=1 AND screening_id IN (?) ORDER BY ${PICK_ORDER}`, [ids]) : []);
   const tags = group(ids.length ? await query<any>('SELECT screening_id, tag_name, category_name FROM job_tags WHERE screening_id IN (?) ORDER BY category_name, tag_name', [ids]) : []);
   const signals = group(ids.length && inc.has('signals') ? await query<any>('SELECT screening_id, signal_name, value_name FROM job_signals WHERE is_fallback=0 AND screening_id IN (?) ORDER BY signal_number', [ids]) : []);
   const history = group(ids.length && inc.has('history') ? await query<any>('SELECT screening_id, status, happened_at, reason FROM status_events WHERE screening_id IN (?) ORDER BY happened_at, id', [ids]) : []);
@@ -1337,7 +1348,7 @@ api.post('/screenings/:id/projects/:pid/tags', requireRole(), async (req, res) =
   // R100: already being matched again: one more pass when it ends picks these up too (a pass not started yet sees them anyway)
   if (s.tagging_status === 'running') { await exec('UPDATE screenings SET rematch_pending=1 WHERE id=?', [id]); return void res.json({ ok: true, rematch: true }); }
   if (s.tagging_status === 'queued') return void res.json({ ok: true, rematch: true });
-  const keep = s.selection_confirmed_at ? JSON.stringify({ ids: (await query<any>('SELECT project_id FROM job_matches WHERE screening_id=? AND selected=1', [id])).map((r) => r.project_id), by: s.selection_confirmed_by, at: s.selection_confirmed_at }) : null;
+  const keep = s.selection_confirmed_at ? JSON.stringify({ ids: (await query<any>(`SELECT project_id FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY ${PICK_ORDER}`, [id])).map((r) => r.project_id), by: s.selection_confirmed_by, at: s.selection_confirmed_at }) : null;
   await exec(`UPDATE screenings SET rematch_only=1, rematch_keep=?, tagging_status='queued', tagging_error_code=NULL, tagging_error_message=NULL WHERE id=? AND tagging_status='done'`, [keep, id]);
   res.json({ ok: true, rematch: true });
 });
@@ -1384,7 +1395,7 @@ api.put('/screenings/:id/selection', requireRole(), async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    await conn.query('UPDATE job_matches SET selected = (project_id IN (?)) WHERE screening_id=?', [b.data.project_ids, s.id]);
+    await setPicks(conn, s.id, b.data.project_ids);
     await conn.query('UPDATE screenings SET selection_confirmed_at=NOW(), selection_confirmed_by=? WHERE id=?', [req.user!.id, s.id]);
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }

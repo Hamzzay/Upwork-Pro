@@ -430,6 +430,10 @@ ul.plain li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; 
 .mcard { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 14px 16px; display: grid; gap: 10px; align-content: start; }
 .mcard.rec { border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); }
 .mcard.on, .pcard2.on { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.pickorder { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; display: grid; gap: 6px; }
+.pickrow { display: flex; align-items: center; gap: 10px; }
+.pickname { flex: 1; min-width: 0; font-weight: 600; }
+.picknum { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; background: var(--brand); }
 .mcard.pickable { cursor: pointer; }
 .mcard.pickable:hover { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); }
 .mtop { display: flex; align-items: center; gap: 10px; }

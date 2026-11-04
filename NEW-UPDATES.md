@@ -156,3 +156,31 @@ Interview), so jobs that got a chat showed as never viewed.
   - Sent straight to Interview filled in Viewed and Chat opened at the interview's time, with their history rows;
   - Edit details with "interviewed" did the same;
   - Chat opened alone filled in Viewed.
+
+
+## R144. Project order, the Match button, and client matching (Hamza, Danyal)
+
+**The order of the chosen projects**
+- The Projects step has an "Order in the proposal" box with up and down arrows, and each ticked card shows its place (1, 2).
+- The proposal page has a "Project order" box with Swap order (arrows when there are more than two).
+- A proposal made from parts is rebuilt in the new order straight away, with no AI call, as a new version.
+- A proposal the AI wrote whole has its project blocks moved in code. The words around them stay.
+- A proposal edited by hand is never changed by itself: "Project order" is offered beside it, with Put in this order.
+- Claude's picks keep the order given. Older jobs keep the order of the list (`job_matches.pick_no` is empty; migration 076).
+- A passing mention of a project in the opening sentence does not move, only its block.
+
+**Match the chosen projects (reported by Danyal)**
+- When no answer named a project that is not chosen, nothing changed and the button stayed on "Updating…" until the page was reloaded.
+- A failed request also left it stuck, with no message. With unsaved answers, the press itself failed.
+- Now the button always comes back and says what happened: updated, already matching, or what went wrong.
+
+**Client profiles (C-26: 21 proposals in one client)**
+- Not confirmed on the live data: Claude's tools could not look a client up by id, so C-26 itself was not read. Nine live jobs were
+  sampled and none was in it. Every post read shows a member-since date, and the one real match seen (C-35: same link, same date) still holds.
+- Rule changes in `sameClient`: two different member-since dates are never one client (only the same job link overrides that). A job
+  title seen on another post joins two jobs only beside the same join date, or when it is 30+ characters and both show the same country.
+- Data step 076 works every client out again with these rules. Jobs a person placed or merged by hand stay where they are.
+- New Claude tool `get_client` (managers and admins): the biggest clients, or one client with what each job showed and why it was joined.
+
+- Checked locally: swap on a parts proposal, Put in this order on a hand-edited one, the Projects box, and Match with a stale answer (on a
+  draft) and with none (on a draft, and on a sent, hand-edited proposal). `npm test` passes and both apps build.

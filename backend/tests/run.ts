@@ -32,7 +32,8 @@ import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes'
 import { applyOffer, pairReplacements } from '../src/proposal/offers';
 import { withoutAppLines } from '../src/proposal/experience_notes';
 import { jobLinkInText } from '../src/screening/jobsource';
-import { clientPost, sameClient, sameTitle } from '../src/clients';
+import { clientPost, datesDiffer, sameClient, sameTitle } from '../src/clients';
+import { orderProjects } from '../src/proposal/offers';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
 import { GUARDRAILS, writerSystem } from '../src/proposal/writer';
@@ -765,6 +766,27 @@ const ctx = { rules, projects };
     const firsts = Array.from({ length: 50 }, (_, i) => fresh(`Job number ${i + 1}: ${['Shopify store', 'React Native app', 'n8n automation', 'Logo and brand kit', 'Data scraping tool'][i % 5]} for a small business`));
     let joinedPairs = 0; for (let i = 0; i < firsts.length; i++) for (let j = 0; j < i; j++) if (sameClient(firsts[i], firsts[j]).length) joinedPairs++;
     assert.equal(joinedPairs, 0, 'no two first-job clients are joined');
+    // R144 (client C-26): different join dates are two clients; a short title seen on another post joins nothing by itself
+    const acct = (title: string, since: string, history: string[] = [], country = 'United States') => clientPost(title, { client: [{ label: 'Country', value: country }, ...(since ? [{ label: 'Member since', value: since }] : [])], client_history: history.map((t) => ({ title: t, dates: 'Jan 2026' })) })!;
+    assert.equal(datesDiffer('Oct 16, 2026', 'October 16 2026'), false, 'the same date written two ways');
+    assert.equal(datesDiffer('Oct 2026', 'Oct 16, 2026'), false, 'a part only one shows says nothing');
+    assert.equal(datesDiffer('Oct 16, 2026', 'Oct 17, 2026'), true);
+    assert.deepEqual(sameClient(acct('AI Automation Expert', 'Jan 2, 2020', ['Full Stack Developer']), acct('Full Stack Developer', 'Mar 9, 2023', ['AI Automation Expert'])), [], 'a title in common does not join two accounts');
+    assert.deepEqual(sameClient(acct('Need a developer', '', ['AI Automation Expert']), acct('AI Automation Expert', 'Mar 9, 2023')), [], 'a short title with no join date to confirm it');
+    assert.deepEqual(sameClient({ ...acct('One job', 'Jan 2, 2020'), company: 'Acme Dental' }, { ...acct('Another job', 'Mar 9, 2023'), company: 'Acme Dental' }), [], 'one company name on two accounts stays two clients');
+    assert.ok(sameClient(acct('New job for the clinic', 'Jan 2, 2020', ['AI Automation Expert']), acct('AI Automation Expert', 'Jan 2, 2020')).some((w) => w.includes('recent history')), 'the same join date confirms a short title');
+    assert.ok(sameClient(acct('New job for the clinic', '', ['Build a WhatsApp booking bot for our dental clinic']), acct('Build a WhatsApp booking bot for our dental clinic', 'Jan 2, 2020')).some((w) => w.includes('recent history')), 'a long title is their own');
+    assert.ok(sameClient({ ...acct('One', 'Jan 2, 2020'), jobId: '123' }, { ...acct('Two', 'Mar 9, 2023'), jobId: '123' }).some((w) => w.includes('same Upwork job')), 'the same link still is the same job');
+    // R144: the project blocks change places; the words around them stay
+    const lib = [{ name: 'Apex', links: ['https://apex.example.test'] }, { name: 'Chairboss', links: ['https://chair.example.test'] }];
+    const two = '<p>Hello there.</p><p>Apex</p><p>A dispatch tool.</p><p>https://apex.example.test</p><p>Then a word between.</p><p>Chairboss<br>A booking app.<br>https://chair.example.test</p><p>Best regards,<br>Sam</p>';
+    const moved = orderProjects(two, ['Chairboss', 'Apex'], lib)!, flatText = moved.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    assert.ok(flatText.indexOf('Chairboss') < flatText.indexOf('Apex'), 'Chairboss comes first now');
+    assert.ok(flatText.startsWith('Hello there.') && flatText.endsWith('Best regards, Sam') && flatText.includes('https://chair.example.test Then a word between. Apex'), 'what is around the blocks stays');
+    assert.equal(orderProjects(two, ['Apex', 'Chairboss'], lib), null, 'already in that order');
+    assert.equal(orderProjects('<p>Only Apex here.</p>', ['Chairboss', 'Apex'], lib), null, 'one block found: nothing to move');
+    assert.equal(applyOffer(two, { kind: 'order', label: 'Project order', text: '' }, ['Chairboss', 'Apex'], lib).html, moved, 'the offer does the same');
+    assert.equal(orderProjects(moved, ['Apex', 'Chairboss'], lib)!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), two.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), 'swapping back gives the text back');
     // a bulk read is cut by size, never mid row, and always moves on
     const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
     let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }

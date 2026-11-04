@@ -412,6 +412,7 @@ export async function proposalFor(screeningId: number) {
     docs_newer: !!Number((await query<any>(`SELECT s.docs_changed_at > COALESCE((SELECT MAX(v.created_at) FROM proposal_versions v WHERE v.proposal_id=?), '1970-01-01') AS n FROM screenings s WHERE s.id=?`, [p.id, screeningId]))[0]?.n),
     current: cur ? { version_no: cur.version_no, html: cur.html, answers: cur.answers, in_parts: !!cur.parts } : null, versions, signals, messages,
     openings: { status: p.openings_status, error: p.openings_error, more: !!Number(p.openings_more), ...(readOpenings(p.openings_json) ?? {}), left: await openingsLeft(readOpenings(p.openings_json), p.template_id ? (await query<any>('SELECT default_opening_id FROM templates WHERE id=?', [p.template_id]))[0]?.default_opening_id : null) }, // to pick from (R73), three at a time (R91)
+    projects: await query<any>('SELECT project_id AS id, project_name AS name FROM job_matches WHERE screening_id=? AND selected=1 AND project_id IS NOT NULL ORDER BY COALESCE(pick_no, rank_no), rank_no', [screeningId]), // R144: first one first
     review: reviewOf(p), parts: { status: p.parts_status, error: p.parts_error, offer: p.parts_offer_json ? JSON.parse(p.parts_offer_json) : [] },
     // experience the client asks for that our facts do not show (R67), with what is needed to answer it
     gaps: { status: p.gaps_status, error: p.gaps_error, items: await query<any>(`SELECT g.id, g.skill, g.ask, g.quote, g.category, g.status, g.project_id, g.note, g.tag_name, g.library, g.applied_version,
@@ -537,7 +538,7 @@ proposals.post('/proposals/:id/parts-offer/:i/apply', anyone, async (req, res) =
   const row = (await query<any>('SELECT parts_offer_json FROM proposals WHERE id=?', [p.id]))[0];
   let offer: Offer[] = []; try { offer = JSON.parse(row?.parts_offer_json || '[]'); } catch { offer = []; }
   const i = num(req.params.i), o = offer[i]; if (!o) return void res.status(404).json({ error: 'That part is no longer offered. Reload the page.' });
-  const chosen = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1', [p.screening_id])).map((r) => String(r.project_name));
+  const chosen = (await query<any>('SELECT project_name FROM job_matches WHERE screening_id=? AND selected=1 ORDER BY COALESCE(pick_no, rank_no), rank_no', [p.screening_id])).map((r) => String(r.project_name));
   // every project's links in the order a proposal shows them (web, Android, iOS), then the others, so the text's blocks are found
   const library = (await query<any>('SELECT name, live_link, android_link, ios_link, landing_link, system_link, mobile_link, staging_link, case_study_link FROM projects'))
     .map((x) => ({ name: String(x.name), links: [x.live_link, x.android_link, x.ios_link, x.landing_link, x.system_link, x.mobile_link, x.staging_link, x.case_study_link].filter(Boolean) as string[] }));

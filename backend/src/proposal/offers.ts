@@ -6,7 +6,7 @@
  */
 import { escapeHtml } from '../html';
 
-export interface Offer { kind: 'project' | 'links' | 'remove' | 'video' | 'signoff'; label: string; text: string; project?: string; replaces?: string; old_links?: string[] }
+export interface Offer { kind: 'project' | 'links' | 'remove' | 'video' | 'signoff' | 'order'; label: string; text: string; project?: string; replaces?: string; old_links?: string[] }
 
 const decode = (s: string) => s.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 const plain = (h: string) => decode(h.replace(/<a [^>]*href="([^"]*)"[^>]*>[\s\S]*?<\/a>/g, ' $1 ').replace(/<[^>]+>/g, '')).trim();
@@ -119,10 +119,41 @@ const paraBlocks = (text: string): Block[] => text.replace(/\r\n/g, '\n').trim()
 const signoffAt = (bs: Block[]) => { for (let i = bs.length - 1; i >= 0; i--) if (bs[i].p && /^(best regards|kind regards|warm regards|regards|best|thanks|thank you|many thanks|cheers|sincerely)\b/i.test(plain(bs[i].lines[0] ?? ''))) return i; return -1; };
 
 /**
+ * R144 (Hamza): the project blocks of a text put in the order chosen, each going to the place of the block it changes with; the words
+ * between them stay where they are. Null when the blocks are in that order already, or fewer than two are found.
+ */
+export function orderProjects(html: string, chosen: string[], library: LibProject[] = []): string | null {
+  const bs = blocksOf(html);
+  const othersThan = (n: string) => [...new Set([...chosen, ...library.map((x) => x.name)])].filter((x) => x.toLowerCase() !== n.toLowerCase() && !n.toLowerCase().includes(x.toLowerCase()));
+  // the text as a line at a time, so a block can start or end inside a paragraph
+  const toks: { b: number; i: number }[] = [];
+  bs.forEach((blk, b) => { if (blk.p) blk.lines.forEach((_, i) => toks.push({ b, i })); else toks.push({ b, i: -1 }); });
+  const at = (p: Pos) => toks.findIndex((t) => t.b === p.b && t.i === p.i);
+  const found = chosen.map((name) => { const sp = findSpan(bs, name, library.find((x) => x.name.toLowerCase() === name.toLowerCase())?.links ?? [], othersThan(name)); return sp ? { name, from: at(sp.from), to: at(sp.to) } : null; })
+    .filter(Boolean) as { name: string; from: number; to: number }[];
+  if (found.length < 2) return null;
+  const slots = [...found].sort((a, b) => a.from - b.from);
+  if (slots.every((x, k) => x === found[k]) || slots.some((x, k) => k && x.from <= slots[k - 1].to)) return null; // in order, or the blocks run into each other
+  const out: { seg: number; b: number; i: number }[] = []; let pos = 0, seg = 0;
+  const take = (from: number, to: number) => { seg++; for (let k = from; k <= to; k++) out.push({ seg, ...toks[k] }); };
+  slots.forEach((slot, k) => { take(pos, slot.from - 1); take(found[k].from, found[k].to); pos = slot.to + 1; });
+  take(pos, toks.length - 1);
+  const next: Block[] = [];
+  for (let k = 0; k < out.length; k++) {
+    const t = out[k], prev = out[k - 1];
+    if (t.i < 0) { next.push(bs[t.b]); continue; }
+    if (prev && prev.seg === t.seg && prev.b === t.b) next[next.length - 1].lines.push(bs[t.b].lines[t.i]);
+    else next.push({ html: '', p: true, lines: [bs[t.b].lines[t.i]] });
+  }
+  return join(next);
+}
+
+/**
  * One offer put into the editor's HTML. `chosen` are the projects of the proposal now (names), so a line that also names one of them is
  * never taken out with the old project. Returns the new HTML and where it went, in words.
  */
 export function applyOffer(html: string, o: Offer, chosen: string[] = [], library: LibProject[] = []): { html: string; where: string } {
+  if (o.kind === 'order') { const next = orderProjects(html, chosen, library); return next ? { html: next, where: 'Put the projects in the order chosen' } : { html, where: 'The projects are in that order already' }; }
   let bs = blocksOf(html);
   const linksOf = (n: string) => library.find((x) => x.name.toLowerCase() === n.toLowerCase())?.links ?? [];
   const othersThan = (n: string) => [...new Set([...chosen, ...library.map((x) => x.name)])].filter((x) => x.toLowerCase() !== n.toLowerCase() && !n.toLowerCase().includes(x.toLowerCase()));

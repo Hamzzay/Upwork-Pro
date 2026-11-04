@@ -57,6 +57,8 @@ const run = async (stmt: string) => {
     ['073_job_links.data', async () => (await import('../src/screening/job_links')).fillJobLinks()],
     // R143: a chat or an interview marked without the steps before it: those filled in (each in the job's history)
     ['075_earlier_steps.data', async () => (await import('../src/screening/steps')).fillAllEarlierSteps()],
+    // R144: clients worked out again: different member-since dates are never one client, and a short job title alone no longer joins two
+    ['076_regroup_clients.data', () => regroupAll()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;
