@@ -207,3 +207,28 @@ rearranged and the review ran again, because the button started the whole propos
 - With nothing to change there is no new version. An answer that does change gets a version with the letter word for word.
 - A change of projects, profile or video still runs the full refresh, and that one wins if both are queued.
 - Job 106 was restored to v2's text as a new version. The version sent stays v2.
+
+## R147. What the full live test found: project matching, Project order in the bar (Hamza, Danyal)
+
+Why: a copy of job 589 (job 590, discarded after) went through every step on live. Reported during it: LexGuard should have led the
+eviction job, and the order control belongs beside Sent from.
+
+- **Project matching.** LexGuard was on the list at #3 with tag scores nearly equal to everything else, because projects hold hundreds
+  of tags (Apex has 392). The AI ordered by the "core work" list, where SMS outranked the eviction and landlord domain. The order rule
+  now asks first what the job is about: a product for a kind of business, or a skill. Run on the real job text, three times each:
+  before, Seller Genius > Apex > LexGuard every time; after, LexGuard first every time. A voice agent job still leads with voice projects.
+- **Project order** moved up beside Sent from and Loom video, with a Swap projects button.
+- **Put in this order and Swap it in** left the description behind in the layout title, link, description, so a title could sit above
+  another project's text (found on job 590). A block now includes the description under its link.
+- **Member-since dates a day apart are one client:** Upwork shows the viewer's time (jobs 588 and 589: one post, Nov 4 and Nov 5). Data
+  step 079 regroups clients with this.
+- The Job link box in the status dialog is full width.
+- Not changed: the tag lists themselves. Tag scores still say little while projects hold this many.
+- Note on Experience: a Yes teaches the real library even on a test job. The test's tag ("Eviction and NC court process", id 1205) was
+  taken off Apex; it is switched off and on no project.
+- Passed on live on job 590: the whole flow, Swap, Match, answer edits, chat, review, Apply this, experience, openings, compare, restore,
+  Loom, profile, change type, feedback, Mark as sent, Interview filling in the steps before it, undo to Viewed, Not sent, Not hired with
+  its reason, Edit details, discard. The Dashboard returned to its exact numbers. Not pressed: Copy cover letter's result could not be
+  confirmed, and Pending, Hired, No response, Withdrawn and Job closed were not tried.
+- Known and left as it is: restoring an older version keeps that version's project order, so Project order can differ from the letter
+  until Swap projects is pressed. Setting the main Loom to none also clears the extra videos.

@@ -61,6 +61,8 @@ const run = async (stmt: string) => {
     ['076_regroup_clients.data', () => regroupAll()],
     // R145: a profile's company, contact, country and join date put right from its own jobs (a typed field stays; recorded in the audit log)
     ['077_client_details.data', async () => (await import('../src/clients')).refreshClients()],
+    // R147: dates a day apart are one account: jobs the stricter rule kept apart are joined again
+    ['079_regroup_clients.data', () => regroupAll()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;

@@ -770,7 +770,9 @@ const ctx = { rules, projects };
     const acct = (title: string, since: string, history: string[] = [], country = 'United States') => clientPost(title, { client: [{ label: 'Country', value: country }, ...(since ? [{ label: 'Member since', value: since }] : [])], client_history: history.map((t) => ({ title: t, dates: 'Jan 2026' })) })!;
     assert.equal(datesDiffer('Oct 16, 2026', 'October 16 2026'), false, 'the same date written two ways');
     assert.equal(datesDiffer('Oct 2026', 'Oct 16, 2026'), false, 'a part only one shows says nothing');
-    assert.equal(datesDiffer('Oct 16, 2026', 'Oct 17, 2026'), true);
+    assert.equal(datesDiffer('Oct 16, 2026', 'Oct 18, 2026'), true);
+    assert.equal(datesDiffer('Nov 4, 2026', 'Nov 5, 2026'), false, 'a day apart is the viewer\'s time');
+    assert.equal(datesDiffer('Oct 31, 2026', 'Nov 1, 2026'), false, 'also across a month');
     assert.deepEqual(sameClient(acct('AI Automation Expert', 'Jan 2, 2020', ['Full Stack Developer']), acct('Full Stack Developer', 'Mar 9, 2023', ['AI Automation Expert'])), [], 'a title in common does not join two accounts');
     assert.deepEqual(sameClient(acct('Need a developer', '', ['AI Automation Expert']), acct('AI Automation Expert', 'Mar 9, 2023')), [], 'a short title with no join date to confirm it');
     assert.deepEqual(sameClient({ ...acct('One job', 'Jan 2, 2020'), company: 'Acme Dental' }, { ...acct('Another job', 'Mar 9, 2023'), company: 'Acme Dental' }), [], 'one company name on two accounts stays two clients');
@@ -794,6 +796,14 @@ const ctx = { rules, projects };
     assert.equal(orderProjects('<p>Only Apex here.</p>', ['Chairboss', 'Apex'], lib), null, 'one block found: nothing to move');
     assert.equal(applyOffer(two, { kind: 'order', label: 'Project order', text: '' }, ['Chairboss', 'Apex'], lib).html, moved, 'the offer does the same');
     assert.equal(orderProjects(moved, ['Apex', 'Chairboss'], lib)!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), two.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), 'swapping back gives the text back');
+    // R147 (job 590): title, link, description: each description goes with its own title
+    const under = '<p>Opening line.</p><p>Apex</p><p>https://apex.example.test</p><p>Apex dispatch words here.</p><p>Chairboss</p><p>https://chair.example.test</p><p>Chairboss booking words here.</p><p>I would start with the plan.</p><p>Best regards,<br>Sam</p>';
+    const flip = orderProjects(under, ['Chairboss', 'Apex'], lib)!.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    assert.equal(flip, 'Opening line. Chairboss https://chair.example.test Chairboss booking words here. Apex https://apex.example.test Apex dispatch words here. I would start with the plan. Best regards, Sam', 'the descriptions move with their titles, and the plan stays');
+    assert.ok(applyOffer('<p>Apex</p><p>https://apex.example.test</p><p>Apex dispatch words here.</p><p>The plan.</p>', { kind: 'project', label: 'x', text: 'Chairboss', project: 'Chairboss', replaces: 'Apex' }, ['Chairboss'], lib).html.includes('The plan.'), 'swapping a project in keeps what follows its block');
+    assert.ok(!applyOffer('<p>Apex</p><p>https://apex.example.test</p><p>Words of the old block.</p><p>The plan.</p>', { kind: 'project', label: 'x', text: 'Chairboss', project: 'Chairboss', replaces: 'Apex' }, ['Chairboss'], lib).html.includes('Words of the old block'), 'and takes the old description with it');
+    const list = '<p>Hello.</p><p>Apex – https://apex.example.test<br>Chairboss – https://chair.example.test</p><p>I am free now.</p>';
+    assert.ok(orderProjects(list, ['Chairboss', 'Apex'], lib)!.replace(/<[^>]+>/g, ' ').includes('I am free now.'), 'a list of name and link lines keeps the next paragraph out');
     // a bulk read is cut by size, never mid row, and always moves on
     const many = Array.from({ length: 500 }, (_, i) => [i, 'x'.repeat(370)]);
     let left = many, pages = 0, got = 0; while (left.length) { const p = packRows(left, 80000); assert.ok(p.rows.length >= 1 && JSON.stringify(p.rows).length <= 81000); got += p.rows.length; left = left.slice(p.rows.length); pages++; assert.equal(p.more, left.length > 0); }

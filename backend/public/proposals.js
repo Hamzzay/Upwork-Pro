@@ -578,21 +578,21 @@ function proposalSection(s, initial, matching) {
 
   const bannerEl = h('div', { class: 'newer', hidden: true });
   // the parts: "updating" while they are redone, and the parts offered when the person's own text was not changed for them
-  const partsEl = h('div', {}), orderEl = h('div', {});
+  const partsEl = h('div', {}), orderEl = h('span', { class: 'docset', hidden: true });
   let redrawAnswers = null; // drawAnswers lives inside drawAll
   let refitFrom = null; // the version the answers were last asked to match the projects from, until that is done
   // R144: the chosen projects, first one first, and changing their places. It goes through the same save as the Projects step
   function drawOrder() {
-    const ps = (data && data.projects) || []; if (ps.length < 2 || !owner) { orderEl.replaceChildren(); return; }
+    const ps = (data && data.projects) || []; orderEl.hidden = ps.length < 2 || !owner; if (orderEl.hidden) { orderEl.replaceChildren(); return; }
     const put = async (ids, b) => { btnBusy(b, 'Moving');
       try { await api('PUT', `/screenings/${s.id}/selection`, { project_ids: ids });
         data.projects = ids.map((id) => ps.find((p) => p.id === id)); data.parts = { ...(data.parts || {}), status: 'queued', offer: [] }; drawOrder(); drawParts(); startPolling(); }
       catch (x) { toast(x.message, true); drawOrder(); } };
     const ids = ps.map((p) => p.id), swap = (i) => { const n = [...ids]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; };
-    orderEl.replaceChildren(h('div', { class: 'pickorder', style: 'margin:8px 0' }, h('div', { class: 'row spread' }, h('div', { class: 'jp-sec' }, 'Project order'),
-      ps.length === 2 ? h('button', { class: 'btn sm', type: 'button', disabled: partsBusy() || null, onclick: (e) => put(swap(1), e.currentTarget) }, 'Swap order') : null),
-      ps.map((p, i) => h('div', { class: 'pickrow' }, h('span', { class: 'picknum' }, i + 1), h('span', { class: 'pickname' }, p.name),
-        ps.length > 2 && i ? h('button', { class: 'btn sm', type: 'button', disabled: partsBusy() || null, 'aria-label': `Move ${p.name} up`, onclick: (e) => put(swap(i), e.currentTarget) }, '\u2191') : null))));
+    orderEl.replaceChildren(h('span', { class: 'docsetlbl' }, 'Project order'),
+      ...ps.map((p, i) => h('span', { class: 'pickline' }, h('span', { class: 'picknum sm' }, i + 1), p.name,
+        ps.length > 2 && i ? h('button', { class: 'btn sm', type: 'button', disabled: partsBusy() || null, 'aria-label': `Move ${p.name} up`, onclick: (e) => put(swap(i), e.currentTarget) }, '\u2191') : null)),
+      ps.length === 2 ? h('button', { class: 'btn sm', type: 'button', disabled: partsBusy() || null, onclick: (e) => put(swap(1), e.currentTarget) }, 'Swap projects') : null);
   }
   function drawParts() {
     const pt = data && data.parts; if (!pt) { partsEl.replaceChildren(); return; }
@@ -1023,7 +1023,7 @@ function proposalSection(s, initial, matching) {
     count(); drawAnswers(cur.answers, owner); drawParts(); drawOrder();
     // the proposal on the left; beside it (below it on a narrow screen) one card with a tab per tool
     previewIdx = 0; viewingOther = false;
-    letterPane.append(orderEl, partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader));
+    letterPane.append(partsEl, openEl, h('div', { class: 'busywrap' }, editor.el, chatLoader));
     drawMainTabs();
     // one card holds the proposal: its parts and version on top, what it is sent with under that, the text, then its numbers
     const profName = matching && matching.proposal_profile ? matching.proposal_profile.name : '';
@@ -1031,7 +1031,7 @@ function proposalSection(s, initial, matching) {
       h('div', { class: 'dochead' }, mainTabs, h('div', { class: 'docver' }, vsel, cmpBtn)),
       h('div', { class: 'docbar' },
         h('span', { class: 'docset' }, h('span', { class: 'docsetlbl' }, 'Sent from'), profSel || h('span', {}, profName)),
-        loomBox),
+        loomBox, orderEl),
       h('div', { class: 'docbody' }, ...[staleBox, docsBox, viewing, bannerEl, letterPane, answersPane].filter(Boolean)),
       h('div', { class: 'docfoot' }, h('div', { class: 'row', style: 'gap:8px' }, counter, dirtyChip), h('button', { type: 'button', class: 'linkbtn small', onclick: explain }, 'How this was written')));
     const grid = h('div', { class: 'propgrid' },

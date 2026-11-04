@@ -174,6 +174,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 126 | Chosen projects have an order, set on the Projects step and swapped on the proposal; Match the chosen projects always finishes and says what happened; stricter client matching, regroup and get_client for Claude (R144) | done |
 | 127 | Client profiles show their own details: company, contact, country and join date refreshed from their jobs, typed fields kept (R145) | done |
 | 128 | Match the chosen projects updates only the answers: never the letter, no version when nothing changes (R146) | done |
+| 129 | Project matching asks what the job is about first (LexGuard on eviction job); Project order in the bar; block moves keep their description; dates a day apart are one client (R147) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

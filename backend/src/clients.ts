@@ -42,9 +42,11 @@ function dateParts(s: string) {
   const t = norm(s);
   return { year: /\b(19|20)\d{2}\b/.exec(t)?.[0] ?? '', month: /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/.exec(t)?.[1] ?? '', day: /\b([0-3]?\d)\b/.exec(t)?.[1]?.replace(/^0/, '') ?? '' };
 }
-/** R144: two member-since dates that cannot be one account. A part only one of them shows says nothing. */
+/** R144: two member-since dates that cannot be one account. A part only one of them shows says nothing. R147: Upwork shows the date in
+ * the viewer's time, so one day apart is one account (jobs 588 and 589: the same post read as Nov 4 and Nov 5). */
 export function datesDiffer(a: string, b: string): boolean {
   const x = dateParts(a), y = dateParts(b);
+  if (x.year && x.month && x.day && y.year && y.month && y.day) return Math.abs(Date.parse(`${x.month} ${x.day} ${x.year}`) - Date.parse(`${y.month} ${y.day} ${y.year}`)) > 86_400_000;
   return (['year', 'month', 'day'] as const).some((k) => x[k] && y[k] && x[k] !== y[k]);
 }
 

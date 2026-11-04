@@ -63,6 +63,12 @@ function findSpan(bs: Block[], name: string, links: string[], others: string[]):
     for (let j = k + 1; j < flat.length && j <= k + 14 && !stop(flat[j].t); j++) if (hasLink(flat[j].t, links)) lastLink = j;
     let to = lastLink >= 0 ? lastLink : k;
     while (to + 1 < flat.length && flat[to + 1].b === flat[to].b && linkOnly(flat[to + 1].t) && !stop(flat[to + 1].t)) to++; // its link lines right under it
+    // R147 (job 590): title, link, then the description: the description is part of the block. Only a title on its own line with
+    // nothing but links under it has one still to come; "Name - link" lines in a list do not
+    if (lastLink >= 0 && to > k && x.t.length <= 140 && flat.slice(k + 1, to + 1).every((y) => hasLink(y.t, links) || linkOnly(y.t))) {
+      const next = to + 1;
+      if (next < flat.length && !stop(flat[next].t) && !linkOnly(flat[next].t)) { to = next; while (to + 1 < flat.length && flat[to + 1].b === flat[next].b && !stop(flat[to + 1].t)) to++; }
+    }
     if (lastLink < 0) { // no link of its own: a title that stands alone takes the paragraph under it
       const alone = bs[x.b].lines.filter((l) => plain(l)).length === 1 && x.t.length <= 140;
       const next = flat.findIndex((y) => y.b > x.b);
