@@ -1181,8 +1181,11 @@ const nowLocal = () => new Date().toLocaleString('sv', { timeZone: TZ }).replace
 const NEXT_STATUS = { '': 'Sent', Sent: 'Viewed', Viewed: 'Chat opened', 'Chat opened': 'Interview' };
 const canTrack = (userId) => userId === me.id || me.role === 'admin' || me.role === 'manager';
 /** One click to record a status and when it happened (now, unless changed). Every change is kept in the history. */
+let statusLoading = false; // R148: a second press while it loads opened a second dialog on top
 async function statusDialog(id, onDone, invite) {
-  const d = await api('GET', `/screenings/${id}/status`);
+  if (statusLoading) return;
+  statusLoading = true;
+  let d; try { d = await api('GET', `/screenings/${id}/status`); } finally { statusLoading = false; }
   const inv = !d.current && invite !== undefined ? inviteBox(!!Number(invite), false) : null; // only when it is first marked sent
   let pick = NEXT_STATUS[d.current || ''] || d.choices[0];
   let draw;

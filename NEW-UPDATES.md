@@ -228,7 +228,17 @@ eviction job, and the order control belongs beside Sent from.
   taken off Apex; it is switched off and on no project.
 - Passed on live on job 590: the whole flow, Swap, Match, answer edits, chat, review, Apply this, experience, openings, compare, restore,
   Loom, profile, change type, feedback, Mark as sent, Interview filling in the steps before it, undo to Viewed, Not sent, Not hired with
-  its reason, Edit details, discard. The Dashboard returned to its exact numbers. Not pressed: Copy cover letter's result could not be
-  confirmed, and Pending, Hired, No response, Withdrawn and Job closed were not tried.
+  its reason, Edit details, discard. The Dashboard returned to its exact numbers. The rest were checked on job 591 after this deployed (R148).
 - Known and left as it is: restoring an older version keeps that version's project order, so Project order can differ from the letter
   until Swap projects is pressed. Setting the main Loom to none also clears the extra videos.
+
+## R148. The recheck on live, and Update status opens once (Hamza)
+
+Why: job 591, a second copy of job 589, rechecked R147 on live and tried the steps the first test left out.
+
+- **Passed on live:** LexGuard first and pre-ticked on the eviction job; Swap projects in the bar; Put in this order on a hand-edited
+  title, link, description letter, with each description following its title; the full width Job link box; Copy cover letter's message;
+  Pending, Hired, back to Sent, No response, Withdrawn and Job closed (each lost outcome asks for its reason). Discarded after; the
+  Dashboard returned to its exact numbers. Experience Yes was not pressed, so the library was not touched.
+- **Update status** opens once: a second press while it was loading stacked a second dialog.
+- Checked locally: the dialog opens once on a double press. Not yet checked on live.
