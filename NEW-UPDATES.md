@@ -184,3 +184,26 @@ Interview), so jobs that got a chat showed as never viewed.
 
 - Checked locally: swap on a parts proposal, Put in this order on a hand-edited one, the Projects box, and Match with a stale answer (on a
   draft) and with none (on a draft, and on a sent, hand-edited proposal). `npm test` passes and both apps build.
+
+## R145. Client profiles show their own details (Hamza)
+
+Why: after R144 split C-26 from 21 proposals to 2 jobs, its header still said company "Held" and member since May 31, 2026, while both
+its jobs say May 7, 2026 and show no company. The regroup moved jobs but never refreshed the profile.
+
+- **After R144's result on live:** C-26 has 2 jobs (one job saved twice), and the biggest client has 4. C-103, C-349 and C-77 were
+  read with `get_client` and each is one client.
+- A profile's country, member-since date, company and contact now come from its own jobs. A value one of its jobs shows stays; a company
+  or contact none of them shows goes.
+- A company or contact a person typed stays, found from the audit log. Name and notes are never touched.
+- Data step 077 does this once on deploy, and every regroup does it from now on. Each change is in the audit log with the old values.
+- Checked locally: `npm test`, both builds, and the data step on the local database.
+
+## R146. Match the chosen projects touches only the answers (Hamza)
+
+Why: checking R144 on live, pressing it on job 106 (a sent proposal) added v3 "Updated the project links": the letter's lines were
+rearranged and the review ran again, because the button started the whole proposal refresh. The answers had nothing to change.
+
+- The button now looks at the answers and nothing else. The letter, its parts and the offers stay as they are.
+- With nothing to change there is no new version. An answer that does change gets a version with the letter word for word.
+- A change of projects, profile or video still runs the full refresh, and that one wins if both are queued.
+- Job 106 was restored to v2's text as a new version. The version sent stays v2.

@@ -32,7 +32,7 @@ import { listFilters as jobFilters, listWhere as jobWhere } from '../src/routes'
 import { applyOffer, pairReplacements } from '../src/proposal/offers';
 import { withoutAppLines } from '../src/proposal/experience_notes';
 import { jobLinkInText } from '../src/screening/jobsource';
-import { clientPost, datesDiffer, sameClient, sameTitle } from '../src/clients';
+import { clientPost, datesDiffer, detailsFrom, sameClient, sameTitle } from '../src/clients';
 import { orderProjects } from '../src/proposal/offers';
 import { libSummary, projectsOf } from '../src/proposal/gaps';
 import type { AuthUser } from '../src/auth'; // its Express request types, which gaps.ts needs to compile
@@ -777,6 +777,13 @@ const ctx = { rules, projects };
     assert.ok(sameClient(acct('New job for the clinic', 'Jan 2, 2020', ['AI Automation Expert']), acct('AI Automation Expert', 'Jan 2, 2020')).some((w) => w.includes('recent history')), 'the same join date confirms a short title');
     assert.ok(sameClient(acct('New job for the clinic', '', ['Build a WhatsApp booking bot for our dental clinic']), acct('Build a WhatsApp booking bot for our dental clinic', 'Jan 2, 2020')).some((w) => w.includes('recent history')), 'a long title is their own');
     assert.ok(sameClient({ ...acct('One', 'Jan 2, 2020'), jobId: '123' }, { ...acct('Two', 'Mar 9, 2023'), jobId: '123' }).some((w) => w.includes('same Upwork job')), 'the same link still is the same job');
+    // R145 (C-26): a profile shows what its own jobs show
+    const heldProfile = { country: 'United States', member_since: 'May 31, 2026', company: 'Held', contact_name: null };
+    const richmond = acct('A web platform', 'May 7, 2026');
+    assert.deepEqual(detailsFrom(heldProfile, [richmond]), { country: 'United States', member_since: 'May 7, 2026', company: null, contact_name: null }, 'details left by a client split out go');
+    assert.equal(detailsFrom(heldProfile, [richmond], new Set(['company'])).company, 'Held', 'a company a person typed stays');
+    assert.equal(detailsFrom({ ...heldProfile, country: 'USA' }, [richmond, acct('Older', 'May 7, 2026', [], 'USA')]).country, 'USA', 'a value one of its jobs shows stays');
+    assert.deepEqual(detailsFrom(heldProfile, [clientPost('Nothing shown', {})!]), { ...heldProfile, company: null }, 'a job with no details changes the facts of none');
     // R144: the project blocks change places; the words around them stay
     const lib = [{ name: 'Apex', links: ['https://apex.example.test'] }, { name: 'Chairboss', links: ['https://chair.example.test'] }];
     const two = '<p>Hello there.</p><p>Apex</p><p>A dispatch tool.</p><p>https://apex.example.test</p><p>Then a word between.</p><p>Chairboss<br>A booking app.<br>https://chair.example.test</p><p>Best regards,<br>Sam</p>';

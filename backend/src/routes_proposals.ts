@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { audit, exec, pool, query } from './db';
 import { requireRole } from './auth';
 import { htmlToPlain, sanitizeRich } from './html';
-import { addVersion, applySendParts, latestVersion, loadTemplate, loomChoices, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
+import { addVersion, applySendParts, latestVersion, loadTemplate, loomChoices, queueAnswersRefit, queueParts, readParts, sendPartsNow, suggestedTypeId, typeChoices } from './proposal/pipeline';
 import { qaList, separate } from './proposal/answers';
 import { allOpenings, MAX_ACTIVE, MAX_EXAMPLES, MAX_OPENINGS, openingInUse, readList, templateBlock } from './proposal/opening_templates';
 import { editOpening, openingsLeft, queueOpenings, readOpenings, useOpening } from './proposal/openings';
@@ -701,7 +701,7 @@ proposals.post('/proposals/:id/openings/:i/use', anyone, async (req, res) => {
 proposals.post('/proposals/:id/answers/refit', anyone, async (req, res) => {
   const p = await ownedProposal(req, res); if (!p) return;
   if (p.status !== 'done') return void res.status(409).json({ error: 'The proposal is not ready yet' });
-  await queueParts(p.screening_id);
+  await queueAnswersRefit(p.id);
   res.json({ queued: true });
 });
 // (after answers/refit: Express 5 has no number-only params, so the fixed path must come first)

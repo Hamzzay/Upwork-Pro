@@ -136,12 +136,12 @@ export function readParts(json: string | null | undefined): Parts | null {
  * A new version. `answers` left out: the newest version's screening answers are carried over, so editing the letter never loses them.
  * `parts` is given only when the text was put together from parts; a version without parts is the person's (or the chat's) text.
  */
-export async function addVersion(proposalId: number, html: string, source: 'ai' | 'manual' | 'chat' | 'restore', userId: number | null, note: string | null, basedOn: number | null, answers?: QA[] | null, parts?: Parts | null) {
+export async function addVersion(proposalId: number, html: string, source: 'ai' | 'manual' | 'chat' | 'restore', userId: number | null, note: string | null, basedOn: number | null, answers?: QA[] | null, parts?: Parts | null, keepLetter = false) {
   if (answers === undefined) answers = (await latestVersion(proposalId))?.answers ?? null;
   // R92: what the AI writes uses the short words; a person's own edits and a restored version stay as they were
   if (source === 'ai' || source === 'chat') {
     const sc = await activeShortcuts();
-    if (sc.length) { html = shortenHtml(html, sc); if (answers) answers = answers.map((a) => ({ ...a, answer: shortenText(a.answer, sc) })); if (parts) parts = { ...parts, letter: shortenText(parts.letter, sc) }; }
+    if (sc.length) { if (!keepLetter) html = shortenHtml(html, sc); if (answers) answers = answers.map((a) => ({ ...a, answer: shortenText(a.answer, sc) })); if (parts && !keepLetter) parts = { ...parts, letter: shortenText(parts.letter, sc) }; }
   }
   return withRetry(async () => {
     const conn = await pool.getConnection();
@@ -665,19 +665,32 @@ async function keepStaleWarning(p: { id: number }, stale: string[]) {
 /** Every project with its links, so a project's block is found in a text and known to stop where another starts. */
 const libraryLinks = async () => (await query<any>('SELECT name, live_link, android_link, ios_link, landing_link, system_link, mobile_link, staging_link, case_study_link FROM projects'))
   .map((x) => ({ name: String(x.name), links: [x.live_link, x.android_link, x.ios_link, x.landing_link, x.system_link, x.mobile_link, x.staging_link, x.case_study_link].filter(Boolean) as string[] }));
+/** R146: Match the chosen projects, for the worker: only the answers are looked at. */
+export async function queueAnswersRefit(proposalId: number) {
+  await exec(`UPDATE proposals SET parts_status='queued', answers_only=1, parts_error=NULL WHERE id=? AND status='done' AND parts_status NOT IN ('queued','running')`, [proposalId]);
+}
 /** Bring a written proposal up to date after its projects, profile or video changed (PLAN-SPEED point 1). Nothing to do: nothing queued. */
 export async function queueParts(screeningId: number) {
-  await exec(`UPDATE proposals SET parts_status='queued', parts_error=NULL WHERE screening_id=? AND status='done' AND EXISTS (SELECT 1 FROM proposal_versions v WHERE v.proposal_id=proposals.id)`, [screeningId]);
+  await exec(`UPDATE proposals SET parts_status='queued', answers_only=0, parts_error=NULL WHERE screening_id=? AND status='done' AND EXISTS (SELECT 1 FROM proposal_versions v WHERE v.proposal_id=proposals.id)`, [screeningId]);
 }
 /**
  * The worker job behind queueParts. A version made from parts gets a new version with only the changed parts redone. A version
  * the person edited by hand is never overwritten: the new parts are offered beside the editor instead (Put it in, Copy).
  */
 export async function runPartsRefresh(proposalId: number) {
-  const p = (await query<any>('SELECT id, screening_id, template_id, warnings FROM proposals WHERE id=?', [proposalId]))[0];
+  const p = (await query<any>('SELECT id, screening_id, template_id, warnings, answers_only FROM proposals WHERE id=?', [proposalId]))[0];
   const cur = p ? await latestVersion(p.id) : null;
   if (!p || !cur) return;
   const f = await loadFacts(p.screening_id);
+  // R146 (Hamza): Match the chosen projects: the answers and nothing else. The letter, its parts and the offers stay as they are; with
+  // nothing to change there is no new version (job 106: this ran the whole refresh and rearranged a sent letter)
+  if (Number(p.answers_only)) {
+    const only = await refitAnswers(f, cur.answers, cur.parts?.proof.map((x) => x.name) ?? []);
+    if (only.changed) await addVersion(p.id, cur.html, 'ai', null, 'Updated the screening answers for the chosen projects', cur.version_no, only.answers, cur.parts, true);
+    await keepStaleWarning(p, only.stale);
+    await exec(`UPDATE proposals SET parts_status='done', answers_only=0 WHERE id=?`, [p.id]);
+    return;
+  }
   const template = p.template_id ? await loadTemplate(p.template_id) : null;
   const cfg = await getSettings();
   // R125: the answers follow the chosen projects too, whether the letter is made from parts or was edited by hand

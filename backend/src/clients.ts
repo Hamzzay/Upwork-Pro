@@ -4,7 +4,7 @@
  * stay the same. Jobs found to be from one client share a client profile, and the job page says so before anyone writes.
  * No AI: the match is worked out from the post's fields (posting.ts), so it is cheap enough to run for every job.
  */
-import { exec, query } from './db';
+import { audit, exec, query } from './db';
 
 export interface ClientPost { title: string; history: { title: string; dates: string }[]; open: string[]; country: string; memberSince: string; city: string; company: string; contact: string; jobId: string }
 export interface ClientMatch { job_id: number; why: string[] }
@@ -201,6 +201,50 @@ export async function mergeClients(fromId: number, intoId: number) {
   await exec('UPDATE clients SET merged_into=? WHERE id=?', [intoId, fromId]);
 }
 
+type Details = { country: string | null; member_since: string | null; company: string | null; contact_name: string | null };
+/**
+ * R145 (Hamza, client C-26 kept the company and join date of a client split out of it): what a profile should show, from its own jobs.
+ * posts: newest first. A value one of its jobs shows stays; another one gives way to the newest job's. A company or contact no job
+ * shows goes. A field a person typed is theirs, and a job with nothing to say changes nothing.
+ */
+export function detailsFrom(cur: Details, posts: ClientPost[], typed: Set<string> = new Set()): Details {
+  const pick = (now: string | null, seen: string[], clear: boolean) => { const all = seen.filter((x) => norm(x));
+    if (now && all.some((x) => norm(x) === norm(now))) return now;
+    return all[0] ?? (clear ? null : now); };
+  return {
+    country: pick(cur.country, posts.map((p) => p.country), false),
+    member_since: pick(cur.member_since, posts.map((p) => p.memberSince), false),
+    company: typed.has('company') ? cur.company : pick(cur.company, posts.map((p) => p.company), true),
+    contact_name: typed.has('contact_name') ? cur.contact_name : pick(cur.contact_name, posts.map((p) => p.contact), true),
+  };
+}
+
+/** Every profile's details put right from its own jobs. Each change is in the audit log with the old values. Returns how many changed. */
+export async function refreshClients(): Promise<number> {
+  const typed = new Map<number, Set<string>>();
+  for (const a of await query<any>("SELECT detail FROM audit_log WHERE action='client_update'")) {
+    const m = /client=(\d+) fields=(\S+)/.exec(String(a.detail)); if (!m) continue;
+    const s = typed.get(Number(m[1])) ?? new Set<string>(); m[2].split(',').forEach((k) => s.add(k)); typed.set(Number(m[1]), s);
+  }
+  const posts = new Map<number, ClientPost[]>();
+  for (const r of await query<any>('SELECT client_id, title, posting_json FROM screenings WHERE client_id IS NOT NULL AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC')) {
+    let p: any = null; try { p = JSON.parse(r.posting_json); } catch { continue; }
+    const cp = clientPost(r.title, p); if (!cp) continue;
+    const l = posts.get(r.client_id) ?? []; l.push(cp); posts.set(r.client_id, l);
+  }
+  let changed = 0;
+  for (const c of await query<any>('SELECT id, country, member_since, company, contact_name FROM clients WHERE merged_into IS NULL')) {
+    const mine = posts.get(c.id); if (!mine?.length) continue;
+    const next = detailsFrom(c, mine, typed.get(c.id));
+    const diff = (['country', 'member_since', 'company', 'contact_name'] as const).filter((k) => (next[k] ?? null) !== (c[k] ?? null));
+    if (!diff.length) continue;
+    await exec('UPDATE clients SET country=?, member_since=?, company=?, contact_name=? WHERE id=?', [next.country, next.member_since, next.company, next.contact_name, c.id]);
+    await audit(null, 'client_details_refreshed', `client=${c.id} ${diff.map((k) => `${k}: ${c[k] ?? '(none)'} -> ${next[k] ?? '(none)'}`).join('; ')}`);
+    changed++;
+  }
+  return changed;
+}
+
 /**
  * R111 (Hamza): every client worked out again with the current rules, so a grouping made by a looser rule is undone. Jobs a person
  * placed by hand stay where they are. A group keeps the profile most of its jobs had (with its name and notes); a job that no longer
@@ -234,5 +278,6 @@ export async function regroupAll(): Promise<number> {
       await exec('UPDATE screenings SET client_id=?, client_match_json=?, client_checked_at=NOW() WHERE id=?', [id, why.length ? JSON.stringify(why) : null, x.id]);
     }
   }
+  await refreshClients(); // a profile that lost jobs must not keep their details
   return changed;
 }

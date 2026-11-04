@@ -59,6 +59,8 @@ const run = async (stmt: string) => {
     ['075_earlier_steps.data', async () => (await import('../src/screening/steps')).fillAllEarlierSteps()],
     // R144: clients worked out again: different member-since dates are never one client, and a short job title alone no longer joins two
     ['076_regroup_clients.data', () => regroupAll()],
+    // R145: a profile's company, contact, country and join date put right from its own jobs (a typed field stays; recorded in the audit log)
+    ['077_client_details.data', async () => (await import('../src/clients')).refreshClients()],
   ];
   for (const [name, fn] of steps) {
     if (done.has(name)) continue;

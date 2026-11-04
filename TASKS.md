@@ -172,6 +172,8 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 124 | More than one Loom video on a proposal (the first is the standard; more added on the proposal page, before writing, or by Claude); Loom videos linked to projects, preferred for those projects (R142) | done |
 | 125 | A later step fills in the steps before it (Chat opened fills in Viewed; Interview fills in Viewed and Chat opened), in the history; old jobs filled once (R143) | done |
 | 126 | Chosen projects have an order, set on the Projects step and swapped on the proposal; Match the chosen projects always finishes and says what happened; stricter client matching, regroup and get_client for Claude (R144) | done |
+| 127 | Client profiles show their own details: company, contact, country and join date refreshed from their jobs, typed fields kept (R145) | done |
+| 128 | Match the chosen projects updates only the answers: never the letter, no version when nothing changes (R146) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
