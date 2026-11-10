@@ -35,6 +35,17 @@ Call `update_status` with the job number and one status:
 
 Confirm in one line: "Job #N: Viewed, today 14:05."
 
+## Chats (R149)
+
+Once a client opens a chat (and for every invite) the job is on the Chats page, and the whole team can move it. In a sync:
+
+* Call `list_chats` (`stage: "open"`, or `"quiet"` for the ones that have not moved for 3 days) to see what to update.
+* Call `update_chat` with the job number and what happened: `stage` is `chat` (questions and answers), `call` (a call is booked;
+  marks the job Interview), `proposal` (the proposal or quote went to the client), `agreed` (they said let's start; marks it Hired)
+  or `lost` (with `outcome` and `reason`). Add a one sentence `note`. A note alone records a follow up.
+* Give `client_name` (and `company`) as the chat shows it, on `update_chat` or with `update_status` Chat opened. It is kept on the
+  client's profile. Never guess a name.
+
 ## What is waiting on the client
 
 When asked what is still open, call `find_jobs` with `phase: "submitted"` and list number, title, profile, status and how long since the last update.

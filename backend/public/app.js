@@ -542,6 +542,7 @@ const NAV = [
   { key: 'new', icon: 'screen', label: 'Screen a job' },
   { key: 'history', icon: 'list', label: () => (me.role === 'employee' ? 'My jobs' : 'Jobs') },
   { key: 'reports', icon: 'chart', label: 'Reports' },
+  { key: 'chats', icon: 'message', label: 'Chats' }, // R149
   { key: 'clients', icon: 'users', label: 'Clients' },
   { key: 'feedback', icon: 'message', label: 'Proposal feedback' },
   { key: 'flagreview', icon: 'flag', label: 'Flag review', roles: STAFF },
@@ -935,6 +936,13 @@ async function dashboardView() {
         kpi('Sent', c.sent + inv.sent, (inv.sent ? `${c.sent} proposals · ${inv.sent} invite${inv.sent === 1 ? '' : 's'}` : c.connects ? `${c.connects} Connects` : 'Connects not recorded'), exact('sent')),
         kpi('Hired', c.hired + inv.hired, inv.hired ? `${pct(c.hired, c.sent)} of proposals · ${inv.hired} from invites` : `${pct(c.hired, c.sent)} of ${inv.sent ? 'proposals ' : ''}sent`, exact('hired'), 'PASS'),
         kpi('Needs action', needs, 'Waiting on someone', jobsLink({ stage: 'needs_action' }), 'NEED')),
+      // R149: the chats, whatever the period: open ones by stage, and those that have gone quiet
+      d.chats ? h('div', { class: 'qrow' }, h('div', { class: 'qhead' }, h('h2', {}, 'Chats'), h('span', { class: 'faint small' }, 'Every chat, whatever the period')),
+        h('div', { class: 'stats six' }, kpi('Open chats', d.chats.open, `${d.chats.chat} in Q&A`, '#/chats?stage=open'),
+          kpi('Gone quiet', d.chats.quiet, d.chats.quiet ? 'Needs a follow up' : 'Nothing waiting', '#/chats?stage=quiet', d.chats.quiet ? 'NEED' : ''),
+          kpi(d.chats.names.call, d.chats.call, 'Call booked', '#/chats?stage=call'), kpi(d.chats.names.proposal, d.chats.proposal, 'Waiting on their yes', '#/chats?stage=proposal'),
+          kpi(d.chats.names.agreed, d.chats.agreed, `${d.chats.total ? Math.round((d.chats.agreed / d.chats.total) * 100) : 0}% of ${d.chats.total} chats`, '#/chats?stage=agreed', 'PASS'),
+          kpi(d.chats.names.lost, d.chats.lost, 'After a chat', '#/chats?stage=lost'))) : null,
       // R82: how proposals are made now, and how good the review judged them (each opens its report or page)
       d.quality ? h('div', { class: 'qrow' }, h('div', { class: 'qhead' }, h('h2', {}, 'Proposal quality'), h('span', { class: 'faint small' }, 'For the jobs in this period')),
         h('div', { class: 'stats six' },
@@ -3603,6 +3611,84 @@ async function clientsView() {
         { key: 'profile', label: 'Any profile', options: [...new Set(r.clients.flatMap((c) => (c.profiles || '').split(', ')).filter(Boolean))].sort().map((x) => [x, x]), test: (c, v) => (c.profiles || '').split(', ').includes(v) }],
       render: (slice) => dataTable(['ID', 'Client', 'Jobs', 'Profiles and people', 'Last seen'], slice.map(row), 'rulestable cltable') })], true);
 }
+/**
+ * R149 (Hamza): the Chats page. Every job that reached a chat (and every invite), with the client's name, its stage and how long it has
+ * been still. Anyone can update any chat: the stage, a note and the client's name. The stages the job tracks follow on the job.
+ */
+async function chatsView() {
+  const hp = hashParams();
+  if (!hp.stage && !hp.q && !hp.user && !hp.profile && !hp.kind) setHashParams({ stage: 'open' }); // open chats first
+  const d = await api('GET', '/chats'), names = d.stages, n = d.counts;
+  const STAGE_CLS = { agreed: 'good', lost: 'loss' };
+  const stageChip = (c) => h('span', { class: 'chip ' + (STAGE_CLS[c.stage] || (c.stage === 'chat' ? '' : 'brand')) }, names[c.stage] + (c.stage === 'lost' && c.outcome ? ` (${c.outcome})` : ''));
+  const row = (c) => h('tr', {},
+    h('td', { class: 'clcell' }, c.client_name ? h('strong', {}, c.client_name) : h('span', { class: 'faint' }, 'Name not given yet'),
+      c.company ? h('div', { class: 'small muted' }, c.company) : null,
+      c.client_id ? h('a', { class: 'cidchip', href: '#/clients/' + c.client_id, style: 'margin-top:4px' }, clientId(c.client_id)) : null),
+    h('td', { class: 'clcell' }, h('a', { href: `#/s/${c.id}/overview`, class: 'clclip strong', style: 'display:block', title: c.title || '' }, c.title || 'Job #' + c.id),
+      h('div', { class: 'small muted' }, [c.profile_name, c.user_name, c.opened_at ? 'chat since ' + dayText(c.opened_at) : null].filter(Boolean).join(' · ')),
+      c.invite ? h('span', { class: 'chip', style: 'margin-top:4px' }, 'Invite') : null),
+    h('td', {}, h('div', { class: 'chips' }, stageChip(c), c.quiet ? h('span', { class: 'chip warnchip' }, `Quiet ${c.days_still} days`) : null)),
+    h('td', { class: 'clcell' }, c.note ? h('div', { class: 'clclip', title: c.note }, c.note) : c.stage === 'lost' && c.outcome_reason ? h('div', { class: 'clclip' }, c.outcome_reason) : null,
+      h('div', { class: 'small faint' }, ago(c.last_at))),
+    h('td', { class: 'acts' }, h('button', { class: 'btn sm', type: 'button', onclick: () => chatDialog(c, d, chatsView) }, 'Update')));
+  const tile = (label, value, sub, stage, cls) => h('a', { class: 'stat kpi ' + (cls || ''), href: '#/chats?stage=' + stage }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), h('span', { class: 'sub small muted' }, sub));
+  const people = [...new Map(d.chats.map((c) => [c.user_id, c.user_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const profiles = [...new Map(d.chats.filter((c) => c.profile_id).map((c) => [c.profile_id, c.profile_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  shell('chats', [pageHead('Chats', `Every job that reached a chat with the client, invites included: ${n.total} in all, ${n.open} open. Update a chat as it moves: the stage, a note and the client's name. Chat opened, ${names.call} and ${names.agreed} also update the job's own status, and a chat that has not moved for ${d.quiet_days} days is flagged.`),
+    h('div', { class: 'stats six' }, tile('Open chats', n.open, 'Still in conversation', 'open'), tile('Gone quiet', n.quiet, `Not moved for ${d.quiet_days}+ days`, 'quiet', n.quiet ? 'NEED' : ''),
+      tile(names.call, n.call, 'Call booked', 'call'), tile(names.proposal, n.proposal, 'Waiting on their yes', 'proposal'), tile(names.agreed, n.agreed, `${n.total ? Math.round((n.agreed / n.total) * 100) : 0}% of chats`, 'agreed', 'PASS'), tile(names.lost, n.lost, 'With the reason', 'lost')),
+    listCard({ items: d.chats, paged: true, icon: 'message', emptyTitle: 'No chats yet', emptyText: 'A job appears here once its client opens a chat, or when it came as an invite.',
+      search: { placeholder: 'Search by client, company or job', text: (c) => [c.client_name, c.company, c.title, clientId(c.client_id || 0), c.note].join(' ') },
+      filters: [{ key: 'stage', label: 'Every chat', options: [['open', 'Open chats'], ['quiet', 'Gone quiet'], ...['chat', 'call', 'proposal', 'agreed', 'lost'].map((k) => [k, names[k]])],
+        test: (c, v) => (v === 'open' ? ['chat', 'call', 'proposal'].includes(c.stage) : v === 'quiet' ? c.quiet : c.stage === v) },
+      { key: 'kind', label: 'Proposals and invites', options: [['proposal', 'From our proposals'], ['invite', 'Invites']], test: (c, v) => (v === 'invite' ? c.invite : !c.invite) },
+      { key: 'user', label: 'Anyone', options: people.map(([id, name]) => [String(id), name]), test: (c, v) => String(c.user_id) === v },
+      { key: 'profile', label: 'Any profile', options: profiles.map(([id, name]) => [String(id), name]), test: (c, v) => String(c.profile_id) === v }],
+      render: (slice) => dataTable(['Client', 'Job', 'Stage', 'Last update', ''], slice.map(row), 'rulestable cltable') })], true);
+}
+
+/** One chat moved on: its stage (a lost one needs the outcome and why), a note, and the client's name. */
+function chatDialog(c, d, onDone) {
+  const names = d.stages; let pick = c.stage;
+  const grid = h('div', { class: 'statuspick', role: 'radiogroup', 'aria-label': 'Stage' });
+  const outcome = h('select', { 'aria-label': 'Outcome', style: 'width:100%' }, d.loss_outcomes.map((o) => h('option', { value: o, selected: o === c.outcome }, o)));
+  const reason = h('select', { 'aria-label': 'Reason', style: 'width:100%' }, h('option', { value: '' }, 'Choose a reason'), d.loss_reasons.map((r) => h('option', { value: r, selected: r === c.outcome_reason }, r)));
+  const lossBox = h('div', { class: 'row', style: 'gap:10px;margin-top:12px;flex-wrap:wrap' }, h('div', { class: 'field', style: 'flex:1;min-width:180px' }, h('label', { class: 'lbl' }, 'What happened'), outcome),
+    h('div', { class: 'field', style: 'flex:1;min-width:180px;margin-top:0' }, h('label', { class: 'lbl' }, 'Why'), reason));
+  const hint = h('p', { class: 'small muted', style: 'margin:8px 0 0' });
+  const HINT = { chat: 'The client is asking questions and we answer. The job shows Chat opened.', call: 'A call is booked. The job shows Interview.',
+    proposal: 'The proposal or quote went to the client, and we wait for their yes.', agreed: 'They said let’s get started. The job is marked Hired.', lost: 'It ended without work. The job gets this outcome and reason.' };
+  const draw = () => { grid.replaceChildren(...['chat', 'call', 'proposal', 'agreed', 'lost'].map((k) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === k,
+    class: 'chip' + (pick === k ? ' brand' : '') + (k === 'lost' ? ' loss' : ''), onclick: () => { pick = k; draw(); } }, names[k] + (k === c.stage ? ' (now)' : ''))));
+    lossBox.hidden = pick !== 'lost'; hint.textContent = HINT[pick]; };
+  draw();
+  const note = h('textarea', { rows: 3, maxlength: 500, placeholder: 'What happened? For example: answered their questions about the timeline; call on Tuesday' });
+  const name = h('input', { type: 'text', maxlength: 120, value: c.client_name || '', placeholder: 'As the chat shows it' });
+  const company = h('input', { type: 'text', maxlength: 190, value: c.company || '', placeholder: 'Optional' });
+  const hist = h('div', { class: 'small muted' }, 'Loading…');
+  api('GET', `/chats/${c.id}/events`).then((r) => hist.replaceChildren(...(r.events.length ? [h('ul', { class: 'plain' }, r.events.map((e) => h('li', {}, h('strong', {}, names[e.stage] || e.stage),
+    h('span', { class: 'muted' }, ` · ${ago(e.created_at)}${e.user_name ? ' · ' + e.user_name : ''}`), e.note ? h('div', {}, e.note) : null)))] : ['Not updated here yet.']))).catch(() => hist.replaceChildren('Could not load the history.'));
+  modal({ title: 'Update chat', confirm: 'Save', body: h('div', {},
+    h('p', { class: 'small muted', style: 'margin-top:0' }, h('strong', {}, c.title || 'Job #' + c.id)),
+    grid, hint, lossBox,
+    h('div', { class: 'field', style: 'margin-top:12px' }, h('label', { class: 'lbl' }, 'Note'), note),
+    h('div', { class: 'row', style: 'gap:10px;margin-top:12px;flex-wrap:wrap' }, h('div', { class: 'field', style: 'flex:1;min-width:180px' }, h('label', { class: 'lbl' }, 'Client’s name'), name),
+      h('div', { class: 'field', style: 'flex:1;min-width:180px;margin-top:0' }, h('label', { class: 'lbl' }, 'Company'), company)),
+    h('p', { class: 'small faint', style: 'margin:4px 0 0' }, 'The name is kept on the client’s profile, so every job of theirs shows it.'),
+    h('details', { class: 'desc', style: 'margin-top:12px' }, h('summary', {}, 'History of this chat'), hist)),
+    onConfirm: async () => {
+      const n = name.value.trim(), co = company.value.trim(), named = n && (n !== (c.client_name || '') || co !== (c.company || ''));
+      if (named && n.length < 2) throw new Error('Write the client’s name in full');
+      const body = { ...(pick !== c.stage || (pick === 'lost' && outcome.value !== c.outcome) ? { stage: pick } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
+        ...(pick === 'lost' ? { outcome: outcome.value, reason: reason.value || undefined } : {}), ...(named ? { client_name: n, company: co || undefined } : {}) };
+      if (!body.stage && !body.note && !body.client_name) throw new Error('Pick another stage, write a note, or give the client’s name');
+      if (body.stage === 'lost' && !reason.value) throw new Error('Say why the client did not go ahead');
+      await api('POST', `/chats/${c.id}`, body);
+      toast(body.stage ? `Moved to ${names[pick]}` : 'Saved'); if (onDone) await onDone();
+    } });
+}
+
 async function clientView(id) {
   const r = await api('GET', '/clients/' + id), c = r.client;
   if (c.id !== id) { location.hash = '#/clients/' + c.id; return; } // merged into another profile
@@ -4087,6 +4173,7 @@ async function settingsView() {
     })(),
     group('Independent reviewer', [onoff('review.auto')]),
     group('Project matching and auto mode', [num('matching.auto_max_flags'), list('auto.stop_rules', 'G15, G18'), onoff('matching.ai_order'), num('matching.shown'), num('matching.recommended'), num('matching.min_score'), num('selection.min'), num('selection.max')]),
+    group('Chats', [num('chats.quiet_days'), list('chats.stage_names', 'Chat opened, Call scheduled, Proposal sent, Client agreed, Lost')]), // R149
     group('Screening and tracking', [num('override.min_reason'), list('tracking.outcomes', 'Pending, Hired, ...'), list('tracking.loss_outcomes', 'Not hired, No response, ...'), list('tracking.loss_reasons', 'Budget too low, ...'), list('override.reasons', 'Invited by the client, ...'), list('skip.reasons', 'Budget or rate too low, ...'), num('tracking.quiet_days')]),
     group('Proposal writer', [list('writer.requirement_rules', 'G11, G12, G13'),
       (() => { const el = h('textarea', { rows: 2, style: 'min-width:380px;min-height:56px', 'aria-label': 'The Loom video line' }); el.value = settings['writer.loom_line']; return row('writer.loom_line', el, () => el.value.trim()); })(),
@@ -4179,6 +4266,7 @@ async function route() {
     if (a === 'dashboard' || !a) return await dashboardView();
     if (a === 'reports') return await reportsView();
     if (a === 'clients') return b ? await clientView(Number(b)) : await clientsView();
+    if (a === 'chats') return await chatsView();
     if (a === 'templates') { location.hash = '#/writing?tab=types'; return; } // the proposal types live on the Writing guide now
     if (a === 't' && b && me.role !== 'employee') return await templateView(b);
     if (a === 'o' && b) return await openingView(b); // R101: an opening template's own page

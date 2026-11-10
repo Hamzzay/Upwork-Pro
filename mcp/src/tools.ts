@@ -78,6 +78,14 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
     { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/jobs?' + new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))));
 
   T('get_job', 'One job in Upwork Pro: where it stands, its status and history, job_page (the job page as it was pasted, its link included), returning_client (other jobs we screened from the same Upwork client, how each went and why they match: tell the person), its latest proposal (the cover letter in text, the screening answers apart in screening_answers), and under "saved" everything each step saved (decision, tags, signals, profile and rate, the shortlist and the projects picked, whether tech stack tags were skipped, the type, the Loom video, how many drafts). "continue_from" names the step to continue at when the job was left halfway.', { id: z.number().int() }, { readOnlyHint: true }, async (a) => api.call('GET', `/plugin/jobs/${a.id}`));
+  T('list_chats', 'The Chats page: every job that reached a chat with the client (invites included), with the client\'s name, its stage (chat = Chat opened, questions and answers; call = Call scheduled; proposal = Proposal sent; agreed = Client agreed; lost), the last note, when it last moved and whether it went quiet. Use it in a sync to see which chats to update with update_chat. Everyone sees every chat.',
+    { stage: z.string().optional().describe('open, quiet, chat, call, proposal, agreed or lost; several joined with |'), q: z.string().optional().describe('Text in the client\'s name, company or job title') },
+    { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/chats?' + qs(a)));
+  T('update_chat', 'Move a chat on, after it happened on Upwork: its stage, a note, and the client\'s name. call marks the job Interview, agreed marks it Hired, lost needs the outcome (a lost outcome from plugin_options, default Not hired) and a loss reason; chat or call can take a later stage back. A note alone records a follow up (the chat is no longer quiet). Anyone may update any chat.',
+    { id: z.number().int().describe('The job id (list_chats gives it)'), stage: z.enum(['chat', 'call', 'proposal', 'agreed', 'lost']).optional(), note: z.string().optional().describe('What happened, in a sentence'),
+      outcome: z.string().optional().describe('With lost: the lost outcome'), reason: z.string().optional().describe('With lost: the loss reason, from plugin_options'),
+      client_name: z.string().optional().describe('The client\'s name as the chat shows it'), company: z.string().optional() },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false }, async ({ id, ...b }) => api.call('POST', `/plugin/chats/${id}`, b));
   T('get_client', 'A client profile (managers and admins), to check who was joined and why. With no id: the clients with the most jobs. With an id (26 or C-26): every job in it, with the country, member-since date, city, company and contact the matching saw, what each job was matched with and why, whether a person placed it by hand, and member_since_seen and countries_seen. More than one member-since date means different clients are in one profile.',
     { id: z.union([z.number().int(), z.string()]).optional() }, { readOnlyHint: true }, async (a) => api.call('GET', a.id == null ? '/plugin/clients' : `/plugin/clients/${encodeURIComponent(String(a.id))}`));
 
@@ -248,11 +256,12 @@ Never send the person's raw text: write every text field yourself in the format 
     { id: z.number().int(), status: z.string().describe('Sent, Viewed, Chat opened, Interview, or an outcome from plugin_options. An earlier step undoes the ones after it; "Not sent" undoes the send'), at: z.string().optional().describe('YYYY-MM-DD HH:MM, default now'),
       reason: z.string().optional().describe('Loss reason, required for a lost outcome'), note: z.string().optional().describe('A note about this status, e.g. what the client said'),
       connects: z.number().int().optional().describe('Connects the proposal cost (with Sent)'), boost: z.number().int().optional().describe('Extra Connects spent on a boost'), notes: z.string().optional().describe('The job\'s own notes (replaces them)'),
-      invited: z.boolean().optional().describe('With Sent: true when the client invited us to this job, false when we found it ourselves'), ...zoneParam },
+      invited: z.boolean().optional().describe('With Sent: true when the client invited us to this job, false when we found it ourselves'),
+      client_name: z.string().optional().describe('The client\'s name as the Upwork chat shows it, once a chat opened: kept on their client profile'), ...zoneParam },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     async (a) => {
       // no "at": the server takes now; an "at" is read in the time_zone asked for (the team's working day by default)
-      return api.call('POST', `/plugin/jobs/${a.id}/status` + (a.time_zone ? '?' + qs({ time_zone: a.time_zone }) : ''), { status: a.status, at: a.at, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes, invited: a.invited });
+      return api.call('POST', `/plugin/jobs/${a.id}/status` + (a.time_zone ? '?' + qs({ time_zone: a.time_zone }) : ''), { status: a.status, at: a.at, reason: a.reason, note: a.note, connects: a.connects, boost: a.boost, notes: a.notes, invited: a.invited, client_name: a.client_name });
     });
 
   // R121: corrections after checking Upwork against Upwork Pro, without recording a status again

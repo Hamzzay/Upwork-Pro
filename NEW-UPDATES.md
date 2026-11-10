@@ -242,3 +242,29 @@ Why: job 591, a second copy of job 589, rechecked R147 on live and tried the ste
   Dashboard returned to its exact numbers. Experience Yes was not pressed, so the library was not touched.
 - **Update status** opens once: a second press while it was loading stacked a second dialog.
 - Checked locally: the dialog opens once on a double press. Not yet checked on live.
+
+## R149. The Chats page (Hamza)
+
+Why: the chats are where the work is won, and they come to the whole team. Jobs track a chat only as one step, show no client name,
+and can be changed only by the person who submitted them. Hamza's process after a chat opens: questions and answers, a call, the
+proposal or quote, then the client says let's start.
+
+- **Chats** in the menu: every job that reached a chat (the client replied) and every invite that was sent, with the client's name and
+  company, the job, profile and person, the stage, the last note and when it last moved. Tiles for open chats, gone quiet and each stage;
+  filters for stage, proposals or invites, person and profile; search.
+- **Stages:** Chat opened (questions and answers), Call scheduled, Proposal sent, Client agreed, Lost (with the outcome and reason).
+  Chat opened, Call scheduled (Interview), Client agreed (Hired) and Lost are the job's own status and outcome, recorded by the same rules
+  as Update status, so Reports and the Dashboard stay right; Proposal sent is kept on the chat only. An earlier stage takes the later
+  ones back, as Update status does. A job's status changed elsewhere moves its chat with it. Existing chats appear at their stage at once.
+- **Everyone** who can open Jobs sees every chat and can update any of them; each move keeps who made it and a note (the chat's history,
+  and the job's History as "chat stage"). Update status on a job stays the owner's.
+- **Client's name** given on a chat (or by Claude) is kept on the client's profile, so every job of theirs shows it; it counts as a
+  person's edit, so R145's refresh keeps it.
+- **Gone quiet:** an open chat that has not moved for 3 days (Settings, Chats) is flagged on the page and on the Dashboard, which has a
+  Chats row (every chat, whatever the period). A note alone counts as a follow up. The stage names can be renamed in Settings.
+- **Claude:** `list_chats`, `update_chat`, and `client_name` on `update_status`; the job-status skill says how to use them in a sync.
+- Checked locally: every move through the API (the job's status after each, wrong or missing reasons refused, back to Chat opened
+  taking the interview and outcome away, history rows), the page, the dialog, the Dashboard row, a phone width, and that a team member
+  with no jobs of their own sees all chats and can move one on someone else's job while Update status still refuses them. The Settings fields
+  save, and stage names that are not five are refused. Not checked: the Claude tools through the connector (their routes were called
+  directly); on live, after the deploy.

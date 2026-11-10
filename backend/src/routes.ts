@@ -26,6 +26,7 @@ import { reviewer } from './routes_reviewer';
 import { feedback } from './routes_feedback';
 import { attachments, attachmentList } from './routes_attachments';
 import { uploads } from './screening/uploads';
+import { chatCounts, chats, setClientName, stageNames } from './chats';
 import { dropPrepared, prepareFiles, recordFiles, uploadBody } from './screening/attachments';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
@@ -55,6 +56,7 @@ api.use(setup);
 api.use(reviewer); // the Reviewer page (R61)
 api.use(feedback); // experience gaps and proposal feedback (R67)
 api.use(attachments); // documents attached to jobs (R74)
+api.use(chats); // R149: the Chats page
 api.use(uploads); // R123: files in pieces, so no size limit in front of the app stops them
 api.use(oauthApi);
 
@@ -471,6 +473,7 @@ const dashboard = async (req: any, res: any) => {
       starts_pakistan_time: b.start, ends_pakistan_time: b.end },
     happened: Object.fromEntries(Object.entries(happenedRow).map(([k, v]) => [k, n(v)])),
     stages: Object.fromEntries(stages.map((r) => [r.stage, n(r.n)])), needs_action: NEEDS_ACTION, waiting,
+    chats: { ...(await chatCounts()).counts, names: await stageNames() }, // R149: every chat, whatever the period: open ones by stage and those gone quiet
     daily: daily.reverse().map((r) => ({ day: String(r.d instanceof Date ? r.d.toLocaleDateString('sv') : r.d).slice(0, 10), screened: n(r.screened), continued: n(r.continued), proposals: n(r.proposals) })),
     by_user: canSeeAll(req.user!.role) ? await by('s.user_id', 'u.name') : [], by_profile: await by('s.upwork_profile_id', 'pr.name'),
     rules: [...rules.values()].sort((a, b) => b.fired - a.fired).slice(0, 12).map((r) => ({ ...r, type: ruleText.get(r.code)?.type ?? null, rule: ruleText.get(r.code)?.rule ?? null })),
@@ -1165,35 +1168,38 @@ const STEPS = ['Sent', 'Viewed', 'Chat opened', 'Interview'] as const;
 const STEP_COLS = ['', 'client_viewed', 'client_replied', 'interviewed'];
 const NOT_SENT = 'Not sent';
 // One click from the Jobs list: what happened on Upwork, and when (now unless the person changes it). Every change is kept.
-const postStatus = async (req: any, res: any) => {
+/**
+ * Records a status, with its rules. R149: the Chats page records statuses too, and there anyone may move any chat (chats come to the
+ * whole team), so the owner check is the caller's choice. Returns an error with its HTTP code, or what happened.
+ */
+export async function recordStatus(id: number, user: { id: number; role: string }, body: unknown, zone: string | undefined, anyone = false): Promise<{ code: number; error: string } | { out: Record<string, unknown> }> {
   const cfg = await getSettings(); const outcomes = cfg['tracking.outcomes'];
   const b = z.object({ status: z.string().trim().min(1).max(60), at: z.string().regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/, 'Pick a date and time').nullish(),
     reason: z.string().trim().max(120).nullish(), note: z.string().trim().max(2000).nullish(),
     connects: z.number().int().min(0).max(1000).nullish(), boost: z.number().int().min(0).max(1000).nullish(), notes: z.string().trim().max(4000).nullish(),
-    invited: z.boolean().nullish() }).safeParse(req.body);
-  if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+    invited: z.boolean().nullish() }).safeParse(body);
+  if (!b.success) return { code: 400, error: b.error.issues[0].message };
   const st = b.data.status === 'Replied' ? 'Chat opened' : b.data.status;
   // the time as the person said it (in their zone; for Claude, the team's working day unless it says otherwise), stored as Pakistan time; none: now
-  let at = b.data.at ? convertWall(b.data.at.replace('T', ' ').slice(0, 16) + ':00', req.zone ?? DB_ZONE, DB_ZONE) : wallClock(new Date(), DB_ZONE).slice(0, 16) + ':00';
+  let at = b.data.at ? convertWall(b.data.at.replace('T', ' ').slice(0, 16) + ':00', zone ?? DB_ZONE, DB_ZONE) : wallClock(new Date(), DB_ZONE).slice(0, 16) + ':00';
   const lost = cfg['tracking.loss_outcomes'].includes(st);
-  if (lost && !b.data.reason) return void res.status(400).json({ error: 'Say why the client did not go ahead' });
-  if (lost && !cfg['tracking.loss_reasons'].includes(b.data.reason!)) return void res.status(400).json({ error: 'Pick one of the listed reasons' });
-  if (Number.isNaN(Date.parse(at.replace(' ', 'T')))) return void res.status(400).json({ error: 'Not a real date' });
-  const id = Number(req.params.id);
-  const s = (await query<any>('SELECT user_id, status FROM screenings WHERE id=?', [id]))[0];
-  if (!s || (!canSeeAll(req.user!.role) && s.user_id !== req.user!.id)) return void res.status(404).json({ error: 'Not found' });
-  if (s.status !== 'done') return void res.status(409).json({ error: 'Wait until the screening is finished' });
+  if (lost && !b.data.reason) return { code: 400, error: 'Say why the client did not go ahead' };
+  if (lost && !cfg['tracking.loss_reasons'].includes(b.data.reason!)) return { code: 400, error: 'Pick one of the listed reasons' };
+  if (Number.isNaN(Date.parse(at.replace(' ', 'T')))) return { code: 400, error: 'Not a real date' };
+    const s = (await query<any>('SELECT user_id, status FROM screenings WHERE id=?', [id]))[0];
+  if (!s || (!anyone && !canSeeAll(user.role) && s.user_id !== user.id)) return { code: 404, error: 'Not found' };
+  if (s.status !== 'done') return { code: 409, error: 'Wait until the screening is finished' };
   const sets: Record<string, string> = {
     Sent: `proceeded='yes', proposal_sent_date=DATE(?), proposal_sent_at=?`,
     Viewed: `client_viewed='yes', client_viewed_at=?`, 'Chat opened': `client_replied='yes', client_replied_at=?`, Interview: `interviewed='yes', interviewed_at=?`,
   };
-  if (st !== NOT_SENT && !sets[st] && !outcomes.includes(st)) return void res.status(400).json({ error: 'Unknown status' });
+  if (st !== NOT_SENT && !sets[st] && !outcomes.includes(st)) return { code: 400, error: 'Unknown status' };
   // the Upwork statuses follow the proposal: it must be finished before it is sent, and sent before anything else
   const ph = (await query<any>(`SELECT (${stageSql}) AS stage FROM screenings s LEFT JOIN proposals p ON p.screening_id=s.id WHERE s.id=?`, [id]))[0]?.stage;
   // R124: a send that was taken back ("Not sent") can be recorded again, wherever the job's own steps stand
   const wasSent = st === 'Sent' && !['ready', 'submitted', 'closed'].includes(ph) && (await query<any>(`SELECT 1 FROM status_events WHERE screening_id=? AND status='Sent' LIMIT 1`, [id])).length > 0;
-  if (st === 'Sent' && !wasSent && !['ready', 'submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Finish the proposal before marking it as sent' });
-  if (st !== 'Sent' && !['submitted', 'closed'].includes(ph)) return void res.status(409).json({ error: 'Mark the proposal as sent first' });
+  if (st === 'Sent' && !wasSent && !['ready', 'submitted', 'closed'].includes(ph)) return { code: 409, error: 'Finish the proposal before marking it as sent' };
+  if (st !== 'Sent' && !['submitted', 'closed'].includes(ph)) return { code: 409, error: 'Mark the proposal as sent first' };
   const before = await trackSnapshot(id);
   // R124 (Hamza): a status picked by mistake can be undone. Picking an earlier step takes back the steps after it (and any outcome);
   // "Not sent" takes back the send itself. Nothing is lost: the old values stay in the job's history and the status history.
@@ -1215,11 +1221,18 @@ const postStatus = async (req: any, res: any) => {
   const more: [string, any][] = [['connects_spent', b.data.connects], ['boost_connects', b.data.boost], ['notes', b.data.notes], ['invited', b.data.invited == null ? null : b.data.invited ? 'yes' : 'no']].filter(([, v]) => v !== undefined && v !== null) as [string, any][];
   if (more.length) await exec(`UPDATE screenings SET ${more.map(([k]) => k + '=?').join(', ')} WHERE id=?`, [...more.map(([, v]) => v), id]);
   if (st === 'Sent') { const { recordSent } = await import('./routes_proposals'); await recordSent(id); } // R104: the version that went out
-  const filled = await fillEarlierSteps(id, req.user!.id, true); // R143: a chat or an interview fills in the steps before it
-  await recordChanges(id, before, await trackSnapshot(id), 'status', req.user!.id);
-  await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, req.user!.id, lost ? b.data.reason : null, b.data.note || null]);
-  await audit(req.user!.id, 'status_update', `screening=${id} status=${st} at=${at}${filled.length ? ' filled=' + filled.join(',') : ''}`);
-  res.json({ ok: true, ...(filled.length ? { filled_in: filled } : {}) });
+  const filled = await fillEarlierSteps(id, user.id, true); // R143: a chat or an interview fills in the steps before it
+  await recordChanges(id, before, await trackSnapshot(id), 'status', user.id);
+  await exec('INSERT INTO status_events (screening_id, status, happened_at, user_id, reason, note) VALUES (?,?,?,?,?,?)', [id, st, at, user.id, lost ? b.data.reason : null, b.data.note || null]);
+  await audit(user.id, 'status_update', `screening=${id} status=${st} at=${at}${filled.length ? ' filled=' + filled.join(',') : ''}`);
+  return { out: { ok: true, ...(filled.length ? { filled_in: filled } : {}) } };
+}
+const postStatus = async (req: any, res: any) => {
+  const r = await recordStatus(Number(req.params.id), req.user!, req.body, req.zone, false);
+  if ('error' in r) return void res.status(r.code).json({ error: r.error });
+  const name = z.object({ client_name: z.string().trim().min(2).max(120).optional() }).safeParse(req.body ?? {}); // R149: Claude names the client as it syncs
+  if (name.success && name.data.client_name) await setClientName(Number(req.params.id), req.user!, name.data.client_name);
+  res.json(r.out);
 };
 api.post('/screenings/:id/status', requireRole(), postStatus);
 api.post('/plugin/jobs/:id/status', requireRole(), postStatus); // the same rules for the Claude plugin

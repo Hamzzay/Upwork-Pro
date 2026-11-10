@@ -36,7 +36,9 @@ plugin sends **as is**: it never screens the job again or rewrites the proposal,
 | `get_writing_guide` | The writing guide: proposal types (when chosen, length), writing rules, banned phrases, modules, screening answers, checklist. Read-only. |
 | `add_profile` | Adds an Upwork profile Upwork Pro is missing, or fills the empty fields of an existing one (never overwrites). Admins. |
 | `add_project` | Adds a project to the library (links, overview, case study, tags), or fills empty fields and adds missing tags (never removes). Managers and admins. |
-| `update_status` | What happened on Upwork, with its date and time (default now): Sent, Viewed, Chat opened, Interview, then an outcome (a lost outcome needs a loss reason). |
+| `update_status` | What happened on Upwork, with its date and time (default now): Sent, Viewed, Chat opened, Interview, then an outcome (a lost outcome needs a loss reason). Takes `client_name` once a chat opened. |
+| `list_chats` | The Chats page: every job that reached a chat (invites included) with the client's name, its stage, last note and whether it went quiet. |
+| `update_chat` | Move a chat on: its stage (chat, call, proposal, agreed, lost with outcome and reason), a note, the client's name. Anyone may update any chat. |
 
 The same rules as the website apply, because the plugin calls the same API: Sent only once the proposal is finished, the other statuses
 only once it is Sent, a reason for every lost outcome, every change kept in the status and change history. A token reaches only the

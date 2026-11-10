@@ -176,6 +176,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 128 | Match the chosen projects updates only the answers: never the letter, no version when nothing changes (R146) | done |
 | 129 | Project matching asks what the job is about first (LexGuard on eviction job); Project order in the bar; block moves keep their description; dates a day apart are one client (R147) | done |
 | 130 | Live recheck of R147 on a test copy, and Update status opens only once (R148) | done |
+| 131 | Chats page: every chat and invite with the client's name, stages that follow the job's status, anyone can update, gone quiet on the Dashboard, Claude tools (R149) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)
