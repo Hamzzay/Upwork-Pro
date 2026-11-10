@@ -67,8 +67,12 @@ export async function chatCounts() {
   return { counts: { ...by, open: by.chat + by.call + by.proposal, quiet, total } };
 }
 
-/** The client's name (and company) as the chat shows it, kept on the client's profile so every job of theirs has it. */
-export async function setClientName(screeningId: number, user: { id: number }, name: string, company?: string | null) {
+/**
+ * The client's name and company as Upwork shows them (the person, and the agency or company, which can differ), kept on the client's
+ * profile so every job of theirs has them. R150: either one alone is fine; a field not given stays as it is.
+ */
+export async function setClientName(screeningId: number, user: { id: number }, name: string | null, company?: string | null) {
+  if (!name && !company) return;
   const s = (await query<any>('SELECT client_id, posting_json, title FROM screenings WHERE id=?', [screeningId]))[0]; if (!s) return;
   let cid: number | null = s.client_id ?? null;
   if (!cid) { // a job with no client profile yet gets one of its own
@@ -77,8 +81,8 @@ export async function setClientName(screeningId: number, user: { id: number }, n
     cid = Number((await exec('INSERT INTO clients (country, member_since) VALUES (?,?)', [cp?.country || null, cp?.memberSince || null])).insertId);
     await exec('UPDATE screenings SET client_id=?, client_checked_at=NOW() WHERE id=?', [cid, screeningId]);
   }
-  const fields = ['contact_name', ...(company ? ['company'] : [])];
-  await exec(`UPDATE clients SET contact_name=?${company ? ', company=?' : ''} WHERE id=?`, [name, ...(company ? [company] : []), cid]);
+  const set: [string, string][] = [...(name ? [['contact_name', name]] : []), ...(company ? [['company', company]] : [])] as [string, string][], fields = set.map(([k]) => k);
+  await exec(`UPDATE clients SET ${fields.map((k) => k + '=?').join(', ')} WHERE id=?`, [...set.map(([, v]) => v), cid]);
   await audit(user.id, 'client_update', `client=${cid} fields=${fields.join(',')}`); // R145: a field a person gave is theirs; the refresh keeps it
 }
 
@@ -90,7 +94,7 @@ export async function moveChat(id: number, user: { id: number; role: string }, d
   const cfg = await getSettings(), lost = cfg['tracking.loss_outcomes'];
   const s = (await query<any>(`SELECT s.id, ${STAGE} AS stage, s.client_replied, s.interviewed, s.outcome, s.chat_stage FROM screenings s WHERE s.id=? AND s.discarded_at IS NULL`, [lost, id]))[0];
   if (!s) return { code: 404, error: 'Not found' };
-  if (!d.stage && !d.note && !d.client_name) return { code: 400, error: 'Nothing to change' };
+  if (!d.stage && !d.note && !d.client_name && !d.company) return { code: 400, error: 'Nothing to change' };
   const cur = s.stage as ChatStage, to = d.stage ?? cur, names = await stageNames();
   if (to !== cur || (to === 'lost' && d.outcome && d.outcome !== s.outcome)) {
     const status = (st: string, extra: Record<string, unknown> = {}) => recordStatus(id, user, { status: st, note: d.note || null, ...extra }, zone, true);
@@ -105,7 +109,7 @@ export async function moveChat(id: number, user: { id: number; role: string }, d
     await exec('INSERT INTO field_changes (screening_id, field, old_value, new_value, source, user_id) VALUES (?,?,?,?,?,?)', [id, 'chat_stage', names[cur], names[to], 'chat', user.id]);
   } else if (d.note) await exec('UPDATE screenings SET chat_moved_at=NOW(), chat_note=? WHERE id=?', [d.note, id]); // a follow up made: it is not quiet any more
   if (to !== cur || d.note) await exec('INSERT INTO chat_events (screening_id, stage, note, user_id) VALUES (?,?,?,?)', [id, to, d.note || null, user.id]);
-  if (d.client_name) await setClientName(id, user, d.client_name, d.company || null);
+  if (d.client_name || d.company) await setClientName(id, user, d.client_name || null, d.company || null);
   await audit(user.id, 'chat_move', `screening=${id} stage=${to}${to !== cur ? ' from=' + cur : ''}${d.client_name ? ' client_name' : ''}`);
   return { ok: true, stage: to };
 }
@@ -130,4 +134,14 @@ chats.get('/chats', requireRole(), list);
 chats.get('/plugin/chats', requireRole(), list); // Claude, for Danyal's sync
 chats.get('/chats/:id/events', requireRole(), async (req, res) => { res.json({ events: await chatEvents(Number(req.params.id)) }); });
 chats.post('/chats/:id', requireRole(), move);
+// R150 (Hamza): the client's name and company from any job, chat or not; anyone on the team may give them
+export const nameBody = z.object({ client_name: z.string().trim().min(2, 'Write the name in full').max(120).optional(), company: z.string().trim().min(2).max(190).optional() })
+  .refine((b) => b.client_name || b.company, 'Give the person\'s name, the company, or both');
+chats.post('/screenings/:id/client-name', requireRole(), async (req, res) => {
+  const b = nameBody.safeParse(req.body ?? {}); if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
+  const id = Number(req.params.id);
+  if (!(await query<any>('SELECT id FROM screenings WHERE id=? AND discarded_at IS NULL', [id])).length) return void res.status(404).json({ error: 'Not found' });
+  await setClientName(id, req.user!, b.data.client_name ?? null, b.data.company ?? null);
+  res.json({ ok: true });
+});
 chats.post('/plugin/chats/:id', requireRole(), move);

@@ -271,9 +271,11 @@ Never send the person's raw text: write every text field yourself in the format 
       loom_video: z.string().nullable().optional().describe('The title of the Loom video sent, exactly as in plugin_options (null: none)'),
       invited: z.boolean().optional().describe('True when the client invited us to this job'),
       job_link: z.string().nullable().optional().describe('The job\'s Upwork link, https://www.upwork.com/jobs/~02... (null clears it). Jobs saved from now on get it by themselves'),
-      add_note: z.string().optional().describe('A note to add, for example "Client asked about the API limits; replied 23 Oct 5:48 PM; no answer since"') },
+      add_note: z.string().optional().describe('A note to add, for example "Client asked about the API limits; replied 23 Oct 5:48 PM; no answer since"'),
+      client_name: z.string().optional().describe('The client\'s own name as Upwork shows it in the chat or on the invite (the person, not the agency). Kept on their client profile; never guess it'),
+      company: z.string().optional().describe('The client\'s agency or company as Upwork shows it, when it differs from the person') },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-    async (a) => api.call('POST', `/plugin/jobs/${a.id}/details`, { connects: a.connects, boost: a.boost, loom_video: a.loom_video, invited: a.invited, job_link: a.job_link, add_note: a.add_note }));
+    async (a) => api.call('POST', `/plugin/jobs/${a.id}/details`, { connects: a.connects, boost: a.boost, loom_video: a.loom_video, invited: a.invited, job_link: a.job_link, add_note: a.add_note, client_name: a.client_name, company: a.company }));
 
   T('discard_job', 'Admins only: discard a job (a test, a duplicate, a stale draft never sent). It leaves every list, count, report and export, and Claude no longer sees it; nothing is deleted and an admin can restore it in the app. Always ask the person first and give the reason.',
     { id: z.number().int(), reason: z.string().describe('Why, for example "Stale, not sent" or "Duplicate of #197"') },

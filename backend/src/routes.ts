@@ -1244,9 +1244,13 @@ api.post('/plugin/jobs/:id/status', requireRole(), postStatus); // the same rule
 api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
   const b = z.object({ connects: z.number().int().min(0).max(1000).nullable().optional(), boost: z.number().int().min(0).max(1000).nullable().optional(),
     loom_video: z.string().trim().max(300).nullable().optional(), invited: z.boolean().optional(), add_note: z.string().trim().min(2).max(2000).optional(),
-    job_link: z.string().trim().max(500).regex(/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i, 'The job link must be an Upwork link').nullable().optional() }).safeParse(req.body ?? {});
+    job_link: z.string().trim().max(500).regex(/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i, 'The job link must be an Upwork link').nullable().optional(),
+    client_name: z.string().trim().min(2).max(120).optional(), company: z.string().trim().min(2).max(190).optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const d = b.data, id = Number(req.params.id);
+  // R150: the client's name and company as Upwork shows them, on the client's profile
+  if (d.client_name || d.company) { if ((await query<any>('SELECT id FROM screenings WHERE id=? AND discarded_at IS NULL', [id])).length) await setClientName(id, req.user!, d.client_name ?? null, d.company ?? null); }
+  const names = !!(d.client_name || d.company);
   const s = (await query<any>('SELECT notes, discarded_at FROM screenings WHERE id=?', [id]))[0];
   if (!s || s.discarded_at) return void res.status(404).json({ error: 'Not found' });
   const patch: Record<string, unknown> = {};
@@ -1263,7 +1267,7 @@ api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
     const stamp = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     patch.notes = [s.notes, `${stamp}, ${req.user!.name} (Claude): ${d.add_note}`].filter(Boolean).join('\n\n').slice(-4000);
   }
-  if (!Object.keys(patch).length) return void res.status(400).json({ error: 'Nothing to change: send connects, boost, loom_video, invited, job_link or add_note' });
+  if (!Object.keys(patch).length) return void (names ? res.json({ ok: true }) : res.status(400).json({ error: 'Nothing to change: send connects, boost, loom_video, invited, job_link, add_note, client_name or company' }));
   return applyTracking(req, res, patch, 'Claude plugin');
 });
 const getStatus = async (req: any, res: any) => {

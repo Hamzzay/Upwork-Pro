@@ -268,3 +268,18 @@ proposal or quote, then the client says let's start.
   with no jobs of their own sees all chats and can move one on someone else's job while Update status still refuses them. The Settings fields
   save, and stage names that are not five are refused. Not checked: the Claude tools through the connector (their routes were called
   directly); on live, after the deploy.
+
+## R150. The client's name and company from any job (Hamza, Danyal)
+
+Why: on job 481 (Jennifer's, now at Call scheduled on Chats) Upwork shows the person's name and their agency, but Upwork Pro had
+neither: a job post never shows the client's name, so the team has to add it, and the only place was the Chats dialog.
+
+- **Job page:** the Client card on Overview is always there now, with the person and the company on their own lines and an
+  Add name / Edit name button for anyone on the team. Before the decision it still shows only a client we already know.
+- **Chats:** a row with no name has an Add name button.
+- **Person and company** are separate (they can differ: a person at an agency) and either can be given alone; a field not given stays.
+  Both are kept on the client's profile, so every job of theirs shows them, and count as a person's edit (R145 keeps them).
+- **Claude:** `update_job_details` takes `client_name` and `company` for any job, chat or not; the job-status skill says to give both as
+  Upwork shows them and never to guess.
+- Checked locally: company alone, person alone keeping the company, Claude's details route, an empty or one letter name refused, the
+  job page card and dialog. Not checked on live yet.

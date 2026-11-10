@@ -2361,22 +2361,27 @@ async function jobPage(id, want) {
 
   /** R106 (Hamza): a client we have seen before: the other jobs from the same Upwork client, who had them and how each went. */
   /** R106, R112: the client, for the column beside the overview: who they are, their other jobs with us and how each went, why matched. */
-  function clientCard() {
-    if (!client) return null;
+  function clientCard(always = false) { // always: on Overview; before the decision only a client we know
+    // R150: always there, so the person's name and the company can be added from the job (Upwork shows them only in the chat)
+    const edit = h('button', { class: 'btn sm', type: 'button', onclick: () => nameDialog(s.id, client && client.contact_name, client && client.company, async () => { await refresh(); drawContent(); }) }, client && (client.contact_name || client.company) ? 'Edit name' : 'Add name');
+    if (!client && !always) return null;
+    if (!client) return h('div', { class: 'card card-pad ovside clientcard' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Client'), h('div', { class: 'small muted', style: 'margin:4px 0 10px' }, 'Not known yet.'), edit);
     const who = client.name || client.company || client.contact_name, n = (client.jobs || []).length;
-    if (!n && !who && !client.notes) return null;
+    if (!always && !n && !who && !client.notes) return null;
+    const named = [client.contact_name ? h('div', {}, h('strong', {}, client.contact_name)) : null, client.company ? h('div', { class: 'small' }, client.company) : null].filter(Boolean);
     const how = (j) => j.outcome || (j.interviewed === 'yes' ? 'Interview' : j.client_replied === 'yes' ? 'Chat opened' : j.client_viewed === 'yes' ? 'Viewed' : j.sent_at ? 'Sent' : j.proceeded === 'no' ? 'Skipped' : j.continued ? 'In progress' : 'Screened');
     const reasons = [...new Set(client.jobs.flatMap((j) => j.why || []))];
     return h('div', { class: 'card card-pad ovside clientcard' },
       h('div', { class: 'row spread', style: 'gap:8px' }, h('h3', { class: 'section-title', style: 'margin:0' }, n ? 'Returning client' : 'Client'), h('span', { class: 'cidchip' + (n ? ' ret' : '') }, clientId(client.id))),
-      h('div', { class: 'small muted', style: 'margin-top:4px' }, [who, client.country, client.member_since ? 'member since ' + client.member_since : null].filter(Boolean).join(' \u00b7 ') || ''),
+      named.length ? h('div', { style: 'margin-top:6px' }, ...named) : null,
+      h('div', { class: 'small muted', style: 'margin-top:4px' }, [named.length ? client.name : who, client.country, client.member_since ? 'member since ' + client.member_since : null].filter(Boolean).join(' \u00b7 ') || ''),
       n ? h('div', { class: 'ovjobs' }, client.jobs.slice(0, 5).map((j) => h(j.can_open ? 'a' : 'div', { class: 'ovjob', href: j.can_open ? '#/s/' + j.id : null, title: j.title || '' },
         h('div', { class: 'clclip', style: 'color:var(--text);font-weight:500' }, j.title || 'Untitled'),
         h('div', { class: 'small muted' }, `#${j.id} \u00b7 ${dayText(j.created_at)} \u00b7 ${j.profile_name || j.user_name} \u00b7 `, h('span', { class: 'ovhow' }, how(j)))))) : null,
       n > 5 ? h('div', { class: 'small muted' }, `and ${n - 5} more`) : null,
       reasons.length ? h('div', { class: 'small faint', style: 'margin-top:8px' }, 'Joined because ' + reasons.join('; ') + '.') : null,
       client.notes ? h('div', { class: 'small ovnote' }, client.notes) : null,
-      h('a', { class: 'btn sm', style: 'margin-top:10px;align-self:flex-start', href: '#/clients/' + client.id }, 'Client profile'));
+      h('div', { class: 'row', style: 'gap:8px;margin-top:10px' }, edit, h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')));
   }
   /** R112: why the gate said what it said, beside the decision, so the overview shows the flags themselves, not only their codes. */
   function gateCard() {
@@ -2434,7 +2439,7 @@ async function jobPage(id, want) {
     ].filter(([, v]) => v);
     const nextEl = next[0] && !(Number(s.auto_mode) && s.auto_state === 'running') ? h('div', { class: 'card card-pad nextline' }, h('div', { class: 'jp-sec' }, next[0]), next[1] ? h('div', { class: 'jp-label' }, next[1]) : null) : null;
     const factsEl = facts.length ? h('div', { class: 'card card-pad' }, h('h3', { class: 'section-title' }, 'The job so far'), h('dl', { class: 'facts' }, facts.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, cap(v)))))) : null;
-    const side = clientCard();
+    const side = clientCard(true);
     const main = h('div', { class: 'stack' }, Number(s.auto_mode) && s.auto_state ? autoCard() : null, gateCard(), factsEl, ['ready', 'submitted', 'closed'].includes(stage) ? trackingCard() : null);
     return h('div', { class: 'stack' },
       s.discarded_at ? h('div', { class: 'warnbox' }, h('strong', {}, icon('warn'), 'This job is discarded'),
@@ -3615,6 +3620,22 @@ async function clientsView() {
  * R149 (Hamza): the Chats page. Every job that reached a chat (and every invite), with the client's name, its stage and how long it has
  * been still. Anyone can update any chat: the stage, a note and the client's name. The stages the job tracks follow on the job.
  */
+/** R150 (Hamza): the client's name and company as Upwork shows them (the person, and their agency or company, which can differ). */
+function nameDialog(jobId, person, company, onDone) {
+  const p = h('input', { type: 'text', maxlength: 120, value: person || '', placeholder: 'For example: Jennifer Smith' });
+  const co = h('input', { type: 'text', maxlength: 190, value: company || '', placeholder: 'Their agency or company, if Upwork shows one' });
+  modal({ title: 'Client’s name', confirm: 'Save', body: h('div', {},
+    h('p', { class: 'small muted', style: 'margin-top:0' }, 'As Upwork shows them in the chat or on the invite. They are kept on the client’s profile, so every job of theirs shows them.'),
+    h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Person'), p), h('div', { class: 'field', style: 'margin-top:10px' }, h('label', { class: 'lbl' }, 'Company or agency'), co)),
+    onConfirm: async () => {
+      const a = p.value.trim(), b = co.value.trim();
+      const body = { ...(a && a !== (person || '') ? { client_name: a } : {}), ...(b && b !== (company || '') ? { company: b } : {}) };
+      if (!body.client_name && !body.company) throw new Error(a || b ? 'Nothing changed' : 'Give the person’s name, the company, or both');
+      await api('POST', `/screenings/${jobId}/client-name`, body); toast('Saved on the client’s profile'); if (onDone) await onDone();
+    } });
+  setTimeout(() => p.focus(), 50);
+}
+
 async function chatsView() {
   const hp = hashParams();
   if (!hp.stage && !hp.q && !hp.user && !hp.profile && !hp.kind) setHashParams({ stage: 'open' }); // open chats first
@@ -3622,7 +3643,7 @@ async function chatsView() {
   const STAGE_CLS = { agreed: 'good', lost: 'loss' };
   const stageChip = (c) => h('span', { class: 'chip ' + (STAGE_CLS[c.stage] || (c.stage === 'chat' ? '' : 'brand')) }, names[c.stage] + (c.stage === 'lost' && c.outcome ? ` (${c.outcome})` : ''));
   const row = (c) => h('tr', {},
-    h('td', { class: 'clcell' }, c.client_name ? h('strong', {}, c.client_name) : h('span', { class: 'faint' }, 'Name not given yet'),
+    h('td', { class: 'clcell' }, c.client_name ? h('strong', {}, c.client_name) : h('button', { class: 'linkbtn', type: 'button', onclick: () => nameDialog(c.id, null, c.company, chatsView) }, 'Add name'),
       c.company ? h('div', { class: 'small muted' }, c.company) : null,
       c.client_id ? h('a', { class: 'cidchip', href: '#/clients/' + c.client_id, style: 'margin-top:4px' }, clientId(c.client_id)) : null),
     h('td', { class: 'clcell' }, h('a', { href: `#/s/${c.id}/overview`, class: 'clclip strong', style: 'display:block', title: c.title || '' }, c.title || 'Job #' + c.id),
@@ -3678,11 +3699,11 @@ function chatDialog(c, d, onDone) {
     h('p', { class: 'small faint', style: 'margin:4px 0 0' }, 'The name is kept on the client’s profile, so every job of theirs shows it.'),
     h('details', { class: 'desc', style: 'margin-top:12px' }, h('summary', {}, 'History of this chat'), hist)),
     onConfirm: async () => {
-      const n = name.value.trim(), co = company.value.trim(), named = n && (n !== (c.client_name || '') || co !== (c.company || ''));
-      if (named && n.length < 2) throw new Error('Write the client’s name in full');
+      const n = name.value.trim(), co = company.value.trim(), newName = n && n !== (c.client_name || ''), newCo = co && co !== (c.company || '');
+      if (newName && n.length < 2) throw new Error('Write the client’s name in full');
       const body = { ...(pick !== c.stage || (pick === 'lost' && outcome.value !== c.outcome) ? { stage: pick } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
-        ...(pick === 'lost' ? { outcome: outcome.value, reason: reason.value || undefined } : {}), ...(named ? { client_name: n, company: co || undefined } : {}) };
-      if (!body.stage && !body.note && !body.client_name) throw new Error('Pick another stage, write a note, or give the client’s name');
+        ...(pick === 'lost' ? { outcome: outcome.value, reason: reason.value || undefined } : {}), ...(newName ? { client_name: n } : {}), ...(newCo ? { company: co } : {}) };
+      if (!body.stage && !body.note && !body.client_name && !body.company) throw new Error('Pick another stage, write a note, or give the client’s name');
       if (body.stage === 'lost' && !reason.value) throw new Error('Say why the client did not go ahead');
       await api('POST', `/chats/${c.id}`, body);
       toast(body.stage ? `Moved to ${names[pick]}` : 'Saved'); if (onDone) await onDone();

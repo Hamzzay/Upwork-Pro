@@ -43,8 +43,8 @@ Once a client opens a chat (and for every invite) the job is on the Chats page, 
 * Call `update_chat` with the job number and what happened: `stage` is `chat` (questions and answers), `call` (a call is booked;
   marks the job Interview), `proposal` (the proposal or quote went to the client), `agreed` (they said let's start; marks it Hired)
   or `lost` (with `outcome` and `reason`). Add a one sentence `note`. A note alone records a follow up.
-* Give `client_name` (and `company`) as the chat shows it, on `update_chat` or with `update_status` Chat opened. It is kept on the
-  client's profile. Never guess a name.
+* Give `client_name` (the person) and `company` (their agency or company, which can differ) as Upwork shows them, on `update_chat`,
+  on `update_job_details` for any job, or with `update_status` Chat opened. They are kept on the client's profile. Never guess a name.
 
 ## What is waiting on the client
 
