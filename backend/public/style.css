@@ -1349,3 +1349,22 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 .ss-pop.multi .ss-list li.any { color: var(--muted); border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; margin-bottom: 2px; }
 .ss-pop.multi .ss-list li.any::before { display: none; }
 .ss-pop.multi .ss-list li.sel { font-weight: 500; color: var(--text); }
+
+/* R151: client research */
+.research .rs-block { margin-bottom: 14px; }
+.research .rs-block:last-child { margin-bottom: 0; }
+.research .rs-h { font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+.research .rs-sub { margin-top: 12px; }
+.research .rs-sub .cfacts { margin-top: 6px; }
+.research .rs-result { border-top: 1px solid var(--line); padding-top: 12px; }
+.research .rs-flags strong { color: var(--flag); }
+.research .rs-ev td { vertical-align: top; font-size: 13px; }
+.research details.desc { margin-top: 10px; }
+.research ul.plain { margin: 6px 0 0; gap: 6px; }
+.research ul.plain li { display: block; position: relative; padding-left: 16px; }
+.research ul.plain li::before { position: absolute; left: 0; top: 0; }
+.research .cfacts dt { flex: none; width: 110px; }
+.research .cfacts > div { justify-content: flex-start; }
+.research .cfacts dd { text-align: left; font-weight: 400; }
+.research .rs-evwrap { overflow-x: auto; }
+.research .rs-could { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--flag-bg); border: 1px solid var(--flag-line); }

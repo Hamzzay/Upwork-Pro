@@ -89,6 +89,28 @@ export function registerTools(server: McpServer, api: Api, opts: { importDir?: s
   T('get_client', 'A client profile (managers and admins), to check who was joined and why. With no id: the clients with the most jobs. With an id (26 or C-26): every job in it, with the country, member-since date, city, company and contact the matching saw, what each job was matched with and why, whether a person placed it by hand, and member_since_seen and countries_seen. More than one member-since date means different clients are in one profile.',
     { id: z.union([z.number().int(), z.string()]).optional() }, { readOnlyHint: true }, async (a) => api.call('GET', a.id == null ? '/plugin/clients' : `/plugin/clients/${encodeURIComponent(String(a.id))}`));
 
+  // R151: who the client really is. Upwork hides most of it, so the research proves the person from what Upwork does show
+  const who = { client_id: z.union([z.number().int(), z.string()]).optional().describe('The client (26 or C-26)'), job_id: z.number().int().optional().describe('Or any job of theirs') };
+  const cid = (v: unknown) => (v == null ? undefined : Number(String(v).replace(/\D/g, '')) || undefined);
+  T('get_client_research', 'A client\'s research and contact details (anyone on the team). Gives the contact details the team saved (email, phone, website, LinkedIn, person, company), what_we_know (everything Upwork Pro knows about the client: Upwork\'s client section, their past jobs and the feedback on them, our jobs with them, chat notes), the latest research (who they are, how sure: confirmed, likely, unsure or not_found, the evidence for and against, people ruled out, talking points, red flags, sources), whether a run is going now, and how_to_research: the method to follow if you research them yourself.',
+    who, { readOnlyHint: true }, async (a) => api.call('GET', '/plugin/research?' + qs({ client_id: cid(a.client_id), job_id: a.job_id })));
+  T('research_client', 'Research a client on the web. Either start=true: Upwork Pro researches them on the server in the background (a few minutes; read it with get_client_research). Or result: research you did yourself with your own web search, following how_to_research from get_client_research exactly: the company first, then the person, in rounds; anchors from what_we_know first, the most specific clue first, every candidate checked against the anchors, and an honest confidence (a name alone is never a match; when unsure, leave company or person null and give the best leads in possible). Business facts only, every fact with its source. Tell the person what you found and how sure it is before saving.',
+    { ...who, start: z.boolean().optional(),
+      result: z.object({ identity: z.object({ confidence: z.enum(['confirmed', 'likely', 'unsure', 'not_found']), summary: z.string() }),
+        person: z.record(z.string(), z.any()).nullable().optional().describe('Only when likely or confirmed: name, job_title, works_at, based_in, linkedin, work_background'),
+        company_confidence: z.enum(['confirmed', 'likely', 'unsure', 'not_found']).optional(), person_confidence: z.enum(['confirmed', 'likely', 'unsure', 'not_found']).optional(),
+        possible: z.array(z.object({ about: z.enum(['company', 'person']), who: z.string(), why: z.string(), missing: z.string(), source: z.string() })).optional().describe('Leads not proven, shown as "could be, not sure yet"'),
+        company: z.record(z.string(), z.any()).nullable().optional().describe('name, website, linkedin, what_they_do, size, location, founded, recent_news'),
+        evidence: z.array(z.object({ fact: z.string(), upwork: z.string(), found: z.string(), verdict: z.enum(['matches', 'conflicts', 'unclear']), source: z.string() })).optional(),
+        rejected: z.array(z.object({ who: z.string(), why_not: z.string(), source: z.string() })).optional(),
+        business_fit: z.string().optional(), talking_points: z.array(z.string()).optional(), red_flags: z.array(z.string()).optional(), next_steps: z.array(z.string()).optional(),
+        searches: z.array(z.string()).optional(), sources: z.array(z.object({ title: z.string(), url: z.string() })).optional() }).optional() },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, async (a) => api.call('POST', '/plugin/research', { client_id: cid(a.client_id), job_id: a.job_id, start: a.start, result: a.result }));
+  T('save_client_contacts', 'Save how to reach a client, as the person learned it (the Upwork chat, a call, an email): email, phone, website, linkedin, and the person\'s name (contact_name) and company. Kept on the client\'s profile for every job of theirs; null clears a field. Never guess one: only what the person gave or a source you confirmed.',
+    { ...who, email: z.string().nullable().optional(), phone: z.string().nullable().optional(), website: z.string().nullable().optional(), linkedin: z.string().nullable().optional(),
+      contact_name: z.string().nullable().optional(), company: z.string().nullable().optional() },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true }, async ({ client_id, ...b }) => api.call('POST', '/plugin/client-contacts', { client_id: cid(client_id), ...b }));
+
   // ---------- analysis: many jobs at once, and the trend numbers ----------
   const jobFilters = {
     ...zoneParam,

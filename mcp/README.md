@@ -39,6 +39,9 @@ plugin sends **as is**: it never screens the job again or rewrites the proposal,
 | `update_status` | What happened on Upwork, with its date and time (default now): Sent, Viewed, Chat opened, Interview, then an outcome (a lost outcome needs a loss reason). Takes `client_name` once a chat opened. |
 | `list_chats` | The Chats page: every job that reached a chat (invites included) with the client's name, its stage, last note and whether it went quiet. |
 | `update_chat` | Move a chat on: its stage (chat, call, proposal, agreed, lost with outcome and reason), a note, the client's name. Anyone may update any chat. |
+| `get_client_research` | A client's contact details, everything Upwork Pro knows about them, the latest research (how sure, evidence, people ruled out, talking points, red flags, sources) and the research method. Anyone. |
+| `research_client` | Researches a client on the web: `start` runs it on the server; `result` saves research Claude did itself by the same method. Anyone. |
+| `save_client_contacts` | Saves how to reach a client (email, phone, website, LinkedIn, person, company) on their profile. Anyone. |
 
 The same rules as the website apply, because the plugin calls the same API: Sent only once the proposal is finished, the other statuses
 only once it is Sent, a reason for every lost outcome, every change kept in the status and change history. A token reaches only the

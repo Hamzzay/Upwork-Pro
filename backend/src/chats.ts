@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireRole } from './auth';
-import { clientPost } from './clients';
+import { ensureClient } from './clients';
 import { audit, exec, query } from './db';
 import { inviteSql } from './invite';
 import { recordStatus } from './routes';
@@ -73,14 +73,7 @@ export async function chatCounts() {
  */
 export async function setClientName(screeningId: number, user: { id: number }, name: string | null, company?: string | null) {
   if (!name && !company) return;
-  const s = (await query<any>('SELECT client_id, posting_json, title FROM screenings WHERE id=?', [screeningId]))[0]; if (!s) return;
-  let cid: number | null = s.client_id ?? null;
-  if (!cid) { // a job with no client profile yet gets one of its own
-    let post: any = null; try { post = s.posting_json ? JSON.parse(s.posting_json) : null; } catch { post = null; }
-    const cp = clientPost(s.title, post);
-    cid = Number((await exec('INSERT INTO clients (country, member_since) VALUES (?,?)', [cp?.country || null, cp?.memberSince || null])).insertId);
-    await exec('UPDATE screenings SET client_id=?, client_checked_at=NOW() WHERE id=?', [cid, screeningId]);
-  }
+  const cid = await ensureClient(screeningId); if (!cid) return;
   const set: [string, string][] = [...(name ? [['contact_name', name]] : []), ...(company ? [['company', company]] : [])] as [string, string][], fields = set.map(([k]) => k);
   await exec(`UPDATE clients SET ${fields.map((k) => k + '=?').join(', ')} WHERE id=?`, [...set.map(([, v]) => v), cid]);
   await audit(user.id, 'client_update', `client=${cid} fields=${fields.join(',')}`); // R145: a field a person gave is theirs; the refresh keeps it

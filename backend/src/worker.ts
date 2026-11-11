@@ -14,6 +14,7 @@ import { getSettings } from './settings';
 import { tagJob } from './screening/tagging';
 import { extractPosting } from './screening/posting';
 import { linkClient, linkUnchecked } from './clients';
+import { runResearch } from './research';
 import { runOpeningChat } from './proposal/openings';
 import { runAnswerChat } from './proposal/answer_edit';
 import { setPicks } from './screening/picks';
@@ -328,6 +329,10 @@ async function nextJob(allowBackground: boolean): Promise<Job | null> {
   if (op.length) return { kind: 'openings', claim: async () => !!(await exec(`UPDATE proposals SET openings_status='running' WHERE id=? AND openings_status='queued'`, [op[0].id])).affectedRows,
     run: () => withCallContext({ kind: 'proposal', proposalId: op[0].id, screeningId: op[0].screening_id }, () => processOpenings(op[0].id)) };
   if (!allowBackground) return null;
+  // R151: a client researched on the web. Someone asked for it, but it takes minutes, so it never holds the slot kept for quick work
+  const cr = await query<{ id: number; client_id: number }>(`SELECT id, client_id FROM client_research WHERE status='queued' ORDER BY id LIMIT 1`);
+  if (cr.length) return { kind: 'client_research', background: true, claim: async () => !!(await exec(`UPDATE client_research SET status='running' WHERE id=? AND status='queued'`, [cr[0].id])).affectedRows,
+    run: () => withCallContext({ kind: 'research' }, () => runResearch(cr[0].id)) };
   const ta = await query<{ id: number }>(`SELECT id FROM screenings WHERE tagging_status='queued' AND discarded_at IS NULL AND continued_at IS NULL AND ${NOT_READING('screenings.id')} ORDER BY id LIMIT 1`);
   if (ta.length) return tagging(ta[0].id, true);
   // R123: the digest of a long document (background: the document is already used, cut, until it is ready)
@@ -448,6 +453,7 @@ async function shutdown() {
   await exec(`UPDATE proposal_comparisons SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE screenings SET fit_reasons_status='queued' WHERE fit_reasons_status='running'`).catch(() => undefined);
   await exec(`UPDATE proposal_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
+  await exec(`UPDATE client_research SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE opening_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE answer_messages SET status='queued' WHERE status='running'`).catch(() => undefined);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`).catch(() => undefined);
@@ -478,6 +484,7 @@ async function main() {
   await exec(`UPDATE answer_messages SET status='queued' WHERE status='running'`);
   await exec(`UPDATE early_drafts SET status='queued' WHERE status='running'`);
   await exec(`UPDATE screenings SET posting_status='queued' WHERE posting_status='running'`);
+  await exec(`UPDATE client_research SET status='queued' WHERE status='running'`).catch(() => undefined); // R151 (before migration 081: no table)
   // R106: jobs saved before returning clients were looked for (no AI; a few seconds at most)
   linkUnchecked(5000).then((n) => { if (n) console.log(`clients checked for ${n} jobs`); }).catch((e) => console.error('client check failed', (e as Error).message));
   console.log(`worker started ai=${providerName === 'mock' ? 'mock' : 'chosen in Settings'} concurrency=${config.llm.concurrency}`);

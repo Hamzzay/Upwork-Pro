@@ -2,7 +2,8 @@ import 'dotenv/config'; // the provider is chosen at import time, so the env fil
 import { LlmCallError, runClaude, type RunOptions, type RunResult } from './claude-runner';
 import { llmContext } from './context';
 import { runOpenAI } from './openai';
-import { currentChoice, realCallsEnabled, PROVIDERS, type Choice } from './providers';
+import { getSettings } from '../settings';
+import { currentChoice, defaultModel, realCallsEnabled, PROVIDERS, type Choice } from './providers';
 
 /** Canned answer: no network, no cost. Shape matches the report contract. Triggers: [mock-pass], [mock-fail]. */
 async function mockRun(o: RunOptions): Promise<RunResult> {
@@ -14,6 +15,14 @@ async function mockRun(o: RunOptions): Promise<RunResult> {
     return { text: JSON.stringify(data), data, raw: {} };
   }
   const props: any = (o.schema as any)?.properties ?? {};
+  if (props.possible && props.evidence) { // a round of the client research (R151): nothing searched, so nothing is found
+    const data = { confidence: 'not_found', summary: 'Mock round: no web search was done.', found: null, possible: [], evidence: [], rejected: [], searches: ['mock search'], sources: [] };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
+  if (props.business_fit && props.talking_points) { // the research's summary
+    const data = { summary: 'Mock research: nothing was searched, so nothing was found.', business_fit: '', talking_points: ['Mock talking point.'], red_flags: [], next_steps: ['Ask the client for their company website.'] };
+    return { text: JSON.stringify(data), data, raw: {} };
+  }
   if (props.document_text) { // reading an attached image or scanned PDF (R74)
     const data = { document_text: `Mock reading of ${(o.files ?? []).map((f) => f.name).join(', ') || 'the file'}: no real reading was done.` };
     return { text: JSON.stringify(data), data, raw: {} };
@@ -86,6 +95,16 @@ async function dispatch(o: RunOptions, c: Choice): Promise<RunResult> {
   return runClaude({ ...withModel, keyName: undefined }); // GLM: LLM_BASE_URL and LLM_API_KEY from .env
 }
 
+/** R151: a call that searches the web (the client research) goes to the AI chosen in Settings, through the same Claude program as the
+ *  proposals. Only GPT is called another way, without the program's web tools, so a web call then goes to Claude with its model. */
+async function webChoice(): Promise<Choice> {
+  const c = await currentChoice();
+  if (c.provider !== 'openai') return c;
+  let model = defaultModel('claude');
+  try { model = (await getSettings())['ai.model.claude'] || model; } catch { /* a script: the default */ }
+  return { provider: 'claude', model };
+}
+
 /** A short, safe description of a failed call: a status or a known runner message, never model text. */
 function callError(e: unknown): string {
   if (e instanceof LlmCallError) return `model error${e.status ? ' ' + e.status : ''}`;
@@ -98,7 +117,7 @@ function callError(e: unknown): string {
 export async function run(o: RunOptions): Promise<RunResult> {
   const ctx = llmContext.getStore();
   const t0 = Date.now(); let ok = false; let err: string | null = null;
-  const choice: Choice | { provider: 'mock'; model: string } = realCallsEnabled() ? await currentChoice() : { provider: 'mock', model: o.model ?? 'mock' };
+  const choice: Choice | { provider: 'mock'; model: string } = !realCallsEnabled() ? { provider: 'mock', model: o.model ?? 'mock' } : o.web ? await webChoice() : await currentChoice();
   if (ctx) ctx.used = { provider: choice.provider, model: choice.model };
   try { const r = choice.provider === 'mock' ? await mockRun(o) : await dispatch(o, choice); ok = true; return r; }
   catch (e) { err = callError(e); throw e; }

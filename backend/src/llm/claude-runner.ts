@@ -18,6 +18,8 @@ export interface RunOptions {
   /** Files the model must look at (an image, a scanned PDF: R74). They are copied into the call's own folder, and the model may
    *  read only inside that folder. Without files the call has no tools at all. */
   files?: { path: string; name: string }[];
+  /** R151: the client research may search the web and read pages (WebSearch, WebFetch), and nothing else. */
+  web?: boolean;
 }
 
 export interface RunResult {
@@ -86,7 +88,8 @@ export async function runClaude(o: RunOptions): Promise<RunResult> {
       '--max-turns', String(o.maxTurns ?? 5),
       '--strict-mcp-config', '--no-session-persistence',
       // no tools: pure text in, text out. With files: Read only, and only inside this call's folder
-      ...(o.files?.length ? ['--tools', 'Read', '--allowedTools', 'Read(./**)'] : ['--tools', '']),
+      ...(o.web ? ['--tools', 'WebSearch,WebFetch', '--allowedTools', 'WebSearch,WebFetch']
+        : o.files?.length ? ['--tools', 'Read', '--allowedTools', 'Read(./**)'] : ['--tools', '']),
       '--system-prompt-file', join(root, 'system.txt'),
       ...(o.schema ? ['--json-schema', JSON.stringify(o.schema)] : []),
       '--disable-slash-commands', // no skills are used by this app

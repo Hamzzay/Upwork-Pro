@@ -2365,7 +2365,8 @@ async function jobPage(id, want) {
     // R150: always there, so the person's name and the company can be added from the job (Upwork shows them only in the chat)
     const edit = h('button', { class: 'btn sm', type: 'button', onclick: () => nameDialog(s.id, client && client.contact_name, client && client.company, async () => { await refresh(); drawContent(); }) }, client && (client.contact_name || client.company) ? 'Edit name' : 'Add name');
     if (!client && !always) return null;
-    if (!client) return h('div', { class: 'card card-pad ovside clientcard' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Client'), h('div', { class: 'small muted', style: 'margin:4px 0 10px' }, 'Not known yet.'), edit);
+    if (!client) return h('div', { class: 'card card-pad ovside clientcard' }, h('h3', { class: 'section-title', style: 'margin:0' }, 'Client'), h('div', { class: 'small muted', style: 'margin:4px 0 10px' }, 'Not known yet.'),
+      h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, edit, h('button', { class: 'btn sm', type: 'button', onclick: () => researchDialog({ job: s.id }, null, async () => { await refresh(); drawContent(); }) }, 'Research')));
     const who = client.name || client.company || client.contact_name, n = (client.jobs || []).length;
     if (!always && !n && !who && !client.notes) return null;
     const named = [client.contact_name ? h('div', {}, h('strong', {}, client.contact_name)) : null, client.company ? h('div', { class: 'small' }, client.company) : null].filter(Boolean);
@@ -2381,7 +2382,8 @@ async function jobPage(id, want) {
       n > 5 ? h('div', { class: 'small muted' }, `and ${n - 5} more`) : null,
       reasons.length ? h('div', { class: 'small faint', style: 'margin-top:8px' }, 'Joined because ' + reasons.join('; ') + '.') : null,
       client.notes ? h('div', { class: 'small ovnote' }, client.notes) : null,
-      h('div', { class: 'row', style: 'gap:8px;margin-top:10px' }, edit, h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')));
+      h('div', { class: 'row', style: 'gap:8px;margin-top:10px;flex-wrap:wrap' }, edit, h('button', { class: 'btn sm', type: 'button', onclick: () => researchDialog({ job: s.id }, null, async () => { await refresh(); drawContent(); }) }, 'Research'),
+        h('a', { class: 'btn sm', href: '#/clients/' + client.id }, 'Client profile')));
   }
   /** R112: why the gate said what it said, beside the decision, so the overview shows the flags themselves, not only their codes. */
   function gateCard() {
@@ -3636,6 +3638,119 @@ function nameDialog(jobId, person, company, onDone) {
   setTimeout(() => p.focus(), 50);
 }
 
+/**
+ * R151: who the client really is. How to reach them (email, phone, website, LinkedIn: kept on the client's profile), quick searches,
+ * and the research: the server looks them up on the web and proves it found the right person from what Upwork shows about them.
+ * by: { client } or { job } (a chat: the job's client). Draws itself into the element it returns, and keeps itself up to date while a run goes.
+ */
+function researchPanel(by, onChange) {
+  const box = h('div', { class: 'research' }, h('div', { class: 'muted small' }, 'Loading…'));
+  const base = by.client ? `/clients/${by.client}/research` : `/screenings/${by.job}/research`;
+  let timer = null;
+  const CONF = { confirmed: ['Confirmed', 'good'], likely: ['Likely', 'brand'], unsure: ['Not sure', 'warnchip'], not_found: ['Not found', ''] };
+  const link = (url, text) => h('a', { href: url, target: '_blank', rel: 'noopener noreferrer' }, text || url);
+  const domainOf = (email) => { const d = String(email || '').split('@')[1] || ''; return /^(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail)\./i.test(d) ? '' : d; };
+  const searchLinks = (c) => {
+    const q = (t) => 'https://www.google.com/search?q=' + encodeURIComponent(t), person = c.contact_name, co = c.company, place = c.country || '';
+    return [person && co ? [q(`"${person}" "${co}"`), 'Google: person and company'] : null, person ? [q(`"${person}" ${co || ''} ${place} site:linkedin.com/in`.replace(/\s+/g, ' ')), 'LinkedIn: the person'] : null,
+      co ? [q(`"${co}" ${place}`), 'Google: the company'] : null, co ? [q(`"${co}" site:linkedin.com/company`), 'LinkedIn: the company'] : null,
+      domainOf(c.email) ? ['https://' + domainOf(c.email), 'Their email’s website'] : null].filter(Boolean);
+  };
+  const draw = async () => {
+    clearTimeout(timer);
+    let r; try { r = await api('GET', base); } catch (x) { box.replaceChildren(h('div', { class: 'err' }, x.message)); return; }
+    if (!box.isConnected && box.dataset.drawn) return; // the page moved on
+    box.dataset.drawn = '1';
+    const c = r.client, L = r.latest, res = L && L.result;
+    // how to reach them
+    const reach = [['Email', c.email && h('a', { href: 'mailto:' + c.email }, c.email)], ['Phone', c.phone && h('a', { href: 'tel:' + c.phone.replace(/[^\d+]/g, '') }, c.phone)],
+      ['Website', c.website && link(c.website, c.website.replace(/^https?:\/\/(www\.)?/, ''))], ['LinkedIn', c.linkedin && link(c.linkedin, 'Open LinkedIn')]].filter(([, v]) => v);
+    const edit = h('button', { class: 'btn sm', type: 'button', onclick: () => contactDialog(c, async () => { await draw(); if (onChange) onChange(); }) }, reach.length ? 'Edit contact details' : 'Add contact details');
+    const contacts = h('div', { class: 'rs-block' }, h('div', { class: 'rs-h' }, 'How to reach them'),
+      reach.length ? h('dl', { class: 'cfacts' }, reach.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))) : h('p', { class: 'small muted', style: 'margin:0 0 8px' }, 'Nothing saved yet. Add an email, phone, website or LinkedIn when the client shares one.'),
+      edit);
+    const quick = searchLinks(c);
+    const quickBox = quick.length ? h('div', { class: 'rs-block' }, h('div', { class: 'rs-h' }, 'Search yourself'), h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, quick.map(([u, t]) => h('a', { class: 'btn sm', href: u, target: '_blank', rel: 'noopener noreferrer' }, t)))) : null;
+    // the research
+    const busy = r.busy;
+    const start = h('button', { class: 'btn primary sm', type: 'button', disabled: !!busy, onclick: async (e) => { const b = e.currentTarget; btnBusy(b, 'Starting');
+      try { await api('POST', `/clients/${c.id}/research`, by.job ? { job_id: by.job } : {}); toast('Research started. It takes a few minutes.'); } catch (x) { toast(x.message, true); } await draw(); } },
+      busy ? 'Researching…' : L ? 'Research again' : 'Research this client');
+    const failed = r.runs[0] && r.runs[0].status === 'failed' ? h('div', { class: 'warnbox', style: 'margin-top:8px' }, icon('info'), h('span', {}, r.runs[0].error || 'The research failed.')) : null;
+    const stageText = (st) => { if (!st) return 'Searching the web'; if (st === 'final') return 'Writing the summary';
+      const [n, focus, again] = st.split(':'); return `Round ${n}: ${focus === 'company' ? 'the company' : 'the person'}${again ? ', searching again a different way' : ''}`; };
+    const status = busy ? h('div', { class: 'small muted', style: 'margin-top:6px' }, `${busy.status === 'running' ? stageText(busy.stage) : 'Waiting to start'} \u00b7 started ${ago(busy.at)}${busy.by ? ' by ' + busy.by : ''}. Up to three rounds, a few minutes each; this updates by itself.`) : null;
+    const head = h('div', { class: 'rs-block' }, h('div', { class: 'row spread', style: 'gap:8px;align-items:center' }, h('div', { class: 'rs-h', style: 'margin:0' }, 'Research'), start), status, failed,
+      !L && !busy ? h('p', { class: 'small muted', style: 'margin:8px 0 0' }, 'Company first, then the person, in up to three rounds: a second round searches again a different way when the first finds nothing sure. It starts from what Upwork shows about them (their city, when they joined, their industry, what they hired for and their freelancers\u2019 feedback) and what you saved, and checks every match against those facts, so a business or person with the same name is not taken for them.') : null);
+    const out = [contacts, quickBox, head];
+    if (res) {
+      const [cl, cc] = CONF[res.identity.confidence] || [res.identity.confidence, ''];
+      const P = res.person, C = res.company;
+      const facts = (rows) => h('dl', { class: 'cfacts' }, rows.filter(([, v]) => v && (!Array.isArray(v) || v.length)).map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, Array.isArray(v) ? v.map((x) => String(x).trim()).map((x) => /[.!?]$/.test(x) ? x : x + '.').join(' ') : /^https?:\/\//.test(v) ? link(v) : v))));
+      const list = (title, items, cls) => items && items.length ? h('div', { class: 'rs-sub' + (cls ? ' ' + cls : '') }, h('strong', {}, title), h('ul', { class: 'plain' }, items.map((x) => h('li', {}, x)))) : null;
+      const keep = (C && (C.website || C.linkedin) || P && P.linkedin) && ['confirmed', 'likely'].includes(res.identity.confidence) && (!c.website && C && C.website || !c.linkedin && (P && P.linkedin || C && C.linkedin))
+        ? h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving');
+          try { await api('PATCH', `/clients/${c.id}/contacts`, { ...(!c.website && C && C.website ? { website: C.website } : {}), ...(!c.linkedin && (P && P.linkedin || C && C.linkedin) ? { linkedin: (P && P.linkedin) || C.linkedin } : {}) });
+            toast('Saved on the client'); await draw(); } catch (x) { toast(x.message, true); await draw(); } } }, 'Keep the website and LinkedIn found') : null;
+      const confChip = (c) => { const [t, k] = CONF[c] || [c, '']; return h('span', { class: 'chip ' + k }, t); };
+      // a part (the company, the person): what was proven, or the leads it could be, marked as not sure
+      const part = (title, conf, body, about) => {
+        const leads = (res.possible || []).filter((x) => (x.about || 'person') === about);
+        if (!body && !leads.length && !conf) return null;
+        return h('div', { class: 'rs-sub' }, h('div', { class: 'row', style: 'gap:8px;align-items:center' }, h('strong', {}, title), conf ? confChip(conf) : null),
+          body || null,
+          leads.length ? h('div', { class: 'rs-could' }, h('div', { class: 'small', style: 'font-weight:600' }, 'Could be (not sure yet)'), h('ul', { class: 'plain' }, leads.map((x) => h('li', {},
+            h('strong', {}, x.who), ': ' + x.why, x.missing ? h('div', { class: 'small muted' }, 'To be sure: ' + x.missing) : null, x.source && /^https?:/.test(x.source) ? h('div', { class: 'small' }, link(x.source, 'source')) : null)))) : null,
+          !body && !leads.length ? h('div', { class: 'small muted', style: 'margin-top:4px' }, 'Nothing found.') : null);
+      };
+      const ev = res.evidence || [];
+      const evTable = ev.length ? h('table', { class: 'rulestable rs-ev' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fact'), h('th', {}, 'What we know'), h('th', {}, 'What was found'), h('th', {}, ''))),
+        h('tbody', {}, ev.map((x) => h('tr', {}, h('td', {}, x.fact), h('td', {}, x.upwork), h('td', {}, x.found, x.source && /^https?:/.test(x.source) ? h('div', { class: 'small' }, link(x.source, 'source')) : null),
+          h('td', {}, h('span', { class: 'chip ' + (x.verdict === 'matches' ? 'good' : x.verdict === 'conflicts' ? 'warnchip' : '') }, x.verdict === 'matches' ? 'Matches' : x.verdict === 'conflicts' ? 'Conflicts' : 'Unclear')))))) : null;
+      out.push(h('div', { class: 'rs-block rs-result' },
+        h('div', { class: 'row', style: 'gap:8px;align-items:center;flex-wrap:wrap' }, h('span', { class: 'chip ' + cc }, cl), h('span', { class: 'small muted' },
+          `${L.source === 'claude' ? 'From Claude' : 'Researched'} ${ago(L.finished_at || L.at)}${L.by ? ' · ' + L.by : ''}`)),
+        h('p', { style: 'margin:8px 0 0' }, res.identity.summary),
+        part('The company', res.company_confidence, C && facts([['Name', C.name], ['What they do', C.what_they_do], ['Size', C.size], ['Location', C.location], ['Founded', C.founded], ['Website', C.website], ['LinkedIn', C.linkedin], ['In the news', C.recent_news]]), 'company'),
+        part('The person', res.person_confidence, P && facts([['Name', P.name], ['Job title', P.job_title || P.role], ['Works at', P.works_at], ['Based in', P.based_in || P.location], ['LinkedIn', P.linkedin], ['Background', P.work_background || P.background]]), 'person'),
+        keep ? h('div', { style: 'margin-top:8px' }, keep) : null,
+        res.business_fit ? h('div', { class: 'rs-sub' }, h('strong', {}, 'What it means for us'), h('p', { style: 'margin:4px 0 0' }, res.business_fit)) : null,
+        list('For the chat or call', res.talking_points), list('Does not add up', res.red_flags, 'rs-flags'), list('To be surer', res.next_steps),
+        evTable ? h('details', { class: 'desc', open: res.identity.confidence !== 'confirmed' }, h('summary', {}, `How it was checked (${ev.filter((x) => x.verdict === 'matches').length} match, ${ev.filter((x) => x.verdict === 'conflicts').length} conflict)`), h('div', { class: 'rs-evwrap' }, evTable)) : null,
+        res.rejected && res.rejected.length ? h('details', { class: 'desc', open: res.identity.confidence === 'unsure' }, h('summary', {}, `People ruled out or not proven (${res.rejected.length})`),
+          h('ul', { class: 'plain' }, res.rejected.map((x) => h('li', {}, h('strong', {}, x.who), ': ' + x.why_not, x.source && /^https?:/.test(x.source) ? h('span', {}, ' ', link(x.source, 'source')) : null)))) : null,
+        res.sources && res.sources.length ? h('details', { class: 'desc' }, h('summary', {}, `Sources (${res.sources.length})`), h('ul', { class: 'plain' }, res.sources.map((x) => h('li', {}, link(x.url, x.title || x.url))))) : null,
+        res.rounds && res.rounds.length ? h('details', { class: 'desc' }, h('summary', {}, `The rounds (${res.rounds.length})`), h('ul', { class: 'plain' }, res.rounds.map((x) => h('li', {},
+          h('strong', {}, `Round ${x.round}, ${x.focus === 'company' ? 'the company' : 'the person'}: `), (CONF[x.confidence] || [x.confidence])[0] + '. ', x.summary)))) : null,
+        res.searches && res.searches.length ? h('details', { class: 'desc' }, h('summary', {}, `Searches run (${res.searches.length})`), h('ul', { class: 'plain small' }, res.searches.map((x) => h('li', {}, x)))) : null));
+    }
+    const earlier = r.runs.filter((x) => !L || x.id !== L.id).filter((x) => x.status === 'done' || x.status === 'failed');
+    if (earlier.length) out.push(h('div', { class: 'small faint', style: 'margin-top:8px' }, `Earlier runs: ${earlier.slice(0, 5).map((x) => `${dayText(x.at)} ${x.status === 'failed' ? 'failed' : (CONF[x.confidence] || [x.confidence])[0]}`).join(', ')}`));
+    box.replaceChildren(...out.filter(Boolean));
+    if (busy) timer = setTimeout(() => { if (box.isConnected) draw(); }, 5000);
+  };
+  draw();
+  return box;
+}
+/** How to reach the client: email, phone, website, LinkedIn, and the person's name and company. */
+function contactDialog(c, onDone) {
+  const f = (key, label, type, placeholder) => { const el = h('input', { type, maxlength: 300, value: c[key] || '', placeholder }); return { key, el, box: h('div', { class: 'field', style: 'margin-top:10px' }, h('label', { class: 'lbl' }, label), el) }; };
+  const fields = [f('contact_name', 'Person', 'text', 'As Upwork shows them'), f('company', 'Company or agency', 'text', 'If they have one'), f('email', 'Email', 'email', 'Only one the client shared'),
+    f('phone', 'Phone', 'tel', 'With the country code'), f('website', 'Website', 'url', 'company.com'), f('linkedin', 'LinkedIn', 'url', 'linkedin.com/in/… or /company/…')];
+  modal({ title: 'Contact details', confirm: 'Save', body: h('div', {},
+    h('p', { class: 'small muted', style: 'margin-top:0' }, 'What the client shared in the chat, on a call or by email. Kept on their profile for every job of theirs, and used by the research to find the right person. Leave a box empty to clear it.'),
+    h('div', { class: 'grid2', style: 'gap:0 10px' }, fields.map((x) => x.box))),
+    onConfirm: async () => {
+      const body = {}; for (const x of fields) { const v = x.el.value.trim(); if (v !== (c[x.key] || '')) body[x.key] = v || null; }
+      if (!Object.keys(body).length) throw new Error('Nothing changed');
+      await api('PATCH', `/clients/${c.id}/contacts`, body); toast('Saved on the client’s profile'); if (onDone) await onDone();
+    } });
+}
+/** The research in a dialog, from a chat or a job. */
+function researchDialog(by, title, onChange) {
+  modal({ title: 'Client research', wide: true, noConfirm: true, body: h('div', {}, title ? h('p', { class: 'small muted', style: 'margin-top:0' }, h('strong', {}, title)) : null, researchPanel(by, onChange)) });
+}
+
 async function chatsView() {
   const hp = hashParams();
   if (!hp.stage && !hp.q && !hp.user && !hp.profile && !hp.kind) setHashParams({ stage: 'open' }); // open chats first
@@ -3652,7 +3767,8 @@ async function chatsView() {
     h('td', {}, h('div', { class: 'chips' }, stageChip(c), c.quiet ? h('span', { class: 'chip warnchip' }, `Quiet ${c.days_still} days`) : null)),
     h('td', { class: 'clcell' }, c.note ? h('div', { class: 'clclip', title: c.note }, c.note) : c.stage === 'lost' && c.outcome_reason ? h('div', { class: 'clclip' }, c.outcome_reason) : null,
       h('div', { class: 'small faint' }, ago(c.last_at))),
-    h('td', { class: 'acts' }, h('button', { class: 'btn sm', type: 'button', onclick: () => chatDialog(c, d, chatsView) }, 'Update')));
+    h('td', { class: 'acts' }, h('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' }, h('button', { class: 'btn sm', type: 'button', onclick: () => researchDialog({ job: c.id }, [c.client_name, c.company].filter(Boolean).join(' \u00b7 ') || c.title, chatsView) }, 'Research'),
+      h('button', { class: 'btn sm', type: 'button', onclick: () => chatDialog(c, d, chatsView) }, 'Update'))));
   const tile = (label, value, sub, stage, cls) => h('a', { class: 'stat kpi ' + (cls || ''), href: '#/chats?stage=' + stage }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), h('span', { class: 'sub small muted' }, sub));
   const people = [...new Map(d.chats.map((c) => [c.user_id, c.user_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   const profiles = [...new Map(d.chats.filter((c) => c.profile_id).map((c) => [c.profile_id, c.profile_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
@@ -3749,6 +3865,7 @@ async function clientView(id) {
   const open = c.open_jobs.length ? h('div', { class: 'clist' }, c.open_jobs.map((x) => h('div', { class: 'citem citem-row' }, h('span', {}, x.title), h('span', { class: 'small muted nowrap' }, 'seen ' + dayText(x.seen))))) : null;
 
   const main = h('div', { class: 'stack' }, why,
+    card('Who they are', 'How to reach them, and research on the web', h('div', { class: 'card-pad' }, researchPanel({ client: c.id }))),
     card('Their jobs with us', h('a', { href: '#/history?client=' + c.id }, 'Open in the Jobs list'), n ? h('div', { class: 'clist' }, jobs.map(jobRow)) : empty('No jobs.')),
     card('Their history on Upwork', `${c.history.length} past job${c.history.length === 1 ? '' : 's'}, from every post of theirs we saw`, history),
     open ? card('Their other open jobs', 'As listed on their posts', open) : null);

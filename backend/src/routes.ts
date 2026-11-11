@@ -27,6 +27,7 @@ import { feedback } from './routes_feedback';
 import { attachments, attachmentList } from './routes_attachments';
 import { uploads } from './screening/uploads';
 import { chatCounts, chats, setClientName, stageNames } from './chats';
+import { research } from './research';
 import { dropPrepared, prepareFiles, recordFiles, uploadBody } from './screening/attachments';
 import { oauthApi } from './oauth';
 import { htmlToPlain } from './html';
@@ -57,6 +58,7 @@ api.use(reviewer); // the Reviewer page (R61)
 api.use(feedback); // experience gaps and proposal feedback (R67)
 api.use(attachments); // documents attached to jobs (R74)
 api.use(chats); // R149: the Chats page
+api.use(research); // R151: the client's contact details and research
 api.use(uploads); // R123: files in pieces, so no size limit in front of the app stops them
 api.use(oauthApi);
 

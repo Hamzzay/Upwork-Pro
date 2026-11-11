@@ -283,3 +283,40 @@ neither: a job post never shows the client's name, so the team has to add it, an
   Upwork shows them and never to guess.
 - Checked locally: company alone, person alone keeping the company, Claude's details route, an empty or one letter name refused, the
   job page card and dialog. Not checked on live yet.
+
+## R151. Client research: the company first, then the person, in rounds, proved from what Upwork shows (Hamza)
+
+Why: in Chats and Clients the team wants to look a client up (web, LinkedIn) before a chat or a call. Upwork clients are mostly small
+and little known, and often all we have is a first name and maybe a company, so one search is not enough and a namesake must never be
+taken for the client.
+
+- **How to reach them:** a client profile now keeps an email, phone, website and LinkedIn beside the person and company (migration
+  081). Anyone on the team adds them (Contact details), from the client's page, a chat or a job. They count as a person's edit (R145),
+  and a merge carries them and the research to the profile kept.
+- **Research** (a button on Clients, on every Chats row, and on the job's Client card) runs on the worker in the background with the
+  same AI as the proposals (Settings, AI: on the server, the Claude program signed in there), with its web search and page reading
+  switched on for this step only. No new key or setting. The panel shows the round it is on and updates itself.
+- **Rounds, the company first:** (1) the company; (2) the person at that company, or, when the company was not proven, the company
+  again a different way (other spellings, quoted phrases from the posts, registers, directories, Google Maps, the product they
+  describe); (3) the person, or the person again (other spellings, the names in their freelancers' feedback). Then a short last step,
+  without searching, writes the summary, what it means for us, the points for the chat or call, what does not add up and what to ask.
+  A round with no answer is asked once more; a later round that still fails is kept as not done and the earlier rounds stand.
+- **The identity method** (`src/research.ts`): the anchors first, from everything Upwork Pro has on the client (city, country, local
+  time, member since, industry, size, what they hired for, past freelancers' feedback that names them, our jobs and chat notes, the
+  saved contacts); every candidate checked against them, with the evidence kept. Confirmed: the email domain or saved site, or three
+  anchors with no conflict; likely: two. Only those are shown as the answer. **A lead that is not proven is shown as "Could be (not
+  sure yet)"** with why and what is missing to be sure; with nothing credible it says nothing was found. A name alone is never a match,
+  two people are never mixed, business facts only, each with its source, and what a web page says is never taken as an instruction.
+- **The result:** the company and the person, each with how sure (Confirmed, Likely, Not sure, Not found), the leads it could be, how
+  each fact was checked, people ruled out, the rounds, sources and searches. A found website and LinkedIn can be kept on the client
+  with one click (only when confirmed or likely). Every run is kept; the newest is shown. Quick Google and LinkedIn searches too.
+- **Claude:** `get_client_research` (contacts, what we know, the latest research, the method), `research_client` (`start` on the
+  server, or `result` to save research Claude did itself by the same rounds), `save_client_contacts`. The job-status skill says how.
+- **Found on the way:** with a person result shaped as name, role, location and background, the model often ended the person round
+  with no answer at all; shaped as a business contact (name, job title, works at, based in, LinkedIn, work background) it answers
+  every time.
+- Checked locally with the Claude setup the proposals use: a small real company given only its job text, Estonia and "Uku" in a
+  freelancer's feedback came back company Likely, then person Likely, in two rounds; a made-up Australian company went three rounds
+  (the Australian company register included) and said not found; a very common name in Denver with only a physical therapy clinic
+  job went three rounds, 21 sources, ruled 13 people out and picked no one. The "could be" block, the panel and dialog, contact
+  details saved and refused when wrong, one run at a time per client, Claude's routes, a phone width. Not checked on live yet.

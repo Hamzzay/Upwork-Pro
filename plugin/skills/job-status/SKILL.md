@@ -46,6 +46,24 @@ Once a client opens a chat (and for every invite) the job is on the Chats page, 
 * Give `client_name` (the person) and `company` (their agency or company, which can differ) as Upwork shows them, on `update_chat`,
   on `update_job_details` for any job, or with `update_status` Chat opened. They are kept on the client's profile. Never guess a name.
 
+## Client research (R151)
+
+When the person wants to know who a client really is (before a chat or a call), or shares how to reach them:
+
+* Save what the client shared with `save_client_contacts` (`job_id` or `client_id`): `email`, `phone`, `website`, `linkedin`,
+  `contact_name`, `company`. Only what the person gave you or a source you confirmed; never guess an email or a phone.
+* `get_client_research` shows the saved details, `what_we_know` (everything Upwork showed about the client: city, country, member
+  since, industry, size, their past jobs and the freelancers' feedback, our jobs with them, chat notes) and the latest research.
+* To research: `research_client` with `start: true` runs it on the server (up to three rounds, a few minutes each; read it again with
+  `get_client_research`). Or research yourself with your own web search, following `how_to_research` exactly (the company first,
+  then the person, a second round when one is not found), and save it with `research_client` `result`.
+* The core rule: **a name alone is never a match.** Write the anchors from `what_we_know` first, search from the most specific clue
+  (email domain, website, company and city), check every candidate against the anchors, and say honestly how sure you are
+  (confirmed, likely, unsure, not_found). When unsure, do not pick: give the best leads under `possible` (shown as "could be, not
+  sure yet") with what is missing, the ruled out ones under `rejected`, and say what to ask the client.
+* Business facts only (role, company, website, LinkedIn, news), every fact with its source. Tell the person what you found and how
+  sure it is.
+
 ## What is waiting on the client
 
 When asked what is still open, call `find_jobs` with `phase: "submitted"` and list number, title, profile, status and how long since the last update.

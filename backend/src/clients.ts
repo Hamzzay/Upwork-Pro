@@ -139,7 +139,7 @@ export async function linkUnchecked(limit = 500): Promise<number> {
 export async function clientFor(screeningId: number) {
   const s = (await query<any>('SELECT id, client_id, client_match_json FROM screenings WHERE id=?', [screeningId]))[0];
   if (!s?.client_id) return null;
-  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes FROM clients WHERE id=?', [s.client_id]))[0];
+  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes, email, phone, website, linkedin FROM clients WHERE id=?', [s.client_id]))[0];
   if (!c) return null;
   let why: ClientMatch[] = []; try { why = s.client_match_json ? JSON.parse(s.client_match_json) : []; } catch { why = []; }
   const jobs = await query<any>(`SELECT s.id, s.user_id, s.title, s.created_at, s.verdict, s.proceeded, s.continued_at IS NOT NULL AS continued, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at,
@@ -154,7 +154,7 @@ export async function clientFor(screeningId: number) {
  * shows about them (the newest post's client section), and their history and other open jobs on Upwork, from every post we saw.
  */
 export async function clientProfile(clientId: number) {
-  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes, merged_into, created_at FROM clients WHERE id=?', [clientId]))[0];
+  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes, email, phone, website, linkedin, merged_into, created_at FROM clients WHERE id=?', [clientId]))[0];
   if (!c) return null;
   const posts = await query<any>('SELECT id, posting_json, created_at FROM screenings WHERE client_id=? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC', [clientId]);
   let about: { label: string; value: string }[] = [], aboutFrom: number | null = null;
@@ -197,8 +197,12 @@ export async function separateJob(screeningId: number): Promise<number> {
 
 /** Two profiles that are one client: every job of the first moves to the second, which keeps its own name and notes (the first's notes are added). */
 export async function mergeClients(fromId: number, intoId: number) {
-  const from = (await query<any>('SELECT name, notes FROM clients WHERE id=?', [fromId]))[0];
+  const from = (await query<any>('SELECT name, notes, email, phone, website, linkedin FROM clients WHERE id=?', [fromId]))[0];
   await exec('UPDATE screenings SET client_id=?, client_manual=1 WHERE client_id=?', [intoId, fromId]);
+  // R151: how to reach them and the research on them go along (the profile kept wins where both have a value)
+  await exec('UPDATE clients SET email=COALESCE(email, ?), phone=COALESCE(phone, ?), website=COALESCE(website, ?), linkedin=COALESCE(linkedin, ?) WHERE id=?',
+    [from?.email ?? null, from?.phone ?? null, from?.website ?? null, from?.linkedin ?? null, intoId]);
+  await exec('UPDATE client_research SET client_id=? WHERE client_id=?', [intoId, fromId]);
   await exec(`UPDATE clients SET name=COALESCE(name, ?), notes=IF(? IS NULL OR ? = '', notes, CONCAT_WS('\n\n', notes, ?)) WHERE id=?`, [from?.name ?? null, from?.notes ?? null, from?.notes ?? null, from?.notes ?? null, intoId]);
   await exec('UPDATE clients SET merged_into=? WHERE id=?', [intoId, fromId]);
 }
@@ -282,4 +286,16 @@ export async function regroupAll(): Promise<number> {
   }
   await refreshClients(); // a profile that lost jobs must not keep their details
   return changed;
+}
+
+/** R151: a job's client profile (the one it was merged into, if so). A job with no client profile yet gets one of its own. Null: no such job. */
+export async function ensureClient(screeningId: number): Promise<number | null> {
+  const s = (await query<any>('SELECT s.client_id, c.merged_into, s.posting_json, s.title FROM screenings s LEFT JOIN clients c ON c.id=s.client_id WHERE s.id=?', [screeningId]))[0];
+  if (!s) return null;
+  if (s.client_id) return Number(s.merged_into ?? s.client_id);
+  let post: any = null; try { post = s.posting_json ? JSON.parse(s.posting_json) : null; } catch { post = null; }
+  const cp = clientPost(s.title, post);
+  const cid = Number((await exec('INSERT INTO clients (country, member_since) VALUES (?,?)', [cp?.country || null, cp?.memberSince || null])).insertId);
+  await exec('UPDATE screenings SET client_id=?, client_checked_at=NOW() WHERE id=?', [cid, screeningId]);
+  return cid;
 }
