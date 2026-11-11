@@ -40,7 +40,19 @@ const NOT_WAITING = `NOT (s.chat_call_status='set' AND s.chat_call_at >= NOW())`
 /** A call to follow up (at the call stage): no time given yet (chats booked before R153), its time passed with no word on it, it was held (the next step is due), or the client did not join. */
 const CALL_TODO = `(s.chat_call_status IS NULL OR s.chat_call_status IN ('held','missed') OR (s.chat_call_status='set' AND s.chat_call_at < NOW()))`;
 
-export const chatFilters = z.object({ stage: z.string().max(200).optional(), quiet: z.enum(['1']).optional(), calls: z.enum(['todo', 'ahead']).optional(), q: z.string().trim().max(120).optional(),
+/** R154: the list's orders, the same as the page's. Times are "YYYY-MM-DD HH:MM:SS" in one zone, so they compare as text. Newest chat
+ *  first is the default, as Upwork lists its messages; each order falls back to it. */
+const byTime = (k: string, dir = -1) => (a: any, b: any) => dir * String(a[k] ?? '').localeCompare(String(b[k] ?? ''));
+const TODO_FLAGS = ['due', 'missed', 'held', 'no_time'];
+const rank = (c: any) => (TODO_FLAGS.includes(c.call_flag) ? 0 : c.quiet ? 1 : ['agreed', 'lost'].includes(c.stage) ? 3 : 2);
+const ORDER: Record<string, (a: any, b: any) => number> = {
+  opened: () => 0, updated: byTime('last_at'), sent: byTime('sent_at'),
+  attention: (a, b) => rank(a) - rank(b) || (rank(a) < 2 ? byTime('last_at', 1)(a, b) : 0), // the longest waiting first among those that need it
+  call: (a, b) => { const up = (c: any) => (c.call_flag === 'upcoming' ? 1 : 0); return up(b) - up(a) || (up(a) && up(b) ? byTime('call_at', 1)(a, b) : 0); },
+};
+
+export const chatFilters = z.object({ stage: z.string().max(200).optional(), quiet: z.enum(['1']).optional(), calls: z.enum(['todo', 'ahead']).optional(),
+  sort: z.enum(['opened', 'updated', 'attention', 'call', 'sent']).optional(), q: z.string().trim().max(120).optional(),
   user: z.string().max(200).optional(), profile: z.string().max(200).optional() });
 
 /** The chats, newest movement first, with the counts for the tabs and the Dashboard. */
@@ -56,12 +68,12 @@ export async function listChats(f: z.infer<typeof chatFilters> = {}) {
   if (many(f.profile).length) { where.push('pr.id IN (?)'); p.push(many(f.profile).map(Number)); }
   const rows = await query<any>(`SELECT s.id, s.title, s.client_id, COALESCE(c.contact_name, c.name) AS client_name, c.company, c.country, s.user_id, u.name AS user_name,
       pr.id AS profile_id, pr.name AS profile_name, ${inviteSql} AS invite, ${STAGE} AS stage, ${LAST} AS last_at, s.chat_note AS note,
-      COALESCE(s.client_replied_at, s.proposal_sent_at, s.proposal_sent_date) AS opened_at, s.outcome, s.outcome_reason,
+      COALESCE(s.client_replied_at, s.proposal_sent_at, s.proposal_sent_date) AS opened_at, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at, s.outcome, s.outcome_reason,
       s.chat_call_at AS call_at, s.chat_call_status AS call_status, s.chat_call_at >= NOW() AS call_ahead,
       ${STAGE} IN ('chat','call','proposal') AND ${LAST} < NOW() - INTERVAL ? DAY AND ${NOT_WAITING} AS quiet
-    ${FROM} WHERE ${where.join(' AND ')} ORDER BY quiet DESC, last_at DESC LIMIT 500`, [lost, lost, days, ...p]);
+    ${FROM} WHERE ${where.join(' AND ')} ORDER BY opened_at DESC LIMIT 500`, [lost, lost, days, ...p]);
   return { chats: rows.map(({ call_ahead, ...r }) => ({ ...r, invite: !!Number(r.invite), quiet: !!Number(r.quiet), days_still: Math.max(0, Math.floor((Date.now() - new Date(r.last_at).getTime()) / 86_400_000)),
-      call_flag: callFlag(r.stage, r.call_status, !!Number(call_ahead)) })),
+      call_flag: callFlag(r.stage, r.call_status, !!Number(call_ahead)) })).sort((a, b) => ORDER[f.sort ?? 'opened'](a, b) || byTime('opened_at')(a, b)),
     ...(await chatCounts()), stages: await stageNames(), quiet_days: days, loss_outcomes: lost, loss_reasons: cfg['tracking.loss_reasons'] };
 }
 

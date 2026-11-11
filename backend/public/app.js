@@ -496,24 +496,31 @@ const statusFilter = (get, off = 'Inactive') => ({ key: 'status', label: 'Any st
 /**
  * A list that is already in memory, with the filter bar on top: search, dropdown filters, pages, and an empty state.
  * o: { items, search: { placeholder, text(item) }, filters: [{ key, label, options, test(item, value) }], render(slice), icon, emptyTitle, emptyText,
- *      emptyAction, actions, paged (false shows everything), bare (true: the bar in its own card, the list below it), onSync }.
+ *      emptyAction, actions, paged (false shows everything), bare (true: the bar in its own card, the list below it), onSync,
+ *      sorts: [{ key, label, cmp(a, b) }] (R154: a Sort menu, the first is the default; the choice is kept in the URL and in this browser, under sortKey) }.
  * Search, filters and the page are kept in the URL, so Back returns to the same view.
  */
 function listCard(o) {
   const filters = o.filters || [], hp = hashParams();
   const st = { q: hp.q || '', page: Math.max(1, Number(hp.page) || 1) };
   for (const f of filters) st[f.key] = hp[f.key] || '';
+  const sorts = o.sorts || [], sortKey = 'sort.' + (o.sortKey || 'list');
+  let saved = ''; try { saved = localStorage.getItem(sortKey) || ''; } catch { /* no storage: the default */ }
+  st.sort = [hp.sort, saved].find((k) => sorts.some((x) => x.key === k)) || (sorts[0] && sorts[0].key) || '';
   const size = o.paged === false ? Infinity : pageSize();
   const body = h('div', {});
   const reset = () => { st.page = 1; draw(); };
   const searchEl = o.search ? fSearch(o.search.placeholder, st.q, (v) => { st.q = v; reset(); }) : null;
   const sels = filters.map((f) => fSelect(f.label, f.options, st[f.key], (v) => { st[f.key] = v; reset(); }));
-  const bar = filterBar([searchEl, ...sels], { actions: o.actions, onClear: () => { st.q = ''; if (searchEl) searchEl.input.value = ''; filters.forEach((f, i) => { st[f.key] = ''; sels[i].value = ''; }); reset(); } });
+  const sortEl = sorts.length ? h('select', { 'aria-label': 'Sort', class: 'fsel', title: 'Sort', onchange: (e) => { st.sort = e.target.value; try { localStorage.setItem(sortKey, st.sort); } catch { /* fine */ } reset(); } },
+    sorts.map((x) => h('option', { value: x.key, selected: x.key === st.sort }, 'Sort: ' + x.label))) : null;
+  const bar = filterBar([searchEl, ...sels, sortEl], { actions: o.actions, onClear: () => { st.q = ''; if (searchEl) searchEl.input.value = ''; filters.forEach((f, i) => { st[f.key] = ''; sels[i].value = ''; }); reset(); } });
   function draw() {
     const q = st.q.toLowerCase();
     const shown = o.items.filter((it) => (!q || o.search.text(it).toLowerCase().includes(q)) && filters.every((f) => !st[f.key] || String(st[f.key]).split('|').some((v) => f.test(it, v))));
+    const order = sorts.find((x) => x.key === st.sort); if (order) shown.sort(order.cmp);
     st.page = Math.min(st.page, Math.max(1, Math.ceil(shown.length / size)));
-    setHashParams({ q: st.q, page: st.page, ...Object.fromEntries(filters.map((f) => [f.key, st[f.key]])) });
+    setHashParams({ q: st.q, page: st.page, ...(sorts.length ? { sort: st.sort === sorts[0].key ? '' : st.sort } : {}), ...Object.fromEntries(filters.map((f) => [f.key, st[f.key]])) });
     if (o.onSync) o.onSync();
     const active = !!(st.q || filters.some((f) => st[f.key]));
     bar.setActive(active);
@@ -3762,6 +3769,23 @@ function callChip(c) {
   return h('div', { style: 'margin-top:6px' }, h('span', { class: 'chip ' + cls }, text));
 }
 
+/**
+ * R154: the orders the Chats list can take. Times from the server are "YYYY-MM-DD HH:MM:SS" in one zone, so they compare as text.
+ * Newest chat first is the default, as Upwork lists its messages.
+ */
+const byTime = (k, dir = -1) => (a, b) => dir * String(a[k] || '').localeCompare(String(b[k] || ''));
+const thenNewest = (cmp) => (a, b) => cmp(a, b) || byTime('opened_at')(a, b);
+const CALL_RANK = { due: 0, missed: 0, held: 0, no_time: 0 };
+const CHAT_SORTS = [
+  { key: 'opened', label: 'Newest chat', cmp: thenNewest(() => 0) },
+  { key: 'updated', label: 'Last update', cmp: thenNewest(byTime('last_at')) },
+  { key: 'attention', label: 'Needs attention', cmp: thenNewest((a, b) => { const r = (c) => (c.call_flag in CALL_RANK ? 0 : c.quiet ? 1 : ['agreed', 'lost'].includes(c.stage) ? 3 : 2);
+    return r(a) - r(b) || (r(a) < 2 ? byTime('last_at', 1)(a, b) : 0); }) }, // the longest waiting first among those that need it
+  { key: 'call', label: 'Next call', cmp: thenNewest((a, b) => { const up = (c) => c.call_flag === 'upcoming';
+    return (up(b) - up(a)) || (up(a) && up(b) ? byTime('call_at', 1)(a, b) : 0); }) },
+  { key: 'sent', label: 'Proposal sent', cmp: thenNewest(byTime('sent_at')) },
+];
+
 async function chatsView() {
   const hp = hashParams();
   if (!hp.stage && !hp.q && !hp.user && !hp.profile && !hp.kind) setHashParams({ stage: 'open' }); // open chats first
@@ -3794,6 +3818,7 @@ async function chatsView() {
       { key: 'kind', label: 'Proposals and invites', options: [['proposal', 'From our proposals'], ['invite', 'Invites']], test: (c, v) => (v === 'invite' ? c.invite : !c.invite) },
       { key: 'user', label: 'Anyone', options: people.map(([id, name]) => [String(id), name]), test: (c, v) => String(c.user_id) === v },
       { key: 'profile', label: 'Any profile', options: profiles.map(([id, name]) => [String(id), name]), test: (c, v) => String(c.profile_id) === v }],
+      sortKey: 'chats', sorts: CHAT_SORTS,
       render: (slice) => dataTable(['Client', 'Job', 'Stage', 'Last update', ''], slice.map(row), 'rulestable cltable') })], true);
 }
 

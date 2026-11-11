@@ -351,3 +351,17 @@ yesterday, so the proposal is due today. Knowing when a call is tells the team w
   rescheduled (coming up, not quiet), a call status on another stage refused, the move to Proposal sent marking it held, Claude's
   call time in US Eastern, the dialog (the same time refused when moving it), and a call-stage chat with no time given its time and
   "They did not join" in one save. Not checked on live yet.
+
+## R154. Chats can be sorted five ways (Hamza)
+
+Why: the Chats list had one fixed order (gone quiet first, then the last update), which did not match Upwork's, and the team wants to
+try a few orders to see which works best.
+- **A Sort menu** beside the filters: **Newest chat** (when the chat opened, newest first, as Upwork lists its messages; the default),
+  **Last update** (the last move, note or call on the chat), **Needs attention** (calls to follow up, then gone quiet chats, the
+  longest waiting first, then the open ones, then agreed and lost), **Next call** (calls coming up, soonest first) and **Proposal
+  sent** (newest first). Each falls back to the newest chat.
+- The choice is kept in the address (Back returns to it) and in this browser, so the page opens the way you left it.
+- `listCard` takes `sorts` for any list (only Chats uses it now).
+- **Claude:** `list_chats` takes the same `sort`.
+- Checked locally: each order on the page and through Claude's route, the choice kept after leaving the page. Upwork orders its
+  messages by the latest message, which Upwork Pro does not see; Last update is the nearest, when notes are kept up.
