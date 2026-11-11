@@ -397,3 +397,15 @@ Why: on live after R153, Gone quiet showed 0 (it was 12). The check that a call 
 `NOT (call_status='set' AND ...)`, which is NULL, not true, for a chat with no call, so no such chat could ever be quiet.
 - The check uses `<=>` (NULL-safe), so a chat with no call is quiet again after the quiet days; a call still to come is still not.
 - Checked locally: a chat with no call left six days counts as quiet; one with a call coming up does not.
+
+## R157. TrueList: the emails go as a file with a header, and a refusal says why (Hamza)
+
+Why: on live the first research with contacts (Jennifer's, C-288: company and person confirmed, one company email, one phone, two
+LinkedIn profiles) sent its one email to TrueList as a JSON list and TrueList refused it with 422, and the message did not say why.
+- **The batch is a named CSV file** (`upwork-pro-research-<run>.csv`) with an `email` header line, sent as multipart with the
+  `accurate` strategy, whatever the number of addresses. TrueList finds the address column by the header (LeadWorks saw it refuse a
+  one-line file without one); on the flat subscription the header line costs nothing.
+- **A refusal says why:** TrueList's own reason, every address masked as [email], one short line, on the page and on the run.
+- "Check with TrueList" on the research page sends a new batch for a run whose check was refused.
+- Checked locally against a stand-in for TrueList: the file, its name, the header and the strategy sent, no Content-Type of ours, and a
+  422 reason shown with the address masked. Not checked: the real TrueList (after the deploy, on C-288).

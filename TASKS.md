@@ -184,6 +184,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 136 | Chats sorted five ways: newest chat (default), last update, needs attention, next call, proposal sent; kept per browser; Claude (R154) | done |
 | 137 | Research on its own page, green dot when done, contacts round (LinkedIn, published and pattern emails, phones, several options), emails checked by TrueList, This is correct (R155) | done |
 | 138 | Gone quiet counted again: the call check was NULL for chats with no call (R156) | done |
+| 139 | TrueList batch sent as a named CSV with a header; a refusal shows TrueList's reason, addresses masked (R157) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

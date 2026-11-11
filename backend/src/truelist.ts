@@ -10,13 +10,23 @@ export const truelistReady = () => !!key();
 export interface EmailCheck { state: string; sub_state: string }
 export class TruelistFail extends Error {}
 
-async function call(method: 'GET' | 'POST', url: string, body?: unknown, timeoutMs = 60_000): Promise<Response> {
+/** TrueList's own words for a refusal, so the page can say why: its error field or the text, every address masked, one short line. */
+function refusal(body: string): string {
+  let t = body; try { const j = JSON.parse(body); const x = j.error ?? j.message ?? j.errors ?? j.detail; if (x !== undefined) t = typeof x === 'string' ? x : JSON.stringify(x); } catch { /* the text itself */ }
+  t = t.replace(/[^\s"'<>(),;:]+@[^\s"'<>(),;:]+/g, '[email]').replace(/\s+/g, ' ').trim();
+  return t.length > 120 ? t.slice(0, 119) + '…' : t;
+}
+
+async function call(method: 'GET' | 'POST', url: string, body?: FormData, timeoutMs = 60_000): Promise<Response> {
   let r: Response;
   try {
-    r = await fetch(url.startsWith('http') ? url : BASE + url, { method, signal: AbortSignal.timeout(timeoutMs),
-      headers: { Authorization: `Bearer ${key()}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    // a file goes as multipart: fetch writes its own Content-Type with the boundary
+    r = await fetch(url.startsWith('http') ? url : BASE + url, { method, signal: AbortSignal.timeout(timeoutMs), headers: { Authorization: `Bearer ${key()}` }, body });
   } catch { throw new TruelistFail('TrueList did not answer (network or timeout)'); }
-  if (!r.ok) throw new TruelistFail(`TrueList refused the request (status ${r.status})`); // never the body: it can hold the addresses
+  if (!r.ok) {
+    const why = r.status >= 400 && r.status < 500 && r.status !== 429 ? await r.text().then(refusal).catch(() => '') : '';
+    throw new TruelistFail(`TrueList refused the request (status ${r.status})${why ? ': ' + why : ''}`);
+  }
   return r;
 }
 
@@ -33,11 +43,18 @@ function csvRows(text: string): string[][] {
   return rows.filter((r) => r.some((x) => x.trim()));
 }
 
-/** Checks the addresses in one batch. onBatch gets the batch id as soon as TrueList gives it. Returns each address's state, by address. */
-export async function checkEmails(emails: string[], onBatch: (id: string) => Promise<void>, waitMs = 5 * 60_000): Promise<Map<string, EmailCheck>> {
+/**
+ * Checks the addresses in one batch. onBatch gets the batch id as soon as TrueList gives it. Returns each address's state, by address.
+ * The addresses go as a named CSV file with an "email" header line: TrueList finds the address column by it (a one-address batch sent
+ * as JSON was refused with 422 on live), and on the flat subscription the header line costs nothing. name: shown in TrueList's dashboard.
+ */
+export async function checkEmails(emails: string[], onBatch: (id: string) => Promise<void>, name = 'upwork-pro-client-research', waitMs = 5 * 60_000): Promise<Map<string, EmailCheck>> {
   if (!truelistReady()) throw new TruelistFail('TrueList is not set up on this server (TRUELIST_API_KEY)');
   const list = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
-  const created: any = await (await call('POST', '/api/v1/batches', { data: list.map((e) => [e]), validation_strategy: 'accurate' }, 120_000)).json().catch(() => null);
+  const form = new FormData();
+  form.append('file', new Blob([['email', ...list].join('\n') + '\n'], { type: 'text/csv' }), `${name.replace(/[^\w.-]+/g, '-')}.csv`);
+  form.append('validation_strategy', 'accurate');
+  const created: any = await (await call('POST', '/api/v1/batches', form, 120_000)).json().catch(() => null);
   const id = created?.id ?? created?.batch?.id;
   if (id == null) throw new TruelistFail('TrueList gave no batch id');
   await onBatch(String(id));

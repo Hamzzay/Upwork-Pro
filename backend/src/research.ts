@@ -318,7 +318,7 @@ export async function runResearch(id: number) {
 async function verifyContacts(id: number, data: { contacts: z.infer<typeof contactsBody> }, batchId?: string) {
   try {
     const found = batchId ? await readBatch(batchId) : await checkEmails(data.contacts.emails.map((e) => e.value),
-      (b) => exec('UPDATE client_research SET truelist_batch_id=?, truelist_error=NULL WHERE id=?', [b, id]).then(() => undefined));
+      (b) => exec('UPDATE client_research SET truelist_batch_id=?, truelist_error=NULL WHERE id=?', [b, id]).then(() => undefined), `upwork-pro-research-${id}`);
     const at = new Date().toISOString();
     for (const e of data.contacts.emails) { const r = found.get(e.value); if (r) e.truelist = { ...r, at }; }
     await exec('UPDATE client_research SET truelist_error=NULL WHERE id=?', [id]);
