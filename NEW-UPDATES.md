@@ -329,3 +329,25 @@ its own line on another, and a client whose company was saved as "." showed a lo
 - **The client cell** is the same on every row: the name (or Add name), the company, then the client ID on its own line. Invite too.
 - **A name or company with no letter or digit** (".") is not shown, and is refused when saved from the app or from Claude.
 - Checked locally at 1200, 1400 and 2000 pixels wide; "." and ".." refused.
+
+## R153. A chat's call has a time, and the chat says what to do once it passes (Hamza)
+
+Why: Jennifer's call was booked for last Thursday, she did not join, and she has not answered for almost a week; Miriam's call was
+yesterday, so the proposal is due today. Knowing when a call is tells the team when to ask how it went and what comes next.
+- **Call scheduled asks when** (date and time, in your own time zone; stored as Pakistan time like every time). Moving a chat to it
+  without a time is refused. A new time later reschedules it. Migration 082.
+- **On each chat row, under the stage:** "Call Fri 20 Nov, 18:30" while it is to come; once its time passes, "Call was ...: did it
+  happen?"; after "It happened", "Call held ...: next step due"; after "They did not join", "Did not join the call, N days ago:
+  follow up". A chat at the call stage booked before this shows "When is the call? Add its time".
+- **The Update dialog** asks it: did it happen, did they not join, or was it moved (a new time). A chat with no time yet takes the
+  time and how it went in one save. Moving from the call to Proposal sent or Client agreed after its time marks the call held.
+- **Follow up:** the Call scheduled tile (Chats and Dashboard) shows how many calls to follow up and how many are coming up, and is
+  marked when any need it; Chats has "Calls to follow up" and "Calls coming up" filters. A call still to come never counts as gone
+  quiet; a missed call's days count from the call.
+- **History:** "Call set for ...", "Call held", "Did not join the call" in the chat's history, and "chat call" in the job's History.
+- **Claude:** `update_chat` takes `call_at` (the team's zone) and `call_status` (held, missed); `list_chats` gives `call_time` and
+  `call_flag` and `calls: todo`; the job-status skill says to ask the person when the call is and how it went.
+- Checked locally: a move to the call without a time refused, a past call (due), not joined (missed, quiet after the quiet days),
+  rescheduled (coming up, not quiet), a call status on another stage refused, the move to Proposal sent marking it held, Claude's
+  call time in US Eastern, the dialog (the same time refused when moving it), and a call-stage chat with no time given its time and
+  "They did not join" in one save. Not checked on live yet.

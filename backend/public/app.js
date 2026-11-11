@@ -940,7 +940,7 @@ async function dashboardView() {
       d.chats ? h('div', { class: 'qrow' }, h('div', { class: 'qhead' }, h('h2', {}, 'Chats'), h('span', { class: 'faint small' }, 'Every chat, whatever the period')),
         h('div', { class: 'stats six' }, kpi('Open chats', d.chats.open, `${d.chats.chat} in Q&A`, '#/chats?stage=open'),
           kpi('Gone quiet', d.chats.quiet, d.chats.quiet ? 'Needs a follow up' : 'Nothing waiting', '#/chats?stage=quiet', d.chats.quiet ? 'NEED' : ''),
-          kpi(d.chats.names.call, d.chats.call, 'Call booked', '#/chats?stage=call'), kpi(d.chats.names.proposal, d.chats.proposal, 'Waiting on their yes', '#/chats?stage=proposal'),
+          kpi(d.chats.names.call, d.chats.call, d.chats.calls_todo ? `${d.chats.calls_todo} to follow up` : `${d.chats.calls_ahead || 0} coming up`, d.chats.calls_todo ? '#/chats?stage=calls' : '#/chats?stage=call', d.chats.calls_todo ? 'NEED' : ''), kpi(d.chats.names.proposal, d.chats.proposal, 'Waiting on their yes', '#/chats?stage=proposal'),
           kpi(d.chats.names.agreed, d.chats.agreed, `${d.chats.total ? Math.round((d.chats.agreed / d.chats.total) * 100) : 0}% of ${d.chats.total} chats`, '#/chats?stage=agreed', 'PASS'),
           kpi(d.chats.names.lost, d.chats.lost, 'After a chat', '#/chats?stage=lost'))) : null,
       // R82: how proposals are made now, and how good the review judged them (each opens its report or page)
@@ -3751,6 +3751,17 @@ function researchDialog(by, title, onChange) {
   modal({ title: 'Client research', wide: true, noConfirm: true, body: h('div', {}, title ? h('p', { class: 'small muted', style: 'margin-top:0' }, h('strong', {}, title)) : null, researchPanel(by, onChange)) });
 }
 
+/** R153: where a chat's call stands, under its stage: when it is, or what to do now that its time has passed. */
+const shortWhen = (s) => { const d = toDate(s); return d ? d.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: TZ }) : ''; };
+function callChip(c) {
+  if (!c.call_flag) return null;
+  const days = c.call_at ? Math.max(0, Math.floor((Date.now() - toDate(c.call_at).getTime()) / 86_400_000)) : 0;
+  const since = days ? ` \u00b7 ${days} day${days === 1 ? '' : 's'} ago` : '';
+  const [cls, text] = { no_time: ['warnchip', 'When is the call? Add its time'], upcoming: ['brand', `Call ${shortWhen(c.call_at)}`], due: ['warnchip', `Call was ${shortWhen(c.call_at)}: did it happen?`],
+    held: ['warnchip', `Call held ${dayText(c.call_at)}: next step due`], missed: ['warnchip', `Did not join the call${since}: follow up`] }[c.call_flag];
+  return h('div', { style: 'margin-top:6px' }, h('span', { class: 'chip ' + cls }, text));
+}
+
 async function chatsView() {
   const hp = hashParams();
   if (!hp.stage && !hp.q && !hp.user && !hp.profile && !hp.kind) setHashParams({ stage: 'open' }); // open chats first
@@ -3765,7 +3776,7 @@ async function chatsView() {
     h('td', { class: 'clcell' }, h('a', { href: `#/s/${c.id}/overview`, class: 'clclip strong', style: 'display:block', title: c.title || '' }, c.title || 'Job #' + c.id),
       h('div', { class: 'small muted' }, [c.profile_name, c.user_name, c.opened_at ? 'chat since ' + dayText(c.opened_at) : null].filter(Boolean).join(' · ')),
       c.invite ? h('div', { style: 'margin-top:6px' }, h('span', { class: 'chip' }, 'Invite')) : null),
-    h('td', {}, h('div', { class: 'chips' }, stageChip(c), c.quiet ? h('span', { class: 'chip warnchip' }, `Quiet ${c.days_still} days`) : null)),
+    h('td', {}, h('div', { class: 'chips' }, stageChip(c), c.quiet ? h('span', { class: 'chip warnchip' }, `Quiet ${c.days_still} days`) : null), callChip(c)),
     h('td', { class: 'clcell' }, c.note ? h('div', { class: 'clclip', title: c.note }, c.note) : c.stage === 'lost' && c.outcome_reason ? h('div', { class: 'clclip' }, c.outcome_reason) : null,
       h('div', { class: 'small faint' }, ago(c.last_at))),
     h('td', { class: 'acts' }, h('button', { class: 'btn sm', type: 'button', onclick: () => researchDialog({ job: c.id }, [c.client_name, realText(c.company)].filter(Boolean).join(' \u00b7 ') || c.title, chatsView) }, 'Research'),
@@ -3775,11 +3786,11 @@ async function chatsView() {
   const profiles = [...new Map(d.chats.filter((c) => c.profile_id).map((c) => [c.profile_id, c.profile_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   shell('chats', [pageHead('Chats', `Every job that reached a chat with the client, invites included: ${n.total} in all, ${n.open} open. Update a chat as it moves: the stage, a note and the client's name. Chat opened, ${names.call} and ${names.agreed} also update the job's own status, and a chat that has not moved for ${d.quiet_days} days is flagged.`),
     h('div', { class: 'stats six' }, tile('Open chats', n.open, 'Still in conversation', 'open'), tile('Gone quiet', n.quiet, `Not moved for ${d.quiet_days}+ days`, 'quiet', n.quiet ? 'NEED' : ''),
-      tile(names.call, n.call, 'Call booked', 'call'), tile(names.proposal, n.proposal, 'Waiting on their yes', 'proposal'), tile(names.agreed, n.agreed, `${n.total ? Math.round((n.agreed / n.total) * 100) : 0}% of chats`, 'agreed', 'PASS'), tile(names.lost, n.lost, 'With the reason', 'lost')),
+      tile(names.call, n.call, n.calls_todo ? `${n.calls_todo} to follow up \u00b7 ${n.calls_ahead} coming up` : `${n.calls_ahead} coming up`, n.calls_todo ? 'calls' : 'call', n.calls_todo ? 'NEED' : ''), tile(names.proposal, n.proposal, 'Waiting on their yes', 'proposal'), tile(names.agreed, n.agreed, `${n.total ? Math.round((n.agreed / n.total) * 100) : 0}% of chats`, 'agreed', 'PASS'), tile(names.lost, n.lost, 'With the reason', 'lost')),
     listCard({ items: d.chats, paged: true, icon: 'message', emptyTitle: 'No chats yet', emptyText: 'A job appears here once its client opens a chat, or when it came as an invite.',
       search: { placeholder: 'Search by client, company or job', text: (c) => [c.client_name, c.company, c.title, clientId(c.client_id || 0), c.note].join(' ') },
-      filters: [{ key: 'stage', label: 'Every chat', options: [['open', 'Open chats'], ['quiet', 'Gone quiet'], ...['chat', 'call', 'proposal', 'agreed', 'lost'].map((k) => [k, names[k]])],
-        test: (c, v) => (v === 'open' ? ['chat', 'call', 'proposal'].includes(c.stage) : v === 'quiet' ? c.quiet : c.stage === v) },
+      filters: [{ key: 'stage', label: 'Every chat', options: [['open', 'Open chats'], ['quiet', 'Gone quiet'], ['calls', 'Calls to follow up'], ['upcoming', 'Calls coming up'], ...['chat', 'call', 'proposal', 'agreed', 'lost'].map((k) => [k, names[k]])],
+        test: (c, v) => (v === 'open' ? ['chat', 'call', 'proposal'].includes(c.stage) : v === 'quiet' ? c.quiet : v === 'calls' ? ['due', 'held', 'missed'].includes(c.call_flag) : v === 'upcoming' ? c.call_flag === 'upcoming' : c.stage === v) },
       { key: 'kind', label: 'Proposals and invites', options: [['proposal', 'From our proposals'], ['invite', 'Invites']], test: (c, v) => (v === 'invite' ? c.invite : !c.invite) },
       { key: 'user', label: 'Anyone', options: people.map(([id, name]) => [String(id), name]), test: (c, v) => String(c.user_id) === v },
       { key: 'profile', label: 'Any profile', options: profiles.map(([id, name]) => [String(id), name]), test: (c, v) => String(c.profile_id) === v }],
@@ -3799,17 +3810,38 @@ function chatDialog(c, d, onDone) {
     proposal: 'The proposal or quote went to the client, and we wait for their yes.', agreed: 'They said let’s get started. The job is marked Hired.', lost: 'It ended without work. The job gets this outcome and reason.' };
   const draw = () => { grid.replaceChildren(...['chat', 'call', 'proposal', 'agreed', 'lost'].map((k) => h('button', { type: 'button', role: 'radio', 'aria-checked': pick === k,
     class: 'chip' + (pick === k ? ' brand' : '') + (k === 'lost' ? ' loss' : ''), onclick: () => { pick = k; draw(); } }, names[k] + (k === c.stage ? ' (now)' : ''))));
-    lossBox.hidden = pick !== 'lost'; hint.textContent = HINT[pick]; };
+    lossBox.hidden = pick !== 'lost'; hint.textContent = HINT[pick]; drawCall(); };
+  // R153: the call. A new call needs its time; once its time has passed, how it went (or a new time when it was moved)
+  const hasCall = c.stage === 'call' && c.call_at;
+  const noTime = c.stage === 'call' && !c.call_at; // booked before calls had a time: give it, and how it went if it is past
+  let callPick = noTime ? 'ahead' : !hasCall ? 'move' : c.call_flag === 'due' ? '' : 'keep';
+  const callAt = h('input', { type: 'datetime-local', 'aria-label': 'When the call is' });
+  const oldLocal = hasCall ? toDate(c.call_at).toLocaleString('sv', { timeZone: TZ }).replace(' ', 'T').slice(0, 16) : '';
+  if (c.call_flag === 'upcoming') callAt.value = oldLocal; // moving a call still to come starts from its time; a passed one needs a new one
+  const callChoices = h('div', { class: 'statuspick', role: 'radiogroup', 'aria-label': 'The call' });
+  const callTimeBox = h('div', { class: 'field', style: 'margin-top:8px' }, h('label', { class: 'lbl' }, `${noTime ? 'When is or was the call?' : 'When is the call?'} (${ZONE_NAMES[TZ] || TZ})`), callAt);
+  const callBox = h('div', { class: 'callbox' });
+  function drawCall() {
+    callBox.hidden = pick !== 'call';
+    if (callBox.hidden) return;
+    const opts = noTime ? [['ahead', 'Still to come'], ['held', 'It happened'], ['missed', 'They did not join']] : !hasCall ? [] : c.call_flag === 'upcoming' ? [['keep', 'Keep this time'], ['move', 'Moved to a new time']]
+      : [['held', 'It happened'], ['missed', 'They did not join'], ['move', 'Moved to a new time'], ...(c.call_flag === 'due' ? [] : [['keep', 'No change']])];
+    callChoices.replaceChildren(...opts.map(([k, t]) => h('button', { type: 'button', role: 'radio', 'aria-checked': callPick === k, class: 'chip' + (callPick === k ? ' brand' : ''), onclick: () => { callPick = k; drawCall(); } }, t)));
+    callTimeBox.hidden = !noTime && callPick !== 'move';
+    const q = noTime ? 'This call has no time yet. Add when it is, or was, and how it went.' : !hasCall ? null : c.call_flag === 'upcoming' ? `The call is ${full(c.call_at)}.` : c.call_flag === 'due' ? `The call was ${full(c.call_at)}. Did it happen?`
+      : c.call_flag === 'held' ? `The call was held ${full(c.call_at)}. Move the chat on when the next step is done (Proposal sent).` : `They did not join the call on ${full(c.call_at)}. When they rebook, give the new time.`;
+    callBox.replaceChildren(...[q ? h('p', { class: 'small', style: 'margin:0 0 8px' }, h('strong', {}, q)) : null, opts.length ? callChoices : null, callTimeBox].filter(Boolean));
+  }
   draw();
   const note = h('textarea', { rows: 3, maxlength: 500, placeholder: 'What happened? For example: answered their questions about the timeline; call on Tuesday' });
   const name = h('input', { type: 'text', maxlength: 120, value: c.client_name || '', placeholder: 'As the chat shows it' });
   const company = h('input', { type: 'text', maxlength: 190, value: c.company || '', placeholder: 'Optional' });
   const hist = h('div', { class: 'small muted' }, 'Loading…');
-  api('GET', `/chats/${c.id}/events`).then((r) => hist.replaceChildren(...(r.events.length ? [h('ul', { class: 'plain' }, r.events.map((e) => h('li', {}, h('strong', {}, names[e.stage] || e.stage),
+  api('GET', `/chats/${c.id}/events`).then((r) => hist.replaceChildren(...(r.events.length ? [h('ul', { class: 'plain' }, r.events.map((e) => h('li', {}, h('strong', {}, e.what === 'call_set' ? `Call set for ${full(e.call_at)}` : e.what === 'call_held' ? 'Call held' : e.what === 'call_missed' ? 'Did not join the call' : names[e.stage] || e.stage),
     h('span', { class: 'muted' }, ` · ${ago(e.created_at)}${e.user_name ? ' · ' + e.user_name : ''}`), e.note ? h('div', {}, e.note) : null)))] : ['Not updated here yet.']))).catch(() => hist.replaceChildren('Could not load the history.'));
   modal({ title: 'Update chat', confirm: 'Save', body: h('div', {},
     h('p', { class: 'small muted', style: 'margin-top:0' }, h('strong', {}, c.title || 'Job #' + c.id)),
-    grid, hint, lossBox,
+    grid, hint, lossBox, callBox,
     h('div', { class: 'field', style: 'margin-top:12px' }, h('label', { class: 'lbl' }, 'Note'), note),
     h('div', { class: 'row', style: 'gap:10px;margin-top:12px;flex-wrap:wrap' }, h('div', { class: 'field', style: 'flex:1;min-width:180px' }, h('label', { class: 'lbl' }, 'Client’s name'), name),
       h('div', { class: 'field', style: 'flex:1;min-width:180px;margin-top:0' }, h('label', { class: 'lbl' }, 'Company'), company)),
@@ -3818,12 +3850,16 @@ function chatDialog(c, d, onDone) {
     onConfirm: async () => {
       const n = name.value.trim(), co = company.value.trim(), newName = n && n !== (c.client_name || ''), newCo = co && co !== (c.company || '');
       if (newName && n.length < 2) throw new Error('Write the client’s name in full');
-      const body = { ...(pick !== c.stage || (pick === 'lost' && outcome.value !== c.outcome) ? { stage: pick } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
+      if (pick === 'call' && (callPick === 'move' || noTime) && !callAt.value) throw new Error('Give the call\u2019s date and time');
+      if (pick === 'call' && hasCall && callPick === 'move' && callAt.value === oldLocal) throw new Error('That is the same time: give the new one');
+      if (pick === 'call' && hasCall && !callPick) throw new Error('Say whether the call happened, or give its new time');
+      const call = pick !== 'call' ? {} : noTime ? { call_at: callAt.value, ...(['held', 'missed'].includes(callPick) ? { call_status: callPick } : {}) } : callPick === 'move' ? { call_at: callAt.value } : ['held', 'missed'].includes(callPick) ? { call_status: callPick } : {};
+      const body = { ...(pick !== c.stage || (pick === 'lost' && outcome.value !== c.outcome) ? { stage: pick } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}), ...call,
         ...(pick === 'lost' ? { outcome: outcome.value, reason: reason.value || undefined } : {}), ...(newName ? { client_name: n } : {}), ...(newCo ? { company: co } : {}) };
-      if (!body.stage && !body.note && !body.client_name && !body.company) throw new Error('Pick another stage, write a note, or give the client’s name');
+      if (!body.stage && !body.note && !body.client_name && !body.company && !body.call_at && !body.call_status) throw new Error('Pick another stage, write a note, or give the client’s name');
       if (body.stage === 'lost' && !reason.value) throw new Error('Say why the client did not go ahead');
       await api('POST', `/chats/${c.id}`, body);
-      toast(body.stage ? `Moved to ${names[pick]}` : 'Saved'); if (onDone) await onDone();
+      toast(body.stage ? `Moved to ${names[pick]}` : body.call_status === 'held' ? 'Call marked held' : body.call_status === 'missed' ? 'Marked: they did not join' : body.call_at ? 'Call time saved' : 'Saved'); if (onDone) await onDone();
     } });
 }
 

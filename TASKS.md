@@ -180,6 +180,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 132 | The client's person and company from any job: Client card on Overview, Add name on Chats, Claude's update_job_details (R150) | done |
 | 133 | Client research: contact details on the client, research in rounds (company first, then the person) that proves the match from Upwork's facts and shows unproven leads as "could be", on Clients, Chats and the job, Claude tools (R151) | done |
 | 134 | The Chats table tidied: buttons side by side, one client cell layout, a "." company hidden and refused (R152) | done |
+| 135 | A chat's call has a time: asked at Call scheduled, then did it happen, not joined (follow up), held (next step due), rescheduled; follow-up counts and filters; Claude (R153) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

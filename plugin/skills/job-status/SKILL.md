@@ -41,8 +41,12 @@ Once a client opens a chat (and for every invite) the job is on the Chats page, 
 
 * Call `list_chats` (`stage: "open"`, or `"quiet"` for the ones that have not moved for 3 days) to see what to update.
 * Call `update_chat` with the job number and what happened: `stage` is `chat` (questions and answers), `call` (a call is booked;
-  marks the job Interview), `proposal` (the proposal or quote went to the client), `agreed` (they said let's start; marks it Hired)
+  marks the job Interview; give `call_at`, when the call is, "YYYY-MM-DD HH:MM" in the team's zone: ask the person if you do not know), `proposal` (the proposal or quote went to the client), `agreed` (they said let's start; marks it Hired)
   or `lost` (with `outcome` and `reason`). Add a one sentence `note`. A note alone records a follow up.
+* Calls (R153): `list_chats` shows each call's `call_time` and `call_flag`. **due**: its time passed, so ask the person whether it
+  happened and send `call_status: "held"` or `"missed"`; **held**: the next step is due (move to `proposal` when it goes out);
+  **missed**: follow up, and when the client rebooks send the new `call_at`; **no_time**: a call booked before times were kept, so
+  ask when it is or was. `calls: "todo"` lists the calls to follow up.
 * Give `client_name` (the person) and `company` (their agency or company, which can differ) as Upwork shows them, on `update_chat`,
   on `update_job_details` for any job, or with `update_status` Chat opened. They are kept on the client's profile. Never guess a name.
 
