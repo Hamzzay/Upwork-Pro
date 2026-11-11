@@ -390,3 +390,10 @@ wants the person's LinkedIn and email (several options when there is no single a
   LinkedIn profiles and the company page); the page, the card, the dots, This is correct, a phone width; the TrueList client against
   a stand-in for TrueList's API with LeadWorks' sample result file (batch id saved first, a wait, 748 states read). Not checked: a
   real TrueList call (the key is only on the servers).
+
+## R156. Gone quiet counted again (Hamza)
+
+Why: on live after R153, Gone quiet showed 0 (it was 12). The check that a call still to come is not quiet read
+`NOT (call_status='set' AND ...)`, which is NULL, not true, for a chat with no call, so no such chat could ever be quiet.
+- The check uses `<=>` (NULL-safe), so a chat with no call is quiet again after the quiet days; a call still to come is still not.
+- Checked locally: a chat with no call left six days counts as quiet; one with a call coming up does not.

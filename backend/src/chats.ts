@@ -36,7 +36,7 @@ const T0 = "'2000-01-01'";
 const LAST = `GREATEST(COALESCE(s.chat_moved_at, ${T0}), IF(s.chat_call_at <= NOW(), s.chat_call_at, ${T0}), COALESCE(s.client_replied_at, ${T0}), COALESCE(s.interviewed_at, ${T0}), COALESCE(s.outcome_at, ${T0}), COALESCE(s.proposal_sent_at, s.proposal_sent_date, ${T0}))`;
 
 /** R153: a call still to come is not a quiet chat: we are waiting for it, not on it. */
-const NOT_WAITING = `NOT (s.chat_call_status='set' AND s.chat_call_at >= NOW())`;
+const NOT_WAITING = `NOT (s.chat_call_status <=> 'set' AND s.chat_call_at >= NOW())`; // <=>: a chat with no call is FALSE here, not NULL (which hid every quiet chat)
 /** A call to follow up (at the call stage): no time given yet (chats booked before R153), its time passed with no word on it, it was held (the next step is due), or the client did not join. */
 const CALL_TODO = `(s.chat_call_status IS NULL OR s.chat_call_status IN ('held','missed') OR (s.chat_call_status='set' AND s.chat_call_at < NOW()))`;
 
