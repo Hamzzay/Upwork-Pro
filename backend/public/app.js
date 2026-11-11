@@ -3757,18 +3757,19 @@ async function chatsView() {
   const d = await api('GET', '/chats'), names = d.stages, n = d.counts;
   const STAGE_CLS = { agreed: 'good', lost: 'loss' };
   const stageChip = (c) => h('span', { class: 'chip ' + (STAGE_CLS[c.stage] || (c.stage === 'chat' ? '' : 'brand')) }, names[c.stage] + (c.stage === 'lost' && c.outcome ? ` (${c.outcome})` : ''));
+  const realText = (v) => (v && /[\p{L}\p{N}]/u.test(v) ? v : null); // a stray "." is no company
   const row = (c) => h('tr', {},
-    h('td', { class: 'clcell' }, c.client_name ? h('strong', {}, c.client_name) : h('button', { class: 'linkbtn', type: 'button', onclick: () => nameDialog(c.id, null, c.company, chatsView) }, 'Add name'),
-      c.company ? h('div', { class: 'small muted' }, c.company) : null,
-      c.client_id ? h('a', { class: 'cidchip', href: '#/clients/' + c.client_id, style: 'margin-top:4px' }, clientId(c.client_id)) : null),
+    h('td', { class: 'clcell' }, c.client_name ? h('div', {}, h('strong', {}, c.client_name)) : h('div', {}, h('button', { class: 'linkbtn', type: 'button', onclick: () => nameDialog(c.id, null, realText(c.company), chatsView) }, 'Add name')),
+      realText(c.company) ? h('div', { class: 'small muted' }, c.company) : null,
+      c.client_id ? h('div', { style: 'margin-top:6px' }, h('a', { class: 'cidchip', href: '#/clients/' + c.client_id }, clientId(c.client_id))) : null),
     h('td', { class: 'clcell' }, h('a', { href: `#/s/${c.id}/overview`, class: 'clclip strong', style: 'display:block', title: c.title || '' }, c.title || 'Job #' + c.id),
       h('div', { class: 'small muted' }, [c.profile_name, c.user_name, c.opened_at ? 'chat since ' + dayText(c.opened_at) : null].filter(Boolean).join(' · ')),
-      c.invite ? h('span', { class: 'chip', style: 'margin-top:4px' }, 'Invite') : null),
+      c.invite ? h('div', { style: 'margin-top:6px' }, h('span', { class: 'chip' }, 'Invite')) : null),
     h('td', {}, h('div', { class: 'chips' }, stageChip(c), c.quiet ? h('span', { class: 'chip warnchip' }, `Quiet ${c.days_still} days`) : null)),
     h('td', { class: 'clcell' }, c.note ? h('div', { class: 'clclip', title: c.note }, c.note) : c.stage === 'lost' && c.outcome_reason ? h('div', { class: 'clclip' }, c.outcome_reason) : null,
       h('div', { class: 'small faint' }, ago(c.last_at))),
-    h('td', { class: 'acts' }, h('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' }, h('button', { class: 'btn sm', type: 'button', onclick: () => researchDialog({ job: c.id }, [c.client_name, c.company].filter(Boolean).join(' \u00b7 ') || c.title, chatsView) }, 'Research'),
-      h('button', { class: 'btn sm', type: 'button', onclick: () => chatDialog(c, d, chatsView) }, 'Update'))));
+    h('td', { class: 'acts' }, h('button', { class: 'btn sm', type: 'button', onclick: () => researchDialog({ job: c.id }, [c.client_name, realText(c.company)].filter(Boolean).join(' \u00b7 ') || c.title, chatsView) }, 'Research'),
+      h('button', { class: 'btn sm', type: 'button', onclick: () => chatDialog(c, d, chatsView) }, 'Update')));
   const tile = (label, value, sub, stage, cls) => h('a', { class: 'stat kpi ' + (cls || ''), href: '#/chats?stage=' + stage }, h('span', { class: 'k' }, label), h('span', { class: 'v' }, value), h('span', { class: 'sub small muted' }, sub));
   const people = [...new Map(d.chats.map((c) => [c.user_id, c.user_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   const profiles = [...new Map(d.chats.filter((c) => c.profile_id).map((c) => [c.profile_id, c.profile_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));

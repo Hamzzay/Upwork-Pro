@@ -320,3 +320,12 @@ taken for the client.
   (the Australian company register included) and said not found; a very common name in Denver with only a physical therapy clinic
   job went three rounds, 21 sources, ruled 13 people out and picked no one. The "could be" block, the panel and dialog, contact
   details saved and refused when wrong, one run at a time per client, Claude's routes, a phone width. Not checked on live yet.
+
+## R152. The Chats table tidied (Hamza)
+
+Why: on live the Research and Update buttons sat one above the other, the client's ID chip sat beside "Add name" on one row and on
+its own line on another, and a client whose company was saved as "." showed a lone dot.
+- **Research and Update** sit side by side at every width; the job title wraps to two lines instead of pushing the buttons out.
+- **The client cell** is the same on every row: the name (or Add name), the company, then the client ID on its own line. Invite too.
+- **A name or company with no letter or digit** (".") is not shown, and is refused when saved from the app or from Claude.
+- Checked locally at 1200, 1400 and 2000 pixels wide; "." and ".." refused.

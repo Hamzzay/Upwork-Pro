@@ -1247,7 +1247,7 @@ api.post('/plugin/jobs/:id/details', requireRole(), async (req, res) => {
   const b = z.object({ connects: z.number().int().min(0).max(1000).nullable().optional(), boost: z.number().int().min(0).max(1000).nullable().optional(),
     loom_video: z.string().trim().max(300).nullable().optional(), invited: z.boolean().optional(), add_note: z.string().trim().min(2).max(2000).optional(),
     job_link: z.string().trim().max(500).regex(/^https?:\/\/(?:[a-z0-9-]+\.)?upwork\.com\/\S+$/i, 'The job link must be an Upwork link').nullable().optional(),
-    client_name: z.string().trim().min(2).max(120).optional(), company: z.string().trim().min(2).max(190).optional() }).safeParse(req.body ?? {});
+    client_name: z.string().trim().min(2).max(120).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').optional(), company: z.string().trim().min(2).max(190).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').optional() }).safeParse(req.body ?? {});
   if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
   const d = b.data, id = Number(req.params.id);
   // R150: the client's name and company as Upwork shows them, on the client's profile

@@ -1368,3 +1368,8 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 .research .cfacts dd { text-align: left; font-weight: 400; }
 .research .rs-evwrap { overflow-x: auto; }
 .research .rs-could { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--flag-bg); border: 1px solid var(--flag-line); }
+/* the Chats table: the job and the note clip sooner, so Research and Update always fit beside them */
+.cltable .clcell { min-width: 120px; }
+.cltable .clclip { max-width: 300px; }
+.cltable .clclip.strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cltable .cidchip { margin-left: 0; }

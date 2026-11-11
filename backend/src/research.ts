@@ -275,8 +275,8 @@ export const contactBody = z.object({
   phone: z.string().trim().max(60).regex(/^[+()\d][\d\s()+.\-\/x]{4,}$/i, 'Not a phone number').nullable().optional(),
   website: website.nullable().optional(),
   linkedin: website.refine((v) => /linkedin\.com\//i.test(v), 'Not a LinkedIn link').nullable().optional(),
-  contact_name: z.string().trim().min(2, 'Write the name in full').max(120).nullable().optional(),
-  company: z.string().trim().min(2).max(190).nullable().optional(),
+  contact_name: z.string().trim().min(2, 'Write the name in full').max(120).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').nullable().optional(),
+  company: z.string().trim().min(2).max(190).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').nullable().optional(),
 });
 export async function saveContacts(clientId: number, userId: number, d: z.infer<typeof contactBody>) {
   const sets = Object.entries(d).filter(([, v]) => v !== undefined);

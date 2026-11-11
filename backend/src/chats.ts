@@ -80,7 +80,7 @@ export async function setClientName(screeningId: number, user: { id: number }, n
 }
 
 export const moveBody = z.object({ stage: z.enum(CHAT_STAGES).optional(), note: z.string().trim().max(500).optional(), outcome: z.string().trim().max(60).optional(),
-  reason: z.string().trim().max(120).optional(), client_name: z.string().trim().min(2).max(120).optional(), company: z.string().trim().max(190).optional() });
+  reason: z.string().trim().max(120).optional(), client_name: z.string().trim().min(2).max(120).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').optional(), company: z.string().trim().max(190).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').optional() });
 
 /** A chat moved to a stage (or only a note, or the client's name). The job's own status follows, by the same rules as Update status. */
 export async function moveChat(id: number, user: { id: number; role: string }, d: z.infer<typeof moveBody>, zone?: string): Promise<{ code: number; error: string } | { ok: true; stage: ChatStage }> {
@@ -128,7 +128,7 @@ chats.get('/plugin/chats', requireRole(), list); // Claude, for Danyal's sync
 chats.get('/chats/:id/events', requireRole(), async (req, res) => { res.json({ events: await chatEvents(Number(req.params.id)) }); });
 chats.post('/chats/:id', requireRole(), move);
 // R150 (Hamza): the client's name and company from any job, chat or not; anyone on the team may give them
-export const nameBody = z.object({ client_name: z.string().trim().min(2, 'Write the name in full').max(120).optional(), company: z.string().trim().min(2).max(190).optional() })
+export const nameBody = z.object({ client_name: z.string().trim().min(2, 'Write the name in full').max(120).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').optional(), company: z.string().trim().min(2).max(190).refine((v) => /[\p{L}\p{N}]/u.test(v), 'Write a real name').optional() })
   .refine((b) => b.client_name || b.company, 'Give the person\'s name, the company, or both');
 chats.post('/screenings/:id/client-name', requireRole(), async (req, res) => {
   const b = nameBody.safeParse(req.body ?? {}); if (!b.success) return void res.status(400).json({ error: b.error.issues[0].message });
