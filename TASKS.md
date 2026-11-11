@@ -182,6 +182,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 134 | The Chats table tidied: buttons side by side, one client cell layout, a "." company hidden and refused (R152) | done |
 | 135 | A chat's call has a time: asked at Call scheduled, then did it happen, not joined (follow up), held (next step due), rescheduled; follow-up counts and filters; Claude (R153) | done |
 | 136 | Chats sorted five ways: newest chat (default), last update, needs attention, next call, proposal sent; kept per browser; Claude (R154) | done |
+| 137 | Research on its own page, green dot when done, contacts round (LinkedIn, published and pattern emails, phones, several options), emails checked by TrueList, This is correct (R155) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

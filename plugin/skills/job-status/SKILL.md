@@ -65,6 +65,10 @@ When the person wants to know who a client really is (before a chat or a call), 
   (email domain, website, company and city), check every candidate against the anchors, and say honestly how sure you are
   (confirmed, likely, unsure, not_found). When unsure, do not pick: give the best leads under `possible` (shown as "could be, not
   sure yet") with what is missing, the ruled out ones under `rejected`, and say what to ask the client.
+* The research also finds how to reach them (R155): published emails and phones, LinkedIn profiles, and likely work emails built
+  from the company's visible email pattern, several options each, every email checked with TrueList (ok means verified). Tell the
+  person which look right; save the one they confirm with `save_client_contacts`. Never look for a personal email or phone they
+  did not publish.
 * Business facts only (role, company, website, LinkedIn, news), every fact with its source. Tell the person what you found and how
   sure it is.
 

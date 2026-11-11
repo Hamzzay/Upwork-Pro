@@ -66,7 +66,7 @@ export async function listChats(f: z.infer<typeof chatFilters> = {}) {
   if (f.q) { where.push('(s.title LIKE ? OR c.contact_name LIKE ? OR c.name LIKE ? OR c.company LIKE ?)'); const l = `%${f.q}%`; p.push(l, l, l, l); }
   if (many(f.user).length) { where.push('s.user_id IN (?)'); p.push(many(f.user).map(Number)); }
   if (many(f.profile).length) { where.push('pr.id IN (?)'); p.push(many(f.profile).map(Number)); }
-  const rows = await query<any>(`SELECT s.id, s.title, s.client_id, COALESCE(c.contact_name, c.name) AS client_name, c.company, c.country, s.user_id, u.name AS user_name,
+  const rows = await query<any>(`SELECT s.id, s.title, s.client_id, (SELECT r.confidence FROM client_research r WHERE r.client_id=c.id AND r.status='done' ORDER BY r.id DESC LIMIT 1) AS research_confidence, COALESCE(c.contact_name, c.name) AS client_name, c.company, c.country, s.user_id, u.name AS user_name,
       pr.id AS profile_id, pr.name AS profile_name, ${inviteSql} AS invite, ${STAGE} AS stage, ${LAST} AS last_at, s.chat_note AS note,
       COALESCE(s.client_replied_at, s.proposal_sent_at, s.proposal_sent_date) AS opened_at, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at, s.outcome, s.outcome_reason,
       s.chat_call_at AS call_at, s.chat_call_status AS call_status, s.chat_call_at >= NOW() AS call_ahead,

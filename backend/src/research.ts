@@ -11,6 +11,7 @@ import { requireRole } from './auth';
 import { clientPost, ensureClient } from './clients';
 import { audit, exec, query } from './db';
 import { run } from './llm';
+import { checkEmails, readBatch, TruelistFail, truelistReady } from './truelist';
 
 export const CONFIDENCE = ['confirmed', 'likely', 'unsure', 'not_found'] as const;
 const parse = (s: any) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
@@ -61,6 +62,34 @@ const roundSchema = (found: object) => obj({
   possible: arr(obj({ who: str, why: str, missing: str, source: str })),
   evidence: EVIDENCE, rejected: arr(obj({ who: str, why_not: str, source: str })), searches: arr(str), sources: SOURCES,
 });
+/** R155: how to reach them, as found published. Several options are kept: the team confirms the right one later. */
+const WHO = { type: 'string', enum: ['person', 'company'] };
+const contactsSchema = obj({
+  summary: str,
+  emails: arr(obj({ value: str, belongs_to: WHO, kind: { type: 'string', enum: ['published', 'pattern'] }, source: str, note: str })),
+  phones: arr(obj({ value: str, belongs_to: WHO, source: str, note: str })),
+  linkedin: arr(obj({ url: str, who: str, belongs_to: WHO, sure: { type: 'string', enum: ['matches', 'possible'] }, source: str, note: str })),
+  searches: arr(str), sources: SOURCES,
+});
+const FREE_MAIL = /@(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|icloud|me|mac|aol|proton|protonmail|gmx|mail|yandex|zoho)\./i;
+const contactsBody = z.object({
+  emails: z.array(z.object({ value: z.string().trim().toLowerCase().email(), belongs_to: z.enum(['person', 'company']).default('person'), kind: z.enum(['published', 'pattern']).default('published'),
+    source: z.string().default(''), note: z.string().default(''),
+    truelist: z.object({ state: z.string(), sub_state: z.string().default(''), at: z.string() }).optional() })).max(10).default([]),
+  phones: z.array(z.object({ value: z.string().trim().max(40).refine((v) => (v.match(/\d/g) ?? []).length >= 7, 'Not a phone number'), belongs_to: z.enum(['person', 'company']).default('company'),
+    source: z.string().default(''), note: z.string().default('') })).max(10).default([]),
+  linkedin: z.array(z.object({ url: z.string().trim().regex(/linkedin\.com\//i), who: z.string().default(''), belongs_to: z.enum(['person', 'company']).default('person'),
+    sure: z.enum(['matches', 'possible']).default('possible'), source: z.string().default(''), note: z.string().default('') })).max(10).default([]),
+});
+/** Each list kept to what the method allows: valid values only, and no guessed address on a free mail service. One bad item drops, not the run. */
+function cleanContacts(raw: any): z.infer<typeof contactsBody> {
+  const keep = <T>(items: unknown, one: z.ZodType<T>) => (Array.isArray(items) ? items : []).flatMap((x) => { const r = one.safeParse(x); return r.success ? [r.data] : []; });
+  const shape = contactsBody.shape;
+  const emails = keep(raw?.emails, shape.emails.unwrap().element).filter((e) => !(e.kind === 'pattern' && FREE_MAIL.test(e.value)));
+  return { emails: [...new Map(emails.map((e) => [e.value, e])).values()].slice(0, 10), phones: keep(raw?.phones, shape.phones.unwrap().element).slice(0, 10),
+    linkedin: [...new Map(keep(raw?.linkedin, shape.linkedin.unwrap().element).map((l) => [l.url.toLowerCase().replace(/\/+$/, ''), l])).values()].slice(0, 10) };
+}
+
 const finalSchema = obj({ summary: str, business_fit: str, talking_points: arr(str), red_flags: arr(str), next_steps: arr(str) });
 
 const roundBody = (found: z.ZodTypeAny) => z.object({
@@ -83,7 +112,8 @@ export const researchBody = z.object({
   business_fit: z.string().max(3000).default(''), talking_points: z.array(z.string().max(500)).max(15).default([]), red_flags: z.array(z.string().max(500)).max(15).default([]),
   next_steps: z.array(z.string().max(500)).max(10).default([]), searches: z.array(z.string().max(300)).max(80).default([]),
   sources: z.array(z.object({ title: z.string().max(300).default(''), url: z.string().url().max(1000) })).max(60).default([]),
-  rounds: z.array(z.object({ round: z.number(), focus: z.string(), confidence: z.enum(CONFIDENCE), summary: z.string() })).max(5).default([]),
+  rounds: z.array(z.object({ round: z.number(), focus: z.string(), confidence: z.enum(CONFIDENCE).optional(), summary: z.string() })).max(6).default([]),
+  contacts: z.any().transform((v) => cleanContacts(v)).default({ emails: [], phones: [], linkedin: [] }),
 });
 export type Research = z.infer<typeof researchBody>;
 
@@ -150,6 +180,22 @@ THIS ROUND: THE PERSON, SECOND TRY. An earlier round did not prove the person (s
 short form of the first name, the name with the company's domain, the company's posts and press, podcasts or talks, directories in their city, and the
 names past freelancers use in their Upwork feedback. Check the earlier "possible" leads properly. About 10 searches.`;
 
+const CONTACT_ROUND = `${SHARED}
+
+THIS ROUND: HOW TO REACH THEM, as a business contact. Use the company and the person in <earlier>: the ones found (likely or confirmed), else
+the best "possible" leads, and say so in each note. Find contact details they PUBLISH for business:
+- LinkedIn: the person's profile and the company's page (search site:linkedin.com/in and /company with the name and company). When several
+  profiles could be the person, list each one, sure "possible", with why; "matches" only when it matches the anchors.
+- Email: an address published for the person (the company's Team, About or Contact page, a press release, a speaker or author page, a
+  business directory, their own business site) and the company's general address (info@, hello@, sales@). When other staff addresses
+  at the company's domain show its pattern (jane.doe@company.com), you may build the person's likely address by that pattern: kind
+  "pattern", and say in the note which published addresses it follows. Several possible addresses are fine: list each one.
+- Phone: a number the company publishes (main line, office, the person's business line on the company site or a business listing).
+For every item give the source URL where you saw it (or, for a pattern, where the pattern came from) and a note: whose it is and how sure.
+Never list a home address, a private or family phone, or a personal email (gmail, yahoo, outlook and the like) the person has not
+published themselves as their business contact. Never make up an address that follows no published pattern. About 10 searches.
+"summary": one or two sentences on what was found.`;
+
 const FINAL = `You write the end of a client research for a software agency's sales team, from the rounds in the input (no new searching). Company first,
 then the person. Be honest about how sure it is: never present a "possible" lead as the answer, say "could be" and what is missing.
 - "summary": 3 to 5 sentences. Who the company is (or that it was not found), who the person is (or not), and how sure each is.
@@ -169,9 +215,12 @@ Work in rounds, the company first, then the person:
    registers, Google Maps, the product they describe). Otherwise go to the person.
 3. The person: at the company first (Team page, LinkedIn people, registrations), else full name with city and business. If not proven, try again
    with other spellings and the names in their freelancers' feedback.
+4. How to reach them: ${CONTACT_ROUND.split('THIS ROUND: HOW TO REACH THEM, as a business contact. ')[1]}
 Then save with research_client "result": identity (overall confidence and a 3 to 5 sentence summary), company_confidence, person_confidence, company and
 person (only when likely or confirmed; the person as name, job_title, works_at, based_in, linkedin, work_background), possible (leads not proven, each with about: company or person, who, why, missing, source), evidence, rejected,
-business_fit, talking_points, red_flags, next_steps, searches, sources.`;
+business_fit, talking_points, red_flags, next_steps, searches, sources, and contacts: { emails: [{ value, belongs_to: person or company, kind:
+published or pattern, source, note }], phones: [{ value, belongs_to, source, note }], linkedin: [{ url, who, belongs_to, sure: matches or
+possible, source, note }] }.`;
 
 const RANK: Record<string, number> = { confirmed: 3, likely: 2, unsure: 1, not_found: 0 };
 const sure = (c: string) => RANK[c] >= 2;
@@ -223,6 +272,16 @@ export async function runResearch(id: number) {
     let person = await step('person', false);
     if (rounds.length < 3 && !sure(person.confidence)) person = await step('person', true);
     if (!sure(company.confidence) && sure(co1.confidence)) company = co1;
+    // R155: how to reach them, when there is someone to reach: a company or person found, or a lead worth checking
+    let contacts: any = null, contactRound: { round: number; focus: string; summary: string } | null = null;
+    if (sure(company.confidence) || sure(person.confidence) || company.possible.length || person.possible.length) {
+      const n = rounds.length + 1;
+      await exec('UPDATE client_research SET stage=? WHERE id=?', [`${n}:contacts`, id]);
+      const ask = () => run({ label: `client_research_${n}_contacts`, web: true, maxTurns: 40, timeoutMs: 10 * 60_000, system: CONTACT_ROUND, schema: contactsSchema,
+        prompt: `Find how to reach this Upwork client as a business contact. The input is everything we know.\n\n${client}${earlier()}` }).then((o) => o.data as any);
+      try { contacts = await ask(); } catch { try { contacts = await ask(); } catch { contacts = null; } } // contact details are extra: the research stands without them
+      contactRound = { round: n, focus: 'contacts', summary: contacts?.summary || 'This round could not finish (the AI gave no answer twice). Run the research again to retry it.' };
+    }
     await exec('UPDATE client_research SET stage=? WHERE id=?', ['final', id]);
     const fin = await run({ label: 'client_research_summary', system: FINAL, schema: finalSchema, timeoutMs: 5 * 60_000,
       prompt: `${client}\n\n<rounds>\n${JSON.stringify(rounds, null, 1)}\n</rounds>` });
@@ -235,10 +294,16 @@ export async function runResearch(id: number) {
       possible: [...(sure(company.confidence) ? [] : company.possible.map((p) => ({ ...p, about: 'company' }))), ...(sure(person.confidence) ? [] : person.possible.map((p) => ({ ...p, about: 'person' })))].slice(0, 20),
       evidence: rounds.flatMap((x) => x.evidence).slice(0, 60), rejected: dedupe(rounds.flatMap((x) => x.rejected), (x) => x.who.toLowerCase()).slice(0, 30),
       business_fit: f.business_fit, talking_points: f.talking_points.slice(0, 15), red_flags: f.red_flags.slice(0, 15), next_steps: f.next_steps.slice(0, 10),
-      searches: rounds.flatMap((x) => x.searches).slice(0, 80),
-      sources: dedupe(rounds.flatMap((x) => x.sources).filter((x) => /^https?:\/\//.test(x.url)), (x) => x.url).slice(0, 60),
-      rounds: rounds.map((x) => ({ round: x.round, focus: x.focus, confidence: x.confidence, summary: x.summary })),
+      searches: [...rounds.flatMap((x) => x.searches), ...(contacts?.searches ?? [])].slice(0, 80),
+      sources: dedupe([...rounds.flatMap((x) => x.sources), ...(contacts?.sources ?? [])].filter((x) => /^https?:\/\//.test(x.url) && z.string().url().safeParse(x.url).success), (x) => x.url).slice(0, 60),
+      rounds: [...rounds.map((x) => ({ round: x.round, focus: x.focus, confidence: x.confidence, summary: x.summary })), ...(contactRound ? [contactRound] : [])],
+      contacts,
     });
+    // R155: the emails found are checked with TrueList; the batch id is saved before the wait, and a failed check never fails the research
+    if (data.contacts.emails.length && truelistReady()) {
+      await exec('UPDATE client_research SET stage=? WHERE id=?', ['truelist', id]);
+      await verifyContacts(id, data);
+    }
     await exec(`UPDATE client_research SET status='done', stage=NULL, inputs_json=?, result_json=?, confidence=?, error=NULL, finished_at=NOW() WHERE id=?`,
       [JSON.stringify(inputs), JSON.stringify(data), data.identity.confidence, id]);
   } catch (e) {
@@ -247,6 +312,34 @@ export async function runResearch(id: number) {
       : /timeout/.test(m) ? 'A round of the research took too long and was stopped. Try again.' : e instanceof z.ZodError ? 'The research came back incomplete. Try again.' : 'The research failed. Try again.';
     await exec(`UPDATE client_research SET status='failed', stage=NULL, error=?, finished_at=NOW() WHERE id=?`, [why, id]);
   }
+}
+
+/** R155: TrueList's state for each email of a run, written into its result. Errors are kept on the run, not thrown. */
+async function verifyContacts(id: number, data: { contacts: z.infer<typeof contactsBody> }, batchId?: string) {
+  try {
+    const found = batchId ? await readBatch(batchId) : await checkEmails(data.contacts.emails.map((e) => e.value),
+      (b) => exec('UPDATE client_research SET truelist_batch_id=?, truelist_error=NULL WHERE id=?', [b, id]).then(() => undefined));
+    const at = new Date().toISOString();
+    for (const e of data.contacts.emails) { const r = found.get(e.value); if (r) e.truelist = { ...r, at }; }
+    await exec('UPDATE client_research SET truelist_error=NULL WHERE id=?', [id]);
+  } catch (e) {
+    await exec('UPDATE client_research SET truelist_error=? WHERE id=?', [(e instanceof TruelistFail ? e.message : 'The TrueList check failed').slice(0, 200), id]);
+  }
+}
+
+/** The emails of a client's newest research checked (again) with TrueList: a new batch, or the last one read again when its wait was cut short. */
+export async function recheckEmails(clientId: number, extra: string[] = []) {
+  const r = (await query<any>(`SELECT id, result_json, truelist_batch_id, truelist_error FROM client_research WHERE client_id=? AND status='done' ORDER BY id DESC LIMIT 1`, [clientId]))[0];
+  if (!r) return { error: 'Run the research first' };
+  const data = parse(r.result_json); if (!data) return { error: 'Run the research first' };
+  data.contacts = cleanContacts(data.contacts);
+  for (const e of extra) if (!data.contacts.emails.some((x: any) => x.value === e)) data.contacts.emails.push({ value: e, belongs_to: 'person', kind: 'published', source: '', note: 'Added by the team' });
+  if (!data.contacts.emails.length) return { error: 'No emails to check' };
+  if (!truelistReady()) return { error: 'TrueList is not set up on this server (TRUELIST_API_KEY in .env)' };
+  const again = /in time/.test(String(r.truelist_error ?? '')) && r.truelist_batch_id && !extra.length ? String(r.truelist_batch_id) : undefined;
+  await verifyContacts(r.id, data, again);
+  await exec('UPDATE client_research SET result_json=? WHERE id=?', [JSON.stringify(data), r.id]);
+  return { ok: true };
 }
 
 /** Research Claude (the plugin) did itself, kept like a run of the app's own. */
@@ -259,9 +352,9 @@ export async function saveResearch(clientId: number, userId: number | null, scre
 
 /** The newest run (with its result) and the list of earlier ones, for the client's page, the Chats dialog and Claude. */
 export async function researchFor(clientId: number) {
-  const rows = await query<any>(`SELECT r.id, r.status, r.stage, r.source, r.confidence, r.error, r.result_json, r.screening_id, r.created_at, r.finished_at, u.name AS user_name
+  const rows = await query<any>(`SELECT r.id, r.status, r.stage, r.source, r.confidence, r.error, r.truelist_error, r.truelist_batch_id IS NOT NULL AS truelist_ran, r.result_json, r.screening_id, r.created_at, r.finished_at, u.name AS user_name
     FROM client_research r LEFT JOIN users u ON u.id=r.user_id WHERE r.client_id=? ORDER BY r.id DESC LIMIT 20`, [clientId]);
-  const runs = rows.map((r) => ({ id: r.id, status: r.status, stage: r.stage, source: r.source, confidence: r.confidence, error: r.error, job_id: r.screening_id, by: r.user_name, at: r.created_at, finished_at: r.finished_at }));
+  const runs = rows.map((r) => ({ id: r.id, status: r.status, stage: r.stage, truelist_error: r.truelist_error, source: r.source, confidence: r.confidence, error: r.error, job_id: r.screening_id, by: r.user_name, at: r.created_at, finished_at: r.finished_at }));
   const latestDone = rows.find((r) => r.status === 'done');
   return { busy: rows[0] && ['queued', 'running'].includes(rows[0].status) ? runs[0] : null, latest: latestDone ? { ...runs.find((x) => x.id === latestDone.id), result: parse(latestDone.result_json) } : null, runs };
 }
@@ -301,7 +394,7 @@ const ids = z.object({ client_id: z.coerce.number().int().positive().optional(),
 
 research.get('/clients/:id/research', requireRole(), async (req, res) => {
   const id = await resolve(Number(req.params.id)); if (!id) return void res.status(404).json({ error: 'Not found' });
-  res.json({ client: await contactsOf(id), ...(await researchFor(id)) });
+  res.json({ client: await contactsOf(id), ...(await researchFor(id)), truelist_ready: truelistReady() });
 });
 research.post('/clients/:id/research', requireRole(), async (req, res) => {
   const id = await resolve(Number(req.params.id)); if (!id) return void res.status(404).json({ error: 'Not found' });
@@ -316,6 +409,16 @@ research.patch('/clients/:id/contacts', requireRole(), async (req, res) => {
   const id = await resolve(Number(req.params.id)); if (!id) return void res.status(404).json({ error: 'Not found' });
   if (!(await saveContacts(id, req.user!.id, b.data))) return void res.status(400).json({ error: 'Nothing to change' });
   res.json({ ok: true, client: await contactsOf(id) });
+});
+// R155: the found emails (and any the team adds) checked with TrueList again
+research.post('/clients/:id/research/truelist', requireRole(), async (req, res) => {
+  const id = await resolve(Number(req.params.id)); if (!id) return void res.status(404).json({ error: 'Not found' });
+  const b = z.object({ add: z.array(z.string().trim().toLowerCase().email()).max(5).optional() }).safeParse(req.body ?? {});
+  if (!b.success) return void res.status(400).json({ error: 'Not an email address' });
+  const r = await recheckEmails(id, b.data.add ?? []);
+  if ('error' in r) return void res.status(400).json(r);
+  await audit(req.user!.id, 'client_research_truelist', `client=${id}`);
+  res.json({ ...(await researchFor(id)), truelist_ready: truelistReady() });
 });
 // from a job (a chat): its client's research, the profile made if the job has none yet
 research.get('/screenings/:id/research', requireRole(), async (req, res) => {

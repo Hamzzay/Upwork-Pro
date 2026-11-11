@@ -1373,3 +1373,13 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 .cltable .clclip { max-width: 300px; }
 .cltable .clclip.strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .cltable .cidchip { margin-left: 0; }
+/* R155: researched clients, the research page and the contact options it found */
+.rdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--pass); margin-right: 6px; vertical-align: middle; flex: none; }
+.btn .rdot { margin-right: 6px; }
+.research-page { max-width: 980px; }
+.research .rs-opts { margin-top: 10px; display: grid; gap: 8px; }
+.research .rs-opt-h { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.research .rs-opt { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.research .rs-opt-main { min-width: 0; overflow-wrap: anywhere; }
+.chip.loss { color: var(--fail); background: var(--fail-bg, transparent); border-color: var(--fail-line, var(--line)); }
+@media (max-width: 600px) { .research .rs-opt { flex-direction: column; } }

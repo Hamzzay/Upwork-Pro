@@ -139,7 +139,8 @@ export async function linkUnchecked(limit = 500): Promise<number> {
 export async function clientFor(screeningId: number) {
   const s = (await query<any>('SELECT id, client_id, client_match_json FROM screenings WHERE id=?', [screeningId]))[0];
   if (!s?.client_id) return null;
-  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes, email, phone, website, linkedin FROM clients WHERE id=?', [s.client_id]))[0];
+  const c = (await query<any>(`SELECT id, name, company, contact_name, country, member_since, notes, email, phone, website, linkedin,
+    (SELECT r.confidence FROM client_research r WHERE r.client_id=clients.id AND r.status='done' ORDER BY r.id DESC LIMIT 1) AS research_confidence FROM clients WHERE id=?`, [s.client_id]))[0];
   if (!c) return null;
   let why: ClientMatch[] = []; try { why = s.client_match_json ? JSON.parse(s.client_match_json) : []; } catch { why = []; }
   const jobs = await query<any>(`SELECT s.id, s.user_id, s.title, s.created_at, s.verdict, s.proceeded, s.continued_at IS NOT NULL AS continued, COALESCE(s.proposal_sent_at, s.proposal_sent_date) AS sent_at,
@@ -154,7 +155,8 @@ export async function clientFor(screeningId: number) {
  * shows about them (the newest post's client section), and their history and other open jobs on Upwork, from every post we saw.
  */
 export async function clientProfile(clientId: number) {
-  const c = (await query<any>('SELECT id, name, company, contact_name, country, member_since, notes, email, phone, website, linkedin, merged_into, created_at FROM clients WHERE id=?', [clientId]))[0];
+  const c = (await query<any>(`SELECT id, name, company, contact_name, country, member_since, notes, email, phone, website, linkedin, merged_into, created_at,
+    (SELECT r.confidence FROM client_research r WHERE r.client_id=clients.id AND r.status='done' ORDER BY r.id DESC LIMIT 1) AS research_confidence FROM clients WHERE id=?`, [clientId]))[0];
   if (!c) return null;
   const posts = await query<any>('SELECT id, posting_json, created_at FROM screenings WHERE client_id=? AND discarded_at IS NULL AND posting_json IS NOT NULL ORDER BY id DESC', [clientId]);
   let about: { label: string; value: string }[] = [], aboutFrom: number | null = null;

@@ -365,3 +365,28 @@ try a few orders to see which works best.
 - **Claude:** `list_chats` takes the same `sort`.
 - Checked locally: each order on the page and through Claude's route, the choice kept after leaving the page. Upwork orders its
   messages by the latest message, which Upwork Pro does not see; Last update is the nearest, when notes are kept up.
+
+## R155. Research: its own page, a green dot when done, and how to reach them, with emails checked by TrueList (Hamza)
+
+Why: the research had grown past what a dialog can show, nobody could see at a glance which clients were researched, and the team
+wants the person's LinkedIn and email (several options when there is no single answer) with the emails checked by TrueList.
+- **A page of its own:** `#/clients/<id>/research`. Research on Chats and on the job's Client card opens it (a job with no client
+  profile gets one first). The client's page keeps a short card: how sure for the company and the person, the summary, how many
+  contact options and verified emails, and "Open the full research".
+- **Green dot:** beside a researched client on Chats, on Clients and on the Research button, and a "Researched" chip on the client's
+  page (the dot's tooltip says how sure).
+- **How to reach them** (a contacts round after the person, when there is a company or person found or a lead to check): the
+  person's LinkedIn (several "could be" profiles when not sure) and the company's page; emails the person or company publishes
+  (Team, Contact or press pages, directories, registers) and likely work emails built from the company's visible pattern, each
+  marked; phones the company publishes. Each with whose it is, where it was seen and a note. Personal emails and phones they did not
+  publish are never looked for, and a guessed address on a free mail service is dropped.
+- **TrueList** (the same account as LeadWorks, `TRUELIST_API_KEY` in `.env`; it is a flat subscription): after the contacts round
+  every email found goes in one batch; the batch id is saved before the wait; each email shows Verified by TrueList, Accepts all
+  mail, Risky, Unknown or Invalid. "Check with TrueList" checks them again, with one more address the team adds, and reads a batch
+  again whose wait was cut short. A failed check is kept on the run and never fails the research. Migration 083.
+- **This is correct** on an email, phone or LinkedIn keeps it on the client's contact details; the one kept shows "Saved on the client".
+- **Claude:** the research's `contacts` (with TrueList's state) in `get_client_research`; `research_client` `result` takes contacts.
+- Checked locally: a real run (company confirmed, person likely, then the contacts round: four published emails, two possible
+  LinkedIn profiles and the company page); the page, the card, the dots, This is correct, a phone width; the TrueList client against
+  a stand-in for TrueList's API with LeadWorks' sample result file (batch id saved first, a wait, 748 states read). Not checked: a
+  real TrueList call (the key is only on the servers).

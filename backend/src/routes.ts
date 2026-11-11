@@ -727,7 +727,7 @@ async function clientView(req: any, id: number) {
 api.get('/clients', requireRole(), async (req, res) => {
   const q = z.object({ q: z.string().trim().max(100).optional() }).parse(req.query);
   const like = q.q ? `%${likeEsc(q.q)}%` : null;
-  const rows = await query<any>(`SELECT c.id, c.name, c.company, c.contact_name, c.country, c.member_since, c.notes, COUNT(s.id) AS jobs, SUM(${sentSql}) AS sent, SUM(${inviteSql}) AS invites,
+  const rows = await query<any>(`SELECT c.id, c.name, c.company, c.contact_name, c.country, c.member_since, c.notes, (SELECT r.confidence FROM client_research r WHERE r.client_id=c.id AND r.status='done' ORDER BY r.id DESC LIMIT 1) AS research_confidence, COUNT(s.id) AS jobs, SUM(${sentSql}) AS sent, SUM(${inviteSql}) AS invites,
       SUM(s.outcome='Hired') AS hired, MIN(s.created_at) AS first_seen, MAX(s.created_at) AS last_seen,
       SUBSTRING_INDEX(GROUP_CONCAT(s.title ORDER BY s.id DESC SEPARATOR '\n'), '\n', 1) AS last_title,
       GROUP_CONCAT(DISTINCT pr.name ORDER BY pr.name SEPARATOR ', ') AS profiles, GROUP_CONCAT(DISTINCT u.name ORDER BY u.name SEPARATOR ', ') AS people
