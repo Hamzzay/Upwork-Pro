@@ -409,3 +409,26 @@ LinkedIn profiles) sent its one email to TrueList as a JSON list and TrueList re
 - "Check with TrueList" on the research page sends a new batch for a run whose check was refused.
 - Checked locally against a stand-in for TrueList: the file, its name, the header and the strategy sent, no Content-Type of ours, and a
   422 reason shown with the address masked. Not checked: the real TrueList (after the deploy, on C-288).
+
+## R158. The research page rebuilt (design option A), Back goes where you came from, and a tidier Chats bar (Hamza)
+
+Why: the research page was squeezed to one side with the right empty, Back from it always went to Clients, and on Chats the
+filters, Clear filters and Sort wrapped badly. Hamza chose option A from the designs on the canvas.
+- **The research page** (`#/clients/<id>/research`): a breadcrumb (where you came from / the client / Research); the client with
+  their initials, job title and company, the client ID, country, member since and the chat's stage; Open the job and Research again.
+  Then the verdict: how sure for the company and for the person, each with a three-step meter, beside the summary and when, by whom,
+  how many rounds and sources. The main column: the company and the person side by side (with "Could be (not sure yet)" leads
+  when not proven), for the chat or call, what it means for us next to does not add up, to be surer, and how it was checked (the
+  table, then people ruled out, sources, searches and rounds, each opening in place). The rail on the right: how to reach them
+  (saved, the options found with TrueList's check and Correct, check another email), the chat (job, stage, call time and flag,
+  profile, last note, Update the chat in place), search yourself, earlier runs. Not researched yet: what it does and one button.
+  While it runs: the round it is on, updating by itself. At phone width everything stacks in one column.
+- **Back** goes to the page you came from: Chats with its filters and sort, the job, the client's page or Clients (kept for the
+  tab, so a reload keeps it); the side menu lights that page too. `/clients/:id/chat` gives the page the client's newest chat.
+- **The Chats bar** in two lines: the search with Sort at the right end (its own label, never counted as a filter), then the filters
+  at a readable width with Clear filters as a link; a line under it counts the chats, the calls to follow up and the quiet ones.
+  `listCard` takes `summary` for that line. The other lists keep their bar.
+- **Every dropdown's arrow** sits 14 px in from the edge (was 11 px, against the border), with room for it in the padding.
+- Checked locally at 1280 and 1440 wide and at phone width (no side scroll): the page with a sample research (company likely,
+  person not proven with a lead, two emails with TrueList states, a LinkedIn, a phone, the evidence and the rounds), Back to Chats
+  with its filters, the Chats bar on two clean lines, the Jobs list unchanged but for the arrow.

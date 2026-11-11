@@ -191,3 +191,9 @@ chats.post('/screenings/:id/client-name', requireRole(), async (req, res) => {
   res.json({ ok: true });
 });
 chats.post('/plugin/chats/:id', requireRole(), move);
+// R158: a client's chat, for the research page: the newest one, with what the Update dialog needs
+chats.get('/clients/:id/chat', requireRole(), async (req, res) => {
+  const all = await listChats({}), id = Number(req.params.id);
+  const mine = (all.chats as any[]).filter((c) => c.client_id === id);
+  res.json({ chat: mine[0] ?? null, count: mine.length, d: { stages: all.stages, loss_outcomes: all.loss_outcomes, loss_reasons: all.loss_reasons, quiet_days: all.quiet_days } });
+});
