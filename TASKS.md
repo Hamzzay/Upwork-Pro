@@ -186,6 +186,7 @@ The design rules every page follows are in `DESIGN.md`. Hamza's requests of 9 Oc
 | 138 | Gone quiet counted again: the call check was NULL for chats with no call (R156) | done |
 | 139 | TrueList batch sent as a named CSV with a header; a refusal shows TrueList's reason, addresses masked (R157) | done |
 | 140 | Research page rebuilt as design option A, Back to where you came from, Chats bar in two lines, dropdown arrows inset (R158) | done |
+| 141 | Research page facts as label over value, company and person full width, one-line header, rail options tidied (R159) | done |
 | 72 | Tidy the opening text left in the types' formats, the moved templates and Writing rules 1 / the checklist (content, through Changes) | open |
 
 ### Matching: what went wrong (found 13 October, live jobs #19 and #29)

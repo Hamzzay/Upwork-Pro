@@ -3763,7 +3763,7 @@ function researchPanel(by, onChange, opts = {}) {
  * R155: the contact options the research found (emails, phones, LinkedIn), each with whose it is, where it was seen and, for an email,
  * TrueList's check. "This is correct" keeps one on the client; "Check with TrueList" checks the emails again (and one the team adds).
  */
-const TL = { ok: ['Verified by TrueList', 'good'], accept_all: ['Accepts all mail: cannot be confirmed', 'warnchip'], ok_for_all: ['Accepts all mail: cannot be confirmed', 'warnchip'],
+const TL = { ok: ['Verified by TrueList', 'good'], accept_all: ['Accepts all mail', 'warnchip'], ok_for_all: ['Accepts all mail', 'warnchip'],
   risky: ['Risky', 'warnchip'], unknown: ['Unknown to TrueList', ''], email_invalid: ['Invalid', 'loss'], invalid: ['Invalid', 'loss'] };
 function foundContacts(k, c, L, r, redraw) {
   k = k || {}; const emails = k.emails || [], phones = k.phones || [], links = k.linkedin || [];
@@ -3852,7 +3852,7 @@ async function researchView(id) {
         h('a', { href: '#/clients/' + c.id }, who), h('span', { 'aria-hidden': 'true' }, '/'), h('span', { class: 'rp-here' }, 'Research')),
       h('div', { class: 'rp-id' },
         h('div', { class: 'rp-who' }, h('div', { class: 'rp-avatar', 'aria-hidden': 'true' }, initials),
-          h('div', { style: 'min-width:0' }, h('h1', {}, who), subtitle ? h('div', { class: 'rp-sub' }, subtitle) : null,
+          h('div', { style: 'min-width:0' }, h('h1', {}, who), subtitle ? h('div', { class: 'rp-sub', title: subtitle }, subtitle) : null,
             h('div', { class: 'chips', style: 'margin-top:8px' }, h('a', { class: 'cidchip', href: '#/clients/' + c.id }, clientId(c.id)), c.country ? h('span', { class: 'chip' }, c.country) : null,
               c.member_since ? h('span', { class: 'chip' }, 'Member since ' + c.member_since) : null, chat ? h('span', { class: 'chip brand' }, (ch.d.stages || {})[chat.stage] || chat.stage) : null))),
         h('div', { class: 'rp-actions' }, chat ? h('a', { class: 'btn', href: `#/s/${chat.id}/overview` }, 'Open the job') : null,
@@ -3877,8 +3877,12 @@ async function researchView(id) {
         h('button', { class: 'btn primary', type: 'button', onclick: (e) => start(e.currentTarget) }, 'Research this client')) : null;
 
     // the main column
-    const dl = (rows) => { const kept = rows.filter(([, v]) => v && (!Array.isArray(v) || v.length)); return kept.length ? h('dl', { class: 'rp-dl' }, kept.flatMap(([k, v]) => [h('dt', {}, k),
-      h('dd', {}, Array.isArray(v) ? v.map((x) => String(x).trim()).map((x) => /[.!?]$/.test(x) ? x : x + '.').join(' ') : /^https?:\/\//.test(v) ? link(v) : v)])) : null; };
+    // R159: each fact with its label above it; short ones share a grid, long ones (a description, a background, the news) run full width
+    const dl = (rows) => { const kept = rows.filter(([, v]) => v && (!Array.isArray(v) || v.length)); if (!kept.length) return null;
+      const val = (v) => Array.isArray(v) ? v.map((x) => String(x).trim()).map((x) => /[.!?]$/.test(x) ? x : x + '.').join(' ') : /^https?:\/\/\S+$/.test(v) ? link(v) : v;
+      const isLong = (k, v) => Array.isArray(v) || ['What they do', 'Background', 'In the news'].includes(k) || String(v).length > 90;
+      const fact = (k, v, long) => h('div', { class: 'rp-fact' + (long ? ' long' : '') }, h('div', { class: 'rp-fact-k' }, k), h('div', { class: 'rp-fact-v' }, val(v)));
+      return h('div', { class: 'rp-facts' }, kept.filter(([k, v]) => !isLong(k, v)).map(([k, v]) => fact(k, v)), kept.filter(([k, v]) => isLong(k, v)).map(([k, v]) => fact(k, v, true))); };
     const leads = (about) => ((res && res.possible) || []).filter((x) => (x.about || 'person') === about);
     const could = (about) => { const l = leads(about); return l.length ? h('div', { class: 'rp-could' }, h('div', { class: 'rp-could-h' }, 'Could be (not sure yet)'),
       l.map((x) => h('div', { class: 'rp-could-i' }, h('strong', {}, x.who), h('div', {}, x.why), x.missing ? h('div', { class: 'rp-lbl' }, 'To be sure: ' + x.missing) : null, x.source && /^https?:/.test(x.source) ? link(x.source, 'Source') : null))) : null; };
@@ -3886,7 +3890,7 @@ async function researchView(id) {
       body || null, could(about), !body && !leads(about).length ? h('p', { class: 'muted small', style: 'margin:0' }, 'Nothing found.') : null);
     const list = (items, ordered) => h(ordered ? 'ol' : 'ul', { class: 'rp-list' }, items.map((x) => h('li', {}, x)));
     const main = res ? h('div', { class: 'rp-main' },
-      h('div', { class: 'rp-two' },
+      h('div', { class: 'rp-stack' },
         part('The company', res.company_confidence, C && dl([['Name', C.name], ['What they do', C.what_they_do], ['Size', C.size], ['Location', C.location], ['Founded', C.founded], ['Website', C.website], ['LinkedIn', C.linkedin], ['In the news', C.recent_news]]), 'company'),
         part('The person', res.person_confidence, P && dl([['Name', P.name], ['Job title', P.job_title || P.role], ['Works at', P.works_at], ['Based in', P.based_in || P.location], ['LinkedIn', P.linkedin], ['Background', P.work_background || P.background]]), 'person')),
       res.talking_points && res.talking_points.length ? h('section', { class: 'card rp-card' }, h('h2', {}, 'For the chat or call'), list(res.talking_points, true)) : null,
@@ -3913,10 +3917,10 @@ async function researchView(id) {
     const keep = (field, value, label) => same(c[field], value) ? h('span', { class: 'chip good' }, 'Saved')
       : h('button', { class: 'btn sm', type: 'button', onclick: async (e) => { btnBusy(e.currentTarget, 'Saving'); try { await api('PATCH', `/clients/${c.id}/contacts`, { [field]: value }); toast(`${label} saved on the client`); } catch (x) { toast(x.message, true); } await draw(); } }, 'Correct');
     const tl = (e) => { if (!e.truelist) return h('span', { class: 'chip' }, 'Not checked'); const [t, cls] = TL[e.truelist.state] || [e.truelist.state, ''];
-      return h('span', { class: 'chip ' + cls, title: e.truelist.sub_state ? 'TrueList: ' + e.truelist.sub_state.replace(/_/g, ' ') : '' }, t); };
-    const where = (x) => h('div', { class: 'rp-lbl', style: 'margin-top:6px' }, [x.belongs_to === 'company' ? 'Company' : 'Person', x.note || null].filter(Boolean).join(' · '),
+      return h('span', { class: 'chip ' + cls, title: /accept|ok_for_all/.test(e.truelist.state) ? 'The domain accepts every address, so TrueList cannot confirm this one exists' : e.truelist.sub_state ? 'TrueList: ' + e.truelist.sub_state.replace(/_/g, ' ') : '' }, t); };
+    const where = (x) => h('div', { class: 'rp-lbl' }, [x.belongs_to === 'company' ? 'Company' : 'Person', x.note || null].filter(Boolean).join(' · '),
       x.source && /^https?:/.test(x.source) ? h('span', {}, ' · ', link(x.source, 'where it was found')) : null);
-    const opt = (main, chips, x, button) => h('div', { class: 'rp-opt' }, h('div', { class: 'rp-opt-top' }, main, button), chips.length ? h('div', { class: 'chips', style: 'margin-top:8px' }, chips) : null, where(x));
+    const opt = (main, chips, x, button) => h('div', { class: 'rp-opt' }, main, chips.length ? h('div', { class: 'chips rp-opt-chips' }, chips) : null, h('div', { class: 'rp-opt-row' }, where(x), button));
     const add = h('input', { type: 'email', placeholder: 'Another email to check', 'aria-label': 'Another email to check' });
     const latestRun = (L && r.runs.find((x) => x.id === L.id)) || {};
     const reach = h('section', { class: 'card rp-card' },

@@ -432,3 +432,16 @@ filters, Clear filters and Sort wrapped badly. Hamza chose option A from the des
 - Checked locally at 1280 and 1440 wide and at phone width (no side scroll): the page with a sample research (company likely,
   person not proven with a lead, two emails with TrueList states, a LinkedIn, a phone, the evidence and the rounds), Back to Chats
   with its filters, the Chats bar on two clean lines, the Jobs list unchanged but for the arrow.
+
+## R159. The research page's facts read as label over value (Hamza)
+
+Why: on live (Jenniffer's research) the company and the person sat side by side in narrow cards, each with a fixed label column on
+the left, so long answers wrapped in a thin strip beside a lot of empty space; the header's long job title pushed the buttons down;
+and in the rail an email broke mid-word beside its button.
+- **The company and the person** each take the full width of the main column, one under the other. Short facts (name, size,
+  location, founded, website, LinkedIn, job title when short) sit in a grid with the label above the value; long ones (what they do,
+  the background, the news, any long answer) run full width as a paragraph, at a readable line length.
+- **The header** keeps the job title to one line (the whole of it on hover), so Open the job and Research again stay on the right.
+- **The rail's options:** the value on its own line, the checks under it, then whose it is and where it was found with Correct at
+  the right. TrueList's accept-all state reads "Accepts all mail" (what it means on hover).
+- Checked locally at 1456 wide and at phone width with long sample answers.

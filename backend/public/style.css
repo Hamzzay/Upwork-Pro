@@ -1479,3 +1479,19 @@ a.cellink:hover { color: var(--brand); background: var(--brand-soft); text-decor
 .fb-sort select { min-width: 170px; }
 @media (max-width: 700px) { .fb-line > .fb-actions { margin-left: 0; width: 100%; } .fb-filters > .ss { flex: 1 1 45%; } }
 .rp { min-width: 0; width: 100%; }
+
+/* R159: facts read as label over value; the company and the person each take the full width; the header stays on one line */
+.rp-stack { display: flex; flex-direction: column; gap: 20px; }
+.rp-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px 24px; }
+.rp-fact { min-width: 0; }
+.rp-fact.long { grid-column: 1 / -1; }
+.rp-fact-k { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.rp-fact-v { font-size: 14px; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
+.rp-fact.long .rp-fact-v { max-width: 72ch; }
+.rp-id .rp-who { flex: 1 1 480px; }
+.rp-sub { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; max-width: 760px; }
+.rp-opt .rp-val { display: block; word-break: break-all; }
+.rp-opt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rp-opt-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.rp-opt-row > .rp-lbl { min-width: 0; }
+.rp-opt-row > .btn, .rp-opt-row > .chip { flex: none; }
