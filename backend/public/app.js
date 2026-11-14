@@ -3825,6 +3825,10 @@ const researchDot = (conf) => conf ? h('span', { class: 'rdot', title: 'Research
  * findings in the main column, and what you act on in a rail on the right: how to reach them (saved, and the options found with
  * TrueList's check), the chat, the quick searches. Back goes to where you came from (Chats with its filters, a job, the client).
  */
+/** R160: what a signal's type means in English, for its chip; sentiment and "about" (company/person) are shown separately. */
+const SIGNAL_LABELS = { funding: 'Funding', hiring_growth: 'Hiring', same_role_reposted: 'Role reposted', layoffs: 'Layoffs', money_trouble: 'Money trouble', hiring_freeze: 'Hiring freeze',
+  leadership_change: 'Leadership change', merger_acquisition: 'M&A', product_launch: 'Product launch', expansion: 'Expansion', tech_stack_change: 'Tech stack',
+  role_change: 'Role change', content_or_speaking: 'Published or spoke', repeat_hiring: 'Repeat hiring', other: 'Other' };
 let prevHash = '';
 addEventListener('hashchange', (e) => { try { prevHash = new URL(e.oldURL).hash; } catch { prevHash = ''; } });
 function researchBack(id) {
@@ -3837,7 +3841,7 @@ function researchBack(id) {
 }
 async function researchView(id) {
   const back = researchBack(id);
-  let timer = null;
+  let timer = null, tab = hashParams().tab === 'signals' ? 'signals' : 'overview', sigFilter = 'all';
   const page = h('div', { class: 'rp' }, h('div', { class: 'card card-pad muted' }, 'Loading…'));
   shell(/^#\/chats/.test(back.href) ? 'chats' : /^#\/s\//.test(back.href) ? 'history' : 'clients', [page], true); // the menu lights where you came from
   async function draw() {
@@ -3969,7 +3973,48 @@ async function researchView(id) {
     const earlier = r.runs.filter((x) => (!L || x.id !== L.id) && (x.status === 'done' || x.status === 'failed'));
     const runsCard = earlier.length ? h('section', { class: 'card rp-card' }, h('h2', {}, 'Earlier runs'), list(earlier.slice(0, 6).map((x) => `${dayText(x.at)}: ${x.status === 'failed' ? 'failed' : (CONF[x.confidence] || [x.confidence])[0]}${x.by ? ' · ' + x.by : ''}`))) : null;
 
-    page.replaceChildren(head, busyBox, failed, verdict, h('div', { class: 'rp-grid' }, main || h('div', { class: 'rp-main' }), h('aside', { class: 'rp-rail', 'aria-label': 'Reach them and act' }, reach, notesCard, chatCard, searchCard, runsCard)));
+    const overview = h('div', { class: 'rp-grid' }, main || h('div', { class: 'rp-main' }), h('aside', { class: 'rp-rail', 'aria-label': 'Reach them and act' }, reach, notesCard, chatCard, searchCard, runsCard));
+
+    // R160: signals worth knowing before reaching out (funding, hiring, layoffs, a leadership or role change...), with a quick count
+    // of how many turned up and which way they lean, so it is clear at a glance whether now is a good moment.
+    const sig = (res && res.signals) || [];
+    const pos = sig.filter((x) => x.sentiment === 'positive').length, neg = sig.filter((x) => x.sentiment === 'negative').length;
+    const score = !sig.length ? 'Quiet' : neg > pos ? 'Needs caution' : pos >= 3 ? 'Strong' : 'Some signals';
+    const newSince = (L && L.new_signals) || [];
+    const isNew = (x) => newSince.some((n) => n.about === x.about && n.type === x.type && String(n.headline).toLowerCase().trim() === String(x.headline).toLowerCase().trim());
+    const shown = sig.filter((x) => sigFilter === 'all' || x.sentiment === sigFilter);
+    const sTile = (k, v, cls) => h('div', { class: 'stat kpi' + (cls ? ' ' + cls : '') }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, String(v)));
+    const sentChip = (s) => h('span', { class: 'chip ' + (s === 'positive' ? 'good' : s === 'negative' ? 'bad' : '') }, s === 'positive' ? 'Good sign' : s === 'negative' ? 'Watch out' : 'Neutral');
+    const signalCard = (x) => h('div', { class: 'rp-opt' },
+      h('div', { class: 'rp-opt-row' }, h('strong', {}, x.headline), sentChip(x.sentiment)),
+      h('div', { class: 'chips rp-opt-chips' }, isNew(x) ? h('span', { class: 'chip brand' }, 'New') : null, h('span', { class: 'chip brand' }, SIGNAL_LABELS[x.type] || x.type),
+        h('span', { class: 'chip' }, (x.about || 'company') === 'person' ? 'Person' : 'Company'), x.when ? h('span', { class: 'chip' }, x.when) : null),
+      x.detail ? h('p', { class: 'small muted', style: 'margin:8px 0 0' }, x.detail) : null,
+      x.source && /^https?:/.test(x.source) ? h('div', { style: 'margin-top:6px' }, link(x.source, 'Source')) : null);
+    const FILTERS = [['all', 'All'], ['positive', 'Good signs'], ['negative', 'Watch out']];
+    const signals = !res ? (!busy ? h('section', { class: 'card card-pad rp-empty' }, h('h2', {}, 'Not researched yet'),
+        h('p', { class: 'muted' }, 'Signals (funding, hiring, a leadership or role change, and the like) are found while the research runs.'),
+        h('button', { class: 'btn primary', type: 'button', onclick: (e) => start(e.currentTarget) }, 'Research this client')) : h('section', { class: 'card card-pad muted' }, 'Researching…'))
+      : h('div', {},
+        h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px' },
+          h('span', { class: 'chip ' + (score === 'Strong' ? 'good' : score === 'Needs caution' ? 'bad' : '') }, 'Signal score: ' + score),
+          sig.length ? h('div', { class: 'seg' }, FILTERS.map(([k, l]) => h('button', { type: 'button', class: sigFilter === k ? 'on' : '', onclick: () => { if (sigFilter === k) return; sigFilter = k; draw(); } }, l))) : null),
+        newSince.length ? h('div', { class: 'notice' }, icon('info'), h('span', {}, h('strong', {}, 'New since the last check: '), newSince.map((x) => x.headline).join('; '))) : null,
+        h('div', { class: 'stats', style: 'margin-bottom:16px' },
+          sTile('Signals found', sig.length),
+          sTile('Good signs', pos, 'PASS'),
+          sTile('Watch out', neg, neg ? 'FAIL' : ''),
+          sTile('About the company', sig.filter((x) => (x.about || 'company') === 'company').length),
+          sTile('About the person', sig.filter((x) => x.about === 'person').length)),
+        !sig.length ? h('section', { class: 'card card-pad rp-empty' }, h('h2', {}, 'Nothing found'), h('p', { class: 'muted' }, 'No funding, hiring, leadership or role-change signals turned up this time. Run the research again to look.'))
+          : !shown.length ? h('section', { class: 'card card-pad rp-empty' }, h('h2', {}, 'Nothing matches'), h('p', { class: 'muted' }, 'No signals in this filter.'))
+          : h('section', { class: 'card rp-card' }, h('h2', {}, 'Signals'), h('div', { class: 'rp-opts' }, shown.map(signalCard))));
+
+    const tabsEl = h('div', { class: 'tabs', role: 'tablist', style: 'margin:18px 0 16px' },
+      h('button', { type: 'button', role: 'tab', 'aria-selected': tab === 'overview', class: 'tab' + (tab === 'overview' ? ' on' : ''), onclick: () => { if (tab === 'overview') return; tab = 'overview'; setHashParams({ tab: '' }); draw(); } }, 'Overview'),
+      h('button', { type: 'button', role: 'tab', 'aria-selected': tab === 'signals', class: 'tab' + (tab === 'signals' ? ' on' : ''), onclick: () => { if (tab === 'signals') return; tab = 'signals'; setHashParams({ tab: 'signals' }); draw(); } }, 'Signals', sig.length ? h('span', { class: 'n' }, String(sig.length)) : null));
+
+    page.replaceChildren(head, busyBox, failed, verdict, tabsEl, tab === 'signals' ? signals : overview);
     if (busy) timer = setTimeout(() => { if (page.isConnected) draw(); }, 5000);
   }
   await draw();
