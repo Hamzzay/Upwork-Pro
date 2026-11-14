@@ -3807,6 +3807,17 @@ function contactDialog(c, onDone) {
       await api('PATCH', `/clients/${c.id}/contacts`, body); toast('Saved on the client’s profile'); if (onDone) await onDone();
     } });
 }
+/** R160: more about the prospect than the research found itself, kept on the client (the same notes shown on their profile page). */
+function notesDialog(c, onDone) {
+  const ta = h('textarea', { maxlength: 4000, style: 'min-height:140px', placeholder: 'Anything else worth knowing: what they said, what did not work last time, a detail to bring up next call' });
+  ta.value = c.notes || '';
+  modal({ title: 'Notes on this prospect', confirm: 'Save', body: h('div', {}, h('p', { class: 'small muted', style: 'margin-top:0' }, 'Kept on their profile for every job of theirs. Leave empty to clear it.'), ta),
+    onConfirm: async () => {
+      const v = ta.value.trim();
+      if (v === (c.notes || '')) throw new Error('Nothing changed');
+      await api('PATCH', `/clients/${c.id}`, { notes: v || null }); toast('Saved'); if (onDone) await onDone();
+    } });
+}
 /** R155: a green dot beside a client who has been researched (the newest result's confidence in its tooltip). */
 const researchDot = (conf) => conf ? h('span', { class: 'rdot', title: 'Researched: ' + ({ confirmed: 'confirmed', likely: 'likely', unsure: 'not sure', not_found: 'nothing found' }[conf] || conf) }) : null;
 /**
@@ -3900,9 +3911,14 @@ async function researchView(id) {
       res.next_steps && res.next_steps.length ? h('section', { class: 'card rp-card' }, h('h2', {}, 'To be surer'), list(res.next_steps)) : null,
       ev.length || (res.rejected || []).length || (res.sources || []).length ? h('section', { class: 'card rp-checked' },
         h('div', { class: 'rp-card-h rp-pad' }, h('h2', {}, 'How it was checked'), h('span', { class: 'rp-lbl' }, `${matches} match · ${conflicts} conflict${conflicts === 1 ? '' : 's'} · ${(res.rejected || []).length} people ruled out`)),
-        ev.length ? h('div', { class: 'tablewrap' }, h('table', { class: 'rp-table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fact'), h('th', {}, 'What we know'), h('th', {}, 'What was found'), h('th', { class: 'acts' }, 'Result'))),
-          h('tbody', {}, ev.map((x) => h('tr', {}, h('td', {}, x.fact), h('td', {}, x.upwork), h('td', {}, x.found, x.source && /^https?:/.test(x.source) ? h('div', {}, link(x.source, 'Source')) : null),
-            h('td', { class: 'acts' }, h('span', { class: 'chip ' + (x.verdict === 'matches' ? 'good' : x.verdict === 'conflicts' ? 'warnchip' : '') }, x.verdict === 'matches' ? 'Matches' : x.verdict === 'conflicts' ? 'Conflicts' : 'Unclear'))))))) : null,
+        ev.length ? (() => {
+          // R160: each fact is a signal about the company or the person; the two are never shown mixed together.
+          const evTable = (list) => h('div', { class: 'tablewrap' }, h('table', { class: 'rp-table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Fact'), h('th', {}, 'What we know'), h('th', {}, 'What was found'), h('th', { class: 'acts' }, 'Result'))),
+            h('tbody', {}, list.map((x) => h('tr', {}, h('td', {}, x.fact), h('td', {}, x.upwork), h('td', {}, x.found, x.source && /^https?:/.test(x.source) ? h('div', {}, link(x.source, 'Source')) : null),
+              h('td', { class: 'acts' }, h('span', { class: 'chip ' + (x.verdict === 'matches' ? 'good' : x.verdict === 'conflicts' ? 'warnchip' : '') }, x.verdict === 'matches' ? 'Matches' : x.verdict === 'conflicts' ? 'Conflicts' : 'Unclear')))))));
+          const group = (about, title) => { const list = ev.filter((x) => (x.about || 'person') === about); return list.length ? h('div', { style: 'padding-top:14px' }, h('div', { class: 'rp-lbl', style: 'margin:0 22px 6px' }, `${title} (${list.length})`), evTable(list)) : null; };
+          return h('div', {}, group('company', 'Signals about the company'), group('person', 'Signals about the person'));
+        })() : null,
         h('div', { class: 'rp-more' },
           (res.rejected || []).length ? h('details', {}, h('summary', {}, `People ruled out (${res.rejected.length})`), list(res.rejected.map((x) => h('span', {}, h('strong', {}, x.who), ': ' + x.why_not, x.source && /^https?:/.test(x.source) ? h('span', {}, ' ', link(x.source, 'Source')) : null)))) : null,
           (res.sources || []).length ? h('details', {}, h('summary', {}, `Sources (${res.sources.length})`), list(res.sources.map((x) => link(x.url, x.title || x.url)))) : null,
@@ -3935,6 +3951,9 @@ async function researchView(id) {
       res && r.truelist_ready !== false ? h('form', { class: 'rp-check', onsubmit: async (e) => { e.preventDefault(); const b = e.currentTarget.querySelector('button'); btnBusy(b, 'Checking');
         try { await api('POST', `/clients/${c.id}/research/truelist`, add.value.trim() ? { add: [add.value.trim()] } : {}); toast('Checked with TrueList'); } catch (x) { toast(x.message, true); } await draw(); } },
         add, h('button', { class: 'btn', type: 'submit' }, emails.length ? 'Check with TrueList' : 'Check')) : null);
+    const notesCard = h('section', { class: 'card rp-card' },
+      h('div', { class: 'rp-card-h' }, h('h2', {}, 'Notes'), h('button', { class: 'btn sm', type: 'button', onclick: () => notesDialog(c, draw) }, c.notes ? 'Edit' : 'Add')),
+      c.notes ? h('p', { class: 'rp-p', style: 'white-space:pre-wrap' }, c.notes) : h('div', { class: 'rp-note' }, 'Nothing added yet.'));
     const callText = chat && chat.call_at ? shortWhen(chat.call_at) : null;
     const chatCard = chat ? h('section', { class: 'card rp-card' }, h('h2', {}, 'The chat'),
       h('dl', { class: 'rp-dl rp-dl-sm' }, h('dt', {}, 'Job'), h('dd', {}, h('a', { href: `#/s/${chat.id}/overview` }, chat.title || 'Job #' + chat.id)),
@@ -3950,7 +3969,7 @@ async function researchView(id) {
     const earlier = r.runs.filter((x) => (!L || x.id !== L.id) && (x.status === 'done' || x.status === 'failed'));
     const runsCard = earlier.length ? h('section', { class: 'card rp-card' }, h('h2', {}, 'Earlier runs'), list(earlier.slice(0, 6).map((x) => `${dayText(x.at)}: ${x.status === 'failed' ? 'failed' : (CONF[x.confidence] || [x.confidence])[0]}${x.by ? ' · ' + x.by : ''}`))) : null;
 
-    page.replaceChildren(head, busyBox, failed, verdict, h('div', { class: 'rp-grid' }, main || h('div', { class: 'rp-main' }), h('aside', { class: 'rp-rail', 'aria-label': 'Reach them and act' }, reach, chatCard, searchCard, runsCard)));
+    page.replaceChildren(head, busyBox, failed, verdict, h('div', { class: 'rp-grid' }, main || h('div', { class: 'rp-main' }), h('aside', { class: 'rp-rail', 'aria-label': 'Reach them and act' }, reach, notesCard, chatCard, searchCard, runsCard)));
     if (busy) timer = setTimeout(() => { if (page.isConnected) draw(); }, 5000);
   }
   await draw();

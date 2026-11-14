@@ -52,7 +52,10 @@ export async function checkEmails(emails: string[], onBatch: (id: string) => Pro
   if (!truelistReady()) throw new TruelistFail('TrueList is not set up on this server (TRUELIST_API_KEY)');
   const list = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
   const form = new FormData();
-  form.append('file', new Blob([['email', ...list].join('\n') + '\n'], { type: 'text/csv' }), `${name.replace(/[^\w.-]+/g, '-')}.csv`);
+  // a re-check with the same addresses as last time (nothing added) would upload a byte-identical file; TrueList refuses that as a
+  // duplicate (409), so each upload gets its own run id, in the file name and as an extra column, and is never the same file twice.
+  const run = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  form.append('file', new Blob([['email,run', ...list.map((e) => `${e},${run}`)].join('\n') + '\n'], { type: 'text/csv' }), `${name.replace(/[^\w.-]+/g, '-')}-${run}.csv`);
   form.append('validation_strategy', 'accurate');
   const created: any = await (await call('POST', '/api/v1/batches', form, 120_000)).json().catch(() => null);
   const id = created?.id ?? created?.batch?.id;
